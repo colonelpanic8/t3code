@@ -111,6 +111,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
 import { resolveDefaultProviderModelSelection } from "../providerInstances";
+import { excludeGeneralChatsProject } from "../generalChats";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import {
   Command,
@@ -496,6 +497,7 @@ function OpenCommandPaletteDialog(props: {
     useHandleNewThread();
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const regularProjects = useMemo(() => excludeGeneralChatsProject(projects), [projects]);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providers = useAtomValue(primaryServerProvidersAtom);
@@ -524,7 +526,7 @@ function OpenCommandPaletteDialog(props: {
   const orderedProjects = useMemo(
     () =>
       orderItemsByPreferredIds({
-        items: projects,
+        items: regularProjects,
         preferredIds: projectOrder,
         getId: getProjectOrderKey,
         getPreferenceIds: (project) => [
@@ -532,12 +534,13 @@ function OpenCommandPaletteDialog(props: {
           legacyProjectCwdPreferenceKey(project.workspaceRoot),
         ],
       }),
-    [projectOrder, projects],
+    [projectOrder, regularProjects],
   );
   const unsortedProjectGroups = useMemo(
     () =>
       buildSidebarProjectSnapshots({
-        projects: clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
+        projects:
+          clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : regularProjects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
@@ -548,7 +551,7 @@ function OpenCommandPaletteDialog(props: {
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
-      projects,
+      regularProjects,
     ],
   );
   const projectGroups = useMemo(
