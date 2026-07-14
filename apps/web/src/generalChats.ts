@@ -6,6 +6,12 @@ import type { Project } from "./types";
 export const GENERAL_CHATS_PROJECT_ID = ProjectIdSchema.make("t3code-general-chats");
 export const GENERAL_CHATS_PROJECT_TITLE = "Chats";
 export const GENERAL_CHATS_WORKSPACE_ROOT = "~/.t3/chats";
+export const GENERAL_CHAT_NEW_THREAD_OPTIONS = {
+  branch: null,
+  worktreePath: null,
+  envMode: "local",
+  startFromOrigin: false,
+} as const;
 
 export function isGeneralChatsProject(
   project: Pick<Project, "id">,
@@ -30,4 +36,8 @@ export function findGeneralChatsProject(
 
 export function excludeGeneralChatsProject(projects: ReadonlyArray<Project>): Project[] {
   return projects.filter((project) => !isGeneralChatsProject(project));
+}
+
+export function getGeneralChatNewThreadOptions(projectId: ProjectId) {
+  return projectId === GENERAL_CHATS_PROJECT_ID ? GENERAL_CHAT_NEW_THREAD_OPTIONS : undefined;
 }

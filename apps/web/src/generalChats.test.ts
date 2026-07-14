@@ -5,7 +5,9 @@ import type { Project } from "./types";
 import {
   excludeGeneralChatsProject,
   findGeneralChatsProject,
+  GENERAL_CHAT_NEW_THREAD_OPTIONS,
   GENERAL_CHATS_PROJECT_ID,
+  getGeneralChatNewThreadOptions,
   isGeneralChatsProject,
 } from "./generalChats";
 
@@ -55,5 +57,18 @@ describe("general chats project", () => {
     const chatsProject = makeProject({ id: GENERAL_CHATS_PROJECT_ID });
 
     expect(excludeGeneralChatsProject([chatsProject, regularProject])).toEqual([regularProject]);
+  });
+
+  it("forces replacement drafts for chats to stay local", () => {
+    expect(getGeneralChatNewThreadOptions(GENERAL_CHATS_PROJECT_ID)).toBe(
+      GENERAL_CHAT_NEW_THREAD_OPTIONS,
+    );
+    expect(getGeneralChatNewThreadOptions(ProjectId.make("regular"))).toBeUndefined();
+    expect(GENERAL_CHAT_NEW_THREAD_OPTIONS).toEqual({
+      branch: null,
+      worktreePath: null,
+      envMode: "local",
+      startFromOrigin: false,
+    });
   });
 });
