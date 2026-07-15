@@ -10,7 +10,6 @@ import {
   WrapTextIcon,
 } from "lucide-react";
 import type { ScopedThreadRef, ServerProviderSkill, TurnId } from "@t3tools/contracts";
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -91,6 +90,7 @@ import {
   BrowserPreviewUnavailableError,
 } from "../browser/openFileInPreview";
 import { useAssetUrl } from "../assets/assetUrls";
+import { normalizeGeneratedImageReference } from "./ChatMarkdown.logic";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -910,18 +910,6 @@ function plainHastText(node: unknown): string | null {
   return parts.every((part) => part !== null) ? parts.join("") : null;
 }
 
-function generatedImageReference(value: string): string | null {
-  const reference = value.trim().replaceAll("\\", "/");
-  const segments = reference.split("/");
-  return segments.length > 1 &&
-    !reference.startsWith("/") &&
-    !reference.includes(":") &&
-    segments.every((segment) => segment !== "" && segment !== "." && segment !== "..") &&
-    isWorkspaceImagePreviewPath(reference)
-    ? reference
-    : null;
-}
-
 const SANITIZED_FRAGMENT_PREFIX = "user-content-";
 
 function decodeMarkdownFragmentId(href: string): string {
@@ -1567,7 +1555,7 @@ function ChatMarkdown({
       code({ node, className: codeClassName, children, ...props }) {
         const artifactReference = codeClassName
           ? null
-          : generatedImageReference(plainHastText(node) ?? "");
+          : normalizeGeneratedImageReference(plainHastText(node) ?? "");
         if (!artifactReference || !threadRef || !artifactTurnId || !onImageExpand) {
           return (
             <code {...props} className={codeClassName}>
