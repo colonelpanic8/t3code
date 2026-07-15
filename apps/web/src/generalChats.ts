@@ -1,12 +1,22 @@
+import {
+  excludeGeneralChatsProject,
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProject,
+} from "@t3tools/client-runtime/general-chats";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import { ProjectId as ProjectIdSchema } from "@t3tools/contracts";
 
 import type { DraftThreadEnvMode } from "./composerDraftStore";
 import type { Project } from "./types";
 
-export const GENERAL_CHATS_PROJECT_ID = ProjectIdSchema.make("t3code-general-chats");
-export const GENERAL_CHATS_PROJECT_TITLE = "Chats";
-export const GENERAL_CHATS_WORKSPACE_ROOT = "~/.t3/chats";
+export {
+  excludeGeneralChatsProject,
+  GENERAL_CHATS_PROJECT_ID,
+  GENERAL_CHATS_PROJECT_TITLE,
+  GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProject,
+};
 export const GENERAL_CHAT_NEW_THREAD_OPTIONS = {
   branch: null,
   worktreePath: null,
@@ -19,12 +29,6 @@ export interface GeneralChatNewThreadOptions {
   readonly worktreePath?: string | null;
   readonly envMode?: DraftThreadEnvMode;
   readonly startFromOrigin?: boolean;
-}
-
-export function isGeneralChatsProject(
-  project: Pick<Project, "id">,
-): project is Pick<Project, "id"> & { readonly id: ProjectId } {
-  return project.id === GENERAL_CHATS_PROJECT_ID;
 }
 
 export function findGeneralChatsProject(
@@ -40,10 +44,6 @@ export function findGeneralChatsProject(
       (project) => project.environmentId === environmentId && isGeneralChatsProject(project),
     ) ?? null
   );
-}
-
-export function excludeGeneralChatsProject(projects: ReadonlyArray<Project>): Project[] {
-  return projects.filter((project) => !isGeneralChatsProject(project));
 }
 
 export function getGeneralChatNewThreadOptions(projectId: ProjectId) {

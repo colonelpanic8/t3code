@@ -3,6 +3,11 @@ import {
   derivePhysicalProjectKey,
   deriveProjectGroupLabel,
 } from "@t3tools/client-runtime/state/project-grouping";
+import {
+  excludeGeneralChatsProject,
+  excludeGeneralChatsThreads,
+  isGeneralChatsProjectId,
+} from "@t3tools/client-runtime/general-chats";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -261,10 +266,12 @@ export function buildHomeThreadGroups(input: {
   readonly now?: number;
 }): ReadonlyArray<HomeThreadGroup> {
   const now = input.now ?? Date.now();
+  const projects = excludeGeneralChatsProject(input.projects);
+  const threads = excludeGeneralChatsThreads(input.threads);
   const groups = new Map<string, MutableHomeThreadGroup>();
   const groupKeyByProjectKey = new Map<string, string>();
 
-  for (const scope of buildHomeProjectScopes(input)) {
+  for (const scope of buildHomeProjectScopes({ ...input, projects })) {
     groups.set(scope.key, {
       key: scope.key,
       projects: [...scope.projects],
@@ -280,6 +287,9 @@ export function buildHomeThreadGroups(input: {
   }
 
   for (const pendingTask of input.pendingTasks ?? []) {
+    if (isGeneralChatsProjectId(pendingTask.creation.projectId)) {
+      continue;
+    }
     if (input.environmentId !== null && pendingTask.message.environmentId !== input.environmentId) {
       continue;
     }
@@ -318,7 +328,7 @@ export function buildHomeThreadGroups(input: {
     groups.get(groupKey)?.pendingTasks.push(pendingTask);
   }
 
-  for (const thread of input.threads) {
+  for (const thread of threads) {
     if (thread.archivedAt !== null) {
       continue;
     }

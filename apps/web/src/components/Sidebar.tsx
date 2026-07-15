@@ -84,6 +84,7 @@ import {
   useProjects,
   useThreadShells,
   useThreadShellsForProjectRefs,
+  waitForProject,
 } from "../state/entities";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useThreadRunningTerminalIds } from "../state/terminalSessions";
@@ -3374,6 +3375,18 @@ export default function Sidebar() {
               return;
             }
           }
+
+          const provisionedProject = await waitForProject(projectRef);
+          if (provisionedProject === null) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Could not create chat",
+                description: "The chat workspace is still syncing. Try again in a moment.",
+              }),
+            );
+            return;
+          }
         }
 
         const navigationResult = await settlePromise(() =>
@@ -3581,13 +3594,19 @@ export default function Sidebar() {
         if (!shouldShowThreadPanel) {
           return [];
         }
-        const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
-        const hasOverflowingThreads = projectThreads.length > sidebarThreadPreviewCount;
-        const previewThreads =
-          isThreadListExpanded || !hasOverflowingThreads
-            ? projectThreads
-            : projectThreads.slice(0, sidebarThreadPreviewCount);
-        const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
+        const activeThreadId = projectThreads.find(
+          (thread) =>
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
+        )?.id;
+        const threadVisibility = getVisibleThreadsForProject({
+          threads: projectThreads,
+          activeThreadId,
+          isThreadListExpanded: expandedThreadListsByProject.has(project.projectKey),
+          previewLimit: sidebarThreadPreviewCount,
+        });
+        const renderedThreads = pinnedCollapsedThread
+          ? [pinnedCollapsedThread]
+          : threadVisibility.visibleThreads;
         return renderedThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         );
