@@ -33,7 +33,6 @@ import {
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
-  type OrchestrationThread,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
@@ -57,7 +56,6 @@ import {
   AssetWorkspaceContextResolutionError,
   EnvironmentAuthorizationError,
   ThreadId,
-  type TurnId,
   type TerminalAttachStreamEvent,
   type TerminalError,
   type TerminalEvent,
@@ -95,7 +93,7 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl } from "./assets/AssetAccess.ts";
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { findThreadArtifactPath } from "./assets/ThreadArtifactResolver.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -127,68 +125,6 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
-
-function asUnknownRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/;
-
-function normalizeThreadArtifactReference(value: string): string | null {
-  const normalized = value.trim().replaceAll("\\", "/");
-  const segments = normalized.split("/");
-  if (
-    normalized.startsWith("/") ||
-    WINDOWS_ABSOLUTE_PATH.test(normalized) ||
-    normalized.includes(":") ||
-    segments.some((segment) => !segment || segment === "." || segment === "..") ||
-    !isWorkspaceImagePreviewPath(normalized)
-  ) {
-    return null;
-  }
-  return normalized;
-}
-
-function activityArtifactPaths(payloadValue: unknown): ReadonlyArray<string> {
-  const payload = asUnknownRecord(payloadValue);
-  const data = asUnknownRecord(payload?.data);
-  const rawOutput = asUnknownRecord(data?.rawOutput);
-  const item = asUnknownRecord(data?.item);
-  const paths = [rawOutput?.path];
-
-  if (item?.type === "imageGeneration") {
-    paths.push(item.savedPath);
-  } else if (item?.type === "imageView") {
-    paths.push(item.path);
-  }
-
-  return paths.filter((value): value is string => typeof value === "string");
-}
-
-function findThreadArtifactPath(
-  thread: OrchestrationThread,
-  turnId: TurnId,
-  reference: string,
-): string | null {
-  const normalizedReference = normalizeThreadArtifactReference(reference);
-  if (!normalizedReference) return null;
-  const matches = new Map<string, string>();
-  for (const activity of thread.activities) {
-    if (activity.turnId !== turnId) continue;
-    for (const artifactPath of activityArtifactPaths(activity.payload)) {
-      const normalizedArtifactPath = artifactPath.replaceAll("\\", "/");
-      if (
-        normalizedArtifactPath === normalizedReference ||
-        normalizedArtifactPath.endsWith(`/${normalizedReference}`)
-      ) {
-        matches.set(normalizedArtifactPath, artifactPath);
-      }
-    }
-  }
-  return matches.size === 1 ? (matches.values().next().value ?? null) : null;
-}
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -1809,6 +1745,7 @@ const makeWsRpcLayer = (
                 const artifactPath = findThreadArtifactPath(
                   thread.value,
                   input.resource.turnId,
+                  input.resource.messageId,
                   input.resource.path,
                 );
                 if (!artifactPath) {
