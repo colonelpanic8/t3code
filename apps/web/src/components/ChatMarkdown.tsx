@@ -281,8 +281,12 @@ function extractCodeBlock(
 
   const onlyChild = childNodes[0];
   if (
-    !isValidElement<{ className?: string; children?: ReactNode }>(onlyChild) ||
-    onlyChild.type !== "code"
+    !isValidElement<{
+      className?: string;
+      children?: ReactNode;
+      node?: { tagName?: unknown };
+    }>(onlyChild) ||
+    (onlyChild.type !== "code" && onlyChild.props.node?.tagName !== "code")
   ) {
     return null;
   }
