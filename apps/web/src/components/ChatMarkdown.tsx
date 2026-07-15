@@ -907,7 +907,7 @@ function plainHastText(node: unknown): string | null {
 }
 
 function generatedImageReference(value: string): string | null {
-  const reference = value.trim();
+  const reference = value.trim().replaceAll("\\", "/");
   const segments = reference.split("/");
   return segments.length > 1 &&
     !reference.startsWith("/") &&
