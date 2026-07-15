@@ -158,7 +158,8 @@ function findThreadArtifactPath(
 ): string | null {
   const normalizedReference = normalizeThreadArtifactReference(reference);
   if (!normalizedReference) return null;
-  for (const activity of [...thread.activities].toReversed()) {
+  const matches = new Map<string, string>();
+  for (const activity of thread.activities) {
     if (activity.turnId !== turnId) continue;
     const payload = asUnknownRecord(activity.payload);
     const data = asUnknownRecord(payload?.data);
@@ -170,10 +171,10 @@ function findThreadArtifactPath(
       normalizedArtifactPath === normalizedReference ||
       normalizedArtifactPath?.endsWith(`/${normalizedReference}`)
     ) {
-      return artifactPath;
+      matches.set(normalizedArtifactPath, artifactPath);
     }
   }
-  return null;
+  return matches.size === 1 ? (matches.values().next().value ?? null) : null;
 }
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
