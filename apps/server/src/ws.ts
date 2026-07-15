@@ -151,6 +151,22 @@ function normalizeThreadArtifactReference(value: string): string | null {
   return normalized;
 }
 
+function activityArtifactPaths(payloadValue: unknown): ReadonlyArray<string> {
+  const payload = asUnknownRecord(payloadValue);
+  const data = asUnknownRecord(payload?.data);
+  const rawOutput = asUnknownRecord(data?.rawOutput);
+  const item = asUnknownRecord(data?.item);
+  const paths = [rawOutput?.path];
+
+  if (item?.type === "imageGeneration") {
+    paths.push(item.savedPath);
+  } else if (item?.type === "imageView") {
+    paths.push(item.path);
+  }
+
+  return paths.filter((value): value is string => typeof value === "string");
+}
+
 function findThreadArtifactPath(
   thread: OrchestrationThread,
   turnId: TurnId,
@@ -161,17 +177,14 @@ function findThreadArtifactPath(
   const matches = new Map<string, string>();
   for (const activity of thread.activities) {
     if (activity.turnId !== turnId) continue;
-    const payload = asUnknownRecord(activity.payload);
-    const data = asUnknownRecord(payload?.data);
-    const rawOutput = asUnknownRecord(data?.rawOutput);
-    const artifactPath = rawOutput?.path;
-    const normalizedArtifactPath =
-      typeof artifactPath === "string" ? artifactPath.replaceAll("\\", "/") : null;
-    if (
-      normalizedArtifactPath === normalizedReference ||
-      normalizedArtifactPath?.endsWith(`/${normalizedReference}`)
-    ) {
-      matches.set(normalizedArtifactPath, artifactPath);
+    for (const artifactPath of activityArtifactPaths(activity.payload)) {
+      const normalizedArtifactPath = artifactPath.replaceAll("\\", "/");
+      if (
+        normalizedArtifactPath === normalizedReference ||
+        normalizedArtifactPath.endsWith(`/${normalizedReference}`)
+      ) {
+        matches.set(normalizedArtifactPath, artifactPath);
+      }
     }
   }
   return matches.size === 1 ? (matches.values().next().value ?? null) : null;
