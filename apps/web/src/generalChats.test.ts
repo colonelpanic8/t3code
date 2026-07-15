@@ -8,7 +8,9 @@ import {
   GENERAL_CHAT_NEW_THREAD_OPTIONS,
   GENERAL_CHATS_PROJECT_ID,
   getGeneralChatNewThreadOptions,
+  isGeneralChatsProjectAlreadyExistsError,
   isGeneralChatsProject,
+  resolveGeneralChatNewThreadOptions,
 } from "./generalChats";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("local");
@@ -70,5 +72,39 @@ describe("general chats project", () => {
       envMode: "local",
       startFromOrigin: false,
     });
+  });
+
+  it("overrides contextual options for every new general chat", () => {
+    expect(
+      resolveGeneralChatNewThreadOptions(GENERAL_CHATS_PROJECT_ID, {
+        branch: "feature/contextual-branch",
+        worktreePath: "/workspace/contextual-worktree",
+        envMode: "worktree",
+        startFromOrigin: true,
+      }),
+    ).toEqual(GENERAL_CHAT_NEW_THREAD_OPTIONS);
+
+    const regularOptions = { branch: "feature/regular", envMode: "worktree" } as const;
+    expect(resolveGeneralChatNewThreadOptions(ProjectId.make("regular"), regularOptions)).toBe(
+      regularOptions,
+    );
+  });
+
+  it("recognizes only the exact duplicate general chats project invariant", () => {
+    expect(
+      isGeneralChatsProjectAlreadyExistsError({
+        _tag: "OrchestrationCommandInvariantError",
+        commandType: "project.create",
+        detail: `Project '${GENERAL_CHATS_PROJECT_ID}' already exists and cannot be created twice.`,
+      }),
+    ).toBe(true);
+    expect(
+      isGeneralChatsProjectAlreadyExistsError({
+        _tag: "OrchestrationCommandInvariantError",
+        commandType: "project.create",
+        detail: "Failed to create the workspace root.",
+      }),
+    ).toBe(false);
+    expect(isGeneralChatsProjectAlreadyExistsError(new Error("already exists"))).toBe(false);
   });
 });

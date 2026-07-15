@@ -175,6 +175,7 @@ import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
   getSidebarThreadIdsToPrewarm,
+  getVisibleThreadsForProject,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   isTrailingDoubleClick,
@@ -214,6 +215,7 @@ import {
   GENERAL_CHATS_PROJECT_ID,
   GENERAL_CHATS_PROJECT_TITLE,
   GENERAL_CHATS_WORKSPACE_ROOT,
+  isGeneralChatsProjectAlreadyExistsError,
 } from "../generalChats";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -1322,27 +1324,24 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
-    const previewThreads =
-      isThreadListExpanded || !hasOverflowingThreads
-        ? visibleProjectThreads
-        : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
-    const visibleThreadKeys = new Set(
-      [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
-    );
+    const activeThreadId = visibleProjectThreads.find(
+      (thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeRouteThreadKey,
+    )?.id;
+    const threadVisibility = getVisibleThreadsForProject({
+      threads: visibleProjectThreads,
+      activeThreadId,
+      isThreadListExpanded,
+      previewLimit: sidebarThreadPreviewCount,
+    });
     const renderedThreads = pinnedCollapsedThread
       ? [pinnedCollapsedThread]
-      : visibleProjectThreads.filter((thread) =>
-          visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-        );
-    const hiddenThreads = visibleProjectThreads.filter(
-      (thread) =>
-        !visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-    );
+      : threadVisibility.visibleThreads;
+    const hiddenThreads = pinnedCollapsedThread
+      ? visibleProjectThreads.filter((thread) => thread.id !== pinnedCollapsedThread.id)
+      : threadVisibility.hiddenThreads;
     return {
-      hasOverflowingThreads,
+      hasOverflowingThreads: threadVisibility.hasHiddenThreads,
       hiddenThreadStatus: resolveProjectStatusIndicator(
         hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
       ),
@@ -1351,6 +1350,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
     };
   }, [
+    activeRouteThreadKey,
     isThreadListExpanded,
     pinnedCollapsedThread,
     projectExpanded,
@@ -3359,8 +3359,11 @@ export default function Sidebar() {
             },
           });
           if (createResult._tag === "Failure") {
-            if (!isAtomCommandInterrupted(createResult)) {
-              const error = squashAtomCommandFailure(createResult);
+            if (isAtomCommandInterrupted(createResult)) {
+              return;
+            }
+            const error = squashAtomCommandFailure(createResult);
+            if (!isGeneralChatsProjectAlreadyExistsError(error)) {
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
@@ -3368,8 +3371,8 @@ export default function Sidebar() {
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
+              return;
             }
-            return;
           }
         }
 
@@ -3497,13 +3500,22 @@ export default function Sidebar() {
       ),
       sidebarThreadSortOrder,
     );
-    const renderedChats = expandedThreadListsByProject.has(generalChatsSidebarProject.projectKey)
-      ? chats
-      : chats.slice(0, sidebarThreadPreviewCount);
+    const activeThreadId = chats.find(
+      (thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
+        activeGeneralChatsThreadKey,
+    )?.id;
+    const renderedChats = getVisibleThreadsForProject({
+      threads: chats,
+      activeThreadId,
+      isThreadListExpanded: expandedThreadListsByProject.has(generalChatsSidebarProject.projectKey),
+      previewLimit: sidebarThreadPreviewCount,
+    }).visibleThreads;
     return renderedChats.map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     );
   }, [
+    activeGeneralChatsThreadKey,
     expandedThreadListsByProject,
     generalChatsSidebarProject,
     sidebarThreadPreviewCount,
