@@ -2065,7 +2065,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             isDragOverComposer
               ? "border-primary/70 bg-accent/45"
               : "border-black/12 dark:border-white/12",
-            environmentUnavailable ? "opacity-75" : null,
+            environmentUnavailable || projectSelectionRequired ? "opacity-75" : null,
             composerProviderState.composerSurfaceClassName,
           )}
           onFocusCapture={(event) => {
