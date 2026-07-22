@@ -104,6 +104,7 @@ import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
+  resolveModelOptionsShortcutTarget,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { buildExpandedImagePreview, type ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -2589,13 +2590,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       isModelPickerOpen: () => isComposerModelPickerOpen,
       toggleModelOptionsPicker: () => {
-        if (isComposerCollapsedMobile || isComposerApprovalState) return false;
-        if (isComposerFooterCompact) {
+        const target = resolveModelOptionsShortcutTarget({
+          isComposerUnavailable: isComposerCollapsedMobile || isComposerApprovalState,
+          isCompact: isComposerFooterCompact,
+          compactTraitsAvailable: providerTraitsMenuContent !== null,
+          expandedTraitsAvailable: providerTraitsPicker !== null,
+        });
+        if (target === null) return false;
+        if (target === "compact-controls-menu") {
           setIsCompactControlsMenuOpen((open) => !open);
-          return true;
+        } else {
+          setIsComposerTraitsPickerOpen((open) => !open);
         }
-        if (!providerTraitsPicker) return false;
-        setIsComposerTraitsPickerOpen((open) => !open);
         return true;
       },
       toggleRuntimeModePicker: () => {
@@ -2703,6 +2709,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       isComposerFooterCompact,
       composerProviderControls,
       providerTraitsPicker,
+      providerTraitsMenuContent,
       toggleInteractionMode,
       pendingUserInputs.length,
       projectSelectionRequired,
