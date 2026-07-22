@@ -89,6 +89,7 @@ import {
 import {
   ADDON_ICON_CLASS,
   buildBrowseGroups,
+  buildNewThreadInGroups,
   buildProjectActionItems,
   buildRootGroups,
   buildThreadActionItems,
@@ -102,6 +103,7 @@ import {
   getCommandPaletteMode,
   ITEM_ICON_CLASS,
   RECENT_THREAD_LIMIT,
+  resetAddProjectFlowState,
   shouldHandleCommandPaletteShortcut,
   shouldResetPaletteFlowOnPop,
 } from "./CommandPalette.logic";
@@ -901,6 +903,18 @@ function OpenCommandPaletteDialog(props: {
   );
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
 
+  const resetAddProjectFlow = useCallback((): void => {
+    resetAddProjectFlowState({
+      flowBaseDepthRef: addProjectFlowBaseDepthRef,
+      clearEnvironment: () => {
+        setAddProjectEnvironmentId(null);
+      },
+      clearCloneFlow: () => {
+        setAddProjectCloneFlow(null);
+      },
+    });
+  }, []);
+
   function pushPaletteView(view: CommandPaletteView): void {
     setViewStack((previousViews) => [
       ...previousViews,
@@ -923,13 +937,13 @@ function OpenCommandPaletteDialog(props: {
   }
 
   function popView(): void {
-    setAddProjectCloneFlow(null);
     if (
       viewStack.length <= 1 ||
       shouldResetPaletteFlowOnPop(addProjectFlowBaseDepthRef.current, viewStack.length)
     ) {
-      setAddProjectEnvironmentId(null);
-      addProjectFlowBaseDepthRef.current = null;
+      resetAddProjectFlow();
+    } else {
+      setAddProjectCloneFlow(null);
     }
     setViewStack((previousViews) => previousViews.slice(0, -1));
     setHighlightedItemValue(null);
@@ -1159,6 +1173,39 @@ function OpenCommandPaletteDialog(props: {
     startAddProjectSourceSelection,
   ]);
 
+  const addProjectAction = useMemo<CommandPaletteActionItem>(
+    () => ({
+      kind: "action",
+      value: "action:add-project",
+      searchTerms: [
+        "add project",
+        "folder",
+        "directory",
+        "browse",
+        "clone",
+        "remote",
+        "repository",
+        "repo",
+        "git",
+        "github",
+        "gitlab",
+        "bitbucket",
+        "azure",
+        "devops",
+        "url",
+        "environment",
+      ],
+      title: "Add project",
+      icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "project.add",
+      keepOpen: true,
+      run: async () => {
+        openAddProjectFlow();
+      },
+    }),
+    [openAddProjectFlow],
+  );
+
   useLayoutEffect(() => {
     if (openIntent?.kind !== "add-project") {
       return;
@@ -1172,7 +1219,7 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
     clearOpenIntent();
-    setAddProjectCloneFlow(null);
+    resetAddProjectFlow();
     setViewStack([]);
     setQuery("");
     const currentPrefix =
@@ -1187,52 +1234,22 @@ function OpenCommandPaletteDialog(props: {
       : projectThreadItems;
     pushPaletteView({
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [
-        {
-          value: "projects",
-          label: "Projects",
-          items: enumerateCommandPaletteItems(prioritized),
-        },
-      ],
+      groups: buildNewThreadInGroups({
+        projectItems: enumerateCommandPaletteItems(prioritized),
+        addProjectAction,
+      }),
     });
   }, [
+    addProjectAction,
     clearOpenIntent,
     currentProjectEnvironmentId,
     currentProjectId,
     openIntent,
     projectThreadItems,
+    resetAddProjectFlow,
   ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
-  const addProjectAction: CommandPaletteActionItem = {
-    kind: "action",
-    value: "action:add-project",
-    searchTerms: [
-      "add project",
-      "folder",
-      "directory",
-      "browse",
-      "clone",
-      "remote",
-      "repository",
-      "repo",
-      "git",
-      "github",
-      "gitlab",
-      "bitbucket",
-      "azure",
-      "devops",
-      "url",
-      "environment",
-    ],
-    title: "Add project",
-    icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
-    shortcutCommand: "project.add",
-    keepOpen: true,
-    run: async () => {
-      openAddProjectFlow();
-    },
-  };
 
   if (projects.length > 0) {
     const activeProjectTitle =
@@ -1269,10 +1286,7 @@ function OpenCommandPaletteDialog(props: {
       title: "New thread in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [
-        { value: "projects", label: "Projects", items: projectThreadItems },
-        { value: "actions", label: "Actions", items: [addProjectAction] },
-      ],
+      groups: buildNewThreadInGroups({ projectItems: projectThreadItems, addProjectAction }),
     });
   }
 

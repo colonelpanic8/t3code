@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import {
+  buildNewThreadInGroups,
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
+  resetAddProjectFlowState,
   shouldHandleCommandPaletteShortcut,
   shouldResetPaletteFlowOnPop,
+  type CommandPaletteActionItem,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
 
@@ -73,6 +76,56 @@ describe("shouldResetPaletteFlowOnPop", () => {
 
   it("keeps a flow active while popping between its own nested views", () => {
     expect(shouldResetPaletteFlowOnPop(1, 3)).toBe(false);
+  });
+});
+
+describe("resetAddProjectFlowState", () => {
+  it("clears every piece of add-project state before opening another palette flow", () => {
+    const flowBaseDepthRef = { current: 2 as number | null };
+    const clearEnvironment = vi.fn();
+    const clearCloneFlow = vi.fn();
+
+    resetAddProjectFlowState({
+      flowBaseDepthRef,
+      clearEnvironment,
+      clearCloneFlow,
+    });
+
+    expect(clearEnvironment).toHaveBeenCalledOnce();
+    expect(clearCloneFlow).toHaveBeenCalledOnce();
+    expect(flowBaseDepthRef.current).toBeNull();
+  });
+});
+
+describe("buildNewThreadInGroups", () => {
+  it("includes Add project alongside projects for every new-thread picker entry point", () => {
+    const projectItem: CommandPaletteActionItem = {
+      kind: "action",
+      value: "new-thread-in:environment-1:project-1",
+      searchTerms: ["Project"],
+      title: "Project",
+      icon: null,
+      run: async () => undefined,
+    };
+    const addProjectAction: CommandPaletteActionItem = {
+      kind: "action",
+      value: "action:add-project",
+      searchTerms: ["Add project"],
+      title: "Add project",
+      icon: null,
+      shortcutCommand: "project.add",
+      run: async () => undefined,
+    };
+
+    const groups = buildNewThreadInGroups({
+      projectItems: [projectItem],
+      addProjectAction,
+    });
+
+    expect(groups.map((group) => group.value)).toEqual(["projects", "actions"]);
+    expect(groups[0]?.items).toEqual([projectItem]);
+    expect(groups[1]?.items).toEqual([addProjectAction]);
+    expect(groups[1]?.items[0]?.shortcutCommand).toBe("project.add");
   });
 });
 

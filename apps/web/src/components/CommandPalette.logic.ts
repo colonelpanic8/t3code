@@ -85,6 +85,26 @@ export function shouldResetPaletteFlowOnPop(
   return flowBaseDepth !== null && Math.max(0, currentDepth - 1) <= flowBaseDepth;
 }
 
+export function resetAddProjectFlowState(input: {
+  flowBaseDepthRef: { current: number | null };
+  clearEnvironment: () => void;
+  clearCloneFlow: () => void;
+}): void {
+  input.clearCloneFlow();
+  input.clearEnvironment();
+  input.flowBaseDepthRef.current = null;
+}
+
+export function buildNewThreadInGroups(input: {
+  projectItems: ReadonlyArray<CommandPaletteActionItem>;
+  addProjectAction: CommandPaletteActionItem;
+}): CommandPaletteGroup[] {
+  return [
+    { value: "projects", label: "Projects", items: input.projectItems },
+    { value: "actions", label: "Actions", items: [input.addProjectAction] },
+  ];
+}
+
 export type CommandPaletteMode = "root" | "root-browse" | "submenu" | "submenu-browse";
 
 export function filterBrowseEntries(input: {
