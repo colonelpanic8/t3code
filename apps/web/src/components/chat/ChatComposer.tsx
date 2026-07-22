@@ -79,6 +79,8 @@ import {
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
 import { type ElementContextDraft } from "../../lib/elementContext";
+import { useLayoutScopedOpenState } from "../../hooks/useLayoutScopedOpenState";
+import { useTerminalFocus } from "../../hooks/useTerminalFocus";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
 import { ComposerPreviewAnnotationCards } from "./ComposerPreviewAnnotationCards";
@@ -1005,9 +1007,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
-  const [isComposerTraitsPickerOpen, setIsComposerTraitsPickerOpen] = useState(false);
-  const [isComposerRuntimeModePickerOpen, setIsComposerRuntimeModePickerOpen] = useState(false);
-  const [isCompactControlsMenuOpen, setIsCompactControlsMenuOpen] = useState(false);
+  const composerControlsLayout = isComposerFooterCompact ? "compact" : "expanded";
+  const [isComposerTraitsPickerOpen, setIsComposerTraitsPickerOpen] =
+    useLayoutScopedOpenState(composerControlsLayout);
+  const [isComposerRuntimeModePickerOpen, setIsComposerRuntimeModePickerOpen] =
+    useLayoutScopedOpenState(composerControlsLayout);
+  const [isCompactControlsMenuOpen, setIsCompactControlsMenuOpen] =
+    useLayoutScopedOpenState(composerControlsLayout);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
@@ -1256,22 +1262,32 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Hint badges show while the held modifiers are a subset of a composer
   // control shortcut's modifiers; computed once here and passed down.
   const shortcutModifiers = useShortcutModifierState();
+  const terminalFocus = useTerminalFocus();
+  const shortcutContext = useMemo(() => ({ terminalFocus }), [terminalFocus]);
   const showComposerControlHints = shouldShowComposerControlHintsForModifiers(
     shortcutModifiers,
     keybindings,
-    { platform: navigator.platform },
+    { platform: navigator.platform, context: shortcutContext },
   );
   const composerControlHintLabels = useMemo(
     () =>
       showComposerControlHints
         ? {
-            modelPicker: shortcutLabelForCommand(keybindings, "modelPicker.toggle"),
-            modelOptionsPicker: shortcutLabelForCommand(keybindings, "modelOptionsPicker.toggle"),
-            runtimeModePicker: shortcutLabelForCommand(keybindings, "runtimeModePicker.toggle"),
-            planMode: shortcutLabelForCommand(keybindings, "planMode.toggle"),
+            modelPicker: shortcutLabelForCommand(keybindings, "modelPicker.toggle", {
+              context: shortcutContext,
+            }),
+            modelOptionsPicker: shortcutLabelForCommand(keybindings, "modelOptionsPicker.toggle", {
+              context: shortcutContext,
+            }),
+            runtimeModePicker: shortcutLabelForCommand(keybindings, "runtimeModePicker.toggle", {
+              context: shortcutContext,
+            }),
+            planMode: shortcutLabelForCommand(keybindings, "planMode.toggle", {
+              context: shortcutContext,
+            }),
           }
         : null,
-    [keybindings, showComposerControlHints],
+    [keybindings, shortcutContext, showComposerControlHints],
   );
 
   const providerTraitsPicker = renderProviderTraitsPicker({
