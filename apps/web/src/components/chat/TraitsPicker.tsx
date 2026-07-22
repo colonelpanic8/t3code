@@ -31,6 +31,7 @@ import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
+import { Kbd } from "../ui/kbd";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -218,6 +219,12 @@ export interface TraitsMenuContentProps {
   allowPromptInjectedEffort?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
+}
+
+export interface TraitsPickerControlProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  shortcutHintLabel?: string | null;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -430,9 +437,13 @@ export const TraitsPicker = memo(function TraitsPicker({
   allowPromptInjectedEffort = true,
   triggerVariant,
   triggerClassName,
+  open,
+  onOpenChange,
+  shortcutHintLabel,
   ...persistence
-}: TraitsMenuContentProps & TraitsPersistence) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+}: TraitsMenuContentProps & TraitsPickerControlProps & TraitsPersistence) {
+  const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
+  const isMenuOpen = open ?? uncontrolledMenuOpen;
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, fastModeEnabled } =
     getTraitsSectionVisibility({
       provider,
@@ -473,8 +484,11 @@ export const TraitsPicker = memo(function TraitsPicker({
   return (
     <Menu
       open={isMenuOpen}
-      onOpenChange={(open) => {
-        setIsMenuOpen(open);
+      onOpenChange={(nextOpen) => {
+        onOpenChange?.(nextOpen);
+        if (open === undefined) {
+          setUncontrolledMenuOpen(nextOpen);
+        }
       }}
     >
       <MenuTrigger
@@ -495,12 +509,20 @@ export const TraitsPicker = memo(function TraitsPicker({
           <span className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
             {fastModeIcon}
             <span className="min-w-0 truncate">{triggerLabel}</span>
+            {shortcutHintLabel ? (
+              <Kbd className="h-4 min-w-0 shrink-0 rounded-sm px-1.5 text-[10px]">
+                {shortcutHintLabel}
+              </Kbd>
+            ) : null}
             <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
           </span>
         ) : (
           <>
             {fastModeIcon}
             <span>{triggerLabel}</span>
+            {shortcutHintLabel ? (
+              <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{shortcutHintLabel}</Kbd>
+            ) : null}
             <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
           </>
         )}
