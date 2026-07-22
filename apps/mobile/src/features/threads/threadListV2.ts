@@ -1,6 +1,6 @@
 import { effectiveSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 /**
  * Thread List v2 model, ported from the web sidebar v2
@@ -10,13 +10,16 @@ import type { EnvironmentId } from "@t3tools/contracts";
  * (approval), "in motion" (working), and "broken" (failed). Ready is the
  * unlabeled resting state.
  */
-export type ThreadListV2Status = "approval" | "working" | "failed" | "ready";
+export type ThreadListV2Status = "approval" | "input" | "working" | "failed" | "ready";
 
 export function resolveThreadListV2Status(
-  thread: Pick<EnvironmentThreadShell, "hasPendingApprovals" | "session">,
+  thread: Pick<EnvironmentThreadShell, "hasPendingApprovals" | "hasPendingUserInput" | "session">,
 ): ThreadListV2Status {
   if (thread.hasPendingApprovals) {
     return "approval";
+  }
+  if (thread.hasPendingUserInput) {
+    return "input";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
@@ -25,6 +28,24 @@ export function resolveThreadListV2Status(
     return "failed";
   }
   return "ready";
+}
+
+/** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
+    poison the whole ordering, so it sinks to the epoch instead. */
+function parseTimestampMs(isoDate: string): number {
+  const parsed = Date.parse(isoDate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** First VALID timestamp wins: a present-yet-malformed string falls through
+    to the next candidate rather than sinking the row to the epoch. */
+function firstValidTimestampMs(...candidates: ReadonlyArray<string | null | undefined>): number {
+  for (const candidate of candidates) {
+    if (candidate == null) continue;
+    const parsed = Date.parse(candidate);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
 }
 
 /**
@@ -40,7 +61,8 @@ export function sortThreadsForListV2<T extends { readonly id: string; readonly c
   // change-by-copy array methods.
   return [...threads].sort(
     (left, right) =>
-      Date.parse(right.createdAt) - Date.parse(left.createdAt) || left.id.localeCompare(right.id),
+      parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
+      left.id.localeCompare(right.id),
   );
 }
 
@@ -67,9 +89,17 @@ export interface ThreadListV2Layout {
 export function buildThreadListV2Items(input: {
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: EnvironmentId | null;
+  readonly projectRef?: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  } | null;
   readonly searchQuery: string;
   /** Per-row PR state reported up by visible rows ("env:threadId" keys). */
   readonly changeRequestStateByKey?: ReadonlyMap<string, "open" | "closed" | "merged">;
+  /** Environments whose server supports thread.settle/unsettle. Threads on
+      other environments never classify as settled — the user could neither
+      un-settle nor pin them. Absent = no gating (tests). */
+  readonly settlementEnvironmentIds?: ReadonlySet<EnvironmentId>;
   readonly autoSettleAfterDays?: number;
   /** Max settled rows to render; the rest are counted, not built. */
   readonly settledLimit?: number;
@@ -83,13 +113,24 @@ export function buildThreadListV2Items(input: {
   const active: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   for (const thread of input.threads) {
-    // Archived threads stay in the list: in the client-only settled model,
-    // archive IS settle, so they render as the settled tail.
+    // Callers pass live (unarchived) shells; settled threads are among them
+    // and partition into the tail via effectiveSettled.
     if (input.environmentId !== null && thread.environmentId !== input.environmentId) continue;
+    if (
+      input.projectRef != null &&
+      (thread.environmentId !== input.projectRef.environmentId ||
+        thread.projectId !== input.projectRef.projectId)
+    ) {
+      continue;
+    }
     if (query.length > 0 && !thread.title.toLocaleLowerCase().includes(query)) continue;
+    const supportsSettlement = input.settlementEnvironmentIds?.has(thread.environmentId) ?? true;
     const changeRequestState =
       input.changeRequestStateByKey?.get(`${thread.environmentId}:${thread.id}`) ?? null;
-    if (effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })) {
+    if (
+      supportsSettlement &&
+      effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
+    ) {
       settled.push(thread);
     } else {
       active.push(thread);
@@ -99,8 +140,8 @@ export function buildThreadListV2Items(input: {
   const orderedActive = sortThreadsForListV2(active);
   const orderedSettled = [...settled].sort(
     (left, right) =>
-      Date.parse(right.latestUserMessageAt ?? right.updatedAt) -
-      Date.parse(left.latestUserMessageAt ?? left.updatedAt),
+      firstValidTimestampMs(right.latestUserMessageAt, right.updatedAt) -
+      firstValidTimestampMs(left.latestUserMessageAt, left.updatedAt),
   );
   const settledLimit = input.settledLimit ?? Number.POSITIVE_INFINITY;
   const visibleSettled =

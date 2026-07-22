@@ -1,5 +1,5 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -25,6 +25,8 @@ function makeThread(
     createdAt: "2026-06-01T00:00:00.000Z",
     updatedAt: "2026-06-01T00:00:00.000Z",
     archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
     session: null,
     latestUserMessageAt: null,
     hasPendingApprovals: false,
@@ -75,19 +77,21 @@ describe("sortThreadsForListV2", () => {
 });
 
 describe("buildThreadListV2Items", () => {
-  it("partitions archived (settled) threads into a slim tail with one divider", () => {
+  it("partitions settled threads into a slim tail with one divider", () => {
     const { items } = buildThreadListV2Items({
       threads: [
         makeThread({ id: ThreadId.make("active"), title: "Active" }),
         makeThread({
           id: ThreadId.make("settled"),
           title: "Settled",
-          archivedAt: NOW,
+          settledOverride: "settled",
+          settledAt: NOW,
         }),
         makeThread({
           id: ThreadId.make("settled-2"),
           title: "Settled 2",
-          archivedAt: NOW,
+          settledOverride: "settled",
+          settledAt: NOW,
         }),
       ],
       environmentId: null,
@@ -127,15 +131,16 @@ describe("buildThreadListV2Items", () => {
     expect(items.map((item) => item.thread.id)).toEqual(["newer-created", "older-created"]);
   });
 
-  it("keeps archived threads in the tail and filters by search query", () => {
+  it("keeps settled threads in the tail and filters by search query", () => {
     const { items } = buildThreadListV2Items({
       threads: [
         makeThread({ id: ThreadId.make("match"), title: "Fix login bug" }),
         makeThread({ id: ThreadId.make("miss"), title: "Greeting" }),
         makeThread({
-          id: ThreadId.make("archived"),
+          id: ThreadId.make("settled"),
           title: "Fix login again",
-          archivedAt: NOW,
+          settledOverride: "settled",
+          settledAt: NOW,
         }),
       ],
       environmentId: null,
@@ -145,8 +150,28 @@ describe("buildThreadListV2Items", () => {
 
     expect(items.map((item) => [item.thread.id, item.variant])).toEqual([
       ["match", "card"],
-      ["archived", "slim"],
+      ["settled", "slim"],
     ]);
+  });
+
+  it("scopes the flat list to one project", () => {
+    const otherProjectId = ProjectId.make("project-2");
+    const { items } = buildThreadListV2Items({
+      threads: [
+        makeThread({ id: ThreadId.make("included"), title: "Included" }),
+        makeThread({
+          id: ThreadId.make("excluded"),
+          projectId: otherProjectId,
+          title: "Excluded",
+        }),
+      ],
+      environmentId: null,
+      projectRef: { environmentId, projectId: ProjectId.make("project-1") },
+      searchQuery: "",
+      now: NOW,
+    });
+
+    expect(items.map((item) => item.thread.id)).toEqual(["included"]);
   });
 });
 
@@ -158,8 +183,19 @@ describe("buildThreadListV2Items settled paging", () => {
         makeThread({
           id: ThreadId.make(`settled-${index}`),
           title: `Settled ${index}`,
-          archivedAt: NOW,
+          settledOverride: "settled",
+          settledAt: NOW,
           latestUserMessageAt: `2026-06-01T0${index}:00:00.000Z`,
+          // A turn adopted the message (same requestedAt): without it the
+          // thread reads as a queued turn start, which never settles.
+          latestTurn: {
+            turnId: TurnId.make(`turn-${index}`),
+            state: "completed",
+            requestedAt: `2026-06-01T0${index}:00:00.000Z`,
+            startedAt: `2026-06-01T0${index}:00:00.000Z`,
+            completedAt: `2026-06-01T0${index}:10:00.000Z`,
+            assistantMessageId: null,
+          },
         }),
       ),
     ];

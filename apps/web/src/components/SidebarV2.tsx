@@ -8,7 +8,17 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { CheckIcon, CloudIcon, PlusIcon, SearchIcon, Undo2Icon } from "lucide-react";
+import {
+  CheckIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CloudIcon,
+  FolderPlusIcon,
+  PlusIcon,
+  SearchIcon,
+  SquarePenIcon,
+  Undo2Icon,
+} from "lucide-react";
 import {
   memo,
   useCallback,
@@ -30,10 +40,12 @@ import { isElectron } from "../env";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
+  shouldShowThreadJumpHintsForModifiers,
   threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
 } from "../keybindings";
+import { useShortcutModifierState } from "../shortcutModifierState";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -43,10 +55,6 @@ import { readLocalApi } from "../localApi";
 import { useUiStateStore } from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
-import {
-  refreshArchivedThreadsForEnvironment,
-  useArchivedThreadSnapshots,
-} from "../lib/archivedThreadsState";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenAddProjectCommandPalette } from "../commandPaletteContext";
 import { onOpenNewThreadPicker } from "../newThreadPickerBus";
@@ -59,21 +67,22 @@ import {
 import { useClientSettings } from "../hooks/useSettings";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
-import { primaryServerKeybindingsAtom } from "../state/server";
+import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
-import { formatElapsedDurationLabel, formatRelativeTimeLabel } from "../timestampFormat";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import {
+  firstValidTimestampMs,
+  hasUnseenCompletion,
   isTrailingDoubleClick,
   resolveAdjacentThreadId,
   resolveSidebarV2Status,
   sortThreadsForSidebarV2,
-  type SidebarV2Status,
 } from "./Sidebar.logic";
 import { prStatusIndicator, resolveThreadPr } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
@@ -95,52 +104,19 @@ import {
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-// Row heights are fixed per variant so the list only changes shape at
-// lifecycle transitions (settle/unsettle), never from streaming updates.
-// Cards are square, hard-edged blocks: a solid full-saturation edge strip
-// carries the state color; the border stays neutral and high-contrast.
-const CARD_EDGE_BY_STATUS: Partial<Record<SidebarV2Status, string>> = {
-  approval: "bg-amber-500 dark:bg-amber-400",
-  working: "bg-sky-500 animate-status-pulse dark:bg-sky-400",
-  failed: "bg-red-500",
-};
-
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
 
-const STATUS_WORD_BY_STATUS: Partial<
-  Record<SidebarV2Status, { label: string; className: string }>
-> = {
-  approval: { label: "Needs approval", className: "text-amber-600 dark:text-amber-400" },
-  working: { label: "Working", className: "text-sky-600 dark:text-sky-400" },
-  failed: { label: "Failed", className: "text-red-600 dark:text-red-400" },
-};
-
-// The working timer re-renders once per second only for rows that show it.
-function useTickWhile(active: boolean): number {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!active) return;
-    const id = window.setInterval(() => setTick((value) => value + 1), 1_000);
-    return () => window.clearInterval(id);
-  }, [active]);
-  return active ? Date.now() : 0;
+function compactSidebarTimeLabel(label: string): string {
+  if (label === "just now") return "now";
+  return label.endsWith(" ago") ? label.slice(0, -4) : label;
 }
 
-function threadTimeLabel(thread: SidebarThreadSummary, status: SidebarV2Status): string {
-  if (status === "working" && thread.latestTurn?.startedAt) {
-    return formatElapsedDurationLabel(thread.latestTurn.startedAt);
-  }
-  if (status === "approval") {
-    // Approval activities bump shell.updatedAt in the projection pipeline.
-    // The shell has no dedicated request timestamp, so this is the closest
-    // accurate wait-start signal shared by the label and approval ordering.
-    return `waiting ${formatElapsedDurationLabel(thread.updatedAt)}`;
-  }
+function threadTimeLabel(thread: SidebarThreadSummary): string {
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
-  return formatRelativeTimeLabel(timestamp);
+  return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp));
 }
 
 const SidebarV2Row = memo(function SidebarV2Row(props: {
@@ -149,10 +125,13 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
   variantAction: "settle" | "unsettle";
-  // Draws a hairline above the first settled row after a group's card
-  // block, so active work and the history tail read as separate zones
-  // inside each project section.
-  showQuietDivider?: boolean;
+  // False on environments whose server predates thread.settle/unsettle:
+  // the lifecycle affordances hide entirely rather than fail on click.
+  settlementSupported: boolean;
+  // Marks where active work transitions into history: a quiet labeled
+  // rule above the first settled row, so the tail reads as a named zone
+  // rather than an unexplained gap.
+  showSettledGap?: boolean;
   isActive: boolean;
   jumpLabel: string | null;
   currentEnvironmentId: string | null;
@@ -199,8 +178,44 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
   const openPrLink = useOpenPrLink();
 
+  // Same semantics as v1 (never-visited counts as read): flipping the beta
+  // flag must not light up every historical thread as unread.
+  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarV2Status(thread);
-  useTickWhile(variant === "card" && (status === "working" || status === "approval"));
+  const shouldRecede = status === "ready" && !isUnread && !props.isActive && !isSelected;
+  const topStatus =
+    status === "working"
+      ? {
+          label: "Working",
+          icon: "working" as const,
+          className:
+            "animate-sidebar-working-text font-semibold text-blue-600 motion-reduce:animate-none dark:text-blue-400",
+        }
+      : status === "approval"
+        ? {
+            label: "Approval",
+            icon: null,
+            className: "font-semibold text-amber-700 dark:text-amber-300",
+          }
+        : status === "input"
+          ? {
+              label: "Input",
+              icon: null,
+              className: "font-semibold text-amber-700 dark:text-amber-300",
+            }
+          : status === "failed"
+            ? {
+                label: "Failed",
+                icon: null,
+                className: "font-semibold text-red-700 dark:text-red-300",
+              }
+            : isUnread
+              ? {
+                  label: "Done",
+                  icon: "done" as const,
+                  className: "font-semibold text-emerald-700 dark:text-emerald-300",
+                }
+              : null;
 
   const gitCwd = thread.worktreePath ?? props.projectCwd;
   const gitStatus = useEnvironmentQuery(
@@ -222,11 +237,6 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
 
   const modelInstanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
   const driverKind = props.providerEntryByInstanceId.get(modelInstanceId)?.driverKind ?? null;
-
-  const isUnread =
-    thread.latestTurn?.completedAt != null &&
-    (lastVisitedAt == null ||
-      Date.parse(thread.latestTurn.completedAt) > Date.parse(lastVisitedAt));
 
   const isRemote =
     props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
@@ -312,12 +322,12 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   );
 
   const rowClassName = cn(
-    "group/v2-row relative w-full cursor-pointer select-none text-left",
+    "group/v2-row relative w-full cursor-pointer select-none rounded-md text-left",
     props.isActive
-      ? "bg-foreground/10 dark:bg-white/[0.12]"
+      ? "bg-foreground/[0.11] text-foreground dark:bg-white/[0.11]"
       : isSelected
-        ? "bg-primary/15 dark:bg-primary/20"
-        : "hover:bg-foreground/5 dark:hover:bg-white/[0.06]",
+        ? "bg-foreground/[0.07] text-foreground dark:bg-white/[0.07]"
+        : "hover:bg-accent/65",
   );
 
   const title = isRenaming ? (
@@ -331,17 +341,22 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
       onBlur={handleRenameBlur}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
-      className="min-w-0 flex-1 border border-border bg-background px-1 text-[13px] text-foreground outline-none focus:border-foreground"
+      className="min-w-0 flex-1 rounded-sm border border-border bg-background px-1 text-[13px] text-foreground outline-none focus:border-foreground"
     />
   ) : (
     <span
       className={cn(
         "min-w-0 flex-1 text-[13px] leading-5",
-        // Cards get two lines of title — a truncated single line hid too much.
         variant === "card"
           ? cn(
               "line-clamp-2 break-words",
-              isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/90",
+              isUnread
+                ? "font-semibold text-foreground"
+                : status !== "ready"
+                  ? "font-semibold text-foreground/95"
+                  : shouldRecede
+                    ? "font-normal text-muted-foreground/75"
+                    : "font-medium text-foreground/90",
             )
           : cn(
               "truncate transition-colors group-hover/v2-row:text-foreground",
@@ -362,7 +377,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
       <button
         type="button"
         onClick={handlePrClick}
-        className={cn("shrink-0 font-mono text-[10px] hover:underline", prStatus.colorClass)}
+        className={cn(
+          "shrink-0 font-mono text-[10px] hover:underline",
+          variant === "slim" && variantAction === "unsettle"
+            ? props.isActive
+              ? "text-muted-foreground/70"
+              : "text-muted-foreground/35 transition-colors group-hover/v2-row:text-muted-foreground/65"
+            : prStatus.colorClass,
+        )}
         aria-label={prStatus.tooltip}
       >
         #{pr.number}
@@ -375,12 +397,10 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
         data-thread-item
         className="list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]"
       >
-        {props.showQuietDivider ? (
-          <div aria-hidden className="mb-1.5 mt-2.5 flex items-center gap-2 px-0.5">
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/60">
-              Settled
-            </span>
-            <span className="h-px flex-1 bg-border" />
+        {props.showSettledGap ? (
+          <div aria-hidden className="mb-1 mt-3 flex items-center gap-2 px-2.5">
+            <span className="text-[10px] font-medium text-muted-foreground/50">Settled</span>
+            <span className="h-px flex-1 bg-border/60" />
           </div>
         ) : null}
         <div
@@ -409,18 +429,25 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
             />
           </span>
           {title}
+          {/* The PR badge stays outside the hover-fading slot: it must
+              remain visible AND clickable while the row is hovered. Only
+              the time/jump label yields to the settle affordance. */}
           {prBadge}
-          <span className="relative flex h-6 w-14 shrink-0 items-center justify-end">
-            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/40 transition-opacity group-hover/v2-row:opacity-0">
-              {props.jumpLabel ??
-                formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt)}
+          <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end">
+            <span className="inline-flex justify-end tabular-nums text-muted-foreground/40 transition-opacity group-hover/v2-row:opacity-0">
+              <span className="text-[13px]">
+                {props.jumpLabel ??
+                  compactSidebarTimeLabel(
+                    formatRelativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt),
+                  )}
+              </span>
             </span>
-            {variantAction === "unsettle" ? (
+            {!props.settlementSupported ? null : variantAction === "unsettle" ? (
               <button
                 type="button"
                 aria-label="Un-settle thread"
                 onClick={handleUnsettleClick}
-                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
+                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
               >
                 <Undo2Icon className="size-3" />
               </button>
@@ -429,7 +456,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 type="button"
                 aria-label="Settle thread"
                 onClick={handleSettleClick}
-                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
+                className="absolute inset-y-0 right-0 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 text-[11px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
               >
                 <CheckIcon className="size-3" />
               </button>
@@ -440,122 +467,115 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     );
   }
 
-  const statusEdge = CARD_EDGE_BY_STATUS[status];
-  const statusWord = STATUS_WORD_BY_STATUS[status];
   const diff = latestTurnDiff(thread);
-  const workingTimer =
-    status === "working" && thread.latestTurn?.startedAt
-      ? formatElapsedDurationLabel(thread.latestTurn.startedAt)
-      : null;
 
   return (
     <li
       data-thread-item
-      className="list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_100px]"
+      className="list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]"
     >
       <div
         role="button"
         tabIndex={0}
         data-testid="sidebar-v2-row-card"
         className={cn(
-          "group/v2-row relative w-full cursor-pointer select-none overflow-hidden border bg-card text-left transition-colors dark:bg-white/[0.04]",
+          // Every card carries a faint tonal fill so threads read as
+          // discrete objects; active/selected/hover are brighter tones of
+          // the same treatment rather than a different shape.
+          "group/v2-row relative w-full cursor-pointer select-none overflow-hidden rounded-lg text-left transition-colors",
           props.isActive
-            ? "border-foreground/70 bg-foreground/5 dark:border-foreground/75 dark:bg-white/[0.08]"
+            ? "bg-foreground/[0.11] text-foreground dark:bg-white/[0.11]"
             : isSelected
-              ? "border-primary/70 bg-primary/10 dark:bg-primary/15"
-              : "border-black/12 hover:border-black/30 dark:border-white/12 dark:hover:border-white/30",
+              ? "bg-foreground/[0.07] text-foreground dark:bg-white/[0.07]"
+              : shouldRecede
+                ? "bg-foreground/[0.025] hover:bg-accent/45 dark:bg-white/[0.025]"
+                : "bg-foreground/[0.035] hover:bg-accent/65 dark:bg-white/[0.035]",
         )}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
       >
-        {statusEdge ? (
-          <span aria-hidden className={cn("absolute inset-y-0 left-0 z-10 w-[3px]", statusEdge)} />
-        ) : null}
-        {/* Title bar: the card is a tiny window whose chrome carries project
-            identity — favicon + name up top, separated by a hairline, so
-            "which project" reads before the thread content does. */}
-        <div
-          className={cn(
-            "flex items-center gap-1.5 border-b py-1 pl-[15px] pr-3",
-            props.isActive
-              ? "border-black/20 bg-black/[0.06] dark:border-white/25 dark:bg-white/[0.06]"
-              : "border-black/10 bg-black/[0.03] dark:border-white/10 dark:bg-white/[0.03]",
-          )}
-        >
-          <ProjectFavicon
-            environmentId={thread.environmentId}
-            cwd={props.projectCwd ?? ""}
-            className="size-3"
-          />
-          {props.projectTitle ? (
-            <span className="min-w-0 truncate font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {props.projectTitle}
+        <div className="relative z-10 px-2.5 py-2">
+          <div className="flex h-5 min-w-0 items-center gap-1.5">
+            <ProjectFavicon
+              environmentId={thread.environmentId}
+              cwd={props.projectCwd ?? ""}
+              className="size-3.5 shrink-0"
+            />
+            {props.projectTitle ? (
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-[13px] leading-5 text-muted-foreground/70",
+                  isUnread || status !== "ready"
+                    ? "font-semibold"
+                    : shouldRecede
+                      ? "font-normal"
+                      : "font-medium",
+                )}
+              >
+                {props.projectTitle}
+              </span>
+            ) : (
+              <span className="flex-1" />
+            )}
+            <span className="relative ml-auto flex h-5 min-w-8 shrink-0 items-center justify-end pl-1 text-[13px]">
+              <span className="tabular-nums text-muted-foreground/55 transition-opacity group-hover/v2-row:opacity-0">
+                {props.jumpLabel ? (
+                  props.jumpLabel
+                ) : topStatus ? (
+                  <span
+                    role="status"
+                    className={cn(
+                      "inline-flex items-center gap-1 text-[11px]",
+                      topStatus.className,
+                    )}
+                  >
+                    {topStatus.icon === "working" ? (
+                      <CircleDashedIcon aria-hidden className="size-3" />
+                    ) : topStatus.icon === "done" ? (
+                      <CircleCheckIcon aria-hidden className="size-3" />
+                    ) : null}
+                    {topStatus.label}
+                  </span>
+                ) : (
+                  threadTimeLabel(thread)
+                )}
+              </span>
+              {props.settlementSupported ? (
+                <button
+                  type="button"
+                  aria-label="Settle thread"
+                  onClick={handleSettleClick}
+                  className="absolute inset-y-0 right-0 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
+                >
+                  <CheckIcon className="size-3" />
+                  Settle
+                </button>
+              ) : null}
             </span>
-          ) : null}
-          <span className="relative ml-auto flex h-4 w-16 shrink-0 items-center justify-end">
-            <span
-              className={cn(
-                "font-mono text-[10px] tabular-nums transition-opacity group-hover/v2-row:opacity-0",
-                status === "approval"
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-muted-foreground/50",
-              )}
-            >
-              {props.jumpLabel ?? workingTimer ?? threadTimeLabel(thread, status)}
-            </span>
-            <button
-              type="button"
-              aria-label="Settle thread"
-              onClick={handleSettleClick}
-              className="absolute inset-y-0 right-0 inline-flex items-center gap-1 border border-border bg-background px-2 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/v2-row:opacity-100"
-            >
-              <CheckIcon className="size-3" />
-              Settle
-            </button>
-          </span>
-        </div>
-        <div className="py-2 pl-[15px] pr-3">
-          <div className="flex items-start gap-2.5">
-            {title}
+          </div>
+          <div className="mt-1 flex min-w-0">{title}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/65">
+            {thread.branch ? (
+              <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap font-mono [mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-1rem),transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-1rem),transparent_100%)]">
+                {thread.branch}
+              </span>
+            ) : (
+              <span className="flex-1" />
+            )}
+            {prBadge}
             {diff ? (
-              <span className="shrink-0 font-mono text-[11px] leading-5">
+              <span className="shrink-0 font-mono">
                 <span className="text-emerald-600 dark:text-emerald-400">+{diff.insertions}</span>{" "}
                 <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
               </span>
             ) : null}
-          </div>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground/70">
-            {statusWord ? (
-              <span
-                className={cn(
-                  "shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.08em]",
-                  statusWord.className,
-                )}
-              >
-                {statusWord.label}
-              </span>
-            ) : null}
-            {status === "failed" && thread.session?.lastError ? (
-              <span className="min-w-0 truncate text-red-600/80 dark:text-red-400/80">
-                {thread.session.lastError}
-              </span>
-            ) : (
-              <>
-                {thread.branch ? (
-                  <span className="min-w-0 truncate font-mono text-muted-foreground/70">
-                    {thread.branch}
-                  </span>
-                ) : null}
-                {prBadge}
-              </>
-            )}
-            <span className="ml-auto inline-flex shrink-0 items-center gap-1.5">
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1">
               {driverKind ? (
                 <Tooltip>
                   <TooltipTrigger
-                    render={<span className="inline-flex shrink-0 items-center opacity-70" />}
+                    render={<span className="inline-flex shrink-0 items-center opacity-60" />}
                   >
                     <ProviderInstanceIcon
                       driverKind={driverKind}
@@ -582,6 +602,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               ) : null}
             </span>
           </div>
+          {status === "failed" && thread.session?.lastError ? (
+            <div
+              className="mt-0.5 min-w-0 truncate text-[10px] text-red-600/75 dark:text-red-400/70"
+              title={thread.session.lastError}
+            >
+              {thread.session.lastError}
+            </div>
+          ) : null}
         </div>
       </div>
     </li>
@@ -605,7 +633,7 @@ export default function SidebarV2() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
-  const { settleThread, unsettleThread, archiveThread, deleteThread } = useThreadActions();
+  const { settleThread, unsettleThread, deleteThread } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -623,6 +651,11 @@ export default function SidebarV2() {
     select: (params) => resolveThreadRouteRef(params),
   });
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
+  // Post-settle navigation validates against the CURRENT route, not the one
+  // captured when the settle started: if the user navigated elsewhere while
+  // the command was in flight, completing it must not yank them away.
+  const routeThreadKeyRef = useRef(routeThreadKey);
+  routeThreadKeyRef.current = routeThreadKey;
 
   const environmentLabelById = useMemo(
     () =>
@@ -710,78 +743,41 @@ export default function SidebarV2() {
       setProjectScopeKey(null);
     }
   }, [projectScopeKey, projects]);
-
-  // Archived threads ARE the settled tail in the client-only settled model,
-  // but the live shell stream drops a thread the moment it is archived
-  // (thread.archived → thread-removed). Merge them back in from the archived
-  // snapshot query; live shells win on the (brief) overlap.
-  const archivedEnvironmentIds = useMemo(
-    () => environments.map((environment) => environment.environmentId),
-    [environments],
-  );
-  const { snapshots: archivedSnapshots } = useArchivedThreadSnapshots(archivedEnvironmentIds);
-  // Bridge the gap between the live stream dropping a just-settled thread
-  // (thread.archived → thread-removed) and the archived snapshot returning
-  // it: hold the shell we settled, marked archived, until either source
-  // carries the thread again. Held explicitly at settle time — not inferred
-  // from disappearance — so deleted threads are never resurrected.
-  const [settledHolds, setSettledHolds] = useState<ReadonlyMap<string, EnvironmentThreadShell>>(
-    () => new Map(),
-  );
-  const allThreads = useMemo(() => {
-    const merged = new Map<string, EnvironmentThreadShell>();
-    for (const { environmentId, snapshot } of archivedSnapshots) {
-      for (const thread of snapshot.threads) {
-        merged.set(scopedThreadKey(scopeThreadRef(environmentId, thread.id)), {
-          ...thread,
-          environmentId,
-        });
-      }
-    }
-    // Live shells win over snapshot copies.
-    for (const thread of threads) {
-      merged.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread);
-    }
-    for (const [threadKey, shell] of settledHolds) {
-      if (merged.has(threadKey)) continue;
-      merged.set(threadKey, shell);
-    }
-    return [...merged.values()];
-  }, [archivedSnapshots, settledHolds, threads]);
-  // Drop a hold once the archived snapshot carries the thread — the steady
-  // state. (Not the live stream: the thread is still live when the hold is
-  // created, and holds are inert while a real source has the thread anyway.)
+  // Scope flips drop the selection: rows selected under the old scope may be
+  // hidden now, and bulk actions must never count or touch invisible rows.
   useEffect(() => {
-    if (settledHolds.size === 0) return;
-    const covered = new Set<string>();
-    for (const { environmentId, snapshot } of archivedSnapshots) {
-      for (const thread of snapshot.threads) {
-        covered.add(scopedThreadKey(scopeThreadRef(environmentId, thread.id)));
-      }
-    }
-    if ([...settledHolds.keys()].some((threadKey) => covered.has(threadKey))) {
-      setSettledHolds((current) => {
-        const next = new Map(current);
-        for (const threadKey of covered) next.delete(threadKey);
-        return next;
-      });
-    }
-  }, [archivedSnapshots, settledHolds]);
+    clearSelection();
+  }, [clearSelection, projectScopeKey]);
 
+  // Settled threads stay in the live shell stream (settled ≠ archived), so
+  // the partition works directly off live shells: no archived-snapshot
+  // merging, no optimistic holds. Archived threads remain hidden here —
+  // archive keeps its original "remove from sidebar" meaning.
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const { activeThreads, settledThreads } = useMemo(() => {
     const now = `${nowMinute}:00.000Z`;
-    const visible = allThreads.filter(
+    const visible = threads.filter(
       (thread) =>
-        scopedProject === null ||
-        (thread.environmentId === scopedProject.environmentId &&
-          thread.projectId === scopedProject.id),
+        thread.archivedAt === null &&
+        (scopedProject === null ||
+          (thread.environmentId === scopedProject.environmentId &&
+            thread.projectId === scopedProject.id)),
     );
     const active: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     for (const thread of visible) {
+      // Threads on servers without the settlement capability (old server,
+      // or descriptor not loaded yet) never classify as settled: the user
+      // could neither un-settle nor pin them, so auto-settling them would
+      // strand rows in a tail with no working affordances.
+      const supportsSettlement =
+        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
       const changeRequestState = changeRequestStateByKey.get(threadKey) ?? null;
-      if (effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })) {
+      if (
+        supportsSettlement &&
+        effectiveSettled(thread, { now, autoSettleAfterDays, changeRequestState })
+      ) {
         settled.push(thread);
       } else {
         active.push(thread);
@@ -791,11 +787,18 @@ export default function SidebarV2() {
       activeThreads: sortThreadsForSidebarV2(active),
       settledThreads: settled.toSorted(
         (left, right) =>
-          Date.parse(right.latestUserMessageAt ?? right.updatedAt) -
-          Date.parse(left.latestUserMessageAt ?? left.updatedAt),
+          firstValidTimestampMs(right.latestUserMessageAt, right.updatedAt) -
+          firstValidTimestampMs(left.latestUserMessageAt, left.updatedAt),
       ),
     };
-  }, [allThreads, autoSettleAfterDays, changeRequestStateByKey, nowMinute, scopedProject]);
+  }, [
+    autoSettleAfterDays,
+    changeRequestStateByKey,
+    nowMinute,
+    scopedProject,
+    serverConfigs,
+    threads,
+  ]);
 
   // The settled tail renders in pages: history shouldn't dominate the
   // sidebar, and the common lookups are recent. Expansion resets when the
@@ -850,6 +853,10 @@ export default function SidebarV2() {
   // event and defeat row memoization during streaming.
   const threadByKeyRef = useRef(threadByKey);
   threadByKeyRef.current = threadByKey;
+  // handleNewThread is inherently unstable (depends on the projects list);
+  // a ref keeps it out of attemptSettle's dependency array.
+  const handleNewThreadRef = useRef(newThreadContext.handleNewThread);
+  handleNewThreadRef.current = newThreadContext.handleNewThread;
   const settledThreadKeys = useMemo(
     () =>
       new Set(
@@ -874,6 +881,9 @@ export default function SidebarV2() {
   }, [keybindings, orderedThreadKeys]);
   const [showJumpHints, setShowJumpHints] = useState(false);
 
+  // Settled threads are live shells, so opening one is plain navigation:
+  // history stays readable without un-settling, and sending a message or
+  // starting a session un-settles server-side.
   const navigateToThread = useCallback(
     (threadRef: ScopedThreadRef) => {
       if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
@@ -950,64 +960,67 @@ export default function SidebarV2() {
     [navigateToThread, rangeSelectTo, toggleThreadSelection],
   );
 
+  // A settle per thread at a time: double clicks and repeated menu picks
+  // must not dispatch a second settle that fails and toasts a false error.
+  const settlingThreadKeysRef = useRef(new Set<string>());
   const attemptSettle = useCallback(
-    (threadRef: ScopedThreadRef) => {
+    (threadRef: ScopedThreadRef, opts: { coSettlingKeys?: ReadonlySet<string> } = {}) => {
       void (async () => {
-        // Hold the shell before dispatching: the live stream drops the
-        // thread on archive, and the settled tail must not flicker while
-        // the archived snapshot refresh is in flight.
         const threadKey = scopedThreadKey(threadRef);
-        const shell = threadByKeyRef.current.get(threadKey);
-        if (shell) {
-          setSettledHolds((current) =>
-            new Map(current).set(threadKey, {
-              ...shell,
-              archivedAt: shell.archivedAt ?? new Date().toISOString(),
-            }),
-          );
+        if (settlingThreadKeysRef.current.has(threadKey)) return;
+        settlingThreadKeysRef.current.add(threadKey);
+        try {
+          // Settling the thread you're looking at moves you forward: the next
+          // remaining card (never a settled row, never one settling in the
+          // same batch), or a fresh draft in this project when it was the
+          // last active one. Snapshot the target before the settle mutates
+          // the partition. Background settles never navigate.
+          const shell = threadByKeyRef.current.get(threadKey);
+          let navigateAfterSettle: (() => void) | null = null;
+          if (routeThreadKey === threadKey) {
+            const orderedKeys = orderedThreadKeysRef.current;
+            const settledKeys = settledThreadKeysRef.current;
+            const currentIndex = orderedKeys.indexOf(threadKey);
+            const nextCardKey =
+              currentIndex === -1
+                ? null
+                : ([
+                    ...orderedKeys.slice(currentIndex + 1),
+                    ...orderedKeys.slice(0, currentIndex),
+                  ].find((key) => !settledKeys.has(key) && !opts.coSettlingKeys?.has(key)) ?? null);
+            const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
+            navigateAfterSettle = nextThread
+              ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
+              : shell
+                ? () =>
+                    void handleNewThreadRef.current(
+                      scopeProjectRef(shell.environmentId, shell.projectId),
+                    )
+                : () => void router.navigate({ to: "/" });
+          }
+          const result = await settleThread(threadRef);
+          if (result._tag === "Failure") {
+            // Never navigate away from a thread that did not settle.
+            if (!isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Failed to settle thread",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+            return;
+          }
+          // Only move forward if the user is still on the settled thread —
+          // a navigation made during the await wins over ours.
+          if (routeThreadKeyRef.current === threadKey) {
+            navigateAfterSettle?.();
+          }
+        } finally {
+          settlingThreadKeysRef.current.delete(threadKey);
         }
-        // Settling the thread you're looking at moves you forward: the next
-        // remaining card (never a settled row), or the new-thread screen
-        // when this was the last active one. Snapshot the target before the
-        // settle mutates the partition. Background settles never navigate.
-        let navigateAfterSettle: (() => void) | null = null;
-        if (routeThreadKey === threadKey) {
-          const orderedKeys = orderedThreadKeysRef.current;
-          const settledKeys = settledThreadKeysRef.current;
-          const currentIndex = orderedKeys.indexOf(threadKey);
-          const nextCardKey =
-            currentIndex === -1
-              ? null
-              : ([
-                  ...orderedKeys.slice(currentIndex + 1),
-                  ...orderedKeys.slice(0, currentIndex),
-                ].find((key) => !settledKeys.has(key)) ?? null);
-          const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
-          navigateAfterSettle = nextThread
-            ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
-            : () => void router.navigate({ to: "/" });
-        }
-        const result = await settleThread(threadRef);
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          setSettledHolds((current) => {
-            const next = new Map(current);
-            next.delete(threadKey);
-            return next;
-          });
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to settle thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-          return;
-        }
-        // Settle = archive: the shell stream drops the thread, so pull the
-        // archived snapshot immediately to keep it visible as a settled row.
-        refreshArchivedThreadsForEnvironment(threadRef.environmentId);
-        navigateAfterSettle?.();
       })();
     },
     [navigateToThread, routeThreadKey, router, settleThread],
@@ -1025,17 +1038,7 @@ export default function SidebarV2() {
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
-          return;
         }
-        // Un-settling invalidates any optimistic settled hold for the thread.
-        setSettledHolds((current) => {
-          const threadKey = scopedThreadKey(threadRef);
-          if (!current.has(threadKey)) return current;
-          const next = new Map(current);
-          next.delete(threadKey);
-          return next;
-        });
-        refreshArchivedThreadsForEnvironment(threadRef.environmentId);
       })();
     },
     [unsettleThread],
@@ -1046,7 +1049,13 @@ export default function SidebarV2() {
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
       if (!api) return;
-      const threadKeys = [...useThreadSelectionStore.getState().selectedThreadKeys];
+      // One exact actionable set: keys whose rows are actually rendered
+      // right now. Selections can outlive their rows (settled-tail paging,
+      // thread deletion elsewhere) and the menu labels must count only what
+      // the actions will touch.
+      const threadKeys = [...useThreadSelectionStore.getState().selectedThreadKeys].filter(
+        (threadKey) => threadByKeyRef.current.has(threadKey),
+      );
       if (threadKeys.length === 0) return;
       const count = threadKeys.length;
       const clicked = await settlePromise(() =>
@@ -1061,10 +1070,15 @@ export default function SidebarV2() {
       );
       if (clicked._tag === "Failure") return;
       if (clicked.value === "settle") {
+        // Post-settle navigation must skip threads settling in this same
+        // batch — they are all leaving the card block together. Rows that
+        // are already explicitly settled are skipped: nothing to do on a
+        // valid mixed selection.
+        const coSettlingKeys = new Set(threadKeys);
         for (const threadKey of threadKeys) {
           const thread = threadByKeyRef.current.get(threadKey);
-          if (!thread) continue;
-          attemptSettle(scopeThreadRef(thread.environmentId, thread.id));
+          if (!thread || thread.settledOverride === "settled") continue;
+          attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
         }
         clearSelection();
         return;
@@ -1109,15 +1123,6 @@ export default function SidebarV2() {
           }
           return;
         }
-        // Deleted threads must not survive as settled holds or stale
-        // archived-snapshot rows.
-        setSettledHolds((current) => {
-          if (!current.has(threadKey)) return current;
-          const next = new Map(current);
-          next.delete(threadKey);
-          return next;
-        });
-        refreshArchivedThreadsForEnvironment(thread.environmentId);
       }
       removeFromSelection(threadKeys);
     },
@@ -1144,18 +1149,26 @@ export default function SidebarV2() {
         }
         const thread = threadByKeyRef.current.get(threadKey);
         if (!thread) return;
-        // Un-settle appears only when there is an archive to undo; an
-        // auto-settled (unarchived) slim row gets Settle, which archives it.
-        const isSettled = settledThreadKeysRef.current.has(threadKey) && thread.archivedAt !== null;
+        // Un-settle works on every settled row: for explicit settles it
+        // clears the override, for auto-settled rows it pins the thread
+        // active until real activity clears the pin. Environments without
+        // the settlement capability get no lifecycle items at all.
+        const supportsSettlement =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement ===
+          true;
+        const isSettled = settledThreadKeysRef.current.has(threadKey);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
-              isSettled
-                ? { id: "unsettle", label: "Un-settle thread" }
-                : { id: "settle", label: "Settle thread" },
+              ...(supportsSettlement
+                ? [
+                    isSettled
+                      ? { id: "unsettle", label: "Un-settle thread" }
+                      : { id: "settle", label: "Settle thread" },
+                  ]
+                : []),
               { id: "rename", label: "Rename thread" },
               { id: "mark-unread", label: "Mark unread" },
-              { id: "archive", label: "Archive" },
               { id: "delete", label: "Delete", destructive: true, icon: "trash" },
             ],
             position,
@@ -1175,20 +1188,6 @@ export default function SidebarV2() {
           case "mark-unread":
             markThreadUnread(threadKey, thread.latestTurn?.completedAt);
             return;
-          case "archive": {
-            const result = await archiveThread(threadRef);
-            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-              const error = squashAtomCommandFailure(result);
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Failed to archive thread",
-                  description: error instanceof Error ? error.message : "An error occurred.",
-                }),
-              );
-            }
-            return;
-          }
           case "delete": {
             if (confirmThreadDelete) {
               const confirmed = await settlePromise(() =>
@@ -1213,15 +1212,6 @@ export default function SidebarV2() {
               );
               return;
             }
-            // A deleted thread must not survive as a settled hold or a stale
-            // archived-snapshot row.
-            setSettledHolds((current) => {
-              if (!current.has(threadKey)) return current;
-              const next = new Map(current);
-              next.delete(threadKey);
-              return next;
-            });
-            refreshArchivedThreadsForEnvironment(threadRef.environmentId);
             return;
           }
           default:
@@ -1230,13 +1220,13 @@ export default function SidebarV2() {
       })();
     },
     [
-      archiveThread,
       attemptSettle,
       attemptUnsettle,
       confirmThreadDelete,
       deleteThread,
       handleMultiSelectContextMenu,
       markThreadUnread,
+      serverConfigs,
       startThreadRename,
     ],
   );
@@ -1294,18 +1284,18 @@ export default function SidebarV2() {
     threadByKey,
   ]);
 
+  // Same predicate as v1: hints show only while the held modifiers exactly
+  // match a thread-jump binding. Adding Shift (screenshots) or Alt no
+  // longer matches ⌘1..9, so the overlay hides for chords like ⌘⇧4.
+  const shortcutModifiers = useShortcutModifierState();
+  const shouldShowJumpHintsNow = shouldShowThreadJumpHintsForModifiers(
+    shortcutModifiers,
+    keybindings,
+    { platform: navigator.platform },
+  );
   useEffect(() => {
-    const sync = (event: KeyboardEvent) => setShowJumpHints(event.metaKey || event.ctrlKey);
-    const clear = () => setShowJumpHints(false);
-    window.addEventListener("keydown", sync);
-    window.addEventListener("keyup", sync);
-    window.addEventListener("blur", clear);
-    return () => {
-      window.removeEventListener("keydown", sync);
-      window.removeEventListener("keyup", sync);
-      window.removeEventListener("blur", clear);
-    };
-  }, []);
+    setShowJumpHints(shouldShowJumpHintsNow);
+  }, [shouldShowJumpHintsNow]);
 
   const attachListAutoAnimateRef = useCallback((node: HTMLUListElement | null) => {
     if (!node) return;
@@ -1385,20 +1375,42 @@ export default function SidebarV2() {
   }, [newThreadTargetProject, projects]);
 
   const commandPaletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
-  const newThreadShortcutLabel = shortcutLabelForCommand(keybindings, "chat.new");
+  // Same resolution as v1: prefer the local-thread binding, fall back to
+  // chat.new, no platform gating — web users have working shortcuts too.
+  const newThreadShortcutLabel =
+    shortcutLabelForCommand(keybindings, "chat.newLocal") ??
+    shortcutLabelForCommand(keybindings, "chat.new");
+  const projectScrollerRef = useRef<HTMLDivElement>(null);
+  const [canScrollProjectsRight, setCanScrollProjectsRight] = useState(false);
+  const updateProjectScrollFade = useCallback(() => {
+    const scroller = projectScrollerRef.current;
+    if (!scroller) return;
+    setCanScrollProjectsRight(
+      scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1,
+    );
+  }, []);
+  useEffect(() => {
+    const scroller = projectScrollerRef.current;
+    if (!scroller) return;
+
+    updateProjectScrollFade();
+    const resizeObserver = new ResizeObserver(updateProjectScrollFade);
+    resizeObserver.observe(scroller);
+    return () => resizeObserver.disconnect();
+  }, [projects, updateProjectScrollFade]);
 
   return (
     <>
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent className="gap-0">
-        <SidebarGroup className="px-2 pt-2 pb-1">
-          <SidebarMenu>
-            <SidebarMenuItem>
+        <SidebarGroup className="px-2 pb-2 pt-3">
+          <SidebarMenu className="flex-row gap-1">
+            <SidebarMenuItem className="min-w-0 flex-1">
               <CommandDialogTrigger
                 render={
                   <SidebarMenuButton
                     size="sm"
-                    className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground focus-visible:ring-0"
+                    className="gap-2 border border-border bg-background/60 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground focus-visible:ring-0"
                     data-testid="command-palette-trigger"
                   />
                 }
@@ -1412,88 +1424,99 @@ export default function SidebarV2() {
                 ) : null}
               </CommandDialogTrigger>
             </SidebarMenuItem>
-            <SidebarMenuItem>
+            <SidebarMenuItem className="shrink-0">
               <SidebarMenuButton
                 size="sm"
-                className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                className="size-7 justify-center border border-border bg-background/60 p-0 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
                 onClick={handleNewThreadClick}
                 disabled={projects.length === 0}
+                aria-label="New thread"
+                tooltip={{
+                  children: newThreadShortcutLabel
+                    ? `New thread (${newThreadShortcutLabel})`
+                    : "New thread",
+                  side: "right",
+                }}
               >
-                <PlusIcon className="size-3.5 text-muted-foreground/70" />
-                <span className="flex-1 truncate text-left text-xs">New thread</span>
-                {newThreadShortcutLabel ? (
-                  <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">
-                    {newThreadShortcutLabel}
-                  </Kbd>
-                ) : null}
+                <SquarePenIcon className="size-3.5 text-muted-foreground/70" />
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>
         {projects.length > 0 ? (
-          <SidebarGroup className="px-2 pb-1 pt-0.5">
-            <div
-              className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              role="tablist"
-              aria-label="Filter threads by project"
-            >
-              {projects.length > 1 ? (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={projectScopeKey === null}
-                  onClick={() => setProjectScopeKey(null)}
-                  className={cn(
-                    "shrink-0 border px-2.5 py-1 font-mono text-[11px] font-medium uppercase tracking-wide transition-colors",
-                    projectScopeKey === null
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-black/15 text-muted-foreground hover:border-black/40 hover:text-foreground dark:border-white/15 dark:hover:border-white/40",
-                  )}
-                >
-                  All
-                </button>
-              ) : null}
-              {projects.map((project) => {
-                const scopeKey = `${project.environmentId}:${project.id}`;
-                const isScoped = projectScopeKey === scopeKey;
-                return (
+          <SidebarGroup className="px-2 pb-1 pt-1">
+            <div className="relative">
+              <div
+                ref={projectScrollerRef}
+                onScroll={updateProjectScrollFade}
+                className={cn(
+                  "flex items-center gap-1 overflow-x-auto pr-10 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                  canScrollProjectsRight &&
+                    "[mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-4.5rem),transparent_calc(100%-2rem))] [-webkit-mask-image:linear-gradient(to_right,#000_0,#000_calc(100%-4.5rem),transparent_calc(100%-2rem))]",
+                )}
+                role="tablist"
+                aria-label="Filter threads by project"
+              >
+                {projects.length > 1 ? (
                   <button
-                    key={scopeKey}
                     type="button"
                     role="tab"
-                    aria-selected={isScoped}
-                    onClick={() => setProjectScopeKey(isScoped ? null : scopeKey)}
+                    aria-selected={projectScopeKey === null}
+                    onClick={() => setProjectScopeKey(null)}
                     className={cn(
-                      "flex shrink-0 items-center gap-1.5 border py-1 pl-1.5 pr-2.5 font-mono text-[11px] font-medium transition-colors",
-                      isScoped
-                        ? "border-foreground bg-foreground/10 text-foreground dark:bg-white/[0.1]"
+                      "shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      projectScopeKey === null
+                        ? "border-foreground/15 bg-accent text-foreground"
                         : "border-black/15 text-muted-foreground hover:border-black/40 hover:text-foreground dark:border-white/15 dark:hover:border-white/40",
                     )}
                   >
-                    <ProjectFavicon
-                      environmentId={project.environmentId}
-                      cwd={project.workspaceRoot}
-                      className="size-3.5"
-                    />
-                    <span className="max-w-28 truncate">{project.title}</span>
+                    All
                   </button>
-                );
-              })}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
+                ) : null}
+                {projects.map((project) => {
+                  const scopeKey = `${project.environmentId}:${project.id}`;
+                  const isScoped = projectScopeKey === scopeKey;
+                  return (
                     <button
+                      key={scopeKey}
                       type="button"
-                      aria-label="Add project"
-                      onClick={openAddProjectCommandPalette}
-                      className="flex size-6 shrink-0 items-center justify-center border border-dashed border-black/20 text-muted-foreground/60 transition-colors hover:border-solid hover:border-black/40 hover:text-foreground dark:border-white/20 dark:hover:border-white/40"
-                    />
-                  }
-                >
-                  <PlusIcon className="size-3" />
-                </TooltipTrigger>
-                <TooltipPopup side="bottom">Add project</TooltipPopup>
-              </Tooltip>
+                      role="tab"
+                      aria-selected={isScoped}
+                      onClick={() => setProjectScopeKey(isScoped ? null : scopeKey)}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-md border py-1 pl-1.5 pr-2.5 text-[11px] font-medium transition-colors",
+                        isScoped
+                          ? "border-foreground/15 bg-accent text-foreground"
+                          : "border-black/15 text-muted-foreground hover:border-black/40 hover:text-foreground dark:border-white/15 dark:hover:border-white/40",
+                      )}
+                    >
+                      <ProjectFavicon
+                        environmentId={project.environmentId}
+                        cwd={project.workspaceRoot}
+                        className="size-3.5"
+                      />
+                      <span className="max-w-28 truncate">{project.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex w-12 items-center justify-end bg-gradient-to-r from-transparent via-card/90 to-card">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label="Add project"
+                        onClick={openAddProjectCommandPalette}
+                        className="pointer-events-auto flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground/70 shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+                      />
+                    }
+                  >
+                    <FolderPlusIcon className="size-3.5" />
+                  </TooltipTrigger>
+                  <TooltipPopup side="bottom">Add project</TooltipPopup>
+                </Tooltip>
+              </div>
             </div>
           </SidebarGroup>
         ) : null}
@@ -1513,18 +1536,20 @@ export default function SidebarV2() {
                 !settledThreadKeys.has(
                   scopedThreadKey(scopeThreadRef(previousThread.environmentId, previousThread.id)),
                 );
-              const showQuietDivider = !isCard && previousWasCard;
+              const showSettledGap = !isCard && previousWasCard;
               return (
                 <SidebarV2Row
-                  showQuietDivider={showQuietDivider}
+                  showSettledGap={showSettledGap}
                   key={threadKey}
                   thread={thread}
                   variant={isCard ? "card" : "slim"}
-                  // Un-settle only when there is an archive to undo. An
-                  // auto-settled row (inactivity / merged PR, archivedAt
-                  // null) offers Settle: archiving is the explicit "keep it
-                  // settled" the row can actually deliver.
-                  variantAction={isSettledRow && thread.archivedAt !== null ? "unsettle" : "settle"}
+                  // Every settled row can un-settle: explicit settles clear
+                  // the override, auto-settled rows get pinned active.
+                  variantAction={isSettledRow ? "unsettle" : "settle"}
+                  settlementSupported={
+                    serverConfigs.get(thread.environmentId)?.environment.capabilities
+                      .threadSettlement === true
+                  }
                   isActive={routeThreadKey === threadKey}
                   jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
                   currentEnvironmentId={primaryEnvironmentId}
@@ -1556,7 +1581,7 @@ export default function SidebarV2() {
                 <button
                   type="button"
                   onClick={showMoreSettled}
-                  className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 border border-dashed border-black/15 font-mono text-[11px] text-muted-foreground transition-colors hover:border-solid hover:border-black/30 hover:text-foreground dark:border-white/15 dark:hover:border-white/30"
+                  className="mt-1 flex h-[30px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-black/15 font-mono text-[11px] text-muted-foreground transition-colors hover:border-solid hover:border-black/30 hover:text-foreground dark:border-white/15 dark:hover:border-white/30"
                 >
                   Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
                   <span className="text-muted-foreground/50">
@@ -1574,7 +1599,7 @@ export default function SidebarV2() {
                   <button
                     type="button"
                     onClick={openAddProjectCommandPalette}
-                    className="inline-flex items-center gap-1.5 border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <PlusIcon className="size-3" />
                     Add project

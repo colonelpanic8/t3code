@@ -418,17 +418,25 @@ export function resolveThreadRowClassName(input: {
 }
 
 // ── Sidebar v2 status model ─────────────────────────────────────────
-// Four visual states, three colors: color is reserved for "act now"
+// Five visual states, three colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the
 // unlabeled resting state — the agent stopped and is waiting on the user,
 // whether it finished, asked a question, or proposed a plan.
-export type SidebarV2Status = "approval" | "working" | "failed" | "ready";
+// Unread completion is tracked separately: it describes whether a ready
+// thread needs attention, not what the thread is currently doing.
+export type SidebarV2Status = "approval" | "input" | "working" | "failed" | "ready";
 
-type SidebarV2StatusInput = Pick<SidebarThreadSummary, "hasPendingApprovals" | "session">;
+type SidebarV2StatusInput = Pick<
+  SidebarThreadSummary,
+  "hasPendingApprovals" | "hasPendingUserInput" | "session"
+>;
 
 export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2Status {
   if (thread.hasPendingApprovals) {
     return "approval";
+  }
+  if (thread.hasPendingUserInput) {
+    return "input";
   }
   if (thread.session?.status === "running" || thread.session?.status === "starting") {
     return "working";
@@ -437,6 +445,27 @@ export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2S
     return "failed";
   }
   return "ready";
+}
+
+/** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
+    poison the whole ordering, so it sinks to the epoch instead. */
+export function parseTimestampMs(isoDate: string): number {
+  const parsed = Date.parse(isoDate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** First VALID timestamp wins: `a ?? b` falls through on null, but a present-
+    yet-malformed string must also fall through to the next candidate rather
+    than sink the row to the epoch. */
+export function firstValidTimestampMs(
+  ...candidates: ReadonlyArray<string | null | undefined>
+): number {
+  for (const candidate of candidates) {
+    if (candidate == null) continue;
+    const parsed = Date.parse(candidate);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
 }
 
 // v2 sort: static creation order, newest thread on top. Activity NEVER
@@ -448,7 +477,8 @@ export function sortThreadsForSidebarV2<
 >(threads: readonly T[]): T[] {
   return [...threads].toSorted(
     (left, right) =>
-      Date.parse(right.createdAt) - Date.parse(left.createdAt) || left.id.localeCompare(right.id),
+      parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
+      left.id.localeCompare(right.id),
   );
 }
 

@@ -15,19 +15,22 @@ import type {
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, View } from "react-native";
+import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
+import { ProjectFavicon } from "../../components/ProjectFavicon";
 import type { WorkspaceState } from "../../state/workspaceModel";
 import type { SavedRemoteConnection } from "../../lib/connection";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useArchivedThreadSnapshots } from "../archive/useArchivedThreadSnapshots";
+import { cn } from "../../lib/cn";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { environmentServerConfigsAtom } from "../../state/server";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
   PendingTaskListRow,
@@ -167,6 +170,80 @@ function HomeTopContentSpacer() {
   return <View className="h-4" />;
 }
 
+function ThreadListV2ProjectScope(props: {
+  readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly selectedKey: string | null;
+  readonly onChange: (key: string | null) => void;
+}) {
+  if (props.projects.length === 0) return null;
+
+  return (
+    <ScrollView
+      horizontal
+      contentContainerStyle={{
+        gap: 8,
+        paddingHorizontal: 16,
+        paddingBottom: 8,
+        paddingTop: Platform.OS === "ios" ? 12 : 4,
+      }}
+      keyboardShouldPersistTaps="handled"
+      showsHorizontalScrollIndicator={false}
+    >
+      {props.projects.length > 1 ? (
+        <Pressable
+          accessibilityLabel="Show all threads"
+          accessibilityRole="button"
+          accessibilityState={{ selected: props.selectedKey === null }}
+          hitSlop={4}
+          onPress={() => props.onChange(null)}
+          className={cn(
+            "min-h-8 items-center justify-center rounded-lg border px-3",
+            props.selectedKey === null
+              ? "border-border bg-subtle-strong"
+              : "border-black/15 dark:border-white/15",
+          )}
+        >
+          <Text className="text-sm font-t3-medium text-foreground">All</Text>
+        </Pressable>
+      ) : null}
+      {props.projects.map((project) => {
+        const key = scopedProjectKey(project.environmentId, project.id);
+        const selected = props.selectedKey === key;
+        return (
+          <Pressable
+            key={key}
+            accessibilityLabel={`Show ${project.title} threads`}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            hitSlop={4}
+            onPress={() => props.onChange(selected ? null : key)}
+            className={cn(
+              "min-h-8 flex-row items-center gap-1.5 rounded-lg border py-1 pl-2 pr-3",
+              selected ? "border-border bg-subtle-strong" : "border-black/15 dark:border-white/15",
+            )}
+          >
+            <ProjectFavicon
+              environmentId={project.environmentId}
+              projectTitle={project.title}
+              size={15}
+              workspaceRoot={project.workspaceRoot}
+            />
+            <Text
+              className={cn(
+                "max-w-36 text-sm font-t3-medium",
+                selected ? "text-foreground" : "text-foreground-muted",
+              )}
+              numberOfLines={1}
+            >
+              {project.title}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 /* ─── Main screen ────────────────────────────────────────────────────── */
 
 export function HomeScreen(props: HomeScreenProps) {
@@ -289,17 +366,34 @@ export function HomeScreen(props: HomeScreenProps) {
     return map;
   }, [props.projects]);
 
+  const [v2ProjectScopeKey, setV2ProjectScopeKey] = useState<string | null>(null);
+  const v2ScopeProjects = useMemo(
+    () =>
+      props.selectedEnvironmentId === null
+        ? props.projects
+        : props.projects.filter((project) => project.environmentId === props.selectedEnvironmentId),
+    [props.projects, props.selectedEnvironmentId],
+  );
+  const v2ScopedProject = useMemo(
+    () =>
+      v2ProjectScopeKey === null
+        ? null
+        : (v2ScopeProjects.find(
+            (project) => scopedProjectKey(project.environmentId, project.id) === v2ProjectScopeKey,
+          ) ?? null),
+    [v2ProjectScopeKey, v2ScopeProjects],
+  );
+  useEffect(() => {
+    if (v2ProjectScopeKey !== null && v2ScopedProject === null) {
+      setV2ProjectScopeKey(null);
+    }
+  }, [v2ProjectScopeKey, v2ScopedProject]);
+
   // Thread List v2 (beta): one flat list in creation order, no grouping.
   // Settled threads collapse into a recency tail below the card block.
-  // Settle = archive in the client-only model, and the live shell stream
-  // drops archived threads — merge them back from the archived snapshot so
-  // they render as the settled tail. Live shells win on overlap.
-  const archivedEnvironmentIds = useMemo(
-    () =>
-      threadListV2Enabled ? props.environments.map((environment) => environment.environmentId) : [],
-    [props.environments, threadListV2Enabled],
-  );
-  const { snapshots: archivedSnapshots } = useArchivedThreadSnapshots(archivedEnvironmentIds);
+  // Settled threads stay in the live shell stream (settled ≠ archived), so
+  // the partition works directly off live shells — no snapshot merging or
+  // optimistic holds.
   // PR states stream in per-row (rows own the VCS subscriptions); a merged or
   // closed PR auto-settles its thread on the next partition (mirrors web).
   const [changeRequestStateByKey, setChangeRequestStateByKey] = useState<
@@ -320,83 +414,20 @@ export function HomeScreen(props: HomeScreenProps) {
     },
     [],
   );
-  // Bridge the gap between the live stream dropping a just-settled thread
-  // and the archived snapshot returning it: hold the shell we settled,
-  // marked archived, until the snapshot carries it. Held explicitly at
-  // settle time so deleted threads are never resurrected.
-  const [settledHolds, setSettledHolds] = useState<ReadonlyMap<string, EnvironmentThreadShell>>(
-    () => new Map(),
-  );
   const handleSettleThread = useCallback(
     (thread: EnvironmentThreadShell) => {
-      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
-      setSettledHolds((current) =>
-        new Map(current).set(threadKey, {
-          ...thread,
-          archivedAt: thread.archivedAt ?? new Date().toISOString(),
-        }),
-      );
-      void (async () => {
-        // Roll the optimistic hold back if the settle was blocked or failed —
-        // otherwise a never-archived thread would render settled forever.
-        const succeeded = await props.onSettleThread(thread);
-        if (!succeeded) {
-          setSettledHolds((current) => {
-            const next = new Map(current);
-            next.delete(threadKey);
-            return next;
-          });
-        }
-      })();
+      void props.onSettleThread(thread);
     },
     [props.onSettleThread],
   );
-  // Delete and un-settle both invalidate any hold for the thread.
-  const dropSettledHold = useCallback((thread: EnvironmentThreadShell) => {
-    setSettledHolds((current) => {
-      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
-      if (!current.has(threadKey)) return current;
-      const next = new Map(current);
-      next.delete(threadKey);
-      return next;
-    });
-  }, []);
-  const handleDeleteThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      dropSettledHold(thread);
-      props.onDeleteThread(thread);
-    },
-    [dropSettledHold, props.onDeleteThread],
-  );
-  const handleUnsettleThread = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      dropSettledHold(thread);
-      props.onUnsettleThread(thread);
-    },
-    [dropSettledHold, props.onUnsettleThread],
-  );
-  useEffect(() => {
-    if (settledHolds.size === 0) return;
-    const covered = new Set<string>();
-    for (const { environmentId, snapshot } of archivedSnapshots) {
-      for (const thread of snapshot.threads) {
-        covered.add(scopedThreadKey(environmentId, thread.id));
-      }
-    }
-    if ([...settledHolds.keys()].some((threadKey) => covered.has(threadKey))) {
-      setSettledHolds((current) => {
-        const next = new Map(current);
-        for (const threadKey of covered) next.delete(threadKey);
-        return next;
-      });
-    }
-  }, [archivedSnapshots, settledHolds]);
+  const handleDeleteThread = props.onDeleteThread;
+  const handleUnsettleThread = props.onUnsettleThread;
   // The settled tail renders in pages; expansion resets when the filter
   // context changes so environment/search flips never inherit a deep page.
   const [settledVisibleCount, setSettledVisibleCount] = useState(
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   );
-  const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${props.searchQuery.trim()}`;
+  const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${v2ProjectScopeKey ?? "all"}:${props.searchQuery.trim()}`;
   const lastSettledResetKeyRef = useRef(settledResetKey);
   if (lastSettledResetKeyRef.current !== settledResetKey) {
     lastSettledResetKeyRef.current = settledResetKey;
@@ -406,42 +437,62 @@ export function HomeScreen(props: HomeScreenProps) {
     () => setSettledVisibleCount((count) => count + THREAD_LIST_V2_SETTLED_PAGE_COUNT),
     [],
   );
-  const threadListV2Layout = useMemo(() => {
-    if (!threadListV2Enabled) return { items: [], hiddenSettledCount: 0 };
-    const merged = new Map<string, EnvironmentThreadShell>();
-    for (const { environmentId, snapshot } of archivedSnapshots) {
-      for (const thread of snapshot.threads) {
-        merged.set(scopedThreadKey(environmentId, thread.id), { ...thread, environmentId });
+  // now is quantized to the minute and ticks so the inactivity auto-settle
+  // boundary is actually crossed while the app stays open (mirrors web);
+  // without a clock dependency the partition memoizes a frozen "now".
+  const [nowMinute, setNowMinute] = useState(() => new Date().toISOString().slice(0, 16));
+  useEffect(() => {
+    if (!threadListV2Enabled) return;
+    const id = setInterval(() => setNowMinute(new Date().toISOString().slice(0, 16)), 60_000);
+    return () => clearInterval(id);
+  }, [threadListV2Enabled]);
+  // Threads on servers without the settlement capability never classify as
+  // settled (the user could neither un-settle nor pin them).
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
+  const settlementEnvironmentIds = useMemo(() => {
+    const supported = new Set<EnvironmentId>();
+    for (const [environmentId, config] of serverConfigs) {
+      if (config.environment.capabilities.threadSettlement === true) {
+        supported.add(environmentId);
       }
     }
-    for (const thread of props.threads) {
-      merged.set(scopedThreadKey(thread.environmentId, thread.id), thread);
-    }
-    for (const [threadKey, shell] of settledHolds) {
-      if (merged.has(threadKey)) continue;
-      merged.set(threadKey, shell);
-    }
+    return supported;
+  }, [serverConfigs]);
+  const threadListV2Layout = useMemo(() => {
+    if (!threadListV2Enabled) return { items: [], hiddenSettledCount: 0 };
+    // Settled threads are live shells; archived threads keep their original
+    // "hidden from lists" meaning.
     return buildThreadListV2Items({
-      threads: [...merged.values()],
+      threads: props.threads.filter((thread) => thread.archivedAt === null),
       environmentId: props.selectedEnvironmentId,
+      projectRef:
+        v2ScopedProject === null
+          ? null
+          : {
+              environmentId: v2ScopedProject.environmentId,
+              projectId: v2ScopedProject.id,
+            },
       searchQuery: props.searchQuery,
       changeRequestStateByKey,
+      settlementEnvironmentIds,
       settledLimit: settledVisibleCount,
+      now: `${nowMinute}:00.000Z`,
     });
   }, [
     changeRequestStateByKey,
-    settledHolds,
+    nowMinute,
     settledVisibleCount,
-    archivedSnapshots,
+    settlementEnvironmentIds,
     props.searchQuery,
     props.selectedEnvironmentId,
     props.threads,
     threadListV2Enabled,
+    v2ScopedProject,
   ]);
   const threadListV2Items = threadListV2Layout.items;
 
   const renderV2Item = useCallback(
-    ({ item }: LegendListRenderItemProps<ThreadListV2Item>) => (
+    ({ item }: { readonly item: ThreadListV2Item }) => (
       <ThreadListV2Row
         thread={item.thread}
         variant={item.variant}
@@ -450,9 +501,19 @@ export function HomeScreen(props: HomeScreenProps) {
           projectByKey.get(scopedProjectKey(item.thread.environmentId, item.thread.projectId)) ??
           null
         }
+        providerDriver={
+          serverConfigs
+            .get(item.thread.environmentId)
+            ?.providers.find(
+              (provider) =>
+                provider.instanceId ===
+                (item.thread.session?.providerInstanceId ?? item.thread.modelSelection.instanceId),
+            )?.driver ?? null
+        }
         onSelectThread={props.onSelectThread}
-        onArchiveThread={props.onArchiveThread}
         onDeleteThread={handleDeleteThread}
+        onArchiveThread={props.onArchiveThread}
+        settlementSupported={settlementEnvironmentIds.has(item.thread.environmentId)}
         onSettleThread={handleSettleThread}
         onUnsettleThread={handleUnsettleThread}
         onChangeRequestState={handleChangeRequestState}
@@ -475,6 +536,8 @@ export function HomeScreen(props: HomeScreenProps) {
       projectCwdByKey,
       props.onArchiveThread,
       props.onSelectThread,
+      serverConfigs,
+      settlementEnvironmentIds,
     ],
   );
   const v2KeyExtractor = useCallback(
@@ -575,12 +638,12 @@ export function HomeScreen(props: HomeScreenProps) {
   const keyExtractor = useCallback((item: HomeListItem) => item.key, []);
 
   /* Empty states */
-  // v2 shows archived threads as its settled tail, so an archived-only
-  // workspace still has a list to render there.
+  // The signal must ignore the search/environment filters: an active query
+  // that matches nothing needs the in-list "No results" state, not the
+  // full-page "No threads yet". Settled threads are unarchived live shells,
+  // so the v1 check already covers v2.
   const hasAnyThreads =
-    props.threads.some((thread) => thread.archivedAt === null) ||
-    props.pendingTasks.length > 0 ||
-    (threadListV2Enabled && threadListV2Items.length > 0);
+    props.threads.some((thread) => thread.archivedAt === null) || props.pendingTasks.length > 0;
   const hasResults = projectGroups.length > 0;
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
@@ -657,11 +720,27 @@ export function HomeScreen(props: HomeScreenProps) {
 
   // v2 renders queued offline tasks above the thread cards — they are not
   // thread shells, so the v2 item builder never sees them, but they must
-  // stay visible and deletable while their environment is offline.
+  // stay visible and deletable while their environment is offline. They
+  // respect the same environment scope and search filter as the list.
+  const v2SearchQuery = props.searchQuery.trim().toLocaleLowerCase();
+  const v2PendingTasks = props.pendingTasks.filter(
+    (pendingTask) =>
+      (props.selectedEnvironmentId === null ||
+        pendingTask.message.environmentId === props.selectedEnvironmentId) &&
+      (v2ScopedProject === null ||
+        (pendingTask.message.environmentId === v2ScopedProject.environmentId &&
+          pendingTask.creation.projectId === v2ScopedProject.id)) &&
+      (v2SearchQuery.length === 0 || pendingTask.title.toLocaleLowerCase().includes(v2SearchQuery)),
+  );
   const v2ListHeader = (
     <>
       {listHeader}
-      {props.pendingTasks.map((pendingTask, index) => (
+      <ThreadListV2ProjectScope
+        projects={v2ScopeProjects}
+        selectedKey={v2ProjectScopeKey}
+        onChange={setV2ProjectScopeKey}
+      />
+      {v2PendingTasks.map((pendingTask, index) => (
         <PendingTaskListRow
           key={pendingTask.message.messageId}
           variant="compact"
@@ -669,7 +748,7 @@ export function HomeScreen(props: HomeScreenProps) {
           environmentLabel={
             props.savedConnectionsById[pendingTask.message.environmentId]?.environmentLabel ?? null
           }
-          isLast={index === props.pendingTasks.length - 1}
+          isLast={index === v2PendingTasks.length - 1}
           onSelectPendingTask={props.onSelectPendingTask}
           onDeletePendingTask={props.onDeletePendingTask}
         />
@@ -689,18 +768,25 @@ export function HomeScreen(props: HomeScreenProps) {
       <EmptyState title="No threads yet" detail="Create a task to start a new coding session." />
     )
   ) : null;
+  const v2ListEmpty =
+    threadListV2Items.length === 0 && v2PendingTasks.length === 0 && v2ScopedProject !== null ? (
+      <EmptyState
+        title={`No threads in ${v2ScopedProject.title}`}
+        detail="Choose another project or create a new task."
+      />
+    ) : (
+      listEmpty
+    );
 
   if (threadListV2Enabled) {
     return (
       <View className="flex-1 bg-screen">
         <SwipeableScrollGateProvider enabled={swipeEnabled}>
-          <LegendList
+          <FlatList
             data={threadListV2Items}
             renderItem={renderV2Item}
             keyExtractor={v2KeyExtractor}
-            drawDistance={500}
-            estimatedItemSize={ESTIMATED_THREAD_ROW_HEIGHT}
-            extraData={projectByKey}
+            extraData={{ projectByKey, serverConfigs }}
             ListHeaderComponent={v2ListHeader}
             ListFooterComponent={
               threadListV2Layout.hiddenSettledCount > 0 ? (
@@ -708,16 +794,16 @@ export function HomeScreen(props: HomeScreenProps) {
                   accessibilityRole="button"
                   accessibilityLabel={`Show ${Math.min(threadListV2Layout.hiddenSettledCount, THREAD_LIST_V2_SETTLED_PAGE_COUNT)} more settled threads`}
                   onPress={showMoreSettled}
-                  className="mx-5 mt-1 items-center rounded-full bg-subtle py-2"
+                  className="mx-4 mt-2 items-center rounded-lg border border-dashed border-border py-2.5"
                   style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Text className="text-sm font-t3-medium text-foreground-muted">
+                  <Text className="text-xs font-t3-medium text-foreground-muted">
                     Show more ({threadListV2Layout.hiddenSettledCount} settled hidden)
                   </Text>
                 </Pressable>
               ) : null
             }
-            ListEmptyComponent={listEmpty}
+            ListEmptyComponent={v2ListEmpty}
             style={{ flex: 1 }}
             automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}
             contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
@@ -725,12 +811,11 @@ export function HomeScreen(props: HomeScreenProps) {
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             {...scrollGateHandlers}
-            recycleItems
             scrollEventThrottle={16}
             contentContainerStyle={{
               paddingBottom:
                 Platform.OS === "ios"
-                  ? Math.max(insets.bottom, 24) + 24
+                  ? Math.max(insets.bottom, 24) + 96
                   : Math.max(insets.bottom, 16) + 88,
             }}
           />

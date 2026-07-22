@@ -4,6 +4,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { canSettle } from "@t3tools/client-runtime/state/thread-settled";
 import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
@@ -19,7 +20,12 @@ import { vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { readLocalApi } from "../localApi";
-import { readEnvironmentThreadRefs, readProject, readThreadShell } from "../state/entities";
+import {
+  readEnvironmentSupportsSettlement,
+  readEnvironmentThreadRefs,
+  readProject,
+  readThreadShell,
+} from "../state/entities";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
@@ -39,6 +45,30 @@ export class ThreadArchiveBlockedError extends Schema.TaggedErrorClass<ThreadArc
   }
 }
 
+export class ThreadSettlementUnsupportedError extends Schema.TaggedErrorClass<ThreadSettlementUnsupportedError>()(
+  "ThreadSettlementUnsupportedError",
+  {
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    return "This environment's server does not support settling yet. Update the server to use Settle.";
+  }
+}
+
+export class ThreadSettleBlockedError extends Schema.TaggedErrorClass<ThreadSettleBlockedError>()(
+  "ThreadSettleBlockedError",
+  {
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    return "This thread still needs attention. Resolve or interrupt it first, then try again.";
+  }
+}
+
 export function useThreadActions() {
   const closeTerminal = useAtomCommand(terminalEnvironment.close);
   const archiveThreadMutation = useAtomCommand(threadEnvironment.archive, {
@@ -50,12 +80,10 @@ export function useThreadActions() {
   const deleteThreadMutation = useAtomCommand(threadEnvironment.delete, {
     reportFailure: false,
   });
-  // Client-only settled model: settle/unsettle ride the pre-existing archive
-  // lifecycle so no server upgrade is required. See threadSettled.ts.
-  const settleThreadMutation = useAtomCommand(threadEnvironment.archive, {
+  const settleThreadMutation = useAtomCommand(threadEnvironment.settle, {
     reportFailure: false,
   });
-  const unsettleThreadMutation = useAtomCommand(threadEnvironment.unarchive, {
+  const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession);
@@ -355,17 +383,26 @@ export function useThreadActions() {
 
   const settleThread = useCallback(
     async (target: ScopedThreadRef) => {
-      const resolved = resolveThreadTarget(target);
-      // Settle rides archive, so it inherits archive's guard: never
-      // interrupt a thread mid-turn.
-      if (
-        resolved &&
-        resolved.thread.session?.status === "running" &&
-        resolved.thread.session.activeTurnId != null
-      ) {
+      // Version skew: never send the command to a server that predates it —
+      // the raw protocol rejection would read as a random failure.
+      if (!readEnvironmentSupportsSettlement(target.environmentId)) {
         return AsyncResult.failure(
           Cause.fail(
-            new ThreadArchiveBlockedError({
+            new ThreadSettlementUnsupportedError({
+              environmentId: target.environmentId,
+              threadId: target.threadId,
+            }),
+          ),
+        );
+      }
+      const resolved = resolveThreadTarget(target);
+      // Settle may only target what effectiveSettled could classify as
+      // settled: not starting/running sessions, not threads waiting on
+      // approvals or user input. Anything else would hide live work.
+      if (resolved && !canSettle(resolved.thread, { now: new Date().toISOString() })) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadSettleBlockedError({
               environmentId: resolved.threadRef.environmentId,
               threadId: resolved.threadRef.threadId,
             }),
@@ -373,9 +410,7 @@ export function useThreadActions() {
         );
       }
       // Settle is a high-frequency lifecycle action and stays silent — no
-      // toast. (The old "Thread settled" toast offering worktree removal was
-      // noise; disk cleanup belongs in an explicit surface, not a
-      // notification.)
+      // toast.
       return settleThreadMutation({
         environmentId: target.environmentId,
         input: { threadId: target.threadId },
@@ -386,19 +421,24 @@ export function useThreadActions() {
 
   const unsettleThread = useCallback(
     async (target: ScopedThreadRef) => {
-      // Auto-settled rows (inactivity / merged PR) are not archived; sending
-      // unarchive for them would be rejected by the server. There is nothing
-      // to undo client-side, so succeed as a no-op.
-      const resolved = resolveThreadTarget(target);
-      if (resolved && resolved.thread.archivedAt === null) {
-        return AsyncResult.success(undefined);
+      if (!readEnvironmentSupportsSettlement(target.environmentId)) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadSettlementUnsupportedError({
+              environmentId: target.environmentId,
+              threadId: target.threadId,
+            }),
+          ),
+        );
       }
+      // reason "user" pins the thread active: auto-settle (PR merged /
+      // inactivity) stays suppressed until real activity clears the pin.
       return unsettleThreadMutation({
         environmentId: target.environmentId,
-        input: { threadId: target.threadId },
+        input: { threadId: target.threadId, reason: "user" },
       });
     },
-    [resolveThreadTarget, unsettleThreadMutation],
+    [unsettleThreadMutation],
   );
 
   const confirmAndDeleteThread = useCallback(
