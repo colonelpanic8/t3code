@@ -377,6 +377,19 @@ function reduceCommandPaletteUiState(
   }
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable ||
+    target.closest('[contenteditable]:not([contenteditable="false"])') !== null
+  );
+}
+
 export function CommandPalette({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reduceCommandPaletteUiState, {
     open: false,
@@ -402,7 +415,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.repeat) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: isTerminalFocused(),
@@ -421,6 +434,9 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           editableTarget: target !== null,
         })
       ) {
+        return;
+      }
+      if (command === "project.add" && isEditableKeyboardTarget(event.target)) {
         return;
       }
       event.preventDefault();
@@ -516,6 +532,7 @@ function OpenCommandPaletteDialog(props: {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providers = useAtomValue(primaryServerProvidersAtom);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
+  const addProjectFlowOpenRef = useRef(false);
   const currentView = viewStack.at(-1) ?? null;
   const [browseGeneration, setBrowseGeneration] = useState(0);
   const [addProjectEnvironmentId, setAddProjectEnvironmentId] = useState<EnvironmentId | null>(
@@ -906,6 +923,7 @@ function OpenCommandPaletteDialog(props: {
     setAddProjectCloneFlow(null);
     if (viewStack.length <= 1) {
       setAddProjectEnvironmentId(null);
+      addProjectFlowOpenRef.current = false;
     }
     setViewStack((previousViews) => previousViews.slice(0, -1));
     setHighlightedItemValue(null);
@@ -1089,7 +1107,11 @@ function OpenCommandPaletteDialog(props: {
   );
 
   const openAddProjectFlow = useCallback(() => {
+    if (addProjectFlowOpenRef.current) {
+      return;
+    }
     if (addProjectEnvironmentOptions.length > 1) {
+      addProjectFlowOpenRef.current = true;
       pushPaletteView({
         addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
         groups: addProjectEnvironmentGroups,
@@ -1109,6 +1131,7 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
+    addProjectFlowOpenRef.current = true;
     void startAddProjectSourceSelection(environmentId);
   }, [
     addProjectEnvironmentGroups,
