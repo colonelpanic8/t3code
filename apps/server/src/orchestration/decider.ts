@@ -735,6 +735,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.objective !== undefined ? { objective: command.objective } : {}),
           ...(command.status !== undefined ? { status: command.status } : {}),
           ...(command.tokenBudget !== undefined ? { tokenBudget: command.tokenBudget } : {}),
+          ...(command.modelSelection !== undefined
+            ? { modelSelection: command.modelSelection }
+            : {}),
           createdAt: command.createdAt,
         },
       };
@@ -751,6 +754,34 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         })),
         type: "thread.goal-clear-requested",
         payload: { threadId: command.threadId, createdAt: command.createdAt },
+      };
+    }
+
+    case "thread.goal.sync": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.goal-updated",
+        payload: { threadId: command.threadId, goal: command.goal },
+      };
+    }
+
+    case "thread.goal.sync-clear": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.goal-cleared",
+        payload: { threadId: command.threadId },
       };
     }
 
@@ -861,30 +892,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: command.threadId,
             reason: "activity",
             updatedAt: command.createdAt,
-          },
-        });
-      }
-      if (command.goal !== undefined) {
-        lifecycleResetEvents.push({
-          ...(yield* withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          })),
-          type: "thread.goal-set-requested",
-          payload: {
-            threadId: command.threadId,
-            objective: command.goal.objective,
-            status: "active",
-            ...(command.goal.tokenBudget !== undefined
-              ? { tokenBudget: command.goal.tokenBudget }
-              : {}),
-            ...(command.modelSelection !== undefined
-              ? { modelSelection: command.modelSelection }
-              : {}),
-            blocksTurnStart: true,
-            createdAt: command.createdAt,
           },
         });
       }
