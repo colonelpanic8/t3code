@@ -6,6 +6,7 @@ import {
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
   shouldHandleCommandPaletteShortcut,
+  shouldResetPaletteFlowOnPop,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
 
@@ -64,6 +65,16 @@ describe("enumerateCommandPaletteItems", () => {
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
+
+describe("shouldResetPaletteFlowOnPop", () => {
+  it("resets a flow opened from a nested parent when its first view is popped", () => {
+    expect(shouldResetPaletteFlowOnPop(1, 2)).toBe(true);
+  });
+
+  it("keeps a flow active while popping between its own nested views", () => {
+    expect(shouldResetPaletteFlowOnPop(1, 3)).toBe(false);
+  });
+});
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {

@@ -78,6 +78,13 @@ export function enumerateCommandPaletteItems(
   });
 }
 
+export function shouldResetPaletteFlowOnPop(
+  flowBaseDepth: number | null,
+  currentDepth: number,
+): boolean {
+  return flowBaseDepth !== null && Math.max(0, currentDepth - 1) <= flowBaseDepth;
+}
+
 export type CommandPaletteMode = "root" | "root-browse" | "submenu" | "submenu-browse";
 
 export function filterBrowseEntries(input: {

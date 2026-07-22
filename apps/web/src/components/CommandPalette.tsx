@@ -103,6 +103,7 @@ import {
   ITEM_ICON_CLASS,
   RECENT_THREAD_LIMIT,
   shouldHandleCommandPaletteShortcut,
+  shouldResetPaletteFlowOnPop,
 } from "./CommandPalette.logic";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -532,7 +533,9 @@ function OpenCommandPaletteDialog(props: {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providers = useAtomValue(primaryServerProvidersAtom);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
-  const addProjectFlowOpenRef = useRef(false);
+  const viewStackDepthRef = useRef(0);
+  viewStackDepthRef.current = viewStack.length;
+  const addProjectFlowBaseDepthRef = useRef<number | null>(null);
   const currentView = viewStack.at(-1) ?? null;
   const [browseGeneration, setBrowseGeneration] = useState(0);
   const [addProjectEnvironmentId, setAddProjectEnvironmentId] = useState<EnvironmentId | null>(
@@ -921,9 +924,12 @@ function OpenCommandPaletteDialog(props: {
 
   function popView(): void {
     setAddProjectCloneFlow(null);
-    if (viewStack.length <= 1) {
+    if (
+      viewStack.length <= 1 ||
+      shouldResetPaletteFlowOnPop(addProjectFlowBaseDepthRef.current, viewStack.length)
+    ) {
       setAddProjectEnvironmentId(null);
-      addProjectFlowOpenRef.current = false;
+      addProjectFlowBaseDepthRef.current = null;
     }
     setViewStack((previousViews) => previousViews.slice(0, -1));
     setHighlightedItemValue(null);
@@ -938,9 +944,13 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
+  const markAddProjectFlowOpen = useCallback((): void => {
+    addProjectFlowBaseDepthRef.current ??= viewStackDepthRef.current;
+  }, []);
+
   const startAddProjectBrowse = useCallback(
     (environmentId: EnvironmentId): void => {
-      addProjectFlowOpenRef.current = true;
+      markAddProjectFlowOpen();
       setAddProjectEnvironmentId(environmentId);
       setAddProjectCloneFlow(null);
       pushPaletteView({
@@ -949,12 +959,12 @@ function OpenCommandPaletteDialog(props: {
         initialQuery: getAddProjectInitialQueryForEnvironment(environmentId),
       });
     },
-    [getAddProjectInitialQueryForEnvironment],
+    [getAddProjectInitialQueryForEnvironment, markAddProjectFlowOpen],
   );
 
   const startAddProjectClone = useCallback(
     (environmentId: EnvironmentId, source: AddProjectRemoteSource): void => {
-      addProjectFlowOpenRef.current = true;
+      markAddProjectFlowOpen();
       setAddProjectEnvironmentId(environmentId);
       setAddProjectCloneFlow({ step: "repository", environmentId, source });
       pushPaletteView({
@@ -963,7 +973,7 @@ function OpenCommandPaletteDialog(props: {
         initialQuery: "",
       });
     },
-    [],
+    [markAddProjectFlowOpen],
   );
 
   const openSourceControlSettings = useCallback(() => {
@@ -1067,7 +1077,7 @@ function OpenCommandPaletteDialog(props: {
 
   const startAddProjectSourceSelection = useCallback(
     (environmentId: EnvironmentId): void => {
-      addProjectFlowOpenRef.current = true;
+      markAddProjectFlowOpen();
       setAddProjectEnvironmentId(environmentId);
       setAddProjectCloneFlow(null);
       pushPaletteView({
@@ -1080,7 +1090,12 @@ function OpenCommandPaletteDialog(props: {
         ),
       });
     },
-    [browseEnvironmentId, buildAddProjectSourceGroups, sourceControlDiscovery.data],
+    [
+      browseEnvironmentId,
+      buildAddProjectSourceGroups,
+      markAddProjectFlowOpen,
+      sourceControlDiscovery.data,
+    ],
   );
 
   const addProjectEnvironmentItems: CommandPaletteActionItem[] = addProjectEnvironmentOptions.map(
@@ -1110,11 +1125,11 @@ function OpenCommandPaletteDialog(props: {
   );
 
   const openAddProjectFlow = useCallback(() => {
-    if (addProjectFlowOpenRef.current) {
+    if (addProjectFlowBaseDepthRef.current !== null) {
       return;
     }
     if (addProjectEnvironmentOptions.length > 1) {
-      addProjectFlowOpenRef.current = true;
+      markAddProjectFlowOpen();
       pushPaletteView({
         addonIcon: <FolderPlusIcon className={ADDON_ICON_CLASS} />,
         groups: addProjectEnvironmentGroups,
@@ -1134,12 +1149,13 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    addProjectFlowOpenRef.current = true;
+    markAddProjectFlowOpen();
     void startAddProjectSourceSelection(environmentId);
   }, [
     addProjectEnvironmentGroups,
     addProjectEnvironmentOptions.length,
     defaultAddProjectEnvironmentId,
+    markAddProjectFlowOpen,
     startAddProjectSourceSelection,
   ]);
 
