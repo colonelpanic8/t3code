@@ -14,7 +14,7 @@ import {
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
 } from "@t3tools/shared/model";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
@@ -31,7 +31,7 @@ import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
-import { Kbd } from "../ui/kbd";
+import { ComposerControlShortcutHint } from "./ComposerControlShortcutHint";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -443,6 +443,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   ...persistence
 }: TraitsMenuContentProps & TraitsPickerControlProps & TraitsPersistence) {
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const isMenuOpen = open ?? uncontrolledMenuOpen;
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, fastModeEnabled } =
     getTraitsSectionVisibility({
@@ -494,6 +495,7 @@ export const TraitsPicker = memo(function TraitsPicker({
       <MenuTrigger
         render={
           <Button
+            ref={triggerRef}
             size="sm"
             variant={triggerVariant ?? "ghost"}
             className={cn(
@@ -509,20 +511,12 @@ export const TraitsPicker = memo(function TraitsPicker({
           <span className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
             {fastModeIcon}
             <span className="min-w-0 truncate">{triggerLabel}</span>
-            {shortcutHintLabel ? (
-              <Kbd className="h-4 min-w-0 shrink-0 rounded-sm px-1.5 text-[10px]">
-                {shortcutHintLabel}
-              </Kbd>
-            ) : null}
             <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
           </span>
         ) : (
           <>
             {fastModeIcon}
             <span>{triggerLabel}</span>
-            {shortcutHintLabel ? (
-              <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{shortcutHintLabel}</Kbd>
-            ) : null}
             <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
           </>
         )}
@@ -540,6 +534,7 @@ export const TraitsPicker = memo(function TraitsPicker({
           {...persistence}
         />
       </MenuPopup>
+      <ComposerControlShortcutHint anchorRef={triggerRef} label={shortcutHintLabel ?? null} />
     </Menu>
   );
 });
