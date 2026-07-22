@@ -380,6 +380,10 @@ describe("parseGoalComposerSlashCommand", () => {
       type: "set",
       objective: "ship reliable reconnects",
     });
+    expect(parseGoalComposerSlashCommand("/goal set pause")).toEqual({
+      type: "set",
+      objective: "pause",
+    });
   });
 
   it("parses goal lifecycle controls", () => {

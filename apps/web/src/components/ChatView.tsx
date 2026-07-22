@@ -4499,7 +4499,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   const handleEditGoal = useCallback(() => {
     if (!activeGoal) return;
-    const nextPrompt = `/goal ${activeGoal.objective}`;
+    const nextPrompt = `/goal set ${activeGoal.objective}`;
     composerRef.current?.replacePrompt(nextPrompt);
   }, [activeGoal, composerRef]);
 
@@ -4581,9 +4581,6 @@ function ChatViewContent(props: ChatViewProps) {
         ? parseGoalComposerSlashCommand(trimmed)
         : null;
     if (goalCommand && goalCommand.type !== "set") {
-      promptRef.current = "";
-      clearComposerDraftContent(composerDraftTarget);
-      composerRef.current?.resetCursorState();
       if (!activeGoal) {
         toastManager.add(
           stackedThreadToast({
@@ -4595,6 +4592,9 @@ function ChatViewContent(props: ChatViewProps) {
         return;
       }
       if (goalCommand.type === "view") {
+        promptRef.current = "";
+        clearComposerDraftContent(composerDraftTarget);
+        composerRef.current?.resetCursorState();
         toastManager.add(
           stackedThreadToast({
             type: "info",
@@ -4604,6 +4604,19 @@ function ChatViewContent(props: ChatViewProps) {
         );
         return;
       }
+      if (isGoalMutationPending) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "Goal update in progress",
+            description: "Wait for the current goal update to finish, then try again.",
+          }),
+        );
+        return;
+      }
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
       if (goalCommand.type === "clear") {
         await handleClearGoal();
         return;
