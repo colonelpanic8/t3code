@@ -10,6 +10,7 @@ import {
   type ProviderInteractionMode,
   type ProviderRequestKind,
   type ProviderSession,
+  type ProviderSetThreadGoalInput,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
   RuntimeMode,
@@ -141,6 +142,10 @@ export interface CodexSessionRuntimeShape {
   readonly rollbackThread: (
     numTurns: number,
   ) => Effect.Effect<CodexThreadSnapshot, CodexSessionRuntimeError>;
+  readonly setThreadGoal: (
+    input: Omit<ProviderSetThreadGoalInput, "threadId">,
+  ) => Effect.Effect<void, CodexSessionRuntimeError>;
+  readonly clearThreadGoal: Effect.Effect<void, CodexSessionRuntimeError>;
   readonly respondToRequest: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -504,6 +509,8 @@ function readNotificationThreadId(notification: CodexServerNotification): string
     case "thread/closed":
     case "thread/name/updated":
     case "thread/tokenUsage/updated":
+    case "thread/goal/updated":
+    case "thread/goal/cleared":
     case "turn/started":
     case "hook/started":
     case "turn/completed":
@@ -634,6 +641,8 @@ function shouldSuppressChildConversationNotification(
     method === "thread/compacted" ||
     method === "thread/name/updated" ||
     method === "thread/tokenUsage/updated" ||
+    method === "thread/goal/updated" ||
+    method === "thread/goal/cleared" ||
     method === "turn/started" ||
     method === "turn/completed" ||
     method === "turn/plan/updated" ||
@@ -1218,6 +1227,7 @@ export const makeCodexSessionRuntime = (
       yield* client.notify("initialized", undefined);
 
       const requestedModel = normalizeCodexModelSlug(options.model);
+      const resumeThreadId = readResumeCursorThreadId(options.resumeCursor);
 
       const opened = yield* openCodexThread({
         client,
@@ -1226,7 +1236,7 @@ export const makeCodexSessionRuntime = (
         cwd: options.cwd,
         requestedModel,
         serviceTier: options.serviceTier,
-        resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+        resumeThreadId,
       });
 
       const providerThreadId = opened.thread.id;
@@ -1239,6 +1249,31 @@ export const makeCodexSessionRuntime = (
         updatedAt: yield* nowIso,
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
+      yield* client.request("thread/goal/get", { threadId: providerThreadId }).pipe(
+        Effect.flatMap((response) =>
+          response.goal
+            ? emitEvent({
+                kind: "notification",
+                threadId: options.threadId,
+                method: "thread/goal/updated",
+                payload: {
+                  threadId: providerThreadId,
+                  goal: response.goal,
+                },
+              })
+            : resumeThreadId
+              ? emitEvent({
+                  kind: "notification",
+                  threadId: options.threadId,
+                  method: "thread/goal/cleared",
+                  payload: { threadId: providerThreadId },
+                })
+              : Effect.void,
+        ),
+        Effect.catch((cause) =>
+          Effect.logDebug("Codex thread goal state is unavailable for this session.", { cause }),
+        ),
+      );
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
       return session;
     });
@@ -1361,6 +1396,20 @@ export const makeCodexSessionRuntime = (
           });
           return parseThreadSnapshot(response);
         }),
+      setThreadGoal: (input) =>
+        Effect.gen(function* () {
+          const providerThreadId = yield* readProviderThreadId;
+          yield* client.request("thread/goal/set", {
+            threadId: providerThreadId,
+            ...(input.objective !== undefined ? { objective: input.objective } : {}),
+            ...(input.status !== undefined ? { status: input.status } : {}),
+            ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+          });
+        }),
+      clearThreadGoal: Effect.gen(function* () {
+        const providerThreadId = yield* readProviderThreadId;
+        yield* client.request("thread/goal/clear", { threadId: providerThreadId });
+      }),
       respondToRequest: (requestId, decision) =>
         Effect.gen(function* () {
           const pending = (yield* Ref.get(pendingApprovalsRef)).get(requestId);

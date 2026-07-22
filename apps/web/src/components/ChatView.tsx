@@ -16,6 +16,8 @@ import {
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
+  THREAD_GOAL_MAX_OBJECTIVE_CHARS,
+  type ThreadGoal,
   ProviderInteractionMode,
   ProviderDriverKind,
   RuntimeMode,
@@ -64,6 +66,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { deriveThreadGoal } from "@t3tools/client-runtime/state/threads";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
@@ -71,6 +74,7 @@ import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
   collapseExpandedComposerCursor,
+  parseGoalComposerSlashCommand,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
 import {
@@ -232,6 +236,7 @@ import {
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { resolveThreadPr } from "./ThreadStatusIndicators";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { GoalProgressRow } from "./chat/GoalProgressRow";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
   DRAFT_HERO_TRANSITION_DURATION_MS,
@@ -1149,6 +1154,8 @@ function ChatViewContent(props: ChatViewProps) {
   const setThreadInteractionMode = useAtomCommand(threadEnvironment.setInteractionMode, {
     reportFailure: false,
   });
+  const setThreadGoal = useAtomCommand(threadEnvironment.setGoal, { reportFailure: false });
+  const clearThreadGoal = useAtomCommand(threadEnvironment.clearGoal, { reportFailure: false });
   const startThreadTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, {
     reportFailure: false,
@@ -1415,6 +1422,11 @@ function ChatViewContent(props: ChatViewProps) {
   // depend on which route is mounted.
   const isServerThread = serverThread !== null;
   const activeThread = isServerThread ? serverThread : localDraftThread;
+  const activeGoal = useMemo<ThreadGoal | null>(
+    () => (activeThread ? deriveThreadGoal(activeThread.activities) : null),
+    [activeThread],
+  );
+  const [isGoalMutationPending, setIsGoalMutationPending] = useState(false);
   const threadError = isServerThread
     ? (localServerError ?? serverThread?.session?.lastError ?? null)
     : localDraftError;
@@ -4434,6 +4446,63 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
+  const updateGoalStatus = useCallback(
+    async (status: "active" | "paused") => {
+      if (!activeThread || !isServerThread || isGoalMutationPending) return;
+      setIsGoalMutationPending(true);
+      const result = await setThreadGoal({
+        environmentId,
+        input: { threadId: activeThread.id, status },
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Failed to update the goal.",
+        );
+      }
+      setIsGoalMutationPending(false);
+    },
+    [
+      activeThread,
+      environmentId,
+      isGoalMutationPending,
+      isServerThread,
+      setThreadError,
+      setThreadGoal,
+    ],
+  );
+
+  const handleClearGoal = useCallback(async () => {
+    if (!activeThread || !isServerThread || isGoalMutationPending) return;
+    setIsGoalMutationPending(true);
+    const result = await clearThreadGoal({
+      environmentId,
+      input: { threadId: activeThread.id },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Failed to clear the goal.",
+      );
+    }
+    setIsGoalMutationPending(false);
+  }, [
+    activeThread,
+    clearThreadGoal,
+    environmentId,
+    isGoalMutationPending,
+    isServerThread,
+    setThreadError,
+  ]);
+
+  const handleEditGoal = useCallback(() => {
+    if (!activeGoal) return;
+    const nextPrompt = `/goal ${activeGoal.objective}`;
+    composerRef.current?.replacePrompt(nextPrompt);
+  }, [activeGoal, composerRef]);
+
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     if (
@@ -4491,19 +4560,66 @@ function ChatViewContent(props: ChatViewProps) {
       });
       return;
     }
-    const standaloneSlashCommand =
+    const isStandaloneTextCommand =
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0 &&
       composerElementContexts.length === 0 &&
       composerPreviewAnnotations.length === 0 &&
-      composerReviewComments.length === 0
-        ? parseStandaloneComposerSlashCommand(trimmed)
-        : null;
+      composerReviewComments.length === 0;
+    const standaloneSlashCommand = isStandaloneTextCommand
+      ? parseStandaloneComposerSlashCommand(trimmed)
+      : null;
     if (standaloneSlashCommand) {
       handleInteractionModeChange(standaloneSlashCommand);
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
+      return;
+    }
+    const goalCommand =
+      isStandaloneTextCommand && ctxSelectedProvider === ProviderDriverKind.make("codex")
+        ? parseGoalComposerSlashCommand(trimmed)
+        : null;
+    if (goalCommand && goalCommand.type !== "set") {
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      if (!activeGoal) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "No active goal",
+            description: "Use /goal followed by an objective to start one.",
+          }),
+        );
+        return;
+      }
+      if (goalCommand.type === "view") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: `Goal ${activeGoal.status}`,
+            description: activeGoal.objective,
+          }),
+        );
+        return;
+      }
+      if (goalCommand.type === "clear") {
+        await handleClearGoal();
+        return;
+      }
+      await updateGoalStatus(goalCommand.type === "pause" ? "paused" : "active");
+      return;
+    }
+    const goalObjective = goalCommand?.type === "set" ? goalCommand.objective : null;
+    if (goalObjective && goalObjective.length > THREAD_GOAL_MAX_OBJECTIVE_CHARS) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Goal is too long",
+          description: `Keep the objective under ${THREAD_GOAL_MAX_OBJECTIVE_CHARS.toLocaleString()} characters.`,
+        }),
+      );
       return;
     }
     if (!hasSendableContent) {
@@ -4571,8 +4687,9 @@ function ChatViewContent(props: ChatViewProps) {
     const composerElementContextsSnapshot = [...composerElementContexts];
     const composerPreviewAnnotationsSnapshot = [...composerPreviewAnnotations];
     const composerReviewCommentsSnapshot: ReviewCommentContext[] = [...composerReviewComments];
+    const promptTextForSend = goalObjective ?? promptForSend;
     const messageTextWithContexts = appendElementContextsToPrompt(
-      appendTerminalContextsToPrompt(promptForSend, composerTerminalContextsSnapshot),
+      appendTerminalContextsToPrompt(promptTextForSend, composerTerminalContextsSnapshot),
       composerElementContextsSnapshot,
     );
     const messageTextWithPreviewAnnotations = composerPreviewAnnotationsSnapshot.reduce(
@@ -4661,7 +4778,7 @@ function ChatViewContent(props: ChatViewProps) {
         firstComposerImageName = firstComposerImage.name;
       }
     }
-    let titleSeed = trimmed;
+    let titleSeed = goalObjective ?? trimmed;
     if (!titleSeed) {
       if (firstComposerImageName) {
         titleSeed = `Image: ${firstComposerImageName}`;
@@ -4763,6 +4880,7 @@ function ChatViewContent(props: ChatViewProps) {
           titleSeed: title,
           runtimeMode,
           interactionMode,
+          ...(goalObjective ? { goal: { objective: goalObjective } } : {}),
           ...(bootstrap ? { bootstrap } : {}),
           createdAt: messageCreatedAt,
         },
@@ -5744,6 +5862,16 @@ function ChatViewContent(props: ChatViewProps) {
                 className="chat-composer-horizontal-inset w-full"
               >
                 <div className="pointer-events-auto relative z-10">
+                  {!isDraftHeroState && activeGoal ? (
+                    <GoalProgressRow
+                      goal={activeGoal}
+                      pending={isGoalMutationPending}
+                      onPause={() => void updateGoalStatus("paused")}
+                      onResume={() => void updateGoalStatus("active")}
+                      onEdit={handleEditGoal}
+                      onClear={() => void handleClearGoal()}
+                    />
+                  ) : null}
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full z-0">
                       <div
