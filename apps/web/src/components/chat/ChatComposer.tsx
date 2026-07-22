@@ -206,6 +206,12 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import {
+  shortcutLabelForCommand,
+  shouldShowComposerControlHintsForModifiers,
+} from "../../keybindings";
+import { useShortcutModifierState } from "../../shortcutModifierState";
+import { Kbd } from "../ui/kbd";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -283,6 +289,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showPlanToggle: boolean;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
+  runtimeModePickerOpen: boolean;
+  runtimeModeShortcutHintLabel: string | null;
+  interactionModeShortcutHintLabel: string | null;
+  onRuntimeModePickerOpenChange: (open: boolean) => void;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
@@ -326,6 +336,11 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <span className="sr-only sm:not-sr-only">
             {props.interactionMode === "plan" ? "Plan" : "Build"}
           </span>
+          {props.interactionModeShortcutHintLabel ? (
+            <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">
+              {props.interactionModeShortcutHintLabel}
+            </Kbd>
+          ) : null}
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
       </Tooltip>
@@ -339,6 +354,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       <Tooltip>
         <Select
           value={props.runtimeMode}
+          open={props.runtimeModePickerOpen}
+          onOpenChange={props.onRuntimeModePickerOpenChange}
           onValueChange={(value) => props.onRuntimeModeChange(value!)}
         >
           <TooltipTrigger
@@ -353,6 +370,11 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           >
             <RuntimeModeIcon className="size-4" />
             <SelectValue>{runtimeModeOption.label}</SelectValue>
+            {props.runtimeModeShortcutHintLabel ? (
+              <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">
+                {props.runtimeModeShortcutHintLabel}
+              </Kbd>
+            ) : null}
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false}>
             {runtimeModeOptions.map((mode) => {
@@ -481,6 +503,10 @@ export interface ChatComposerHandle {
   openModelPicker: () => void;
   toggleModelPicker: () => void;
   isModelPickerOpen: () => boolean;
+  /** Return false (without side effects) when the target control is unavailable. */
+  toggleModelOptionsPicker: () => boolean;
+  toggleRuntimeModePicker: () => boolean;
+  toggleInteractionMode: () => boolean;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -979,6 +1005,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+  const [isComposerTraitsPickerOpen, setIsComposerTraitsPickerOpen] = useState(false);
+  const [isComposerRuntimeModePickerOpen, setIsComposerRuntimeModePickerOpen] = useState(false);
+  const [isCompactControlsMenuOpen, setIsCompactControlsMenuOpen] = useState(false);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
@@ -1224,6 +1253,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     prompt,
     onPromptChange: setPromptFromTraits,
   });
+  // Hint badges show while the held modifiers are a subset of a composer
+  // control shortcut's modifiers; computed once here and passed down.
+  const shortcutModifiers = useShortcutModifierState();
+  const showComposerControlHints = shouldShowComposerControlHintsForModifiers(
+    shortcutModifiers,
+    keybindings,
+    { platform: navigator.platform },
+  );
+  const composerControlHintLabels = useMemo(
+    () =>
+      showComposerControlHints
+        ? {
+            modelPicker: shortcutLabelForCommand(keybindings, "modelPicker.toggle"),
+            modelOptionsPicker: shortcutLabelForCommand(keybindings, "modelOptionsPicker.toggle"),
+            runtimeModePicker: shortcutLabelForCommand(keybindings, "runtimeModePicker.toggle"),
+            planMode: shortcutLabelForCommand(keybindings, "planMode.toggle"),
+          }
+        : null,
+    [keybindings, showComposerControlHints],
+  );
+
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -1234,6 +1284,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    open: isComposerTraitsPickerOpen,
+    onOpenChange: setIsComposerTraitsPickerOpen,
+    shortcutHintLabel: composerControlHintLabels?.modelOptionsPicker ?? null,
   });
   const pendingPrimaryAction = useMemo(
     () =>
@@ -2517,6 +2570,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         setIsComposerModelPickerOpen((open) => !open);
       },
       isModelPickerOpen: () => isComposerModelPickerOpen,
+      toggleModelOptionsPicker: () => {
+        if (isComposerCollapsedMobile || isComposerApprovalState) return false;
+        if (isComposerFooterCompact) {
+          setIsCompactControlsMenuOpen((open) => !open);
+          return true;
+        }
+        if (!providerTraitsPicker) return false;
+        setIsComposerTraitsPickerOpen((open) => !open);
+        return true;
+      },
+      toggleRuntimeModePicker: () => {
+        if (isComposerCollapsedMobile || isComposerApprovalState) return false;
+        if (isComposerFooterCompact) {
+          setIsCompactControlsMenuOpen((open) => !open);
+          return true;
+        }
+        setIsComposerRuntimeModePickerOpen((open) => !open);
+        return true;
+      },
+      toggleInteractionMode: () => {
+        if (isComposerCollapsedMobile || isComposerApprovalState) return false;
+        if (!composerProviderControls.showInteractionModeToggle) return false;
+        toggleInteractionMode();
+        return true;
+      },
       readSnapshot: () => {
         return readComposerSnapshot();
       },
@@ -2603,6 +2681,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerReviewComments,
       isConnecting,
       isComposerApprovalState,
+      isComposerCollapsedMobile,
+      isComposerFooterCompact,
+      composerProviderControls,
+      providerTraitsPicker,
+      toggleInteractionMode,
       pendingUserInputs.length,
       projectSelectionRequired,
       applyPromptReplacement,
@@ -3105,6 +3188,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     modelOptionsByInstance={modelOptionsByInstance}
                     terminalOpen={terminalOpen}
                     open={isComposerModelPickerOpen}
+                    shortcutHintLabel={composerControlHintLabels?.modelPicker ?? null}
                     {...(composerProviderState.modelPickerIconClassName
                       ? {
                           activeProviderIconClassName:
@@ -3128,6 +3212,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     runtimeMode={runtimeMode}
                     showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                     traitsMenuContent={providerTraitsMenuContent}
+                    open={isCompactControlsMenuOpen}
+                    onOpenChange={setIsCompactControlsMenuOpen}
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
@@ -3147,6 +3233,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       showPlanToggle={showPlanSidebarToggle}
                       planSidebarLabel={planSidebarLabel}
                       planSidebarOpen={planSidebarOpen}
+                      runtimeModePickerOpen={isComposerRuntimeModePickerOpen}
+                      runtimeModeShortcutHintLabel={
+                        composerControlHintLabels?.runtimeModePicker ?? null
+                      }
+                      interactionModeShortcutHintLabel={composerControlHintLabels?.planMode ?? null}
+                      onRuntimeModePickerOpenChange={setIsComposerRuntimeModePickerOpen}
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
