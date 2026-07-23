@@ -8,6 +8,7 @@ import {
   resolveBranchToolbarRunContextShortcutTarget,
   resolveBranchSelectionTarget,
   resolveBranchPickerQueryForOpenState,
+  resolveBranchPickerShortcutOpenState,
   resolveBranchToolbarPickerOpenChange,
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
@@ -164,6 +165,17 @@ describe("shouldShowBranchPickerShortcutHint", () => {
         isBranchActionPending: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveBranchPickerShortcutOpenState", () => {
+  it("always permits closing an already-open picker", () => {
+    expect(resolveBranchPickerShortcutOpenState({ open: true, unavailable: true })).toBe(false);
+  });
+
+  it("only permits opening while the picker is available", () => {
+    expect(resolveBranchPickerShortcutOpenState({ open: false, unavailable: false })).toBe(true);
+    expect(resolveBranchPickerShortcutOpenState({ open: false, unavailable: true })).toBeNull();
   });
 });
 
