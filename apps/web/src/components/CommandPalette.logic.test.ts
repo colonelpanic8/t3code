@@ -18,6 +18,7 @@ describe("shouldHandleCommandPaletteShortcut", () => {
     expect(
       shouldHandleCommandPaletteShortcut({
         command: "project.add",
+        paletteOpen: false,
         editableTarget: true,
       }),
     ).toBe(false);
@@ -27,12 +28,14 @@ describe("shouldHandleCommandPaletteShortcut", () => {
     expect(
       shouldHandleCommandPaletteShortcut({
         command: "project.add",
+        paletteOpen: false,
         editableTarget: false,
       }),
     ).toBe(true);
     expect(
       shouldHandleCommandPaletteShortcut({
         command: "commandPalette.toggle",
+        paletteOpen: false,
         editableTarget: true,
       }),
     ).toBe(true);
@@ -68,6 +71,28 @@ describe("enumerateCommandPaletteItems", () => {
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
+
+describe("shouldHandleCommandPaletteShortcut in an open palette", () => {
+  it("allows Alt+A from the editable search input while the new-task palette is open", () => {
+    expect(
+      shouldHandleCommandPaletteShortcut({
+        command: "project.add",
+        paletteOpen: true,
+        editableTarget: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("continues to ignore Alt+A from editors outside the palette", () => {
+    expect(
+      shouldHandleCommandPaletteShortcut({
+        command: "project.add",
+        paletteOpen: false,
+        editableTarget: true,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("shouldResetPaletteFlowOnPop", () => {
   it("resets a flow opened from a nested parent when its first view is popped", () => {

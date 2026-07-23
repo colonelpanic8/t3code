@@ -17,12 +17,13 @@ export const ADDON_ICON_CLASS = "size-4";
 
 export function shouldHandleCommandPaletteShortcut(input: {
   command: KeybindingCommand | null;
+  paletteOpen: boolean;
   editableTarget: boolean;
 }): boolean {
   if (input.command === "commandPalette.toggle") {
     return true;
   }
-  return input.command === "project.add" && !input.editableTarget;
+  return input.command === "project.add" && (!input.editableTarget || input.paletteOpen);
 }
 
 export interface CommandPaletteItem {

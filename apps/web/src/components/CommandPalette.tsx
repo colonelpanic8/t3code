@@ -380,19 +380,6 @@ function reduceCommandPaletteUiState(
   }
 }
 
-function isEditableKeyboardTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    target.isContentEditable ||
-    target.closest('[contenteditable]:not([contenteditable="false"])') !== null
-  );
-}
-
 export function CommandPalette({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reduceCommandPaletteUiState, {
     open: false,
@@ -434,12 +421,10 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       if (
         !shouldHandleCommandPaletteShortcut({
           command,
+          paletteOpen: state.open,
           editableTarget: target !== null,
         })
       ) {
-        return;
-      }
-      if (command === "project.add" && isEditableKeyboardTarget(event.target)) {
         return;
       }
       event.preventDefault();
@@ -452,7 +437,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, openAddProject, terminalOpen, toggleOpen]);
+  }, [keybindings, openAddProject, state.open, terminalOpen, toggleOpen]);
 
   useEffect(
     () =>
