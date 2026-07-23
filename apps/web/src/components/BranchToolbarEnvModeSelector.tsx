@@ -74,26 +74,26 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   }
 
   return (
-      <Select
-        modal={false}
-        value={effectiveEnvMode}
-        {...(open !== undefined ? { open } : {})}
-        {...(onOpenChange ? { onOpenChange } : {})}
-        onValueChange={(value: string | null) => {
-          if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
-            onUsePreviousWorktree?.();
-            return;
-          }
-          onEnvModeChange(value as EnvMode);
-        }}
-        items={envModeItems}
+    <Select
+      modal={false}
+      value={effectiveEnvMode}
+      {...(open !== undefined ? { open } : {})}
+      {...(onOpenChange ? { onOpenChange } : {})}
+      onValueChange={(value: string | null) => {
+        if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
+          onUsePreviousWorktree?.();
+          return;
+        }
+        onEnvModeChange(value as EnvMode);
+      }}
+      items={envModeItems}
+    >
+      <SelectTrigger
+        variant="ghost"
+        size="xs"
+        className="shrink-0 font-medium"
+        aria-label="Workspace"
       >
-        <SelectTrigger
-          variant="ghost"
-          size="xs"
-          className="shrink-0 font-medium"
-          aria-label="Workspace"
-        >
         {effectiveEnvMode === "worktree" ? (
           <FolderGit2Icon className="size-3" />
         ) : activeWorktreePath ? (

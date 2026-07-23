@@ -10,6 +10,7 @@ import {
   resolveBranchPickerQueryForOpenState,
   resolveBranchPickerShortcutOpenState,
   resolveBranchToolbarPickerOpenChange,
+  resolveBranchToolbarPickerToggle,
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
@@ -105,6 +106,14 @@ describe("resolveBranchToolbarPickerOpenChange", () => {
   });
 });
 
+describe("resolveBranchToolbarPickerToggle", () => {
+  it("uses each preceding result when shortcuts repeat before a render", () => {
+    let current = resolveBranchToolbarPickerToggle(null, "environment");
+    current = resolveBranchToolbarPickerToggle(current, "environment");
+    expect(current).toBeNull();
+  });
+});
+
 describe("resolveAvailableBranchToolbarPicker", () => {
   const allAvailable = {
     environment: true,
@@ -176,6 +185,12 @@ describe("resolveBranchPickerShortcutOpenState", () => {
   it("only permits opening while the picker is available", () => {
     expect(resolveBranchPickerShortcutOpenState({ open: false, unavailable: false })).toBe(true);
     expect(resolveBranchPickerShortcutOpenState({ open: false, unavailable: true })).toBeNull();
+  });
+
+  it("uses each preceding result when shortcuts repeat before a render", () => {
+    let open = resolveBranchPickerShortcutOpenState({ open: false, unavailable: false }) ?? false;
+    open = resolveBranchPickerShortcutOpenState({ open, unavailable: false }) ?? open;
+    expect(open).toBe(false);
   });
 });
 
