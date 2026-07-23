@@ -117,7 +117,9 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveSettledTimestamp,
+  pruneSidebarChangeRequestStates,
   resolveNextActiveThreadIdAfterSettle,
+  resolveSidebarThreadGitCwd,
   resolveSidebarV2Status,
   resolveWorkingStartedAt,
   shouldNavigateAfterProjectRemoval,
@@ -171,12 +173,16 @@ const SETTLED_TAIL_INITIAL_COUNT = 10;
 
 function SidebarV2HiddenThreadChangeRequestStateReporter(props: {
   thread: SidebarThreadSummary;
-  projectCwd: string | null;
+  threadProjectCwd: string | null;
   onChangeRequestState: (threadKey: string, state: "open" | "closed" | "merged" | null) => void;
 }) {
-  const { thread, projectCwd, onChangeRequestState } = props;
+  const { thread, threadProjectCwd, onChangeRequestState } = props;
   const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-  const gitCwd = thread.worktreePath ?? projectCwd;
+  const gitCwd = resolveSidebarThreadGitCwd({
+    worktreePath: thread.worktreePath,
+    threadProjectCwd,
+    sidebarProjectCwd: null,
+  });
   const gitStatus = useEnvironmentQuery(
     (thread.branch != null || thread.worktreePath !== null) && gitCwd !== null
       ? vcsEnvironment.status({
@@ -525,7 +531,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   }
                 : null;
 
-  const gitCwd = thread.worktreePath ?? props.projectCwd;
+  const gitCwd = resolveSidebarThreadGitCwd({
+    worktreePath: thread.worktreePath,
+    threadProjectCwd: props.projectCwd,
+    sidebarProjectCwd: null,
+  });
   const gitStatus = useEnvironmentQuery(
     (thread.branch != null || thread.worktreePath !== null) && gitCwd !== null
       ? vcsEnvironment.status({
@@ -1579,6 +1589,15 @@ export default function SidebarV2() {
       ),
     [allUnarchivedThreads],
   );
+  const allUnarchivedThreadKeySet = useMemo(
+    () => new Set(allUnarchivedThreadKeys),
+    [allUnarchivedThreadKeys],
+  );
+  useEffect(() => {
+    setChangeRequestStateByKey((current) =>
+      pruneSidebarChangeRequestStates(current, allUnarchivedThreadKeySet),
+    );
+  }, [allUnarchivedThreadKeySet]);
   const allUnarchivedThreadKeysRef = useRef(allUnarchivedThreadKeys);
   allUnarchivedThreadKeysRef.current = allUnarchivedThreadKeys;
   const allThreadByKey = useMemo(
@@ -2372,7 +2391,9 @@ export default function SidebarV2() {
           <SidebarV2HiddenThreadChangeRequestStateReporter
             key={threadKey}
             thread={thread}
-            projectCwd={projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null}
+            threadProjectCwd={
+              projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
+            }
             onChangeRequestState={handleChangeRequestState}
           />
         ) : null;
