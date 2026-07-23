@@ -106,7 +106,10 @@ import {
   getComposerPromptInjectionState,
   getComposerProviderState,
   renderProviderTraitsMenuContent,
+  type ComposerPicker,
+  type ComposerPickerState,
   type CompactControlsMenuOpenSource,
+  resolveComposerPickerOpenChange,
   toggleCompactControlsMenuForShortcut,
   renderProviderTraitsPicker,
   resolveModelOptionsShortcutTarget,
@@ -1022,6 +1025,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     CompactControlsMenuOpenSource | null
   >(composerControlsLayout, null);
   const isCompactControlsMenuOpen = compactControlsMenuOpenSource !== null;
+  const composerPickerStateRef = useRef<ComposerPickerState>({
+    modelOpen: isComposerModelPickerOpen,
+    traitsOpen: isComposerTraitsPickerOpen,
+    runtimeModeOpen: isComposerRuntimeModePickerOpen,
+    compactControlsMenuOpenSource,
+  });
+  composerPickerStateRef.current = {
+    modelOpen: isComposerModelPickerOpen,
+    traitsOpen: isComposerTraitsPickerOpen,
+    runtimeModeOpen: isComposerRuntimeModePickerOpen,
+    compactControlsMenuOpenSource,
+  };
+  const applyComposerPickerOpenChange = useCallback(
+    (
+      picker: ComposerPicker,
+      open: boolean,
+      nextCompactControlsMenuOpenSource: CompactControlsMenuOpenSource = "direct",
+    ) => {
+      const nextState = resolveComposerPickerOpenChange(
+        composerPickerStateRef.current,
+        picker,
+        open,
+        nextCompactControlsMenuOpenSource,
+      );
+      composerPickerStateRef.current = nextState;
+      setIsComposerModelPickerOpen(nextState.modelOpen);
+      setIsComposerTraitsPickerOpen(nextState.traitsOpen);
+      setIsComposerRuntimeModePickerOpen(nextState.runtimeModeOpen);
+      setCompactControlsMenuOpenSource(nextState.compactControlsMenuOpenSource);
+    },
+    [
+      setCompactControlsMenuOpenSource,
+      setIsComposerRuntimeModePickerOpen,
+      setIsComposerTraitsPickerOpen,
+    ],
+  );
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
@@ -1300,7 +1339,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     prompt,
     onPromptChange: setPromptFromTraits,
     open: isComposerTraitsPickerOpen,
-    onOpenChange: setIsComposerTraitsPickerOpen,
+    onOpenChange: (open) => {
+      applyComposerPickerOpenChange("traits", open);
+    },
     shortcutHintLabel: composerControlHintLabels?.modelOptionsPicker ?? null,
   });
   const pendingPrimaryAction = useMemo(
@@ -1768,7 +1809,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           });
           if (applied) {
             setComposerHighlightedItemId(null);
-            setIsComposerModelPickerOpen(true);
+            applyComposerPickerOpenChange("model", true);
           }
           return;
         }
@@ -1818,7 +1859,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
     },
-    [applyPromptReplacement, handleInteractionModeChange, resolveActiveComposerTrigger],
+    [
+      applyComposerPickerOpenChange,
+      applyPromptReplacement,
+      handleInteractionModeChange,
+      resolveActiveComposerTrigger,
+    ],
   );
 
   const onComposerMenuItemHighlighted = useCallback(
@@ -2579,10 +2625,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       insertTextAtEnd: insertComposerTextAtEnd,
       openModelPicker: () => {
-        setIsComposerModelPickerOpen(true);
+        applyComposerPickerOpenChange("model", true);
       },
       toggleModelPicker: () => {
-        setIsComposerModelPickerOpen((open) => !open);
+        applyComposerPickerOpenChange("model", !composerPickerStateRef.current.modelOpen);
       },
       isModelPickerOpen: () => isComposerModelPickerOpen,
       toggleModelOptionsPicker: () => {
@@ -2594,23 +2640,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
         if (target === null) return false;
         if (target === "compact-controls-menu") {
-          setCompactControlsMenuOpenSource((current) =>
-            toggleCompactControlsMenuForShortcut(current, "model-options"),
+          const nextSource = toggleCompactControlsMenuForShortcut(
+            composerPickerStateRef.current.compactControlsMenuOpenSource,
+            "model-options",
+          );
+          applyComposerPickerOpenChange(
+            "compact-controls-menu",
+            nextSource !== null,
+            nextSource ?? "model-options",
           );
         } else {
-          setIsComposerTraitsPickerOpen((open) => !open);
+          applyComposerPickerOpenChange("traits", !composerPickerStateRef.current.traitsOpen);
         }
         return true;
       },
       toggleRuntimeModePicker: () => {
         if (isComposerCollapsedMobile || isComposerApprovalState) return false;
         if (isComposerFooterCompact) {
-          setCompactControlsMenuOpenSource((current) =>
-            toggleCompactControlsMenuForShortcut(current, "runtime-mode"),
+          const nextSource = toggleCompactControlsMenuForShortcut(
+            composerPickerStateRef.current.compactControlsMenuOpenSource,
+            "runtime-mode",
+          );
+          applyComposerPickerOpenChange(
+            "compact-controls-menu",
+            nextSource !== null,
+            nextSource ?? "runtime-mode",
           );
           return true;
         }
-        setIsComposerRuntimeModePickerOpen((open) => !open);
+        applyComposerPickerOpenChange(
+          "runtime-mode",
+          !composerPickerStateRef.current.runtimeModeOpen,
+        );
         return true;
       },
       toggleInteractionMode: () => {
@@ -2711,10 +2772,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       providerTraitsPicker,
       providerTraitsMenuContent,
       toggleInteractionMode,
+      applyComposerPickerOpenChange,
+      compactControlsMenuOpenSource,
       pendingUserInputs.length,
       projectSelectionRequired,
       applyPromptReplacement,
       isComposerModelPickerOpen,
+      isComposerRuntimeModePickerOpen,
+      isComposerTraitsPickerOpen,
       readComposerSnapshot,
       selectedModel,
       selectedModelOptionsForDispatch,
@@ -3221,7 +3286,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         }
                       : {})}
                     onOpenChange={(open) => {
-                      setIsComposerModelPickerOpen(open);
+                      applyComposerPickerOpenChange("model", open);
                     }}
                     getModelDisabledReason={getModelDisabledReason}
                     onInstanceModelChange={onProviderModelSelect}
@@ -3239,8 +3304,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     traitsMenuContent={providerTraitsMenuContent}
                     open={isCompactControlsMenuOpen}
                     onOpenChange={(open) => {
-                      setCompactControlsMenuOpenSource((current) =>
-                        open ? (current ?? "direct") : null,
+                      applyComposerPickerOpenChange(
+                        "compact-controls-menu",
+                        open,
+                        composerPickerStateRef.current.compactControlsMenuOpenSource ?? "direct",
                       );
                     }}
                     onToggleInteractionMode={toggleInteractionMode}
@@ -3267,7 +3334,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         composerControlHintLabels?.runtimeModePicker ?? null
                       }
                       interactionModeShortcutHintLabel={composerControlHintLabels?.planMode ?? null}
-                      onRuntimeModePickerOpenChange={setIsComposerRuntimeModePickerOpen}
+                      onRuntimeModePickerOpenChange={(open) => {
+                        applyComposerPickerOpenChange("runtime-mode", open);
+                      }}
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
