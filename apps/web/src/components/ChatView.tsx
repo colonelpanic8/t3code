@@ -26,6 +26,7 @@ import {
   type EnvironmentConnectionPresentation,
 } from "@t3tools/client-runtime/connection";
 import { effectiveSettled, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { supportsSelectedResponseFork } from "@t3tools/client-runtime/thread-forking";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -273,7 +274,6 @@ import {
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   startNewThreadForProject,
-  supportsSelectedResponseFork,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
