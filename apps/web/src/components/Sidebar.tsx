@@ -22,6 +22,7 @@ import {
   ThreadWorktreeIndicator,
 } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { ProjectIconDialog, type ProjectIconTarget } from "./ProjectIconSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
@@ -1203,6 +1204,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const [projectRenameTitle, setProjectRenameTitle] = useState("");
   const [projectGroupingTarget, setProjectGroupingTarget] =
     useState<SidebarProjectGroupMember | null>(null);
+  const [projectIconTarget, setProjectIconTarget] = useState<ProjectIconTarget | null>(null);
   const [projectGroupingSelection, setProjectGroupingSelection] = useState<
     SidebarProjectGroupingMode | "inherit"
   >("inherit");
@@ -1586,7 +1588,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
         const actionHandlers = new Map<string, () => Promise<void> | void>();
         const makeLeaf = (
-          action: "rename" | "grouping" | "copy-path" | "delete",
+          action: "rename" | "grouping" | "icon" | "copy-path" | "delete",
           member: SidebarProjectGroupMember,
           options?: {
             destructive?: boolean;
@@ -1601,6 +1603,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 return;
               case "grouping":
                 openProjectGroupingDialog(member);
+                return;
+              case "icon":
+                setProjectIconTarget({
+                  environmentId: member.environmentId,
+                  environmentLabel: member.environmentLabel,
+                  title: member.title,
+                  workspaceRoot: member.workspaceRoot,
+                });
                 return;
               case "copy-path":
                 copyPathToClipboard(member.workspaceRoot, { path: member.workspaceRoot });
@@ -1619,7 +1629,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         };
 
         const buildTargetedItem = (
-          action: "rename" | "grouping" | "copy-path" | "delete",
+          action: "rename" | "grouping" | "icon" | "copy-path" | "delete",
           label: string,
           options?: {
             destructive?: boolean;
@@ -1655,6 +1665,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           [
             buildTargetedItem("rename", "Rename"),
             buildTargetedItem("grouping", "Group into..."),
+            buildTargetedItem("icon", "Project icon..."),
             buildTargetedItem("copy-path", "Copy Path"),
             buildTargetedItem("delete", "Remove", {
               destructive: true,
@@ -2404,6 +2415,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+
+      <ProjectIconDialog
+        target={projectIconTarget}
+        onOpenChange={(open) => {
+          if (!open) setProjectIconTarget(null);
+        }}
+      />
 
       <Dialog
         open={projectGroupingTarget !== null}
