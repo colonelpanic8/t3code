@@ -2191,7 +2191,7 @@ export default function SidebarV2() {
   // for multi-project setups.
   const handleNewThreadClick = useCallback(() => {
     // One project: nothing to pick, create immediately.
-    if (projectGroups.length <= 1) {
+    if (projectGroups.length === 1) {
       if (isMobile) setOpenMobile(false);
       void startNewThreadFromContext({
         activeDraftThread: newThreadContext.activeDraftThread,
@@ -2202,8 +2202,13 @@ export default function SidebarV2() {
       return;
     }
     if (isMobile) setOpenMobile(false);
-    openCommandPalette({ open: "new-thread-in" });
-  }, [isMobile, newThreadContext, projectGroups.length, setOpenMobile]);
+    openCommandPalette({
+      open: "new-thread-in",
+      preferredProjectRef: scopedProjectGroup
+        ? scopeProjectRef(scopedProjectGroup.environmentId, scopedProjectGroup.id)
+        : null,
+    });
+  }, [isMobile, newThreadContext, projectGroups.length, scopedProjectGroup, setOpenMobile]);
 
   const commandPaletteShortcutLabel = shortcutLabelForCommand(keybindings, "commandPalette.toggle");
   // Same resolution as v1: prefer the local-thread binding, fall back to
@@ -2247,7 +2252,6 @@ export default function SidebarV2() {
                       type="button"
                       className="relative size-8 justify-center rounded-md border-0 bg-transparent p-0 text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
                       onClick={handleNewThreadClick}
-                      disabled={projects.length === 0}
                       aria-label="New thread"
                     />
                   }
