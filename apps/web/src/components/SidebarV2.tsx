@@ -126,6 +126,7 @@ import {
   resolveSidebarThreadGitCwd,
   resolveSidebarV2Status,
   resolveWorkingStartedAt,
+  shouldPublishSidebarChangeRequestState,
   shouldQuerySidebarThreadGitStatus,
   shouldNavigateAfterProjectRemoval,
   sortLogicalProjectsForSidebar,
@@ -209,8 +210,9 @@ function SidebarV2HiddenThreadChangeRequestStateReporter(props: {
     })?.state ?? null;
 
   useEffect(() => {
+    if (!shouldPublishSidebarChangeRequestState(gitStatus.isPending)) return;
     onChangeRequestState(threadKey, prState);
-  }, [onChangeRequestState, prState, threadKey]);
+  }, [gitStatus.isPending, onChangeRequestState, prState, threadKey]);
 
   return null;
 }
@@ -572,8 +574,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   // and a merged/closed PR auto-settles a thread — data only rows have.
   const prState = pr?.state ?? null;
   useEffect(() => {
+    if (!shouldPublishSidebarChangeRequestState(gitStatus.isPending)) return;
     onChangeRequestState(threadKey, prState);
-  }, [onChangeRequestState, prState, threadKey]);
+  }, [gitStatus.isPending, onChangeRequestState, prState, threadKey]);
 
   const modelInstanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
   const providerEntry = props.providerEntryByInstanceId.get(modelInstanceId) ?? null;
