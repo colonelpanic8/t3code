@@ -1610,6 +1610,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                   environmentLabel: member.environmentLabel,
                   title: member.title,
                   workspaceRoot: member.workspaceRoot,
+                  repositoryKey: member.repositoryIdentity?.canonicalKey,
                 });
                 return;
               case "copy-path":
