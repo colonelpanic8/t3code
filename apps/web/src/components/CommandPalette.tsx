@@ -74,7 +74,7 @@ import {
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
-import { onOpenCommandPalette } from "../commandPaletteBus";
+import { isCommandPaletteOpen, onOpenCommandPalette } from "../commandPaletteBus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
 import { cn, isMacPlatform, isWindowsPlatform, newProjectId } from "../lib/utils";
@@ -421,7 +421,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       if (
         !shouldHandleCommandPaletteShortcut({
           command,
-          paletteOpen: state.open,
+          paletteOpen: isCommandPaletteOpen(),
           editableTarget: target !== null,
         })
       ) {
@@ -437,7 +437,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, openAddProject, state.open, terminalOpen, toggleOpen]);
+  }, [keybindings, openAddProject, terminalOpen, toggleOpen]);
 
   useEffect(
     () =>
