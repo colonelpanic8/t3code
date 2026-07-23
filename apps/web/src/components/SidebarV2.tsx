@@ -1584,9 +1584,12 @@ export default function SidebarV2() {
           `${thread.environmentId}:${thread.projectId}`,
         );
         if (!member) return;
-        const configuredIcon = serverConfigs.get(member.environmentId)?.settings.projectIcons[
-          member.workspaceRoot
-        ];
+        const settings = serverConfigs.get(member.environmentId)?.settings;
+        const configuredIcon =
+          settings?.projectIcons[member.workspaceRoot] ??
+          (member.repositoryIdentity
+            ? settings?.projectIconsByGitRemote[member.repositoryIdentity.canonicalKey]
+            : undefined);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
@@ -1604,6 +1607,7 @@ export default function SidebarV2() {
           environmentLabel: member.environmentLabel,
           title: member.title,
           workspaceRoot: member.workspaceRoot,
+          repositoryKey: member.repositoryIdentity?.canonicalKey,
         });
       })();
     },
@@ -2751,6 +2755,7 @@ export default function SidebarV2() {
                         environmentLabel: member.environmentLabel,
                         title: member.title,
                         workspaceRoot: member.workspaceRoot,
+                        repositoryKey: member.repositoryIdentity?.canonicalKey,
                       }}
                     />
                   </div>
