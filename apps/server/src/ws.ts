@@ -1084,6 +1084,7 @@ const makeWsRpcLayer = (
           auth,
           cwd: config.cwd,
           keybindingsConfigPath: config.keybindingsConfigPath,
+          settingsConfigPath: config.settingsPath,
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
