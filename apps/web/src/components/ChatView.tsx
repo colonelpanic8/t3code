@@ -5614,7 +5614,7 @@ function ChatViewContent(props: ChatViewProps) {
       />
     ) : activeRightPanelSurface?.kind === "generated-image" ? (
       <GeneratedImagePanel
-        key={activeRightPanelSurface.id}
+        key={`${activeRightPanelSurface.id}:${activeRightPanelSurface.loadRequestId}`}
         environmentId={activeThreadRef.environmentId}
         threadRef={activeThreadRef}
         activityId={activeRightPanelSurface.activityId}
