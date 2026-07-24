@@ -139,6 +139,7 @@ import {
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { GeneratedImagePanel } from "./chat/GeneratedImagePanel";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -5610,6 +5611,14 @@ function ChatViewContent(props: ChatViewProps) {
         workspaceRoot={activeWorkspaceRoot}
         timestampFormat={timestampFormat}
         mode="embedded"
+      />
+    ) : activeRightPanelSurface?.kind === "generated-image" ? (
+      <GeneratedImagePanel
+        key={activeRightPanelSurface.id}
+        environmentId={activeThreadRef.environmentId}
+        threadRef={activeThreadRef}
+        activityId={activeRightPanelSurface.activityId}
+        name={activeRightPanelSurface.name}
       />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
