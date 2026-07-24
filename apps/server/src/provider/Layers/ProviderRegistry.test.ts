@@ -613,6 +613,51 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         ]);
       });
 
+      it("drops fallback Claude models missing from successful SDK discovery", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          driver: ProviderDriverKind.make("claudeAgent"),
+          status: "warning",
+          enabled: true,
+          installed: false,
+          auth: { status: "unknown" },
+          checkedAt: "2026-07-24T00:00:00.000Z",
+          version: null,
+          models: [
+            {
+              slug: "claude-opus-4-8",
+              name: "Claude Opus 4.8",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshedProvider = {
+          ...previousProvider,
+          status: "ready",
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-07-24T00:01:00.000Z",
+          version: "2.1.219",
+          models: [
+            {
+              slug: "opus[1m]",
+              name: "Opus (1M context)",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [booleanDescriptor("fastMode", "Fast Mode")],
+              }),
+            },
+          ],
+        } as const satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          ...refreshedProvider.models,
+        ]);
+      });
+
       it("retains stale OpenCode models when a refresh fails", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("opencode"),
