@@ -1,4 +1,4 @@
-import { LocalServerAdvertisement } from "@t3tools/contracts";
+import { LocalServerAdvertisement, LocalServerPairingResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -13,5 +13,15 @@ export const discoverLocalServers = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.localServerDiscovery.discover")(function* () {
     const discovery = yield* DesktopLocalServerDiscovery.DesktopLocalServerDiscovery;
     return yield* discovery.discover;
+  }),
+});
+
+export const pairLocalServer = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PAIR_LOCAL_SERVER_CHANNEL,
+  payload: Schema.String,
+  result: LocalServerPairingResult,
+  handler: Effect.fn("desktop.ipc.localServerDiscovery.pair")(function* (instanceId: string) {
+    const discovery = yield* DesktopLocalServerDiscovery.DesktopLocalServerDiscovery;
+    return yield* discovery.pairLocalServer(instanceId);
   }),
 });
