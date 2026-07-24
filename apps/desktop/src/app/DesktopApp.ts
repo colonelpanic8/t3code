@@ -199,7 +199,13 @@ const bootstrap = Effect.gen(function* () {
     yield* installDesktopIpcHandlers();
     yield* logBootstrapInfo("bootstrap ipc handlers registered");
     if (!(yield* Ref.get(state.quitting))) {
-      yield* desktopWindow.handleRendererReady;
+      yield* desktopWindow.handleRendererReady.pipe(
+        Effect.catch((error) =>
+          logBootstrapWarning("failed to open main window after renderer readiness", {
+            error: error.message,
+          }),
+        ),
+      );
     }
     return;
   }
