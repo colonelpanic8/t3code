@@ -658,6 +658,52 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         ]);
       });
 
+      it("replaces discovered Claude models with the fallback inventory when the probe fails", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          driver: ProviderDriverKind.make("claudeAgent"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-07-24T00:00:00.000Z",
+          version: "2.1.219",
+          models: [
+            {
+              slug: "opus[1m]",
+              name: "Opus (1M context)",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [booleanDescriptor("fastMode", "Fast Mode")],
+              }),
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const degradedProvider = {
+          ...previousProvider,
+          status: "warning",
+          auth: { status: "unknown" },
+          checkedAt: "2026-07-24T00:01:00.000Z",
+          models: [
+            {
+              slug: "claude-opus-5",
+              name: "Claude Opus 5",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        } as const satisfies ServerProvider;
+
+        assert.deepStrictEqual(
+          mergeProviderSnapshot(previousProvider, degradedProvider).models.map(
+            (model) => model.slug,
+          ),
+          ["claude-opus-5"],
+        );
+      });
+
       it("retains stale OpenCode models when a refresh fails", () => {
         const previousProvider = {
           instanceId: ProviderInstanceId.make("opencode"),
@@ -1909,6 +1955,25 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 },
               ],
             },
+          },
+        ]);
+      });
+
+      it("offers a thinking toggle for discovered models without effort levels", () => {
+        const models = parseClaudeInitializationModels([
+          {
+            value: "haiku",
+            displayName: "Haiku",
+            description: "Haiku 4.5",
+            supportsAdaptiveThinking: true,
+          },
+        ]);
+
+        assert.deepStrictEqual(models[0]?.capabilities?.optionDescriptors, [
+          {
+            id: "thinking",
+            label: "Thinking",
+            type: "boolean",
           },
         ]);
       });
