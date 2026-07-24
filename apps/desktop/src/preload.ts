@@ -35,6 +35,18 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     }
     return result as ReturnType<DesktopBridge["getAppBranding"]>;
   },
+  getBackendModeState: () => {
+    const result = ipcRenderer.sendSync(IpcChannels.GET_BACKEND_MODE_STATE_CHANNEL);
+    if (typeof result !== "object" || result === null) {
+      return {
+        effectiveMode: "managed",
+        configuredMode: "managed",
+        cliOverride: null,
+      };
+    }
+    return result as ReturnType<DesktopBridge["getBackendModeState"]>;
+  },
+  setBackendMode: (mode) => ipcRenderer.invoke(IpcChannels.SET_BACKEND_MODE_CHANNEL, mode),
   getLocalEnvironmentBootstraps: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
     if (!Array.isArray(result)) {
