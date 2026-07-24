@@ -1,0 +1,6 @@
+Upstream main: ece05087a70e94efcd57441337fa1249559362ba
+Combined integration commit: 4dd4cef40
+Package: /nix/store/pf7fjqw8ykkdgayf3ywsbgxxp6wi1m42-t3code-0.0.29-patched-main-20260724
+PR 4259 head: a1e3bc69a67caa3ffe6e2afa1fad5bbd65097782
+PR 4263 head: a5e53a9ce55272a331c6ba6443d3601c82363020
+PR 4401 head: 804efc44c5a8321667f51400b3c513af593cde82
