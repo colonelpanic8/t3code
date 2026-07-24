@@ -45,10 +45,6 @@ export interface ServerDerivedPaths extends T3StorageRoots {
   readonly secretsDir: string;
 }
 
-export interface DeriveServerPathsOptions {
-  readonly baseDirIsExplicit?: boolean;
-}
-
 /**
  * ServerConfig - Service tag for server runtime configuration.
  */
@@ -97,13 +93,12 @@ export const layer = (config: ServerConfig["Service"]) => Layer.succeed(ServerCo
 export const deriveServerPaths = Effect.fn(function* (
   baseDir: ServerConfig["Service"]["baseDir"],
   devUrl: ServerConfig["Service"]["devUrl"],
-  options: DeriveServerPathsOptions = {},
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const path = yield* Path.Path;
   return yield* deriveServerPathsFromRoots(
     resolveLegacyT3StorageRoots({
       baseDir,
-      stateDirectoryName: devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
+      stateDirectoryName: devUrl !== undefined ? "dev" : "userdata",
       path,
     }),
   );

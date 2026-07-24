@@ -101,7 +101,14 @@ const DESKTOP_BACKEND_ENV_NAMES = [
 // handled separately via a `--dev-url` CLI flag because WSLENV translation of
 // URL-shaped values (colons / slashes) is unreliable.
 const WSL_FORWARDED_ENV_NAMES = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] as const;
-const WINDOWS_STORAGE_ENV_NAMES = new Set<string>(STORAGE_ENV_NAMES);
+const WINDOWS_STORAGE_ENV_NAMES = new Set<string>([
+  ...STORAGE_ENV_NAMES,
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_RUNTIME_DIR",
+]);
 
 const WSL_SERVER_SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 

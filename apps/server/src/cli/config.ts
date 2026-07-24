@@ -307,7 +307,7 @@ const legacyStorageIsInitialized = Effect.fn(function* (roots: T3StorageRoots) {
     path.join(roots.stateDir, "connection-catalog.json"),
   ];
   const results = yield* Effect.all(
-    artifacts.map((artifact) => fs.exists(artifact).pipe(Effect.orElseSucceed(() => false))),
+    artifacts.map((artifact) => fs.exists(artifact)),
     { concurrency: "unbounded" },
   );
   return results.some(Boolean);
@@ -351,6 +351,8 @@ export const resolveServerConfig = (
         ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
         : Option.none();
     const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
+    const bootstrapStorageIsPinned =
+      bootstrap?.storageRoots !== undefined || bootstrap?.t3Home !== undefined;
 
     const mode: ServerConfig.RuntimeMode = Option.getOrElse(
       resolveOptionPrecedence(
@@ -414,15 +416,27 @@ export const resolveServerConfig = (
       homeDirectory,
       path: pathOperations,
     });
-    if (Option.isSome(explicitBaseDir) && hasT3StorageDirectoryOverrides(directoryOverrides)) {
+    if (
+      !bootstrapStorageIsPinned &&
+      Option.isSome(explicitBaseDir) &&
+      hasT3StorageDirectoryOverrides(directoryOverrides)
+    ) {
       return yield* new StorageDirectoryConfigurationConflictError();
     }
-    if (forcedStorageLayout === "xdg" && Option.isSome(explicitBaseDir)) {
+    if (
+      !bootstrapStorageIsPinned &&
+      forcedStorageLayout === "xdg" &&
+      Option.isSome(explicitBaseDir)
+    ) {
       return yield* new StorageLayoutConfigurationConflictError({
         storageLayout: forcedStorageLayout,
       });
     }
-    if (forcedStorageLayout === "legacy" && hasT3StorageDirectoryOverrides(directoryOverrides)) {
+    if (
+      !bootstrapStorageIsPinned &&
+      forcedStorageLayout === "legacy" &&
+      hasT3StorageDirectoryOverrides(directoryOverrides)
+    ) {
       return yield* new StorageLayoutConfigurationConflictError({
         storageLayout: forcedStorageLayout,
       });
@@ -442,7 +456,7 @@ export const resolveServerConfig = (
     const explicitLegacyRoots = Option.isSome(explicitBaseDir)
       ? resolveLegacyT3StorageRoots({
           baseDir: yield* resolveBaseDir(explicitBaseDir.value),
-          stateDirectoryName: "userdata",
+          stateDirectoryName: devUrl === undefined ? "userdata" : "dev",
           path,
         })
       : undefined;
@@ -460,29 +474,30 @@ export const resolveServerConfig = (
             stateDirectoryName: devUrl === undefined ? "userdata" : "dev",
             path,
           }));
-    const storageRoots = selectT3StorageRoots({
-      ...(forcedStorageLayout === "legacy"
-        ? { explicitLegacyRoots: explicitLegacyRoots ?? legacyRoots }
-        : explicitLegacyRoots === undefined
-          ? {}
-          : { explicitLegacyRoots }),
-      ...(forcedStorageLayout === "xdg"
-        ? { explicitSplitRoots: explicitSplitRoots ?? defaultSplitRoots }
-        : explicitSplitRoots === undefined
-          ? {}
-          : { explicitSplitRoots }),
-      ...(bootstrapRoots === undefined ? {} : { bootstrapRoots }),
-      defaultSplitRoots,
-      legacyRoots,
-      legacyStorageInitialized: yield* legacyStorageIsInitialized(legacyRoots),
-    });
+    const storageRoots =
+      bootstrapRoots ??
+      selectT3StorageRoots({
+        ...(forcedStorageLayout === "legacy"
+          ? { explicitLegacyRoots: explicitLegacyRoots ?? legacyRoots }
+          : explicitLegacyRoots === undefined
+            ? {}
+            : { explicitLegacyRoots }),
+        ...(forcedStorageLayout === "xdg"
+          ? { explicitSplitRoots: explicitSplitRoots ?? defaultSplitRoots }
+          : explicitSplitRoots === undefined
+            ? {}
+            : { explicitSplitRoots }),
+        defaultSplitRoots,
+        legacyRoots,
+        legacyStorageInitialized: yield* legacyStorageIsInitialized(legacyRoots),
+      });
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
     yield* fs.makeDirectory(cwd, { recursive: true });
     const derivedPaths = yield* ServerConfig.deriveServerPathsFromRoots(storageRoots);
     const baseDir = derivedPaths.dataDir;
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
-    if (platform !== "win32") {
+    if (platform !== "win32" && storageRoots.layout === "split") {
       yield* fs.chmod(derivedPaths.runtimeDir, 0o700);
     }
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
