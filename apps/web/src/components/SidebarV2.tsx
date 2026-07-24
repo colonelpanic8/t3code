@@ -8,6 +8,10 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
+  resolveLatestForkableTurnId,
+  supportsThreadFork,
+} from "@t3tools/client-runtime/thread-forking";
+import {
   scopeProjectRef,
   scopeThreadRef,
   scopedThreadKey,
@@ -82,6 +86,7 @@ import {
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
+import { useForkThread } from "../hooks/useForkThread";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -1008,6 +1013,7 @@ export default function SidebarV2() {
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread, deleteThread } =
     useThreadActions();
+  const forkSidebarThread = useForkThread();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -1978,6 +1984,15 @@ export default function SidebarV2() {
           true;
         const supportsSnooze =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
+        const providerInstanceId =
+          thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+        const providerDriver =
+          serverConfigs
+            .get(thread.environmentId)
+            ?.providers.find((provider) => provider.instanceId === providerInstanceId)?.driver ??
+          null;
+        const forkSupported = supportsThreadFork(providerDriver);
+        const sourceTurnId = resolveLatestForkableTurnId(thread.latestTurn);
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         // Presets resolve at menu-open time (same as the popover).
@@ -2014,6 +2029,9 @@ export default function SidebarV2() {
                           })),
                         },
                   ]
+                : []),
+              ...(forkSupported
+                ? [{ id: "fork-thread", label: "Fork thread", disabled: sourceTurnId === null }]
                 : []),
               { id: "rename", label: "Rename thread" },
               { id: "mark-unread", label: "Mark unread" },
@@ -2063,6 +2081,14 @@ export default function SidebarV2() {
           case "unsnooze":
             attemptUnsnooze(threadRef);
             return;
+          case "fork-thread": {
+            if (sourceTurnId === null) return;
+            const forkedThreadRef = await forkSidebarThread(thread, sourceTurnId);
+            if (forkedThreadRef !== null) {
+              navigateToThread(forkedThreadRef);
+            }
+            return;
+          }
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
@@ -2107,8 +2133,10 @@ export default function SidebarV2() {
       attemptUnsnooze,
       confirmThreadDelete,
       deleteThread,
+      forkSidebarThread,
       handleMultiSelectContextMenu,
       markThreadUnread,
+      navigateToThread,
       serverConfigs,
       startThreadRename,
     ],
