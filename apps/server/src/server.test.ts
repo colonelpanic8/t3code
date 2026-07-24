@@ -6858,6 +6858,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
+            serverSettings: {
+              getSettings: Effect.succeed({
+                ...DEFAULT_SERVER_SETTINGS,
+                worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+              }),
+            },
             gitVcsDriver: {
               fetchRemote,
               resolveRemoteTrackingCommit,
@@ -6938,6 +6944,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           newRefName: "t3code/bootstrap-refName",
           baseRefName: "main",
           path: null,
+          pathTemplate: "{repoRoot}/.worktrees/{branch}",
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
