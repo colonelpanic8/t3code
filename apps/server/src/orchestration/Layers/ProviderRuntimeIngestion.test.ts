@@ -3928,6 +3928,99 @@ describe("ProviderRuntimeIngestion", () => {
     expect(completionEvents).toHaveLength(1);
   });
 
+  it("preserves an aborted turn plan behind deferred assistant finalization", async () => {
+    const harness = await createHarness();
+    const now = "2026-01-01T00:00:00.000Z";
+    const turnId = asTurnId("turn-aborted-deferred-finalization");
+    const itemId = asItemId("item-aborted-deferred-finalization");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-aborted-deferred-finalization"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(harness.readModel, (thread) => thread.session?.activeTurnId === turnId);
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-content-delta-aborted-deferred-finalization"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: {
+        streamKind: "assistant_text",
+        delta: "assistant before abort",
+      },
+    });
+    harness.emit({
+      type: "turn.proposed.delta",
+      eventId: asEventId("evt-plan-delta-aborted-deferred-finalization"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: { delta: "# Preserve this aborted plan" },
+    });
+    const getCompleteFailureCount = harness.failDispatches(
+      3,
+      (command) => command.type === "thread.message.assistant.complete",
+    );
+    harness.emit({
+      type: "turn.aborted",
+      eventId: asEventId("evt-turn-aborted-deferred-finalization"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: { reason: "Interrupted by user." },
+    });
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-aborted-deferred-finalization" && !message.streaming,
+        ) &&
+        entry.proposedPlans.some(
+          (proposedPlan: ProviderRuntimeTestProposedPlan) =>
+            proposedPlan.id === "plan:thread-1:turn:turn-aborted-deferred-finalization",
+        ),
+      5000,
+    );
+    expect(getCompleteFailureCount()).toBe(3);
+    expect(
+      thread.proposedPlans.find(
+        (proposedPlan: ProviderRuntimeTestProposedPlan) =>
+          proposedPlan.id === "plan:thread-1:turn:turn-aborted-deferred-finalization",
+      )?.planMarkdown,
+    ).toBe("# Preserve this aborted plan");
+
+    const events = await runtime!.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const assistantCompletionIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === "assistant:item-aborted-deferred-finalization" &&
+        !event.payload.streaming,
+    );
+    const proposedPlanIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.proposed-plan-upserted" &&
+        event.payload.proposedPlan.id === "plan:thread-1:turn:turn-aborted-deferred-finalization",
+    );
+    expect(assistantCompletionIndex).toBeGreaterThanOrEqual(0);
+    expect(proposedPlanIndex).toBeGreaterThan(assistantCompletionIndex);
+  });
+
   it("keeps a request boundary behind deferred pause finalization", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
