@@ -20,6 +20,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
+import * as Schema from "effect/Schema";
 import * as NodeOS from "node:os";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -40,13 +42,12 @@ export interface MakeDesktopEnvironmentInput {
   readonly userId?: number;
 }
 
-export class DesktopStorageDirectoryConfigurationConflictError extends Error {
-  override readonly name = "DesktopStorageDirectoryConfigurationConflictError";
-
-  constructor() {
-    super(
-      "T3CODE_HOME cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.",
-    );
+export class DesktopStorageDirectoryConfigurationConflictError extends Schema.TaggedErrorClass<DesktopStorageDirectoryConfigurationConflictError>()(
+  "DesktopStorageDirectoryConfigurationConflictError",
+  {},
+) {
+  override get message(): string {
+    return "T3CODE_HOME cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
   }
 }
 
@@ -165,7 +166,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
 ): Effect.fn.Return<
   DesktopEnvironment["Service"],
-  Config.ConfigError | DesktopStorageDirectoryConfigurationConflictError,
+  | Config.ConfigError
+  | DesktopStorageDirectoryConfigurationConflictError
+  | PlatformError.PlatformError,
   FileSystem.FileSystem | Path.Path
 > {
   const path = yield* Path.Path;
@@ -230,7 +233,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     return path.resolve(expanded);
   });
   if (Option.isSome(configuredBaseDir) && hasT3StorageDirectoryOverrides(directoryOverrides)) {
-    return yield* Effect.fail(new DesktopStorageDirectoryConfigurationConflictError());
+    return yield* new DesktopStorageDirectoryConfigurationConflictError();
   }
   const legacyBaseDir = path.join(homeDirectory, ".t3");
   const legacyRoots = resolveLegacyT3StorageRoots({
@@ -241,7 +244,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const explicitLegacyRoots = Option.map(configuredBaseDir, (baseDir) =>
     resolveLegacyT3StorageRoots({
       baseDir,
-      stateDirectoryName: "userdata",
+      stateDirectoryName: isDevelopment ? "dev" : "userdata",
       path,
     }),
   );
@@ -251,15 +254,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
     path.join(legacyRoots.configDir, "keybindings.json"),
     path.join(legacyRoots.stateDir, "environment-id"),
     path.join(legacyRoots.stateDir, "connection-catalog.json"),
-    path.join(appDataDirectory, legacyUserDataDirName, "Local State"),
-    path.join(appDataDirectory, legacyUserDataDirName, "Preferences"),
-    path.join(appDataDirectory, userDataDirName, "Local State"),
-    path.join(appDataDirectory, userDataDirName, "Preferences"),
   ];
   const legacyStorageInitialized = (yield* Effect.all(
-    legacyArtifacts.map((artifact) =>
-      fileSystem.exists(artifact).pipe(Effect.orElseSucceed(() => false)),
-    ),
+    legacyArtifacts.map((artifact) => fileSystem.exists(artifact)),
     { concurrency: "unbounded" },
   )).some(Boolean);
   const storageRoots = selectT3StorageRoots({

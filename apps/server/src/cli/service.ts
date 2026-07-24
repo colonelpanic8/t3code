@@ -8,7 +8,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { projectLocationFlags, resolveCliAuthConfig, type CliAuthLocationFlags } from "./config.ts";
 
 export const bootServiceLayer = (config: ServerConfig.ServerConfig["Service"]) =>
   BootService.layer({
@@ -72,7 +72,7 @@ export function formatServiceStatus(
 }
 
 const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E>(
-  flags: { readonly baseDir: Parameters<typeof resolveCliAuthConfig>[0]["baseDir"] },
+  flags: CliAuthLocationFlags,
   run: Effect.Effect<A, E, BootService.BootService>,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;

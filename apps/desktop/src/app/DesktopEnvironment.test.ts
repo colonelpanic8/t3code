@@ -55,16 +55,13 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.isDevelopment, true);
       assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
       assert.equal(environment.baseDir, "/tmp/t3");
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
-      assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
-      assert.equal(
-        environment.savedEnvironmentRegistryPath,
-        "/tmp/t3/userdata/saved-environments.json",
-      );
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
+      assert.equal(environment.stateDir, "/tmp/t3/dev");
+      assert.equal(environment.desktopSettingsPath, "/tmp/t3/dev/desktop-settings.json");
+      assert.equal(environment.clientSettingsPath, "/tmp/t3/dev/client-settings.json");
+      assert.equal(environment.savedEnvironmentRegistryPath, "/tmp/t3/dev/saved-environments.json");
+      assert.equal(environment.serverSettingsPath, "/tmp/t3/dev/settings.json");
+      assert.equal(environment.logDir, "/tmp/t3/dev/logs");
+      assert.equal(environment.browserArtifactsDir, "/tmp/t3/dev/browser-artifacts");
       assert.equal(environment.rootDir, "/repo");
       assert.equal(environment.appRoot, "/repo");
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
@@ -197,6 +194,36 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.storageLayout, "legacy");
       assert.equal(environment.stateDir, legacyStateDir);
       assert.equal(environment.serverSettingsPath, path.join(legacyStateDir, "settings.json"));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("does not treat Electron preferences as initialized server storage", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-electron-only-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const electronDirectory = path.join(
+        homeDirectory,
+        "Library",
+        "Application Support",
+        "T3 Code (Alpha)",
+      );
+      yield* fileSystem.makeDirectory(electronDirectory, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(electronDirectory, "Local State"), "{}");
+
+      const environment = yield* makeEnvironment({
+        homeDirectory,
+        temporaryDirectory: root,
+      });
+
+      assert.equal(environment.storageLayout, "split");
+      assert.equal(
+        environment.stateDir,
+        path.join(homeDirectory, "Library", "Application Support", "t3code", "state"),
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
