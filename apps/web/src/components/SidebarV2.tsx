@@ -1,11 +1,6 @@
 import { autoAnimate } from "@formkit/auto-animate";
 import { useAtomValue } from "@effect/atom-react";
-import {
-  canSettle,
-  canSnooze,
-  effectiveSnoozed,
-  threadWokeAt,
-} from "@t3tools/client-runtime/state/thread-settled";
+import { canSettle, canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   scopeProjectRef,
@@ -117,6 +112,7 @@ import {
   firstValidTimestampMs,
   getSidebarThreadKeysNeedingChangeRequestReporter,
   hasUnseenCompletion,
+  isSidebarThreadEffectivelySnoozed,
   isSidebarThreadEffectivelySettled,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -1447,6 +1443,18 @@ export default function SidebarV2() {
   );
   const isThreadEffectivelySettledRef = useRef(isThreadEffectivelySettled);
   isThreadEffectivelySettledRef.current = isThreadEffectivelySettled;
+  const isThreadEffectivelySnoozed = useCallback(
+    (thread: SidebarThreadSummary, now: string) =>
+      isSidebarThreadEffectivelySnoozed({
+        thread,
+        snoozeSupported:
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true,
+        now,
+      }),
+    [serverConfigs],
+  );
+  const isThreadEffectivelySnoozedRef = useRef(isThreadEffectivelySnoozed);
+  isThreadEffectivelySnoozedRef.current = isThreadEffectivelySnoozed;
   const { activeThreads, snoozedThreads, settledThreads, snoozeNow } = useMemo(() => {
     // Snooze classification uses a REAL clock, not the quantized minute:
     // wake times are second-precise and a woken thread must not linger on
@@ -1464,12 +1472,10 @@ export default function SidebarV2() {
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
     for (const thread of visible) {
-      const supportsSnooze =
-        serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
       // Snooze outranks settled classification: an explicitly snoozed thread
       // belongs to the shelf even if it would also auto-settle (the shelf's
       // wake time is a stronger statement about when it matters again).
-      if (supportsSnooze && effectiveSnoozed(thread, { now: preciseNow })) {
+      if (isThreadEffectivelySnoozed(thread, preciseNow)) {
         snoozed.push(thread);
       } else if (isThreadEffectivelySettled(thread)) {
         settled.push(thread);
@@ -1488,7 +1494,13 @@ export default function SidebarV2() {
       settledThreads: sortSettledThreadsForSidebarV2(settled),
       snoozeNow: preciseNow,
     };
-  }, [isThreadEffectivelySettled, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    isThreadEffectivelySettled,
+    isThreadEffectivelySnoozed,
+    scopedProjectKeys,
+    snoozeWakeTick,
+    threads,
+  ]);
 
   // Arm a timeout for the earliest upcoming wake so the shelf empties the
   // moment a snooze expires instead of on the next minute tick. Sorted
@@ -1822,6 +1834,7 @@ export default function SidebarV2() {
           const shell = allThreadByKeyRef.current.get(threadKey);
           let navigateAfterSettle: (() => void) | null = null;
           if (routeThreadKeyRef.current === threadKey) {
+            const navigationNow = new Date().toISOString();
             const nextThreadKey = resolveNextActiveThreadIdAfterSettle({
               threadIds: orderedThreadKeysRef.current,
               fallbackThreadIds: allUnarchivedThreadKeysRef.current,
@@ -1831,6 +1844,7 @@ export default function SidebarV2() {
                 return (
                   candidate !== undefined &&
                   !opts.coSettlingKeys?.has(candidateKey) &&
+                  !isThreadEffectivelySnoozedRef.current(candidate, navigationNow) &&
                   !isThreadEffectivelySettledRef.current(candidate)
                 );
               },
