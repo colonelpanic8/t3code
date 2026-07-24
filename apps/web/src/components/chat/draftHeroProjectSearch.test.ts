@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { filterDraftHeroProjects, isImeCommitKey } from "./draftHeroProjectSearch";
+import {
+  filterDraftHeroProjects,
+  isImeCommitKey,
+  isVisibleDraftHeroProjectSelection,
+} from "./draftHeroProjectSearch";
 
 const projects = [
   { title: "T3 Code", workspaceRoot: "/work/t3code" },
@@ -70,5 +74,17 @@ describe("isImeCommitKey", () => {
   it("does not block ordinary Enter or other composing keys", () => {
     expect(isImeCommitKey({ key: "Enter", isComposing: false, keyCode: 13 })).toBe(false);
     expect(isImeCommitKey({ key: "a", isComposing: true, keyCode: 229 })).toBe(false);
+  });
+});
+
+describe("isVisibleDraftHeroProjectSelection", () => {
+  it("rejects a stale highlighted project when filtering has no results", () => {
+    expect(isVisibleDraftHeroProjectSelection("project:t3code", [])).toBe(false);
+  });
+
+  it("allows a project that remains in the filtered results", () => {
+    expect(
+      isVisibleDraftHeroProjectSelection("project:t3code", ["project:mobile", "project:t3code"]),
+    ).toBe(true);
   });
 });
