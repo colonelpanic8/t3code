@@ -65,6 +65,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "commandPalette.toggle",
   "composer.stash",
   "chat.new",
+  "chat.newEnvironment",
   "chat.newLocal",
   "editor.openFavorite",
   ...MODEL_PICKER_KEYBINDING_COMMANDS,
