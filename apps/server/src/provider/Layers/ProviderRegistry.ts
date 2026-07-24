@@ -79,19 +79,28 @@ const hasModelCapabilities = (model: ServerProvider["models"][number]): boolean 
   (model.capabilities?.optionDescriptors?.length ?? 0) > 0;
 
 const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean => {
-  if (provider.driver !== ProviderDriverKind.make("opencode")) {
+  const ownsAuthoritativeInventory =
+    provider.driver === ProviderDriverKind.make("opencode") ||
+    provider.driver === ProviderDriverKind.make("claudeAgent");
+  if (!ownsAuthoritativeInventory) {
     return true;
   }
 
-  // OpenCode's initial snapshot is deliberately non-authoritative while its
-  // first probe is still running. A probe error from an installed CLI/server
-  // is likewise partial: it could not establish the current inventory.
+  // OpenCode and Claude initial snapshots are deliberately non-authoritative
+  // while their first probes are still running. A probe error from an
+  // installed CLI/server is likewise partial: it could not establish the
+  // current inventory. Claude reports an SDK initialization failure as a
+  // warning because its static fallback remains usable.
   // Conversely, disabled and missing-CLI snapshots are authoritative removals,
   // as are successful ready/warning inventories (including an empty one after
   // logout or plugin removal).
   const isPendingInitialProbe =
     provider.enabled && !provider.installed && provider.status === "warning";
-  const didInstalledProviderProbeFail = provider.installed && provider.status === "error";
+  const didInstalledProviderProbeFail =
+    provider.installed &&
+    (provider.status === "error" ||
+      (provider.driver === ProviderDriverKind.make("claudeAgent") &&
+        provider.status === "warning"));
   return isPendingInitialProbe || didInstalledProviderProbeFail;
 };
 
