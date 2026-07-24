@@ -51,6 +51,7 @@ export type RightPanelSurface =
       kind: "generated-image";
       activityId: EventId;
       name: string;
+      loadRequestId: number;
     }
   | { id: "plan"; kind: "plan" };
 
@@ -134,11 +135,16 @@ const fileSurface = (
   revealRequestId,
 });
 
-const generatedImageSurface = (activityId: EventId, name: string): RightPanelSurface => ({
+const generatedImageSurface = (
+  activityId: EventId,
+  name: string,
+  loadRequestId: number,
+): RightPanelSurface => ({
   id: `generated-image:${activityId}`,
   kind: "generated-image",
   activityId,
   name,
+  loadRequestId,
 });
 
 const terminalSurface = (terminalId: string): RightPanelSurface => ({
@@ -222,7 +228,14 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       ) {
                         return [];
                       }
-                      return [surface];
+                      const loadRequestId =
+                        "loadRequestId" in surface &&
+                        typeof surface.loadRequestId === "number" &&
+                        Number.isSafeInteger(surface.loadRequestId) &&
+                        surface.loadRequestId >= 0
+                          ? surface.loadRequestId
+                          : 0;
+                      return [{ ...surface, loadRequestId }];
                     }
                     if (surface.kind !== "terminal") return [surface];
                     if (
@@ -329,8 +342,16 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openGeneratedImage: (ref, activityId, name) =>
         set((state) => ({
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
-            const surface = generatedImageSurface(activityId, name);
-            const existing = current.surfaces.some((entry) => entry.id === surface.id);
+            const surfaceId = `generated-image:${activityId}` as const;
+            const existing = current.surfaces.find(
+              (entry): entry is Extract<RightPanelSurface, { kind: "generated-image" }> =>
+                entry.id === surfaceId && entry.kind === "generated-image",
+            );
+            const surface = generatedImageSurface(
+              activityId,
+              name,
+              (existing?.loadRequestId ?? 0) + 1,
+            );
             return {
               isOpen: true,
               activeSurfaceId: surface.id,
