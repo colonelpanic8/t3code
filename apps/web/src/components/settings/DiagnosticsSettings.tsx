@@ -2,18 +2,22 @@ import {
   AlertTriangleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  CloudIcon,
   CopyIcon,
   FolderOpenIcon,
   InfoIcon,
+  MonitorIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import { useAtomValue } from "@effect/atom-react";
+import { Link } from "@tanstack/react-router";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import type {
+  EnvironmentId,
   ServerProcessDiagnosticsEntry,
   ServerProcessResourceHistorySummary,
   ServerProcessSignal,
@@ -25,19 +29,31 @@ import { cn } from "../../lib/utils";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { useEnvironmentQuery } from "../../state/query";
-import {
-  primaryServerAvailableEditorsAtom,
-  primaryServerObservabilityAtom,
-  serverEnvironment,
-} from "../../state/server";
+import { serverEnvironment } from "../../state/server";
 import { shellEnvironment } from "../../state/shell";
-import { usePrimaryEnvironment } from "../../state/environments";
+import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
+import { useActiveEnvironmentId } from "../../state/entities";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
-import { SettingsPageContainer, SettingsSection, useRelativeTimeTick } from "./settingsLayout";
+import {
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+  useRelativeTimeTick,
+} from "./settingsLayout";
+import { resolveDiagnosticsEnvironmentId } from "./DiagnosticsSettings.logic";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 const NUMBER_FORMAT = new Intl.NumberFormat();
@@ -808,10 +824,28 @@ function DiagnosticsRefreshButton({
 }
 
 export function DiagnosticsSettingsPanel() {
-  const observability = useAtomValue(primaryServerObservabilityAtom);
-  const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
+  const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
-  const environmentId = primaryEnvironment?.environmentId ?? null;
+  const activeEnvironmentId = useActiveEnvironmentId();
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
+  const environmentId = resolveDiagnosticsEnvironmentId({
+    selectedEnvironmentId,
+    primaryEnvironmentId: primaryEnvironment?.environmentId ?? null,
+    activeEnvironmentId,
+    availableEnvironmentIds: environments.map((environment) => environment.environmentId),
+  });
+  const diagnosticsEnvironment =
+    environments.find((environment) => environment.environmentId === environmentId) ?? null;
+  const observability = diagnosticsEnvironment?.serverConfig?.observability ?? null;
+  const availableEditors = diagnosticsEnvironment?.serverConfig?.availableEditors ?? [];
+  const environmentItems = useMemo(
+    () =>
+      environments.map((environment) => ({
+        value: environment.environmentId,
+        label: environment.label,
+      })),
+    [environments],
+  );
   const signalServerProcess = useAtomCommand(serverEnvironment.signalProcess, {
     reportFailure: false,
   });
@@ -956,8 +990,85 @@ export function DiagnosticsSettingsPanel() {
     ? Option.getOrElse(data.partialFailure, () => false)
     : false;
 
+  if (environmentId === null) {
+    return (
+      <SettingsPageContainer>
+        <SettingsSection title="Environment">
+          <SettingsRow
+            title="Diagnostics source"
+            description="Process, resource, and trace diagnostics are collected by a specific backend."
+            status="Connect an environment to view diagnostics."
+            control={
+              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                Manage connections
+              </Button>
+            }
+          />
+        </SettingsSection>
+      </SettingsPageContainer>
+    );
+  }
+
   return (
     <SettingsPageContainer>
+      <SettingsSection title="Environment">
+        <SettingsRow
+          title="Diagnostics source"
+          description="Process, resource, and trace diagnostics are collected by a specific backend. Choose the machine you want to inspect."
+          status={
+            diagnosticsEnvironment ? (
+              <>
+                {connectionStatusText(diagnosticsEnvironment.connection)}
+                {diagnosticsEnvironment.displayUrl
+                  ? ` · ${diagnosticsEnvironment.displayUrl}`
+                  : null}
+              </>
+            ) : (
+              "Connect an environment to view diagnostics."
+            )
+          }
+          control={
+            diagnosticsEnvironment ? (
+              <Select
+                value={diagnosticsEnvironment.environmentId}
+                onValueChange={(value) => setSelectedEnvironmentId(value as EnvironmentId)}
+                items={environmentItems}
+              >
+                <SelectTrigger className="w-full sm:w-64" aria-label="Diagnostics environment">
+                  {diagnosticsEnvironment.entry.target._tag === "PrimaryConnectionTarget" ? (
+                    <MonitorIcon className="size-4" />
+                  ) : (
+                    <CloudIcon className="size-4" />
+                  )}
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectGroupLabel>Machine</SelectGroupLabel>
+                    {environments.map((environment) => (
+                      <SelectItem key={environment.environmentId} value={environment.environmentId}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {environment.entry.target._tag === "PrimaryConnectionTarget" ? (
+                            <MonitorIcon className="size-3" />
+                          ) : (
+                            <CloudIcon className="size-3" />
+                          )}
+                          {environment.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectPopup>
+              </Select>
+            ) : (
+              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                Manage connections
+              </Button>
+            )
+          }
+        />
+      </SettingsSection>
+
       <SettingsSection
         title="Live Processes"
         headerAction={
