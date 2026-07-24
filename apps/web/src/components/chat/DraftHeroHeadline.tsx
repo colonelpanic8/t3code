@@ -23,7 +23,11 @@ import {
   ComboboxPopup,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { filterDraftHeroProjects, isImeCommitKey } from "./draftHeroProjectSearch";
+import {
+  filterDraftHeroProjects,
+  isImeCommitKey,
+  isVisibleDraftHeroProjectSelection,
+} from "./draftHeroProjectSearch";
 
 interface DraftHeroHeadlineProps {
   readonly activeProjectRef: ScopedProjectRef | null;
@@ -132,6 +136,14 @@ export function DraftHeroHeadline({
       onValueChange={(value) => {
         if (!value || value === activeProjectKey) {
           setIsProjectPickerOpen(false);
+          return;
+        }
+        if (
+          !isVisibleDraftHeroProjectSelection(
+            value,
+            filteredProjectEntries.map(({ group }) => group.projectKey),
+          )
+        ) {
           return;
         }
         const entry = projectEntryByKey.get(value);

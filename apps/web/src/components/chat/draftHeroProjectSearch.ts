@@ -29,3 +29,10 @@ export function filterDraftHeroProjects<T extends SearchableProject>(
     return tokens.every((token) => searchText.includes(token));
   });
 }
+
+export function isVisibleDraftHeroProjectSelection(
+  value: string,
+  filteredProjectKeys: ReadonlyArray<string>,
+): boolean {
+  return filteredProjectKeys.includes(value);
+}
