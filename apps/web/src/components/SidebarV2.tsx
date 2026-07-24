@@ -1482,13 +1482,7 @@ export default function SidebarV2() {
       settledThreads: sortSettledThreadsForSidebarV2(settled),
       snoozeNow: preciseNow,
     };
-  }, [
-    isThreadEffectivelySettled,
-    scopedProjectKeys,
-    serverConfigs,
-    snoozeWakeTick,
-    threads,
-  ]);
+  }, [isThreadEffectivelySettled, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
 
   // Arm a timeout for the earliest upcoming wake so the shelf empties the
   // moment a snooze expires instead of on the next minute tick. Sorted
@@ -2330,15 +2324,29 @@ export default function SidebarV2() {
   const settleConfirmationThread = settleConfirmationThreadKey
     ? (allThreadByKey.get(settleConfirmationThreadKey) ?? null)
     : null;
+  const settleConfirmationCanSettle =
+    settleConfirmationThread !== null &&
+    serverConfigs.get(settleConfirmationThread.environmentId)?.environment.capabilities
+      .threadSettlement === true &&
+    canSettle(settleConfirmationThread, { now: new Date().toISOString() });
   const confirmShortcutSettle = useCallback(() => {
-    if (!settleConfirmationThread || settleConfirmationThreadKey !== routeThreadKeyRef.current) {
+    if (
+      !settleConfirmationThread ||
+      settleConfirmationThreadKey !== routeThreadKeyRef.current ||
+      !settleConfirmationCanSettle
+    ) {
       setSettleConfirmationThreadKey(null);
       return;
     }
     attemptSettle(
       scopeThreadRef(settleConfirmationThread.environmentId, settleConfirmationThread.id),
     );
-  }, [attemptSettle, settleConfirmationThread, settleConfirmationThreadKey]);
+  }, [
+    attemptSettle,
+    settleConfirmationCanSettle,
+    settleConfirmationThread,
+    settleConfirmationThreadKey,
+  ]);
 
   useEffect(() => {
     if (
@@ -2347,11 +2355,17 @@ export default function SidebarV2() {
         routeThreadKey,
         targetExists: settleConfirmationThread !== null,
         targetExplicitlySettled: settleConfirmationThread?.settledOverride === "settled",
+        targetCanSettle: settleConfirmationCanSettle,
       })
     ) {
       setSettleConfirmationThreadKey(null);
     }
-  }, [routeThreadKey, settleConfirmationThread, settleConfirmationThreadKey]);
+  }, [
+    routeThreadKey,
+    settleConfirmationCanSettle,
+    settleConfirmationThread,
+    settleConfirmationThreadKey,
+  ]);
 
   // Same predicate as v1: hints show only while the held modifiers exactly
   // match a thread-jump binding. Adding Shift (screenshots) or Alt no
@@ -2927,7 +2941,7 @@ export default function SidebarV2() {
       </Dialog>
       <SidebarChromeFooter />
       <AlertDialog
-        open={settleConfirmationThread !== null}
+        open={settleConfirmationThread !== null && settleConfirmationCanSettle}
         onOpenChange={(open) => {
           if (!open) setSettleConfirmationThreadKey(null);
         }}
@@ -2943,7 +2957,11 @@ export default function SidebarV2() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
-            <Button ref={settleConfirmationButtonRef} onClick={confirmShortcutSettle}>
+            <Button
+              ref={settleConfirmationButtonRef}
+              disabled={!settleConfirmationCanSettle}
+              onClick={confirmShortcutSettle}
+            >
               Settle thread
               <Kbd className="ml-1 h-5 px-1.5">Enter</Kbd>
             </Button>
