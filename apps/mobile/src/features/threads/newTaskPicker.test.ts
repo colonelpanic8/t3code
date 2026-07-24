@@ -6,7 +6,11 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
-import { buildNewTaskEnvironmentItems, buildNewTaskProjectItems } from "./newTaskPicker";
+import {
+  buildNewTaskEnvironmentItems,
+  buildNewTaskProjectItems,
+  deriveNewTaskProjectPickerEmptyState,
+} from "./newTaskPicker";
 
 function makeProject(
   input: Partial<EnvironmentProject> & Pick<EnvironmentProject, "environmentId" | "id" | "title">,
@@ -138,5 +142,41 @@ describe("new task picker", () => {
         projectCount: 2,
       },
     ]);
+  });
+
+  it("derives an empty state from the selected environment instead of another ready environment", () => {
+    expect(
+      deriveNewTaskProjectPickerEmptyState({
+        environment: {
+          connectionState: "offline",
+          connectionError: "Build server is stopped.",
+        },
+        networkOffline: false,
+        shellStatus: "empty",
+        shellError: null,
+        hasShellSnapshot: false,
+      }),
+    ).toEqual({
+      title: "Environment unavailable",
+      detail: "Build server is stopped.",
+      loading: false,
+    });
+
+    expect(
+      deriveNewTaskProjectPickerEmptyState({
+        environment: {
+          connectionState: "connected",
+          connectionError: null,
+        },
+        networkOffline: false,
+        shellStatus: "synchronizing",
+        shellError: null,
+        hasShellSnapshot: false,
+      }),
+    ).toEqual({
+      title: "Loading projects",
+      detail: "Loading projects from the selected environment.",
+      loading: true,
+    });
   });
 });
