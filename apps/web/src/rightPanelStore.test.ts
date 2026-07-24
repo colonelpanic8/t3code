@@ -249,6 +249,44 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("upgrades v8 generated-image surfaces with neutral load request state", () => {
+    expect(useRightPanelStore.persist.getOptions().version).toBe(9);
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "generated-image:activity-generated-image",
+            surfaces: [
+              {
+                id: "generated-image:activity-generated-image",
+                kind: "generated-image",
+                activityId: "activity-generated-image",
+                name: "generated.png",
+              },
+            ],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "generated-image:activity-generated-image",
+          surfaces: [
+            {
+              id: "generated-image:activity-generated-image",
+              kind: "generated-image",
+              activityId: "activity-generated-image",
+              name: "generated.png",
+              loadRequestId: 0,
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("drops malformed generated-image surfaces during migration", () => {
     expect(
       migratePersistedRightPanelState({
