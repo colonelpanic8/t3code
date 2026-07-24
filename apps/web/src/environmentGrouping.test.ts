@@ -12,6 +12,7 @@ import {
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
+  resolveNewThreadPickerProjectRef,
   resolveScopedNewThreadProjectRef,
 } from "./sidebarProjectGrouping";
 import { orderItemsByPreferredIds } from "./components/Sidebar.logic";
@@ -366,6 +367,40 @@ describe("environment grouping", () => {
 
     expect(
       resolveScopedNewThreadProjectRef({
+        scopedProjectGroup: group ?? null,
+        contextualProjectRef: {
+          environmentId: separate.environmentId,
+          projectId: separate.id,
+        },
+      }),
+    ).toEqual({
+      environmentId: primary.environmentId,
+      projectId: primary.id,
+    });
+  });
+
+  it("uses the sidebar scope when the command palette has no explicit project preference", () => {
+    const primary = makeProject({ repositoryIdentity });
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const separate = makeProject({
+      id: ProjectId.make("project-separate"),
+      title: "separate",
+      workspaceRoot: "/tmp/separate",
+    });
+    const [group] = buildSidebarProjectSnapshots({
+      projects: [primary, remote, separate],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => null,
+    });
+
+    expect(
+      resolveNewThreadPickerProjectRef({
+        preferredProjectRef: null,
         scopedProjectGroup: group ?? null,
         contextualProjectRef: {
           environmentId: separate.environmentId,
