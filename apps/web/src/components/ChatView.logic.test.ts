@@ -1,6 +1,7 @@
 import {
   EnvironmentId,
   MessageId,
+  OrchestrationDispatchCommandError,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -26,6 +27,7 @@ import {
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   startNewThreadForProject,
+  shouldRenewDraftThreadIdAfterFailure,
   shouldShowBranchMismatchBanner,
   shouldWriteThreadErrorToCurrentServerThread,
 } from "./ChatView.logic";
@@ -64,6 +66,25 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     ...overrides,
   };
 }
+
+describe("shouldRenewDraftThreadIdAfterFailure", () => {
+  it("only renews identities explicitly retired by bootstrap cleanup", () => {
+    expect(
+      shouldRenewDraftThreadIdAfterFailure(
+        new OrchestrationDispatchCommandError({
+          message: "bootstrap failed",
+          retryWithNewThreadId: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldRenewDraftThreadIdAfterFailure(
+        new OrchestrationDispatchCommandError({ message: "transport failed" }),
+      ),
+    ).toBe(false);
+    expect(shouldRenewDraftThreadIdAfterFailure(new Error("unrelated"))).toBe(false);
+  });
+});
 
 const completedTurn = {
   turnId: TurnId.make("turn-1"),

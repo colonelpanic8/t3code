@@ -399,6 +399,16 @@ interface ComposerDraftStoreState {
   markDraftThreadPromoting: (threadRef: ComposerThreadTarget, promotedTo?: ScopedThreadRef) => void;
   /** Removes draft-session metadata after promotion is complete. */
   finalizePromotedDraftThread: (threadRef: ComposerThreadTarget) => void;
+  /**
+   * Replaces the reserved server thread identity after a failed bootstrap
+   * conclusively cleaned up the previous identity.
+   */
+  renewDraftThreadId: (
+    threadRef: ComposerThreadTarget,
+    expectedThreadId: ThreadId,
+    nextThreadId: ThreadId,
+    createdAt: string,
+  ) => boolean;
   clearDraftThread: (threadRef: ComposerThreadTarget) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
@@ -2478,6 +2488,35 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             }
             return removeDraftThreadReferences(state, threadKey);
           });
+        },
+        renewDraftThreadId: (threadRef, expectedThreadId, nextThreadId, createdAt) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return false;
+          }
+          let renewed = false;
+          set((state) => {
+            const existing = state.draftThreadsByThreadKey[threadKey];
+            if (
+              existing === undefined ||
+              existing.promotedTo !== null ||
+              existing.threadId !== expectedThreadId
+            ) {
+              return state;
+            }
+            renewed = true;
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [threadKey]: {
+                  ...existing,
+                  threadId: nextThreadId,
+                  createdAt,
+                },
+              },
+            };
+          });
+          return renewed;
         },
         clearDraftThread: (threadRef) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
