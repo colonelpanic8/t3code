@@ -89,18 +89,16 @@ const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean =>
   // OpenCode and Claude initial snapshots are deliberately non-authoritative
   // while their first probes are still running. A probe error from an
   // installed CLI/server is likewise partial: it could not establish the
-  // current inventory. Claude reports an SDK initialization failure as a
-  // warning because its static fallback remains usable.
+  // current inventory.
   // Conversely, disabled and missing-CLI snapshots are authoritative removals,
   // as are successful ready/warning inventories (including an empty one after
-  // logout or plugin removal).
+  // logout or plugin removal). Claude degrades an SDK initialization failure to
+  // a warning while shipping its complete static fallback inventory, so that
+  // snapshot is authoritative too: retaining previously discovered slugs would
+  // union two catalogs and show duplicate entries in the picker.
   const isPendingInitialProbe =
     provider.enabled && !provider.installed && provider.status === "warning";
-  const didInstalledProviderProbeFail =
-    provider.installed &&
-    (provider.status === "error" ||
-      (provider.driver === ProviderDriverKind.make("claudeAgent") &&
-        provider.status === "warning"));
+  const didInstalledProviderProbeFail = provider.installed && provider.status === "error";
   return isPendingInitialProbe || didInstalledProviderProbeFail;
 };
 

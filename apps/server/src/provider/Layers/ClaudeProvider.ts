@@ -640,9 +640,10 @@ function claudeEffortLabel(effort: ClaudeEffortLevel): string {
 
 function claudeCapabilitiesFromModelInfo(model: ClaudeModelInfo): ModelCapabilities {
   const effortLevels = [...new Set(model.supportedEffortLevels ?? [])];
+  const hasEffortSelect = Boolean(model.supportsEffort) && effortLevels.length > 0;
   return createModelCapabilities({
     optionDescriptors: [
-      ...(model.supportsEffort && effortLevels.length > 0
+      ...(hasEffortSelect
         ? [
             buildSelectOptionDescriptor({
               id: "effort",
@@ -655,6 +656,17 @@ function claudeCapabilitiesFromModelInfo(model: ClaudeModelInfo): ModelCapabilit
                 { value: "ultrathink", label: "Ultrathink" },
               ],
               promptInjectedValues: ["ultrathink"],
+            }),
+          ]
+        : []),
+      // Effort already governs how much a model thinks, so the standalone
+      // always-thinking toggle is only offered for models without effort
+      // levels — matching how the static fallback catalog exposes it.
+      ...(!hasEffortSelect && model.supportsAdaptiveThinking
+        ? [
+            buildBooleanOptionDescriptor({
+              id: "thinking",
+              label: "Thinking",
             }),
           ]
         : []),
