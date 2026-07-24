@@ -2383,6 +2383,8 @@ const make = Effect.gen(function* () {
               turnId,
               updatedAt: now,
             });
+          } else if (event.type === "turn.aborted") {
+            yield* scheduleRuntimeEventRetry(event);
           }
         }
       }
