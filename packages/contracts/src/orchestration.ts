@@ -1415,6 +1415,7 @@ export class OrchestrationDispatchCommandError extends Schema.TaggedErrorClass<O
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
+    retryWithNewThreadId: Schema.optional(Schema.Boolean),
   },
 ) {}
 
