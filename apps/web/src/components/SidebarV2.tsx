@@ -107,6 +107,7 @@ import {
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
   resolveAdjacentThreadId,
+  resolveProjectRepositoryKey,
   resolveSettledTimestamp,
   resolveSidebarV2Status,
   resolveWorkingStartedAt,
@@ -221,6 +222,7 @@ function SidebarV2ThreadTooltip({
   thread,
   projectTitle,
   projectCwd,
+  projectRepositoryKey,
   environmentLabel,
   driverKind,
   modelInstanceId,
@@ -230,6 +232,7 @@ function SidebarV2ThreadTooltip({
   thread: SidebarThreadSummary;
   projectTitle: string | null;
   projectCwd: string | null;
+  projectRepositoryKey: string | null;
   environmentLabel: string | null;
   driverKind: ProviderInstanceEntry["driverKind"] | null;
   modelInstanceId: string;
@@ -258,6 +261,7 @@ function SidebarV2ThreadTooltip({
               <ProjectFavicon
                 environmentId={thread.environmentId}
                 cwd={projectCwd ?? ""}
+                repositoryKey={projectRepositoryKey}
                 className="size-4 shrink-0 stroke-muted-foreground"
               />
               <div className="min-w-0 wrap-break-word text-foreground/90">{projectTitle}</div>
@@ -378,6 +382,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   currentEnvironmentId: string | null;
   environmentLabel: string | null;
   projectCwd: string | null;
+  projectRepositoryKey: string | null;
   projectTitle: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   onThreadClick: (event: ReactMouseEvent, threadRef: ScopedThreadRef) => void;
@@ -540,6 +545,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
       thread={thread}
       projectTitle={props.projectTitle}
       projectCwd={props.projectCwd}
+      projectRepositoryKey={props.projectRepositoryKey}
       environmentLabel={props.environmentLabel}
       driverKind={driverKind}
       modelInstanceId={modelInstanceId}
@@ -784,6 +790,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               <ProjectFavicon
                 environmentId={thread.environmentId}
                 cwd={props.projectCwd ?? ""}
+                repositoryKey={props.projectRepositoryKey}
                 className="size-4"
                 fallbackIcon={MessageSquareIcon}
               />
@@ -887,6 +894,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 <ProjectFavicon
                   environmentId={thread.environmentId}
                   cwd={props.projectCwd ?? ""}
+                  repositoryKey={props.projectRepositoryKey}
                   className="size-4 shrink-0"
                 />
               </span>
@@ -2505,6 +2513,9 @@ export default function SidebarV2() {
                       projectCwd={
                         projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
                       }
+                      projectRepositoryKey={resolveProjectRepositoryKey(
+                        projectMemberByKey.get(`${thread.environmentId}:${thread.projectId}`),
+                      )}
                       projectTitle={
                         projectDisplayNameByKey.get(
                           `${thread.environmentId}:${thread.projectId}`,
