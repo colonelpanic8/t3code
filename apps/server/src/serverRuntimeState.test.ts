@@ -178,12 +178,14 @@ describe("decideServerRuntimeStartup", () => {
   };
   const alwaysAlive = () => true;
   const alwaysDead = () => false;
+  const alwaysResponsive = () => true;
 
   it("proceeds when no discovery file exists", () => {
     const decision = ServerRuntimeState.decideServerRuntimeStartup({
       existing: Option.none(),
       ownPid: 999,
       isPidAlive: alwaysAlive,
+      isRuntimeOwnerResponsive: alwaysResponsive,
     });
     assert.equal(decision._tag, "proceed");
   });
@@ -193,6 +195,7 @@ describe("decideServerRuntimeStartup", () => {
       existing: Option.some(state),
       ownPid: 999,
       isPidAlive: alwaysAlive,
+      isRuntimeOwnerResponsive: alwaysResponsive,
     });
     assert.equal(decision._tag, "conflict");
     if (decision._tag === "conflict") {
@@ -205,6 +208,7 @@ describe("decideServerRuntimeStartup", () => {
       existing: Option.some(state),
       ownPid: 999,
       isPidAlive: alwaysDead,
+      isRuntimeOwnerResponsive: alwaysResponsive,
     });
     assert.equal(decision._tag, "proceed");
   });
@@ -215,6 +219,17 @@ describe("decideServerRuntimeStartup", () => {
       ownPid: state.pid,
       // Would report a conflict if own-pid were not special-cased.
       isPidAlive: alwaysAlive,
+      isRuntimeOwnerResponsive: alwaysResponsive,
+    });
+    assert.equal(decision._tag, "proceed");
+  });
+
+  it("proceeds when a reused live pid does not own the recorded T3 origin", () => {
+    const decision = ServerRuntimeState.decideServerRuntimeStartup({
+      existing: Option.some(state),
+      ownPid: 999,
+      isPidAlive: alwaysAlive,
+      isRuntimeOwnerResponsive: () => false,
     });
     assert.equal(decision._tag, "proceed");
   });
@@ -245,6 +260,7 @@ describe("ensureExclusiveStateDir", () => {
         stateDir,
         ownPid: 999,
         isPidAlive: () => true,
+        probeRuntimeOwner: () => Effect.succeed(true),
       }).pipe(Effect.flip);
 
       assert.isTrue(isServerStateDirConflictError(error));
@@ -275,6 +291,27 @@ describe("ensureExclusiveStateDir", () => {
         stateDir,
         ownPid: 999,
         isPidAlive: () => false,
+        probeRuntimeOwner: () => Effect.succeed(true),
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("proceeds when a live reused pid has no T3 server at the recorded origin", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const stateDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-server-state-dir-guard-test-",
+      });
+      const statePath = path.join(stateDir, "server-runtime.json");
+      yield* ServerRuntimeState.persistServerRuntimeState({ path: statePath, state });
+
+      yield* ServerRuntimeState.ensureExclusiveStateDir({
+        statePath,
+        stateDir,
+        ownPid: 999,
+        isPidAlive: () => true,
+        probeRuntimeOwner: () => Effect.succeed(false),
       });
     }).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -294,6 +331,7 @@ describe("ensureExclusiveStateDir", () => {
         stateDir,
         ownPid: 999,
         isPidAlive: () => true,
+        probeRuntimeOwner: () => Effect.succeed(true),
       });
 
       // Corrupt file: read returns none, so proceed even against a "live" pid.
@@ -303,6 +341,7 @@ describe("ensureExclusiveStateDir", () => {
         stateDir,
         ownPid: 999,
         isPidAlive: () => true,
+        probeRuntimeOwner: () => Effect.succeed(true),
       });
     }).pipe(
       Effect.provide(
@@ -329,6 +368,7 @@ describe("ensureExclusiveStateDir", () => {
         stateDir,
         ownPid: 999,
         isPidAlive: () => true,
+        probeRuntimeOwner: () => Effect.succeed(true),
       }).pipe(Effect.flip);
 
       assert.isTrue(isServerRuntimeStateError(error));

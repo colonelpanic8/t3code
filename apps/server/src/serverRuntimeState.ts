@@ -1,8 +1,10 @@
+import { ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 
 import { writeFileStringAtomically } from "./atomicWrite.ts";
 import type * as ServerConfig from "./config.ts";
@@ -140,16 +142,38 @@ export type ServerRuntimeStartupDecision =
   | { readonly _tag: "proceed" }
   | { readonly _tag: "conflict"; readonly state: PersistedServerRuntimeState };
 
+const RUNTIME_OWNER_PROBE_TIMEOUT_MS = 1_000;
+const isExecutionEnvironmentDescriptor = Schema.is(ExecutionEnvironmentDescriptor);
+
+const probeRuntimeOwner = Effect.fn("serverRuntimeState.probeRuntimeOwner")(
+  function* (state: PersistedServerRuntimeState) {
+    const client = yield* HttpClient.HttpClient;
+    const response = yield* client.get(
+      new URL("/.well-known/t3/environment", state.origin).toString(),
+    );
+    if (response.status < 200 || response.status >= 300) {
+      return false;
+    }
+    const body = yield* response.json;
+    return isExecutionEnvironmentDescriptor(body);
+  },
+  Effect.timeout(RUNTIME_OWNER_PROBE_TIMEOUT_MS),
+  Effect.orElseSucceed(() => false),
+  Effect.provide(FetchHttpClient.layer),
+);
+
 /**
  * Pure decision for whether it is safe to start a server against a state directory
  * given whatever discovery file it currently holds. Proceed when the file is absent,
  * when it records our own pid (a same-process restart path must not self-block), or
- * when the recorded pid is dead (stale file). Otherwise report a conflict.
+ * when the recorded pid is dead or no T3 server responds at the recorded origin
+ * (stale/reused pid). Otherwise report a conflict.
  */
 export const decideServerRuntimeStartup = (input: {
   readonly existing: Option.Option<PersistedServerRuntimeState>;
   readonly ownPid: number;
   readonly isPidAlive: (pid: number) => boolean;
+  readonly isRuntimeOwnerResponsive: (state: PersistedServerRuntimeState) => boolean;
 }): ServerRuntimeStartupDecision => {
   if (Option.isNone(input.existing)) {
     return { _tag: "proceed" };
@@ -158,7 +182,9 @@ export const decideServerRuntimeStartup = (input: {
   if (state.pid === input.ownPid) {
     return { _tag: "proceed" };
   }
-  return input.isPidAlive(state.pid) ? { _tag: "conflict", state } : { _tag: "proceed" };
+  return input.isPidAlive(state.pid) && input.isRuntimeOwnerResponsive(state)
+    ? { _tag: "conflict", state }
+    : { _tag: "proceed" };
 };
 
 /**
@@ -173,13 +199,24 @@ export const ensureExclusiveStateDir = (input: {
   readonly stateDir: string;
   readonly ownPid?: number;
   readonly isPidAlive?: (pid: number) => boolean;
+  readonly probeRuntimeOwner?: (
+    state: PersistedServerRuntimeState,
+  ) => Effect.Effect<boolean, never, never>;
 }) =>
   Effect.gen(function* () {
     const existing = yield* readPersistedServerRuntimeStateForStartup(input.statePath);
+    const ownPid = input.ownPid ?? process.pid;
+    const checkPidAlive = input.isPidAlive ?? isPidAlive;
+    const state = Option.getOrUndefined(existing);
+    const runtimeOwnerResponsive =
+      state !== undefined && state.pid !== ownPid && checkPidAlive(state.pid)
+        ? yield* (input.probeRuntimeOwner ?? probeRuntimeOwner)(state)
+        : false;
     const decision = decideServerRuntimeStartup({
       existing,
-      ownPid: input.ownPid ?? process.pid,
-      isPidAlive: input.isPidAlive ?? isPidAlive,
+      ownPid,
+      isPidAlive: checkPidAlive,
+      isRuntimeOwnerResponsive: () => runtimeOwnerResponsive,
     });
     if (decision._tag === "conflict") {
       return yield* new ServerStateDirConflictError({
