@@ -43,6 +43,23 @@ function readInitialThreadSidebarWidth(): number {
   }
 }
 
+/** Keep the resize cap aligned with Electron/browser window changes after the initial render. */
+function useThreadSidebarMaximumWidth(): number {
+  const [maximumWidth, setMaximumWidth] = useState(() =>
+    resolveThreadSidebarMaximumWidth(window.innerWidth),
+  );
+
+  useEffect(() => {
+    const updateMaximumWidth = () =>
+      setMaximumWidth(resolveThreadSidebarMaximumWidth(window.innerWidth));
+
+    window.addEventListener("resize", updateMaximumWidth);
+    return () => window.removeEventListener("resize", updateMaximumWidth);
+  }, []);
+
+  return maximumWidth;
+}
+
 function SidebarControl() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { toggleSidebar } = useSidebar();
@@ -109,7 +126,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const useSidebarV2Theme = useSidebarV2 || isOnSettings;
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
-  const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(window.innerWidth);
+  const sidebarMaximumWidth = useThreadSidebarMaximumWidth();
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(() => {
     const getWindowFullscreenState = window.desktopBridge?.getWindowFullscreenState;
     return isMacosDesktop && typeof getWindowFullscreenState === "function"
