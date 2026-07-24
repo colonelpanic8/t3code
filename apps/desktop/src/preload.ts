@@ -38,9 +38,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getBackendModeState: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_BACKEND_MODE_STATE_CHANNEL);
     if (typeof result !== "object" || result === null) {
+      // An unavailable mode handler means the renderer cannot safely assume
+      // that this process owns a backend. Fail closed into the connection-only
+      // routing path instead of trying to resolve t3code:// as an HTTP backend.
       return {
-        effectiveMode: "managed",
-        configuredMode: "managed",
+        effectiveMode: "client-only",
+        configuredMode: "client-only",
         cliOverride: null,
       };
     }
