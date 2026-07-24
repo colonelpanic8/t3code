@@ -20,7 +20,10 @@ import {
   resolveServerConfig,
   StorageDirectoryConfigurationConflictError,
   StorageLayoutConfigurationConflictError,
+  UnsafeRuntimeDirectoryError,
 } from "./config.ts";
+
+const isUnsafeRuntimeDirectoryError = Schema.is(UnsafeRuntimeDirectoryError);
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl);
@@ -714,6 +717,172 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved.serverRuntimeStatePath).toBe(
         path.join(runtimeHome, "t3code", "server-runtime.json"),
       );
+    }),
+  );
+
+  it.effect("rejects a split runtime directory symlink without chmodding its target", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-runtime-symlink-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const runtimeHome = path.join(root, "runtime");
+      const runtimeDir = path.join(runtimeHome, "t3code");
+      const targetDir = path.join(root, "target");
+      yield* fs.makeDirectory(runtimeHome, { recursive: true });
+      yield* fs.makeDirectory(targetDir, { recursive: true });
+      yield* fs.chmod(targetDir, 0o750);
+      yield* fs.symlink(targetDir, runtimeDir);
+
+      const error = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(3773),
+          host: Option.none(),
+          baseDir: Option.none(),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+        {
+          homeDirectory,
+          temporaryDirectory: root,
+          userId: NodeOS.userInfo().uid,
+          platform: "linux",
+        },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: { XDG_RUNTIME_DIR: runtimeHome },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(error).toBeInstanceOf(UnsafeRuntimeDirectoryError);
+      if (isUnsafeRuntimeDirectoryError(error)) {
+        expect(error.reason).toBe("open");
+      }
+      expect((yield* fs.stat(targetDir)).mode & 0o777).toBe(0o750);
+    }),
+  );
+
+  it.effect("rejects a split runtime directory owned by another user", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-runtime-owner-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const runtimeHome = path.join(root, "runtime");
+      const runtimeDir = path.join(runtimeHome, "t3code");
+      yield* fs.makeDirectory(runtimeDir, { recursive: true });
+      const actualUserId = NodeOS.userInfo().uid;
+
+      const error = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(3773),
+          host: Option.none(),
+          baseDir: Option.none(),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+        {
+          homeDirectory,
+          temporaryDirectory: root,
+          userId: actualUserId + 1,
+          platform: "linux",
+        },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: { XDG_RUNTIME_DIR: runtimeHome },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(error).toBeInstanceOf(UnsafeRuntimeDirectoryError);
+      if (isUnsafeRuntimeDirectoryError(error)) {
+        expect(error.reason).toBe("wrong-owner");
+        expect(error.actualUserId).toBe(actualUserId);
+        expect(error.expectedUserId).toBe(actualUserId + 1);
+      }
+    }),
+  );
+
+  it.effect("keeps legacy storage when only legacy secrets are initialized", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-legacy-secrets-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const legacyStateDir = path.join(homeDirectory, ".t3", "userdata");
+      yield* fs.makeDirectory(path.join(legacyStateDir, "secrets"), { recursive: true });
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(3773),
+          host: Option.none(),
+          baseDir: Option.none(),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+        {
+          homeDirectory,
+          temporaryDirectory: root,
+          userId: NodeOS.userInfo().uid,
+          platform: "linux",
+        },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.layout).toBe("legacy");
+      expect(resolved.stateDir).toBe(legacyStateDir);
+      expect(resolved.secretsDir).toBe(path.join(legacyStateDir, "secrets"));
     }),
   );
 
