@@ -88,12 +88,13 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -133,7 +134,10 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
-import { RemoteEnvironmentIndicator } from "./RemoteEnvironmentIndicator";
+import {
+  RemoteEnvironmentIndicator,
+  shouldShowRemoteEnvironmentIndicator,
+} from "./RemoteEnvironmentIndicator";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
@@ -540,8 +544,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  const isRemote =
-    props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
+  const environment = useEnvironment(thread.environmentId);
+  const isDesktopLocal =
+    environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
+  const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
+    currentEnvironmentId: props.currentEnvironmentId,
+    threadEnvironmentId: thread.environmentId,
+    isDesktopLocal,
+  });
   const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
 
   const detailsTooltip = (
@@ -976,7 +986,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 </span>
               ) : null}
               <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
-                {isRemote ? (
+                {showRemoteEnvironmentIndicator ? (
                   <RemoteEnvironmentIndicator
                     icon={ServerIcon}
                     label={props.environmentLabel ?? "Remote"}
