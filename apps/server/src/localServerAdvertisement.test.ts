@@ -6,6 +6,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
@@ -47,9 +48,10 @@ const runAdvertisement = Effect.fn(function* (input: {
   readonly runtimeDirectory: string;
   readonly platform?: NodeJS.Platform;
   readonly scope: Scope.Scope;
+  readonly fileSystem?: FileSystem.FileSystem;
 }) {
   const discoveryState = yield* LocalServerDiscoveryState.LocalServerDiscoveryState;
-  yield* startLocalServerAdvertisement({
+  let advertisement = startLocalServerAdvertisement({
     connectionString: "http://127.0.0.1:3773",
     platform: input.platform ?? "linux",
     xdgRuntimeDirectory: input.runtimeDirectory,
@@ -58,6 +60,12 @@ const runAdvertisement = Effect.fn(function* (input: {
     Effect.provideService(ServerEnvironment.ServerEnvironment, testEnvironment),
     Scope.provide(input.scope),
   );
+  if (input.fileSystem !== undefined) {
+    advertisement = advertisement.pipe(
+      Effect.provideService(FileSystem.FileSystem, input.fileSystem),
+    );
+  }
+  yield* advertisement;
   return discoveryState;
 });
 
@@ -112,6 +120,57 @@ it.effect("publishes a private, credential-free loopback advertisement exactly o
     expect(yield* fileSystem.exists(recordPath)).toBe(false);
     expect(yield* fileSystem.readDirectory(directory)).toEqual([]);
     expect(yield* discoveryState.current).toBeNull();
+  }).pipe(Effect.provide(Layer.mergeAll(LocalServerDiscoveryState.layer, NodeServices.layer))),
+);
+
+it.effect("activates before publication and rolls back when publication fails", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const discoveryState = yield* LocalServerDiscoveryState.LocalServerDiscoveryState;
+    const runtimeDirectory = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "t3-server-advertisement-publication-failure-test-",
+    });
+    const config = yield* makeConfig(runtimeDirectory);
+    const advertisementScope = yield* Scope.make();
+    const publicationFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "chmod",
+      pathOrDescriptor: runtimeDirectory,
+    });
+    let stateAtPublication: LocalServerDiscoveryState.LocalServerDiscoveryRecord | null = null;
+    const failingFileSystem = FileSystem.FileSystem.of({
+      ...fileSystem,
+      rename: (from, to) =>
+        Effect.gen(function* () {
+          stateAtPublication = yield* discoveryState.current;
+          yield* fileSystem.rename(from, to);
+        }),
+      chmod: (target, mode) =>
+        String(target).endsWith(".json")
+          ? Effect.fail(publicationFailure)
+          : fileSystem.chmod(target, mode),
+    });
+
+    yield* runAdvertisement({
+      config,
+      runtimeDirectory,
+      scope: advertisementScope,
+      fileSystem: failingFileSystem,
+    });
+
+    expect(stateAtPublication).toMatchObject({
+      httpBaseUrl: "http://127.0.0.1:3773/",
+      platform: "linux",
+      xdgRuntimeDirectory: runtimeDirectory,
+    });
+    expect(yield* discoveryState.current).toBeNull();
+    expect(
+      yield* fileSystem.readDirectory(path.join(runtimeDirectory, "t3code", "servers")),
+    ).toEqual([]);
+
+    yield* Scope.close(advertisementScope, Exit.void);
   }).pipe(Effect.provide(Layer.mergeAll(LocalServerDiscoveryState.layer, NodeServices.layer))),
 );
 

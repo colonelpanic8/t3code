@@ -3553,8 +3553,9 @@ export function ConnectionsSettings() {
           }
         >
           <p className="px-1 text-xs text-muted-foreground">
-            These loopback servers advertised a private, short-lived pairing link. Pairing saves the
-            connection; this desktop will not manage the server process.
+            These loopback servers published credential-free presence records. Pairing verifies the
+            server belongs to your local user, then saves the connection; this desktop will not
+            manage the server process.
           </p>
           {renderLocalServerPairingCandidates()}
         </SettingsSection>
