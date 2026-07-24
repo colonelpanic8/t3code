@@ -469,7 +469,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     if (input?.initialSession) {
-      await Effect.runPromise(
+      await runtime.runPromise(
         engine.dispatch({
           type: "thread.session.set",
           commandId: CommandId.make("cmd-initial-session-set"),
