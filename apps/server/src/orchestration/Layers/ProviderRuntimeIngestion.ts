@@ -2374,16 +2374,16 @@ const make = Effect.gen(function* () {
             if (event.type === "turn.completed" && (yield* flushDeferredThreadSession())) {
               return;
             }
-          }
 
-          yield* finalizeBufferedProposedPlan({
-            event,
-            threadId: thread.id,
-            threadProposedPlans: proposedPlans,
-            planId: proposedPlanIdForTurn(thread.id, turnId),
-            turnId,
-            updatedAt: now,
-          });
+            yield* finalizeBufferedProposedPlan({
+              event,
+              threadId: thread.id,
+              threadProposedPlans: proposedPlans,
+              planId: proposedPlanIdForTurn(thread.id, turnId),
+              turnId,
+              updatedAt: now,
+            });
+          }
         }
       }
 

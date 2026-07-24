@@ -3867,6 +3867,15 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
     harness.emit({
+      type: "turn.proposed.delta",
+      eventId: asEventId("evt-plan-delta-deferred-item-finalization"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: { delta: "# Finalized after the assistant" },
+    });
+    harness.emit({
       type: "turn.completed",
       eventId: asEventId("evt-turn-completed-deferred-item-finalization"),
       provider: ProviderDriverKind.make("codex"),
@@ -3899,6 +3908,11 @@ describe("ProviderRuntimeIngestion", () => {
         event.payload.messageId === "assistant:item-deferred-item-finalization" &&
         !event.payload.streaming,
     );
+    const proposedPlanIndex = events.findIndex(
+      (event) =>
+        event.type === "thread.proposed-plan-upserted" &&
+        event.payload.proposedPlan.id === "plan:thread-1:turn:turn-deferred-item-finalization",
+    );
     const turnReadyIndex = events.findLastIndex(
       (event) => event.type === "thread.session-set" && event.payload.session.status === "ready",
     );
@@ -3909,6 +3923,7 @@ describe("ProviderRuntimeIngestion", () => {
         !event.payload.streaming,
     );
     expect(assistantCompletionIndex).toBeGreaterThanOrEqual(0);
+    expect(proposedPlanIndex).toBeGreaterThan(assistantCompletionIndex);
     expect(turnReadyIndex).toBeGreaterThan(assistantCompletionIndex);
     expect(completionEvents).toHaveLength(1);
   });
