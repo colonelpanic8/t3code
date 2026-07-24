@@ -5241,6 +5241,54 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("surfaces project snapshot failures before review workspace validation", () =>
+    Effect.gen(function* () {
+      const projectionError = new PersistenceSqlError({
+        operation: "ProjectionSnapshotQuery.getShellSnapshot:test-review",
+        detail: "failed to read review project roots",
+      });
+      let reviewCalls = 0;
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getShellSnapshot: () => Effect.fail(projectionError),
+          },
+          reviewService: {
+            getDiffPreview: () =>
+              Effect.sync(() => {
+                reviewCalls += 1;
+                return {
+                  cwd: "/tmp/repo",
+                  generatedAt: TEST_EPOCH,
+                  sources: [],
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.reviewGetDiffPreview]({
+            cwd: "/tmp/repository-worktrees/feature",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      if (result._tag !== "Failure" || result.failure._tag !== "VcsRepositoryDetectionError") {
+        assert.fail("Expected a VcsRepositoryDetectionError");
+      }
+      const detectionError = result.failure;
+      assert.equal(detectionError.operation, "review.getDiffPreview");
+      assert.equal(detectionError.cwd, "/tmp/repository-worktrees/feature");
+      assert.include(detectionError.detail, "Failed to load project roots");
+      assert.instanceOf(detectionError.cause, Error);
+      assert.include(detectionError.cause.message, projectionError.message);
+      assert.equal(reviewCalls, 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc git.runStackedAction errors after refreshing git status", () =>
     Effect.gen(function* () {
       const gitError = new GitCommandError({
