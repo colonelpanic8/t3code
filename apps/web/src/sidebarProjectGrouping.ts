@@ -282,3 +282,17 @@ export function resolveScopedNewThreadProjectRef(input: {
 
   return scopeProjectRef(input.scopedProjectGroup.environmentId, input.scopedProjectGroup.id);
 }
+
+export function resolveNewThreadPickerProjectRef(input: {
+  preferredProjectRef: ScopedProjectRef | null;
+  scopedProjectGroup: SidebarProjectSnapshot | null;
+  contextualProjectRef: ScopedProjectRef | null;
+}): ScopedProjectRef | null {
+  return (
+    input.preferredProjectRef ??
+    resolveScopedNewThreadProjectRef({
+      scopedProjectGroup: input.scopedProjectGroup,
+      contextualProjectRef: input.contextualProjectRef,
+    })
+  );
+}

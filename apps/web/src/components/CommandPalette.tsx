@@ -140,7 +140,9 @@ import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore"
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
+  resolveNewThreadPickerProjectRef,
 } from "../sidebarProjectGrouping";
+import { useSidebarProjectScopeStore } from "../sidebarProjectScopeStore";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -596,6 +598,14 @@ function OpenCommandPaletteDialog(props: {
       ),
     [clientSettings.sidebarProjectSortOrder, threads, unsortedProjectGroups],
   );
+  const projectScopeKey = useSidebarProjectScopeStore((state) => state.projectScopeKey);
+  const scopedProjectGroup = useMemo(
+    () =>
+      projectScopeKey === null
+        ? null
+        : (projectGroups.find((project) => project.projectKey === projectScopeKey) ?? null),
+    [projectGroups, projectScopeKey],
+  );
   const contextualProjectRef = useMemo(
     () =>
       resolveThreadActionProjectRef({
@@ -606,7 +616,11 @@ function OpenCommandPaletteDialog(props: {
       }),
     [activeDraftThread, activeThread, defaultProjectRef, handleNewThread],
   );
-  const effectiveNewThreadProjectRef = newThreadPreferredProjectRef ?? contextualProjectRef;
+  const effectiveNewThreadProjectRef = resolveNewThreadPickerProjectRef({
+    preferredProjectRef: newThreadPreferredProjectRef,
+    scopedProjectGroup,
+    contextualProjectRef,
+  });
   const projectPickerEntries = useMemo(
     () =>
       buildSidebarProjectPickerEntries({
