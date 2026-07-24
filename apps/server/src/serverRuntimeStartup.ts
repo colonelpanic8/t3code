@@ -452,7 +452,7 @@ export const make = Effect.gen(function* () {
         yield* Effect.logDebug("startup phase: headless access info");
         const accessInfo = yield* issueHeadlessServeAccessInfo();
         yield* startLocalServerAdvertisement({
-          terminalAccessInfo: accessInfo,
+          connectionString: accessInfo.connectionString,
         });
         yield* runStartupPhase(
           "headless.output",

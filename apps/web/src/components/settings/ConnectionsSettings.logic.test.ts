@@ -88,8 +88,6 @@ describe("selectLocalServerPairingCandidates", () => {
     pid: 1234,
     startedAt: "2026-01-01T00:00:00.000Z",
     httpBaseUrl: "http://127.0.0.1:3773/",
-    pairingUrl: "http://127.0.0.1:3773/pair#token=PAIRCODE",
-    pairingExpiresAt: "2026-01-01T00:05:00.000Z",
     environmentId: EnvironmentId.make("environment-local"),
     label: "Local server",
   } satisfies LocalServerAdvertisement;

@@ -19,7 +19,7 @@ import type {
   VcsStatusResult,
 } from "./git.ts";
 import type { ReviewDiffPreviewInput, ReviewDiffPreviewResult } from "./review.ts";
-import type { LocalServerAdvertisement } from "./localServerDiscovery.ts";
+import type { LocalServerAdvertisement, LocalServerPairingResult } from "./localServerDiscovery.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type { AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
 import type {
@@ -997,6 +997,9 @@ export interface DesktopBridge {
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentBearerToken: () => Promise<string>;
   discoverLocalServers?: () => Promise<readonly LocalServerAdvertisement[]>;
+  // Runs the whole local pairing handshake in the main process so the pairing
+  // credential only reaches the renderer on an explicit user action.
+  pairLocalServer?: (instanceId: string) => Promise<LocalServerPairingResult>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog?: () => Promise<string | null>;

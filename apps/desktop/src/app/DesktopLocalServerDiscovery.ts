@@ -1,16 +1,22 @@
+import * as NodeCrypto from "node:crypto";
+
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
 import {
   LocalServerAdvertisement,
+  LocalServerPairingResult,
   type LocalServerAdvertisement as LocalServerAdvertisementRecord,
+  type LocalServerPairingChallenge,
+  type LocalServerPairingResult as LocalServerPairingResultRecord,
   type ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
 import {
-  isValidLocalServerPairingUrl,
   LOCAL_SERVER_ADVERTISEMENT_DIRECTORY_MODE,
   LOCAL_SERVER_ADVERTISEMENT_FILE_MODE,
   LOCAL_SERVER_ADVERTISEMENT_MAX_BYTES,
+  LOCAL_SERVER_CHALLENGE_NONCE_BYTES,
   parseCanonicalLoopbackHttpBaseUrl,
   resolveLocalServerAdvertisementDirectory,
+  resolveLocalServerChallengeDirectory,
 } from "@t3tools/shared/localServerDiscovery";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Context from "effect/Context";
@@ -22,26 +28,66 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
 
 const decodeAdvertisement = Schema.decodeUnknownEffect(
   Schema.fromJsonString(LocalServerAdvertisement),
 );
+const decodePairingResult = Schema.decodeUnknownEffect(LocalServerPairingResult);
+
+const LOCAL_SERVER_CHALLENGE_DIRECTORY_MODE = 0o700;
+const LOCAL_SERVER_CHALLENGE_FILE_MODE = 0o600;
+const LOCAL_SERVER_PAIRING_PATH = "api/auth/local-pair";
+const LOCAL_SERVER_PAIRING_TIMEOUT_MS = 10_000;
+
+export class LocalServerPairingError extends Schema.TaggedErrorClass<LocalServerPairingError>()(
+  "LocalServerPairingError",
+  {
+    reason: Schema.Literals(["unavailable", "not_found", "challenge_failed", "request_failed"]),
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
 
 type ProbeEnvironment = (
   httpBaseUrl: string,
 ) => Effect.Effect<ExecutionEnvironmentDescriptor | null>;
+
+/**
+ * Hands the challenge to the advertised server. Injected so tests can observe
+ * the on-disk challenge without standing up an HTTP server; the real
+ * implementation lives in {@link layer}.
+ */
+type PostPairingChallenge = (input: {
+  readonly httpBaseUrl: string;
+  readonly challenge: LocalServerPairingChallenge;
+}) => Effect.Effect<LocalServerPairingResultRecord, LocalServerPairingError>;
 
 export interface DesktopLocalServerDiscoveryOptions {
   readonly platform: NodeJS.Platform;
   readonly xdgRuntimeDirectory: string | undefined;
   readonly uid: number | undefined;
   readonly probeEnvironment: ProbeEnvironment;
+  readonly postPairingChallenge: PostPairingChallenge;
 }
 
 export class DesktopLocalServerDiscovery extends Context.Service<
   DesktopLocalServerDiscovery,
   {
     readonly discover: Effect.Effect<ReadonlyArray<LocalServerAdvertisementRecord>>;
+    /**
+     * Performs the whole pairing handshake in the main process so the pairing
+     * credential is minted on an explicit user action and never travels
+     * through the renderer as ambient discovery data.
+     */
+    readonly pairLocalServer: (
+      instanceId: string,
+    ) => Effect.Effect<LocalServerPairingResultRecord, LocalServerPairingError>;
   }
 >()("@t3tools/desktop/app/DesktopLocalServerDiscovery") {}
 
@@ -58,15 +104,16 @@ function ownedWithMode(input: {
   );
 }
 
-function hasValidTimestamps(record: LocalServerAdvertisementRecord, nowMs: number): boolean {
+/**
+ * Advertisements no longer carry a credential and therefore no longer expire,
+ * so there is nothing here that can prove liveness. `startedAt` is only sanity
+ * checked: a record claiming to have started far in the future is malformed.
+ * A stale record left behind by a dead process is rejected further down by the
+ * environment-identity probe failing to reach the advertised loopback port.
+ */
+function hasValidStartedAt(record: LocalServerAdvertisementRecord, nowMs: number): boolean {
   const startedAtMs = Date.parse(record.startedAt);
-  const expiresAtMs = Date.parse(record.pairingExpiresAt);
-  return (
-    Number.isFinite(startedAtMs) &&
-    Number.isFinite(expiresAtMs) &&
-    startedAtMs <= nowMs + 60_000 &&
-    expiresAtMs > nowMs
-  );
+  return Number.isFinite(startedAtMs) && startedAtMs <= nowMs + 60_000;
 }
 
 export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
@@ -75,6 +122,11 @@ export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const directory = resolveLocalServerAdvertisementDirectory({
+    platform: options.platform,
+    xdgRuntimeDirectory: options.xdgRuntimeDirectory,
+    path,
+  });
+  const challengeDirectory = resolveLocalServerChallengeDirectory({
     platform: options.platform,
     xdgRuntimeDirectory: options.xdgRuntimeDirectory,
     path,
@@ -141,21 +193,17 @@ export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
             return null;
           }
           const decoded = yield* decodeAdvertisement(raw.value).pipe(Effect.option);
-          if (Option.isNone(decoded) || !hasValidTimestamps(decoded.value, nowMs)) {
+          if (Option.isNone(decoded) || !hasValidStartedAt(decoded.value, nowMs)) {
             return null;
           }
 
-          const httpBaseUrl = parseCanonicalLoopbackHttpBaseUrl(decoded.value.httpBaseUrl);
-          if (
-            httpBaseUrl === null ||
-            !isValidLocalServerPairingUrl({
-              pairingUrl: decoded.value.pairingUrl,
-              httpBaseUrl,
-            })
-          ) {
+          if (parseCanonicalLoopbackHttpBaseUrl(decoded.value.httpBaseUrl) === null) {
             return null;
           }
 
+          // Liveness check as well as an identity check: a record whose process
+          // is gone has nothing listening on the advertised port, so the probe
+          // fails and the advertisement drops out of the list.
           const descriptor = yield* options.probeEnvironment(decoded.value.httpBaseUrl);
           if (descriptor === null || descriptor.environmentId !== decoded.value.environmentId) {
             return null;
@@ -176,7 +224,67 @@ export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
       );
   });
 
-  return DesktopLocalServerDiscovery.of({ discover });
+  const pairLocalServer = Effect.fn("desktop.localServerDiscovery.pair")(function* (
+    instanceId: string,
+  ) {
+    if (challengeDirectory === null) {
+      return yield* new LocalServerPairingError({
+        reason: "unavailable",
+        detail: "Local server pairing is not supported on this platform.",
+      });
+    }
+
+    // Re-run discovery so an explicit Pair click acts on a live, identity
+    // verified advertisement rather than on a stale renderer snapshot.
+    const advertisements = yield* discover;
+    const advertisement = advertisements.find((candidate) => candidate.instanceId === instanceId);
+    if (advertisement === undefined) {
+      return yield* new LocalServerPairingError({
+        reason: "not_found",
+        detail: "This local server is no longer advertising itself.",
+      });
+    }
+
+    const nonce = NodeCrypto.randomBytes(LOCAL_SERVER_CHALLENGE_NONCE_BYTES).toString("hex");
+    const challengePath = path.join(
+      challengeDirectory,
+      `${NodeCrypto.randomBytes(16).toString("hex")}.nonce`,
+    );
+
+    yield* Effect.gen(function* () {
+      yield* fileSystem.makeDirectory(challengeDirectory, {
+        recursive: true,
+        mode: LOCAL_SERVER_CHALLENGE_DIRECTORY_MODE,
+      });
+      // `makeDirectory` honours the umask and is a no-op when the directory
+      // already exists, so tighten the mode unconditionally.
+      yield* fileSystem.chmod(challengeDirectory, LOCAL_SERVER_CHALLENGE_DIRECTORY_MODE);
+      yield* fileSystem.writeFileString(challengePath, nonce, {
+        mode: LOCAL_SERVER_CHALLENGE_FILE_MODE,
+      });
+      yield* fileSystem.chmod(challengePath, LOCAL_SERVER_CHALLENGE_FILE_MODE);
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new LocalServerPairingError({
+            reason: "challenge_failed",
+            detail: "Could not write the local pairing challenge.",
+            cause,
+          }),
+      ),
+    );
+
+    // The nonce is the whole proof of local-user identity, so it must not
+    // outlive the request regardless of how that request ends.
+    return yield* options
+      .postPairingChallenge({
+        httpBaseUrl: advertisement.httpBaseUrl,
+        challenge: { instanceId, challengePath, nonce },
+      })
+      .pipe(Effect.ensuring(fileSystem.remove(challengePath).pipe(Effect.ignore)));
+  });
+
+  return DesktopLocalServerDiscovery.of({ discover, pairLocalServer });
 });
 
 export const layer = Layer.effect(
@@ -196,6 +304,28 @@ export const layer = Layer.effect(
         }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
           Effect.orElseSucceed(() => null),
+        ),
+      postPairingChallenge: ({ httpBaseUrl, challenge }) =>
+        Effect.gen(function* () {
+          const url = new URL(LOCAL_SERVER_PAIRING_PATH, httpBaseUrl);
+          const request = HttpClientRequest.bodyJsonUnsafe(
+            HttpClientRequest.post(url.toString()),
+            challenge,
+          );
+          const response = yield* httpClient
+            .execute(request)
+            .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk));
+          return yield* decodePairingResult(yield* response.json);
+        }).pipe(
+          Effect.timeout(LOCAL_SERVER_PAIRING_TIMEOUT_MS),
+          Effect.mapError(
+            (cause) =>
+              new LocalServerPairingError({
+                reason: "request_failed",
+                detail: "The local T3 Code server rejected the pairing request.",
+                cause,
+              }),
+          ),
         ),
     });
   }),

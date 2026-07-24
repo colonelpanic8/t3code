@@ -1790,25 +1790,17 @@ export function ConnectionsSettings() {
 
   const handlePairLocalServer = useCallback(
     async (advertisement: LocalServerAdvertisement, pairAgain: boolean) => {
-      const discoverLocalServers = desktopBridge?.discoverLocalServers;
-      if (!discoverLocalServers) return;
+      const pairLocalServer = desktopBridge?.pairLocalServer;
+      if (!pairLocalServer) return;
       setPairingLocalServerInstanceId(advertisement.instanceId);
       setLocalServerDiscoveryError(null);
       try {
-        // Re-read immediately before the explicit pairing action so a rotated
-        // one-time credential is used instead of a stale UI snapshot.
-        const currentAdvertisements = await discoverLocalServers();
-        setLocalServerAdvertisements(currentAdvertisements);
-        const current = currentAdvertisements.find(
-          (candidate) =>
-            candidate.instanceId === advertisement.instanceId &&
-            candidate.environmentId === advertisement.environmentId,
-        );
-        if (!current) {
-          throw new Error("This local server is no longer advertising a valid pairing link.");
-        }
+        // The main process re-discovers, proves same-user access to the server's
+        // runtime directory, and mints the credential only now, on this explicit
+        // action. No pairing token exists in the renderer before this point.
+        const { pairingUrl } = await pairLocalServer(advertisement.instanceId);
 
-        const result = await connectPairing({ pairingUrl: current.pairingUrl });
+        const result = await connectPairing({ pairingUrl });
         if (result._tag === "Failure") {
           if (isAtomCommandInterrupted(result)) {
             setPairingLocalServerInstanceId(null);
@@ -1824,7 +1816,7 @@ export function ConnectionsSettings() {
         toastManager.add({
           type: "success",
           title: pairAgain ? "Environment paired again" : "Environment paired",
-          description: `${current.label} is saved and will reconnect on app startup.`,
+          description: `${advertisement.label} is saved and will reconnect on app startup.`,
         });
       } catch (error) {
         const message =
