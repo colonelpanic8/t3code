@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   isProviderDriverKind,
+  OrchestrationDispatchCommandError,
   ProjectId,
   type ModelSelection,
   type ProviderDriverKind,
@@ -26,6 +27,11 @@ export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 export const MAX_HIDDEN_MOUNTED_PREVIEW_THREADS = 3;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+
+export function shouldRenewDraftThreadIdAfterFailure(error: unknown): boolean {
+  return isOrchestrationDispatchCommandError(error) && error.retryWithNewThreadId === true;
+}
 
 export function resolveThreadMetadataUpdateForNextTurn(input: {
   currentModelSelection: ModelSelection;
