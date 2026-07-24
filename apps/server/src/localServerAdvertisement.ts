@@ -94,6 +94,19 @@ export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisemen
     const recordPath = path.join(directory, `${instanceId}.json`);
     const tempPath = path.join(directory, `.${instanceId}.${process.pid}.tmp`);
 
+    const cleanup = Effect.gen(function* () {
+      yield* discoveryState.deactivate;
+      yield* fileSystem.remove(recordPath, { force: true }).pipe(Effect.ignore);
+      yield* fileSystem.remove(tempPath, { force: true }).pipe(Effect.ignore);
+    });
+    yield* Effect.addFinalizer(() => cleanup);
+    yield* discoveryState.activate({
+      instanceId,
+      httpBaseUrl,
+      platform,
+      xdgRuntimeDirectory,
+    });
+
     const publishExit = yield* Effect.exit(
       writeAdvertisement({
         directory,
@@ -111,25 +124,12 @@ export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisemen
       }),
     );
     if (Exit.isFailure(publishExit)) {
+      yield* cleanup;
       yield* Effect.logWarning("Local T3 Code server discovery is unavailable.", {
         recordPath,
         cause: publishExit.cause,
       });
       return;
     }
-
-    yield* Effect.addFinalizer(() =>
-      Effect.gen(function* () {
-        yield* discoveryState.deactivate;
-        yield* fileSystem.remove(recordPath, { force: true }).pipe(Effect.ignore);
-        yield* fileSystem.remove(tempPath, { force: true }).pipe(Effect.ignore);
-      }),
-    );
-    yield* discoveryState.activate({
-      instanceId,
-      httpBaseUrl,
-      platform,
-      xdgRuntimeDirectory,
-    });
   },
 );
