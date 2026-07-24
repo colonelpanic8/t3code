@@ -23,7 +23,7 @@ import {
 } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
-  deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
+  deriveServerPaths(baseDir, devUrl);
 
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
 
@@ -129,7 +129,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
       });
-      assert.equal(resolved.stateDir, join(baseDir, "userdata"));
+      assert.equal(resolved.stateDir, join(baseDir, "dev"));
     }),
   );
 
@@ -199,7 +199,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: true,
         tailscaleServePort: 8443,
       });
-      assert.equal(resolved.dbPath, join(baseDir, "userdata", "state.sqlite"));
+      assert.equal(resolved.dbPath, join(baseDir, "dev", "state.sqlite"));
     }),
   );
 
@@ -214,8 +214,9 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           tailscaleServePort: 443,
         }),
       );
+      const bootstrapBaseDir = "/tmp/t3-bootstrap-home";
       const derivedPaths = yield* deriveExplicitServerPaths(
-        baseDir,
+        bootstrapBaseDir,
         new URL("http://127.0.0.1:4173"),
       );
 
@@ -259,7 +260,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         mode: "web",
         port: 8788,
         cwd: process.cwd(),
-        baseDir,
+        baseDir: bootstrapBaseDir,
         ...derivedPaths,
         host: "127.0.0.1",
         staticDir: undefined,
@@ -399,15 +400,16 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
-  it.effect("applies flag then env precedence over bootstrap envelope values", () =>
+  it.effect("keeps bootstrap storage pinned while applying other flag and env precedence", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-env-wins");
+      const envBaseDir = join(NodeOS.tmpdir(), "t3-cli-config-env-wins");
+      const bootstrapBaseDir = "/tmp/t3-bootstrap-home";
       const fd = yield* openBootstrapFd(
         makeDesktopBootstrap({
           port: 4888,
           host: "127.0.0.2",
-          t3Home: "/tmp/t3-bootstrap-home",
+          t3Home: bootstrapBaseDir,
           noBrowser: false,
           desktopBootstrapToken: "desktop-token",
           tailscaleServeEnabled: false,
@@ -415,7 +417,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         }),
       );
       const derivedPaths = yield* deriveExplicitServerPaths(
-        baseDir,
+        bootstrapBaseDir,
         new URL("http://127.0.0.1:4173"),
       );
 
@@ -443,7 +445,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                 env: {
                   T3CODE_MODE: "web",
                   T3CODE_BOOTSTRAP_FD: String(fd),
-                  T3CODE_HOME: baseDir,
+                  T3CODE_HOME: envBaseDir,
+                  T3CODE_STATE_DIR: join(NodeOS.tmpdir(), "ignored-state"),
                   T3CODE_NO_BROWSER: "true",
                   T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
                   T3CODE_LOG_WS_EVENTS: "true",
@@ -461,7 +464,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         mode: "web",
         port: 8788,
         cwd: process.cwd(),
-        baseDir,
+        baseDir: bootstrapBaseDir,
         ...derivedPaths,
         host: "127.0.0.1",
         staticDir: undefined,
@@ -474,6 +477,48 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
       });
+    }),
+  );
+
+  it.effect("does not chmod the unified legacy state directory as a runtime directory", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-legacy-mode-",
+      });
+      const stateDir = path.join(baseDir, "userdata");
+      yield* fs.makeDirectory(stateDir, { recursive: true });
+      yield* fs.chmod(stateDir, 0o750);
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(3773),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+        { platform: "linux" },
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.layout).toBe("legacy");
+      expect((yield* fs.stat(stateDir)).mode & 0o777).toBe(0o750);
     }),
   );
 
