@@ -8,7 +8,6 @@ export function RemoteEnvironmentIndicator({
   label,
   className,
   iconClassName,
-  style,
   ...props
 }: ComponentProps<"span"> & {
   readonly icon: LucideIcon;
@@ -20,15 +19,10 @@ export function RemoteEnvironmentIndicator({
       role="img"
       aria-label={`Remote environment: ${label}`}
       className={cn("inline-flex min-w-0 items-center gap-1", className)}
-      style={style}
       {...props}
     >
-      {/* `style` is applied to the icon too, not just the wrapping span: an
-          accent color set via `iconClassName` (e.g. text-muted-foreground/40)
-          is an explicit color on the icon itself, which an inherited color
-          from the ancestor span cannot override. */}
       <span className="thread-remote-environment-label min-w-0 max-w-20 truncate">{label}</span>
-      <Icon aria-hidden className={cn("shrink-0", iconClassName)} style={style} />
+      <Icon aria-hidden className={cn("shrink-0", iconClassName)} />
     </span>
   );
 }
