@@ -1,6 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off
 import * as NetService from "@t3tools/shared/Net";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
+import * as NodeFS from "node:fs";
+import * as NodeFSP from "node:fs/promises";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -296,6 +299,30 @@ export class StorageLayoutConfigurationConflictError extends Schema.TaggedErrorC
   }
 }
 
+export class UnsafeRuntimeDirectoryError extends Schema.TaggedErrorClass<UnsafeRuntimeDirectoryError>()(
+  "UnsafeRuntimeDirectoryError",
+  {
+    runtimeDir: Schema.String,
+    reason: Schema.Literals(["open", "not-directory", "wrong-owner", "chmod"]),
+    expectedUserId: Schema.optional(Schema.Number),
+    actualUserId: Schema.optional(Schema.Number),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "open":
+        return `Refusing to use runtime directory '${this.runtimeDir}' because it could not be opened without following symbolic links.`;
+      case "not-directory":
+        return `Refusing to use runtime directory '${this.runtimeDir}' because it is not a directory.`;
+      case "wrong-owner":
+        return `Refusing to use runtime directory '${this.runtimeDir}' because it is owned by user ${this.actualUserId ?? "unknown"} instead of ${this.expectedUserId ?? "unknown"}.`;
+      case "chmod":
+        return `Failed to restrict runtime directory '${this.runtimeDir}' permissions.`;
+    }
+  }
+}
+
 const legacyStorageIsInitialized = Effect.fn(function* (roots: T3StorageRoots) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -305,12 +332,80 @@ const legacyStorageIsInitialized = Effect.fn(function* (roots: T3StorageRoots) {
     path.join(roots.configDir, "keybindings.json"),
     path.join(roots.stateDir, "environment-id"),
     path.join(roots.stateDir, "connection-catalog.json"),
+    path.join(roots.stateDir, "secrets"),
   ];
   const results = yield* Effect.all(
     artifacts.map((artifact) => fs.exists(artifact)),
     { concurrency: "unbounded" },
   );
   return results.some(Boolean);
+});
+
+const prepareSplitRuntimeDirectory = Effect.fn("prepareSplitRuntimeDirectory")(function* (
+  runtimeDir: string,
+  userId: number,
+) {
+  yield* Effect.tryPromise({
+    try: () => NodeFSP.mkdir(runtimeDir, { recursive: true, mode: 0o700 }),
+    catch: (cause) =>
+      new UnsafeRuntimeDirectoryError({
+        runtimeDir,
+        reason: "open",
+        cause,
+      }),
+  });
+
+  return yield* Effect.acquireUseRelease(
+    Effect.tryPromise({
+      try: () =>
+        NodeFSP.open(
+          runtimeDir,
+          NodeFS.constants.O_RDONLY | NodeFS.constants.O_DIRECTORY | NodeFS.constants.O_NOFOLLOW,
+        ),
+      catch: (cause) =>
+        new UnsafeRuntimeDirectoryError({
+          runtimeDir,
+          reason: "open",
+          cause,
+        }),
+    }),
+    (handle) =>
+      Effect.gen(function* () {
+        const stat = yield* Effect.tryPromise({
+          try: () => handle.stat(),
+          catch: (cause) =>
+            new UnsafeRuntimeDirectoryError({
+              runtimeDir,
+              reason: "open",
+              cause,
+            }),
+        });
+        if (!stat.isDirectory()) {
+          return yield* new UnsafeRuntimeDirectoryError({
+            runtimeDir,
+            reason: "not-directory",
+          });
+        }
+        if (stat.uid !== userId) {
+          return yield* new UnsafeRuntimeDirectoryError({
+            runtimeDir,
+            reason: "wrong-owner",
+            expectedUserId: userId,
+            actualUserId: stat.uid,
+          });
+        }
+        yield* Effect.tryPromise({
+          try: () => handle.chmod(0o700),
+          catch: (cause) =>
+            new UnsafeRuntimeDirectoryError({
+              runtimeDir,
+              reason: "chmod",
+              cause,
+            }),
+        });
+      }),
+    (handle) => Effect.promise(() => handle.close()).pipe(Effect.ignore),
+  );
 });
 
 export const resolveServerConfig = (
@@ -496,10 +591,10 @@ export const resolveServerConfig = (
     yield* fs.makeDirectory(cwd, { recursive: true });
     const derivedPaths = yield* ServerConfig.deriveServerPathsFromRoots(storageRoots);
     const baseDir = derivedPaths.dataDir;
-    yield* ServerConfig.ensureServerDirectories(derivedPaths);
-    if (platform !== "win32" && storageRoots.layout === "split") {
-      yield* fs.chmod(derivedPaths.runtimeDir, 0o700);
+    if (platform !== "win32" && storageRoots.layout === "split" && userId !== undefined) {
+      yield* prepareSplitRuntimeDirectory(derivedPaths.runtimeDir, userId);
     }
+    yield* ServerConfig.ensureServerDirectories(derivedPaths);
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
       derivedPaths.settingsPath,
     );
