@@ -42,6 +42,7 @@ export const setBackendMode = DesktopIpc.makeIpcMethod({
     const launchMode = yield* DesktopBackendMode.DesktopBackendMode;
     const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
     const settings = yield* DesktopAppSettings.DesktopAppSettings;
+    const previousMode = (yield* settings.get).backendMode;
     const change = yield* settings.setBackendMode(mode);
     const launchState = yield* launchMode.get;
     const state = {
@@ -53,7 +54,9 @@ export const setBackendMode = DesktopIpc.makeIpcMethod({
       launchState.cliOverride === null &&
       launchState.effectiveMode !== change.settings.backendMode
     ) {
-      yield* lifecycle.relaunch(`backendMode=${mode}`);
+      yield* lifecycle
+        .relaunch(`backendMode=${mode}`)
+        .pipe(Effect.tapError(() => settings.setBackendMode(previousMode)));
     }
     return state;
   }),
