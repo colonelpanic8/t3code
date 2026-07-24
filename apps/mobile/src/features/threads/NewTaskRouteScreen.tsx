@@ -13,8 +13,10 @@ import { AppText as Text } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
+import { useEnvironmentShellState } from "../../state/shell";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
-import { buildNewTaskProjectItems, deriveNewTaskPickerEmptyState } from "./newTaskPicker";
+import { buildNewTaskProjectItems, deriveNewTaskProjectPickerEmptyState } from "./newTaskPicker";
+import * as Option from "effect/Option";
 
 type NewTaskRouteParams = {
   readonly environmentId?: string | string[];
@@ -36,9 +38,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       ? route.params.environmentId[0]
       : route.params?.environmentId
   ) as EnvironmentId | undefined;
-  const environmentLabel =
-    workspace.environments.find((environment) => environment.environmentId === environmentId)
-      ?.environmentLabel ?? null;
+  const selectedEnvironment =
+    workspace.environments.find((environment) => environment.environmentId === environmentId) ??
+    null;
+  const environmentLabel = selectedEnvironment?.environmentLabel ?? null;
+  const environmentShellState = useEnvironmentShellState(environmentId ?? null);
   const routeShareId = Array.isArray(route.params?.incomingShareId)
     ? route.params.incomingShareId[0]
     : route.params?.incomingShareId;
@@ -62,7 +66,16 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
         : [],
     [environmentId, projects, threads],
   );
-  const projectEmptyState = deriveNewTaskPickerEmptyState(workspace.state);
+  const hasEnvironmentShellSnapshot = Option.isSome(environmentShellState.snapshot);
+  const projectEmptyState = deriveNewTaskProjectPickerEmptyState({
+    environment: selectedEnvironment,
+    networkOffline: workspace.state.networkStatus === "offline",
+    shellStatus: environmentShellState.status,
+    shellError: Option.getOrNull(environmentShellState.error),
+    hasShellSnapshot: hasEnvironmentShellSnapshot,
+  });
+  const canAddProject =
+    selectedEnvironment?.connectionState === "connected" && hasEnvironmentShellSnapshot;
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
     ? (projects.find(
@@ -142,7 +155,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               {
                 accessibilityLabel: "Add project",
                 icon: "plus",
-                onPress: () => navigation.navigate("NewTaskSheet", { screen: "AddProject" }),
+                onPress: () =>
+                  navigation.navigate("NewTaskSheet", {
+                    screen: "AddProject",
+                    params: { environmentId },
+                  }),
               },
             ]}
           />
@@ -158,7 +175,12 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           <NativeHeaderToolbar placement="right">
             <NativeHeaderToolbar.Button
               icon="plus"
-              onPress={() => navigation.navigate("NewTaskSheet", { screen: "AddProject" })}
+              onPress={() =>
+                navigation.navigate("NewTaskSheet", {
+                  screen: "AddProject",
+                  params: { environmentId },
+                })
+              }
               separateBackground
             />
           </NativeHeaderToolbar>
@@ -185,7 +207,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
             <Text className="text-center text-sm leading-normal text-foreground-muted">
               {projectEmptyState.detail}
             </Text>
-            {!workspace.state.hasReadyEnvironment ? (
+            {!canAddProject ? (
               <Pressable
                 className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
                 onPress={() => navigation.navigate("ConnectionsNew")}
@@ -197,7 +219,12 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
             ) : (
               <Pressable
                 className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
-                onPress={() => navigation.navigate("NewTaskSheet", { screen: "AddProject" })}
+                onPress={() =>
+                  navigation.navigate("NewTaskSheet", {
+                    screen: "AddProject",
+                    params: { environmentId },
+                  })
+                }
               >
                 <Text className="text-sm font-t3-bold text-primary-foreground">
                   Add new project

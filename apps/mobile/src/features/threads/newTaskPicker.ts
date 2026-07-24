@@ -1,7 +1,9 @@
 import type {
   EnvironmentProject,
+  EnvironmentShellStatus,
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
@@ -22,6 +24,54 @@ export interface NewTaskProjectItem {
   readonly key: string;
   readonly title: string;
   readonly workspaceRoot: string;
+}
+
+export function deriveNewTaskProjectPickerEmptyState(input: {
+  readonly environment: {
+    readonly connectionState: EnvironmentConnectionPhase;
+    readonly connectionError: string | null;
+  } | null;
+  readonly networkOffline: boolean;
+  readonly shellStatus: EnvironmentShellStatus;
+  readonly shellError: string | null;
+  readonly hasShellSnapshot: boolean;
+}): {
+  readonly title: string;
+  readonly detail: string;
+  readonly loading: boolean;
+} {
+  const connectionUnavailable =
+    input.environment === null ||
+    input.networkOffline ||
+    input.environment.connectionState === "available" ||
+    input.environment.connectionState === "offline" ||
+    input.environment.connectionState === "error";
+
+  if (connectionUnavailable && !input.hasShellSnapshot) {
+    return {
+      title: "Environment unavailable",
+      detail:
+        input.environment?.connectionError ??
+        input.shellError ??
+        "The saved environment is offline. Check the URL or start the environment, then retry.",
+      loading: false,
+    };
+  }
+
+  if (!input.hasShellSnapshot) {
+    return {
+      title:
+        input.shellStatus === "synchronizing" ? "Loading projects" : "Connecting to environment",
+      detail: "Loading projects from the selected environment.",
+      loading: true,
+    };
+  }
+
+  return {
+    title: "No projects found",
+    detail: "The selected environment did not report any projects.",
+    loading: false,
+  };
 }
 
 export function deriveNewTaskPickerEmptyState(catalogState: WorkspaceState): {
