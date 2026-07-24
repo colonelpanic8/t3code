@@ -416,7 +416,10 @@ export const makeServerLayer = Layer.unwrap(
             Effect.onError(() =>
               config.localAttachToken === undefined
                 ? Effect.void
-                : clearLocalAttachTokenFile(config.localAttachTokenPath),
+                : clearLocalAttachTokenFile({
+                    path: config.localAttachTokenPath,
+                    token: config.localAttachToken,
+                  }),
             ),
           );
         }),
@@ -426,7 +429,10 @@ export const makeServerLayer = Layer.unwrap(
               clearPersistedServerRuntimeState(config.serverRuntimeStatePath),
               config.localAttachToken === undefined
                 ? Effect.void
-                : clearLocalAttachTokenFile(config.localAttachTokenPath),
+                : clearLocalAttachTokenFile({
+                    path: config.localAttachTokenPath,
+                    token: config.localAttachToken,
+                  }),
             ],
             { concurrency: "unbounded", discard: true },
           ),

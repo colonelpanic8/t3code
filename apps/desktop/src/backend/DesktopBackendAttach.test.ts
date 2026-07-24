@@ -1,6 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import * as DesktopBackendAttach from "./DesktopBackendAttach.ts";
 
@@ -131,4 +136,39 @@ describe("resolveAttachDecision", () => {
       assert.equal(decision._tag, "wait");
     }),
   );
+});
+
+describe("makeProbeEnvironment", () => {
+  it.effect("bounds reading a successful response body by the probe timeout", () => {
+    const httpClientLayer = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(
+              new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode("{"));
+                },
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const probe = yield* DesktopBackendAttach.makeProbeEnvironment("http://127.0.0.1:3773").pipe(
+        Effect.forkScoped,
+      );
+      yield* TestClock.adjust(Duration.seconds(2));
+
+      assert.isTrue(Option.isNone(yield* Fiber.join(probe)));
+    }).pipe(Effect.provide(httpClientLayer));
+  });
 });

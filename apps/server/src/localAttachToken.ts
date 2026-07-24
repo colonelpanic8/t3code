@@ -53,25 +53,45 @@ export const writeLocalAttachTokenFile = (input: {
     ),
   );
 
-// Removes the token file on graceful shutdown, alongside server-runtime.json.
-// A missing file is not an error; other failures are logged and swallowed so
-// shutdown finalizers can't fail the release.
-export const clearLocalAttachTokenFile = (tokenPath: string) =>
+// Removes this server instance's token file on graceful shutdown, alongside
+// server-runtime.json. A stale finalizer must not delete a replacement
+// instance's token, so removal is conditional on the stable file still holding
+// the token this instance published. A missing file is not an error; other
+// failures are logged and swallowed so shutdown finalizers can't fail release.
+export const clearLocalAttachTokenFile = (input: {
+  readonly path: string;
+  readonly token: string;
+}) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* fs.remove(tokenPath, { force: true }).pipe(
-      Effect.mapError(
-        (cause) => new LocalAttachTokenFileError({ operation: "clear", tokenPath, cause }),
+    const current = yield* fs.readFileString(input.path).pipe(
+      Effect.map((contents) => contents.trim()),
+      Effect.catchIf(
+        (cause) => cause.reason._tag === "NotFound",
+        () => Effect.void,
       ),
-      Effect.catchTags({
-        LocalAttachTokenFileError: (error) =>
-          Effect.logWarning(error.message).pipe(
-            Effect.annotateLogs({
-              operation: error.operation,
-              tokenPath: error.tokenPath,
-              cause: error,
-            }),
-          ),
-      }),
     );
-  });
+    if (current === undefined || current !== input.token) {
+      return;
+    }
+    yield* fs.remove(input.path, { force: true });
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new LocalAttachTokenFileError({
+          operation: "clear",
+          tokenPath: input.path,
+          cause,
+        }),
+    ),
+    Effect.catchTags({
+      LocalAttachTokenFileError: (error) =>
+        Effect.logWarning(error.message).pipe(
+          Effect.annotateLogs({
+            operation: error.operation,
+            tokenPath: error.tokenPath,
+            cause: error,
+          }),
+        ),
+    }),
+  );

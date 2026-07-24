@@ -58,11 +58,27 @@ describe("localAttachToken", () => {
       yield* writeLocalAttachTokenFile({ path: tokenPath, token: "token" });
       assert.isTrue(yield* fileSystem.exists(tokenPath));
 
-      yield* clearLocalAttachTokenFile(tokenPath);
+      yield* clearLocalAttachTokenFile({ path: tokenPath, token: "token" });
       assert.isFalse(yield* fileSystem.exists(tokenPath));
 
       // Clearing an already-absent file is a no-op, not a failure.
-      yield* clearLocalAttachTokenFile(tokenPath);
+      yield* clearLocalAttachTokenFile({ path: tokenPath, token: "token" });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("does not let a stale finalizer remove a replacement instance's token", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-local-attach-token-test-",
+      });
+      const tokenPath = path.join(root, "local-attach-token");
+
+      yield* writeLocalAttachTokenFile({ path: tokenPath, token: "replacement-token" });
+      yield* clearLocalAttachTokenFile({ path: tokenPath, token: "stale-token" });
+
+      assert.equal(yield* fileSystem.readFileString(tokenPath), "replacement-token\n");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

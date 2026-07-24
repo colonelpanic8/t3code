@@ -201,9 +201,7 @@ export const makeProbeEnvironment = (
       try: () => new URL(ENVIRONMENT_PROBE_PATH, origin).toString(),
       catch: () => new InvalidEnvironmentOriginError({ origin }),
     });
-    const response = yield* client
-      .execute(HttpClientRequest.get(requestUrl))
-      .pipe(Effect.timeout(ENVIRONMENT_PROBE_TIMEOUT));
+    const response = yield* client.execute(HttpClientRequest.get(requestUrl));
     if (response.status < 200 || response.status >= 300) {
       return Option.none<ProbedEnvironment>();
     }
@@ -215,7 +213,10 @@ export const makeProbeEnvironment = (
         ? Option.some((body as { serverVersion: string }).serverVersion)
         : Option.none<string>();
     return Option.some({ serverVersion });
-  }).pipe(Effect.orElseSucceed(() => Option.none<ProbedEnvironment>()));
+  }).pipe(
+    Effect.timeout(ENVIRONMENT_PROBE_TIMEOUT),
+    Effect.orElseSucceed(() => Option.none<ProbedEnvironment>()),
+  );
 
 // Reads `<stateDir>/local-attach-token` (single line). Missing/empty → None.
 export const makeReadAttachToken = (
