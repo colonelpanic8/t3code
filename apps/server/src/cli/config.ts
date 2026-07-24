@@ -47,6 +47,14 @@ export const baseDirFlag = Flag.string("base-dir").pipe(
   ),
   Flag.optional,
 );
+export const CliStorageLayout = Schema.Literals(["xdg", "legacy"]);
+export type CliStorageLayout = typeof CliStorageLayout.Type;
+export const storageLayoutFlag = Flag.choice("storage-layout", CliStorageLayout.literals).pipe(
+  Flag.withDescription(
+    "Force the XDG/platform-native split layout or the legacy unified layout instead of selecting automatically.",
+  ),
+  Flag.optional,
+);
 export const devUrlFlag = Flag.string("dev-url").pipe(
   Flag.withSchema(Schema.URLFromString),
   Flag.withDescription("Dev web URL to proxy/redirect to (equivalent to VITE_DEV_SERVER_URL)."),
@@ -202,6 +210,7 @@ export interface CliServerFlags {
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
   readonly baseDir: Option.Option<string>;
+  readonly storageLayout?: Option.Option<CliStorageLayout>;
   readonly cwd: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
   readonly noBrowser: Option.Option<boolean>;
@@ -214,16 +223,19 @@ export interface CliServerFlags {
 
 export interface CliAuthLocationFlags {
   readonly baseDir: Option.Option<string>;
+  readonly storageLayout?: Option.Option<CliStorageLayout>;
   readonly devUrl?: Option.Option<URL>;
 }
 
 export const sharedServerLocationFlags = {
   baseDir: baseDirFlag,
+  storageLayout: storageLayoutFlag,
   devUrl: devUrlFlag,
 } as const;
 
 export const projectLocationFlags = {
   baseDir: baseDirFlag,
+  storageLayout: storageLayoutFlag,
 } as const;
 
 export const sharedServerCommandFlags = {
@@ -231,6 +243,7 @@ export const sharedServerCommandFlags = {
   port: portFlag,
   host: hostFlag,
   baseDir: baseDirFlag,
+  storageLayout: storageLayoutFlag,
   cwd: Argument.string("cwd").pipe(
     Argument.withDescription(
       "Working directory for provider sessions (defaults to the current directory).",
@@ -269,6 +282,17 @@ export class StorageDirectoryConfigurationConflictError extends Schema.TaggedErr
 ) {
   override get message(): string {
     return "T3CODE_HOME/--base-dir cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
+  }
+}
+
+export class StorageLayoutConfigurationConflictError extends Schema.TaggedErrorClass<StorageLayoutConfigurationConflictError>()(
+  "StorageLayoutConfigurationConflictError",
+  { storageLayout: CliStorageLayout },
+) {
+  override get message(): string {
+    return this.storageLayout === "xdg"
+      ? "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir."
+      : "--storage-layout legacy cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
   }
 }
 
@@ -311,6 +335,7 @@ export const resolveServerConfig = (
       port: flags.port ?? Option.none(),
       host: flags.host ?? Option.none(),
       baseDir: flags.baseDir ?? Option.none(),
+      storageLayout: flags.storageLayout ?? Option.none(),
       cwd: flags.cwd ?? Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: flags.noBrowser ?? Option.none(),
@@ -360,6 +385,7 @@ export const resolveServerConfig = (
       normalizedFlags.baseDir,
       Option.fromUndefinedOr(env.t3Home),
     ).pipe(Option.filter((value) => value.trim().length > 0));
+    const forcedStorageLayout = Option.getOrUndefined(normalizedFlags.storageLayout);
     const homeDirectory = options?.homeDirectory ?? NodeOS.homedir();
     const temporaryDirectory = options?.temporaryDirectory ?? NodeOS.tmpdir();
     const platform = options?.platform ?? (yield* HostProcessPlatform);
@@ -390,6 +416,16 @@ export const resolveServerConfig = (
     });
     if (Option.isSome(explicitBaseDir) && hasT3StorageDirectoryOverrides(directoryOverrides)) {
       return yield* new StorageDirectoryConfigurationConflictError();
+    }
+    if (forcedStorageLayout === "xdg" && Option.isSome(explicitBaseDir)) {
+      return yield* new StorageLayoutConfigurationConflictError({
+        storageLayout: forcedStorageLayout,
+      });
+    }
+    if (forcedStorageLayout === "legacy" && hasT3StorageDirectoryOverrides(directoryOverrides)) {
+      return yield* new StorageLayoutConfigurationConflictError({
+        storageLayout: forcedStorageLayout,
+      });
     }
     const defaultSplitRoots = resolveDefaultT3StorageRoots({
       platform,
@@ -425,8 +461,16 @@ export const resolveServerConfig = (
             path,
           }));
     const storageRoots = selectT3StorageRoots({
-      ...(explicitLegacyRoots === undefined ? {} : { explicitLegacyRoots }),
-      ...(explicitSplitRoots === undefined ? {} : { explicitSplitRoots }),
+      ...(forcedStorageLayout === "legacy"
+        ? { explicitLegacyRoots: explicitLegacyRoots ?? legacyRoots }
+        : explicitLegacyRoots === undefined
+          ? {}
+          : { explicitLegacyRoots }),
+      ...(forcedStorageLayout === "xdg"
+        ? { explicitSplitRoots: explicitSplitRoots ?? defaultSplitRoots }
+        : explicitSplitRoots === undefined
+          ? {}
+          : { explicitSplitRoots }),
       ...(bootstrapRoots === undefined ? {} : { bootstrapRoots }),
       defaultSplitRoots,
       legacyRoots,
@@ -550,6 +594,7 @@ export const resolveCliAuthConfig = (
       port: Option.none(),
       host: Option.none(),
       baseDir: flags.baseDir,
+      storageLayout: flags.storageLayout ?? Option.none(),
       cwd: Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: Option.none(),
