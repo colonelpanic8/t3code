@@ -89,6 +89,7 @@ import {
   isCommandPaletteOpen,
   openCommandPalette,
 } from "../commandPaletteBus";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { resolveChatNewShortcutBehavior } from "../lib/chatRouteShortcuts";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
@@ -103,7 +104,11 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { useEnvironmentPresenceScope, useEnvironments } from "../state/environments";
+import {
+  useEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+} from "../state/environments";
 import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
@@ -154,6 +159,7 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { RemoteEnvironmentIndicator } from "./RemoteEnvironmentIndicator";
 import {
   ProjectIconDialog,
   ProjectIconPathField,
@@ -614,6 +620,16 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     : thread.modelSelection.model;
 
   const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
+  // A desktop-local secondary backend (e.g. the WSL backend) is reachable as a
+  // separate environment but still runs on the user's own machine, so it must
+  // not be labelled remote. Same rule as shouldShowRemoteEnvironmentIndicator,
+  // but sourced from the presence scope, which is the authoritative remoteness
+  // test here: it also treats every environment as remote on client-only
+  // desktops and the hosted web app, which have no primary environment id.
+  const environment = useEnvironment(thread.environmentId);
+  const isDesktopLocal =
+    environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
+  const showRemoteEnvironmentIndicator = isRemote && !isDesktopLocal;
 
   const detailsTooltip = (
     <SidebarV2ThreadTooltip
@@ -955,7 +971,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               role="button"
               tabIndex={0}
               data-testid="sidebar-v2-row-card"
-              className={rowSurfaceClassName}
+              className={cn("@container/thread-row", rowSurfaceClassName)}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
@@ -991,6 +1007,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     />
                   </span>
                 )}
+                {props.projectTitle ? (
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
@@ -1082,17 +1099,17 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
                   </span>
                 ) : null}
-                <span
-                  aria-hidden
-                  className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
-                >
-                  {isRemote ? (
-                    <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-                      <ServerIcon aria-hidden className="size-3.5" />
-                    </span>
+                <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
+                  {showRemoteEnvironmentIndicator ? (
+                    <RemoteEnvironmentIndicator
+                      icon={ServerIcon}
+                      label={props.environmentLabel ?? "Remote"}
+                      className="max-w-24 shrink-0 text-sidebar-muted-foreground/70"
+                      iconClassName="size-3.5"
+                    />
                   ) : null}
                   {driverKind ? (
-                    <span className="inline-flex shrink-0 items-center opacity-60">
+                    <span aria-hidden className="inline-flex shrink-0 items-center opacity-60">
                       <ProviderInstanceIcon
                         driverKind={driverKind}
                         displayName={thread.session?.providerName ?? modelInstanceId}
