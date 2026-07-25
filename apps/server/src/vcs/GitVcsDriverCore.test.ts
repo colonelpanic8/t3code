@@ -14,7 +14,10 @@ import { GitCommandError } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
 import { splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
-import { resolveWorktreePathTemplate } from "./worktreePathTemplate.ts";
+import {
+  matchesWorktreePathTemplate,
+  resolveWorktreePathTemplate,
+} from "./worktreePathTemplate.ts";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-git-vcs-driver-test-",
@@ -190,6 +193,45 @@ it.effect("uses the configured repository-local worktree path template", () =>
     assert.equal(yield* git(expectedPath, ["branch", "--show-current"]), "feature/local-worktree");
 
     yield* driver.removeWorktree({ cwd, path: expectedPath });
+  }).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("canonicalizes symlinked repository roots before expanding path templates", () =>
+  Effect.gen(function* () {
+    const tempRoot = yield* makeTmpDir("template-symlinked-root-");
+    const pathService = yield* Path.Path;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const repositoryRoot = pathService.join(tempRoot, "physical", "repo");
+    const repositoryAliasesRoot = pathService.join(tempRoot, "aliases");
+    const repositoryRootAlias = pathService.join(repositoryAliasesRoot, "repo");
+    yield* fileSystem.makeDirectory(repositoryRoot, { recursive: true });
+    yield* fileSystem.makeDirectory(repositoryAliasesRoot);
+    yield* fileSystem.symlink(repositoryRoot, repositoryRootAlias);
+    const { initialBranch } = yield* initRepoWithCommit(repositoryRoot);
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+
+    const created = yield* driver.createWorktree({
+      cwd: repositoryRootAlias,
+      path: null,
+      refName: initialBranch,
+      newRefName: "feature/symlinked-root",
+      pathTemplate: "{repoRoot}/../worktrees/{branch}",
+    });
+
+    const expectedPath = pathService.resolve(repositoryRoot, "../worktrees/feature-symlinked-root");
+    assert.equal(created.worktree.path, expectedPath);
+    assert.isTrue(
+      matchesWorktreePathTemplate(pathService, {
+        candidate: created.worktree.path,
+        cwd: repositoryRootAlias,
+        resolvedRepoRoot: repositoryRoot,
+        worktreesDir: pathService.join(tempRoot, "central-worktrees"),
+        template: "{repoRoot}/../worktrees/{branch}",
+      }),
+    );
+    assert.equal(yield* git(expectedPath, ["branch", "--show-current"]), "feature/symlinked-root");
+
+    yield* driver.removeWorktree({ cwd: repositoryRootAlias, path: expectedPath });
   }).pipe(Effect.provide(TestLayer)),
 );
 

@@ -2269,12 +2269,27 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     const targetBranch = input.newRefName ?? input.refName;
     const worktreePath =
       input.path ??
-      resolveWorktreePathTemplate(path, {
-        cwd: input.cwd,
-        worktreesDir,
-        template: input.pathTemplate ?? DEFAULT_WORKTREE_PATH_TEMPLATE,
-        branch: targetBranch,
-      });
+      (yield* fileSystem.realPath(path.resolve(input.cwd)).pipe(
+        Effect.map((resolvedRepoRoot) =>
+          resolveWorktreePathTemplate(path, {
+            cwd: input.cwd,
+            resolvedRepoRoot,
+            worktreesDir,
+            template: input.pathTemplate ?? DEFAULT_WORKTREE_PATH_TEMPLATE,
+            branch: targetBranch,
+          }),
+        ),
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree",
+              command: "git worktree add",
+              cwd: input.cwd,
+              detail: "Failed to resolve the repository root before creating a worktree.",
+              cause,
+            }),
+        ),
+      ));
     const args = input.newRefName
       ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]
       : ["worktree", "add", worktreePath, input.refName];
