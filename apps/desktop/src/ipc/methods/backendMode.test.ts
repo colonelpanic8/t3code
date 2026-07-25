@@ -16,6 +16,40 @@ const unusedLifecycleRuntimeLayer =
   Layer.empty as Layer.Layer<DesktopLifecycle.DesktopLifecycleRuntimeServices>;
 
 describe("backend mode IPC", () => {
+  it.effect("reports the active mode coherently while a successful relaunch is pending", () => {
+    const relaunchReasons: Array<string> = [];
+    const layer = Layer.mergeAll(
+      DesktopBackendMode.layerTest(),
+      DesktopAppSettings.layerTest(),
+      Layer.succeed(
+        DesktopLifecycle.DesktopLifecycle,
+        DesktopLifecycle.DesktopLifecycle.of({
+          relaunch: (reason) => Effect.sync(() => relaunchReasons.push(reason)),
+          register: Effect.void,
+        }),
+      ),
+      unusedLifecycleRuntimeLayer,
+    );
+
+    return Effect.gen(function* () {
+      const launchMode = yield* DesktopBackendMode.DesktopBackendMode;
+      const settings = yield* DesktopAppSettings.DesktopAppSettings;
+      yield* launchMode.latch("managed");
+
+      const state = yield* setBackendMode
+        .handler("client-only")
+        .pipe(Effect.flatMap(decodeBackendModeState));
+
+      assert.deepEqual(state, {
+        effectiveMode: "managed",
+        configuredMode: "managed",
+        cliOverride: null,
+      });
+      assert.deepEqual(relaunchReasons, ["backendMode=client-only"]);
+      assert.equal((yield* settings.get).backendMode, "client-only");
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("restores the configured mode when a packaged relaunch cannot be scheduled", () => {
     const relaunchError = new DesktopLifecycle.DesktopLifecycleRelaunchError({
       reason: "backendMode=client-only",

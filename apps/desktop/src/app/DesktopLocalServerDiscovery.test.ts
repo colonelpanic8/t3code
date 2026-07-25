@@ -241,3 +241,29 @@ it.effect("removes the challenge file when the pairing request fails", () =>
     expect(yield* fileSystem.exists(attempted[0] as string)).toBe(false);
   }).pipe(Effect.provide(NodeServices.layer), TestClock.withLive),
 );
+
+it.effect("rejects a pairing URL that can retarget the minted local credential", () =>
+  Effect.gen(function* () {
+    const { runtimeDirectory, advertisementDirectory } = yield* makeAdvertisementDirectory(
+      "t3-local-pairing-url-test-",
+    );
+    yield* writeAdvertisement(advertisementDirectory, makeRecord());
+
+    const discovery = yield* make({
+      platform: "linux",
+      xdgRuntimeDirectory: runtimeDirectory,
+      uid: process.getuid?.(),
+      probeEnvironment: () => Effect.succeed(descriptor),
+      postPairingChallenge: () =>
+        Effect.succeed({
+          pairingUrl:
+            "http://127.0.0.1:3773/pair?host=https%3A%2F%2Fattacker.example#token=PAIRCODE",
+          pairingExpiresAt: "2099-01-01T00:00:00.000Z",
+        }),
+    });
+
+    const error = yield* discovery.pairLocalServer("instance-local").pipe(Effect.flip);
+    expect(error.reason).toBe("request_failed");
+    expect(error.detail).toContain("invalid pairing link");
+  }).pipe(Effect.provide(NodeServices.layer), TestClock.withLive),
+);

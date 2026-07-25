@@ -45,19 +45,24 @@ export const setBackendMode = DesktopIpc.makeIpcMethod({
     const previousMode = (yield* settings.get).backendMode;
     const change = yield* settings.setBackendMode(mode);
     const launchState = yield* launchMode.get;
-    const state = {
-      ...launchState,
-      configuredMode: change.settings.backendMode,
-    };
-    if (
+    const relaunchRequired =
       change.changed &&
       launchState.cliOverride === null &&
-      launchState.effectiveMode !== change.settings.backendMode
-    ) {
+      launchState.effectiveMode !== change.settings.backendMode;
+    if (relaunchRequired) {
       yield* lifecycle
         .relaunch(`backendMode=${mode}`)
         .pipe(Effect.tapError(() => settings.setBackendMode(previousMode)));
+      // The current process is still running in its latched launch mode until
+      // Electron exits. Keep both fields coherent during that brief interval.
+      return {
+        ...launchState,
+        configuredMode: launchState.effectiveMode,
+      };
     }
-    return state;
+    return {
+      ...launchState,
+      configuredMode: change.settings.backendMode,
+    };
   }),
 });
