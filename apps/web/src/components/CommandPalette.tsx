@@ -891,6 +891,7 @@ function OpenCommandPaletteDialog(props: {
           <ProjectFavicon
             environmentId={project.environmentId}
             cwd={project.workspaceRoot}
+            repositoryKey={project.repositoryIdentity?.canonicalKey}
             className={ITEM_ICON_CLASS}
           />
         ),
@@ -917,6 +918,7 @@ function OpenCommandPaletteDialog(props: {
             <ProjectFavicon
               environmentId={project.environmentId}
               cwd={project.workspaceRoot}
+              repositoryKey={project.repositoryIdentity?.canonicalKey}
               className={ITEM_ICON_CLASS}
             />
           ),
