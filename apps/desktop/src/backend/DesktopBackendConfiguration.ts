@@ -132,11 +132,11 @@ const mergeWslEnv = (
   const seenNames = new Set(
     existing
       .split(":")
-      .map((entry) => getWslEnvEntryName(entry.trim()))
+      .map((entry) => getWslEnvEntryName(entry.trim()).toUpperCase())
       .filter((name) => name.length > 0),
   );
 
-  const additions = forwardedEnvNames.filter((name) => !seenNames.has(name));
+  const additions = forwardedEnvNames.filter((name) => !seenNames.has(name.toUpperCase()));
 
   // Preserve the user's WSLENV exactly as Windows handed it to us — empty
   // "::" segments and duplicate entries are harmless no-ops to WSL and not
@@ -511,7 +511,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   // both backends to share a database and environment identity.
   const parentEnvWithoutStorageOverrides: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (WINDOWS_STORAGE_ENV_NAMES.has(key)) continue;
+    if (WINDOWS_STORAGE_ENV_NAMES.has(key.toUpperCase())) continue;
     parentEnvWithoutStorageOverrides[key] = value;
   }
   const wslEnv = mergeWslEnv(parentEnvWithoutStorageOverrides.WSLENV, forwardedEnvNames);
