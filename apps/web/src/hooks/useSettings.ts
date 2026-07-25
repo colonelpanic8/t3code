@@ -10,6 +10,7 @@
  * cannot silently read the wrong server's settings.
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { usePrimaryEnvironment } from "~/state/environments";
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
