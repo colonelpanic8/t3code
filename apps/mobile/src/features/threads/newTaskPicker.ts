@@ -58,6 +58,17 @@ export function deriveNewTaskProjectPickerEmptyState(input: {
     };
   }
 
+  if (input.shellError !== null && !input.hasShellSnapshot) {
+    // The connection itself can stay healthy while the shell subscription
+    // fails. Without this branch the picker spins on "Loading projects" and
+    // never reports why no project ever arrives.
+    return {
+      title: "Could not load projects",
+      detail: input.shellError,
+      loading: false,
+    };
+  }
+
   if (!input.hasShellSnapshot) {
     return {
       title:
