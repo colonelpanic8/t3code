@@ -64,6 +64,18 @@
           # build above does not enable Vite+ task caching.
           postBuild = "";
 
+          postInstall =
+            (previousAttrs.postInstall or "")
+            + ''
+              # In nixpkgs' unpacked Electron layout, app.getAppPath() resolves
+              # to apps/desktop rather than the archive root. Mirror the packaged
+              # app's relative renderer path so client-only mode finds the
+              # renderer bundle.
+              mkdir -p "$out/libexec/t3code/apps/desktop/apps/server/dist"
+              ln -s ../../../../server/dist/client \
+                "$out/libexec/t3code/apps/desktop/apps/server/dist/client"
+            '';
+
           pnpmDeps = pkgs.fetchPnpmDeps {
             inherit pnpm;
             inherit
