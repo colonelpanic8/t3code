@@ -818,7 +818,10 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
-  finalText: Schema.optional(Schema.String),
+  // Text that has not been projected yet and must be appended before the
+  // message settles. Completion replaces message text, so this can never
+  // carry an already-projected prefix.
+  appendText: Schema.optional(Schema.String),
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });

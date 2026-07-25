@@ -1503,7 +1503,10 @@ const make = Effect.gen(function* () {
             input.messageId,
           ).pipe(Effect.map((count) => Option.getOrElse(count, () => 0)));
           if (retries >= MAX_ASSISTANT_FINALIZATION_DEFECT_RETRIES) {
-            const finalText = yield* peekBufferedAssistantText(input.messageId);
+            // Only undispatched text is buffered here — everything else has
+            // already been projected — so the fallback carries it as an append
+            // rather than as a replacement for the whole message.
+            const appendText = yield* peekBufferedAssistantText(input.messageId);
             const fallbackCommandId = yield* providerCommandId(
               input.event,
               `${input.commandTag}-terminal-fallback`,
@@ -1516,7 +1519,7 @@ const make = Effect.gen(function* () {
                       commandId: fallbackCommandId,
                       threadId: input.threadId,
                       messageId: input.messageId,
-                      ...(finalText.length > 0 ? { finalText } : {}),
+                      ...(appendText.length > 0 ? { appendText } : {}),
                       ...(input.turnId ? { turnId: input.turnId } : {}),
                       createdAt,
                     }),
