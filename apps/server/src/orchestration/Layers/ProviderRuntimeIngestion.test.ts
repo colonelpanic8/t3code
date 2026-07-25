@@ -3418,6 +3418,125 @@ describe("ProviderRuntimeIngestion", () => {
     expect(getFailureCount()).toBeLessThan(100);
   });
 
+  it("keeps already streamed text when the terminal fallback completes a message", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const turnId = asTurnId("turn-terminal-fallback-prefix");
+    const itemId = asItemId("item-terminal-fallback-prefix");
+    const now = "2026-01-01T00:00:00.000Z";
+    const streamedPrefix = "already streamed and persisted prefix ";
+    const undispatchedSuffix = "suffix that only the fallback carries";
+    const expectedText = `${streamedPrefix}${undispatchedSuffix}`;
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-terminal-fallback-prefix"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(harness.readModel, (thread) => thread.session?.activeTurnId === turnId);
+
+    // The first delta flushes immediately, so the prefix is projected before
+    // any dispatch failure is injected.
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-content-delta-terminal-fallback-prefix"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { streamKind: "assistant_text", delta: streamedPrefix },
+    });
+    await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-terminal-fallback-prefix" &&
+            message.text === streamedPrefix,
+        ),
+      5000,
+    );
+
+    const getFailureCount = harness.failDispatches(
+      100,
+      (command) => command.type === "thread.message.assistant.delta",
+    );
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-content-delta-terminal-fallback-suffix"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { streamKind: "assistant_text", delta: undispatchedSuffix },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-item-completed-terminal-fallback-prefix"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { itemType: "assistant_message", status: "completed" },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-terminal-fallback-prefix"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: { state: "completed" },
+    });
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-terminal-fallback-prefix" && !message.streaming,
+        ),
+      5000,
+    );
+    await harness.drain();
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-terminal-fallback-prefix",
+      ),
+    ).toMatchObject({ text: expectedText, streaming: false });
+    expect(getFailureCount()).toBeGreaterThanOrEqual(3);
+
+    const events = await runtime!.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const messageEvents = events.filter(
+      (event): event is Extract<(typeof events)[number], { type: "thread.message-sent" }> =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId === "assistant:item-terminal-fallback-prefix",
+    );
+    // The fallback appends its remainder as a streaming delta; no settling
+    // event may replace the message with that suffix alone.
+    expect(
+      messageEvents
+        .filter((event) => event.payload.streaming)
+        .map((event) => event.payload.text)
+        .join(""),
+    ).toBe(expectedText);
+    const settleTexts = messageEvents
+      .filter((event) => !event.payload.streaming)
+      .map((event) => event.payload.text);
+    expect(settleTexts.length).toBeGreaterThan(0);
+    expect(settleTexts.every((text) => text === "")).toBe(true);
+  });
+
   it("finalizes only the completed turn's assistant messages", async () => {
     const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
     const firstTurnId = asTurnId("turn-streaming-completed-scope-first");
