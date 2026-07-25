@@ -17,11 +17,12 @@ import * as NetService from "@t3tools/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import {
+  ForcedLegacyLayoutConflictError,
+  ForcedXdgLayoutConflictError,
   resolveServerConfig,
   RuntimeDirectoryOpenError,
   RuntimeDirectoryOwnerMismatchError,
   StorageDirectoryConfigurationConflictError,
-  StorageLayoutConfigurationConflictError,
 } from "./config.ts";
 
 const isRuntimeDirectoryOwnerMismatchError = Schema.is(RuntimeDirectoryOwnerMismatchError);
@@ -883,6 +884,77 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect.each([
+    {
+      artifactName: "desktop settings",
+      directory: "configDir" as const,
+      fileName: "desktop-settings.json",
+    },
+    {
+      artifactName: "client settings",
+      directory: "configDir" as const,
+      fileName: "client-settings.json",
+    },
+    {
+      artifactName: "saved environments",
+      directory: "stateDir" as const,
+      fileName: "saved-environments.json",
+    },
+  ])(
+    "keeps legacy storage when only legacy $artifactName are initialized",
+    ({ directory, fileName }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-cli-config-legacy-desktop-artifact-",
+        });
+        const homeDirectory = path.join(root, "home");
+        const legacyStateDir = path.join(homeDirectory, ".t3", "userdata");
+        const legacyRoots = {
+          configDir: legacyStateDir,
+          stateDir: legacyStateDir,
+        };
+        yield* fs.makeDirectory(legacyRoots[directory], { recursive: true });
+        yield* fs.writeFileString(path.join(legacyRoots[directory], fileName), "{}");
+
+        const resolved = yield* resolveServerConfig(
+          {
+            mode: Option.some("web"),
+            port: Option.some(3773),
+            host: Option.none(),
+            baseDir: Option.none(),
+            cwd: Option.none(),
+            devUrl: Option.none(),
+            noBrowser: Option.none(),
+            bootstrapFd: Option.none(),
+            autoBootstrapProjectFromCwd: Option.none(),
+            logWebSocketEvents: Option.none(),
+            tailscaleServeEnabled: Option.none(),
+            tailscaleServePort: Option.none(),
+          },
+          Option.none(),
+          {
+            homeDirectory,
+            temporaryDirectory: root,
+            userId: NodeOS.userInfo().uid,
+            platform: "linux",
+          },
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              NetService.layer,
+            ),
+          ),
+        );
+
+        expect(resolved.layout).toBe("legacy");
+        expect(resolved.configDir).toBe(legacyStateDir);
+        expect(resolved.stateDir).toBe(legacyStateDir);
+      }),
+  );
+
   it.effect("keeps initialized legacy storage even when split directories contain debris", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -1082,7 +1154,50 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         Effect.flip,
       );
 
-      expect(error).toBeInstanceOf(StorageLayoutConfigurationConflictError);
+      expect(error).toBeInstanceOf(ForcedXdgLayoutConflictError);
+      expect(error.message).toBe(
+        "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.",
+      );
+    }),
+  );
+
+  it.effect("rejects forced legacy storage with granular directory overrides", () =>
+    Effect.gen(function* () {
+      const error = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(3773),
+          host: Option.none(),
+          baseDir: Option.none(),
+          storageLayout: Option.some("legacy"),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: { T3CODE_CONFIG_DIR: "/tmp/t3-config" },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(error).toBeInstanceOf(ForcedLegacyLayoutConflictError);
+      expect(error.message).toBe(
+        "--storage-layout legacy cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.",
+      );
     }),
   );
 });
