@@ -3334,6 +3334,90 @@ describe("ProviderRuntimeIngestion", () => {
     expect(getFailureCount()).toBeGreaterThanOrEqual(3);
   });
 
+  it("retains text and releases the turn boundary after permanent typed delta failures", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const turnId = asTurnId("turn-permanent-delta-failure");
+    const itemId = asItemId("item-permanent-delta-failure");
+    const now = "2026-01-01T00:00:00.000Z";
+    const assistantText = `${"retained through terminal fallback ".repeat(40)}tail`;
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-permanent-delta-failure"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+    });
+    await waitForThread(harness.readModel, (thread) => thread.session?.activeTurnId === turnId);
+
+    const getFailureCount = harness.failDispatches(
+      100,
+      (command) => command.type === "thread.message.assistant.delta",
+    );
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-content-delta-permanent-delta-failure"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { streamKind: "assistant_text", delta: assistantText },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-item-completed-permanent-delta-failure"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      itemId,
+      payload: { itemType: "assistant_message", status: "completed" },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-permanent-delta-failure"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId,
+      payload: { state: "completed" },
+    });
+    harness.emit({
+      type: "thread.metadata.updated",
+      eventId: asEventId("evt-thread-metadata-permanent-delta-failure"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: { name: "Boundary released after permanent failure" },
+    });
+
+    const thread = await waitForThread(
+      harness.readModel,
+      (entry) =>
+        entry.title === "Boundary released after permanent failure" &&
+        entry.session?.status === "ready" &&
+        entry.session.activeTurnId === null &&
+        entry.messages.some(
+          (message: ProviderRuntimeTestMessage) =>
+            message.id === "assistant:item-permanent-delta-failure" &&
+            !message.streaming &&
+            message.text === assistantText,
+        ),
+      5000,
+    );
+    await harness.drain();
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-permanent-delta-failure",
+      ),
+    ).toMatchObject({ text: assistantText, streaming: false });
+    expect(getFailureCount()).toBeGreaterThanOrEqual(3);
+    expect(getFailureCount()).toBeLessThan(100);
+  });
+
   it("finalizes only the completed turn's assistant messages", async () => {
     const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
     const firstTurnId = asTurnId("turn-streaming-completed-scope-first");
