@@ -179,4 +179,42 @@ describe("new task picker", () => {
       loading: true,
     });
   });
+
+  it("reports a shell failure on a connected environment instead of loading forever", () => {
+    expect(
+      deriveNewTaskProjectPickerEmptyState({
+        environment: {
+          connectionState: "connected",
+          connectionError: null,
+        },
+        networkOffline: false,
+        shellStatus: "empty",
+        shellError: "Could not synchronize environment data.",
+        hasShellSnapshot: false,
+      }),
+    ).toEqual({
+      title: "Could not load projects",
+      detail: "Could not synchronize environment data.",
+      loading: false,
+    });
+  });
+
+  it("keeps reporting an empty catalog when a shell error arrives with a snapshot", () => {
+    expect(
+      deriveNewTaskProjectPickerEmptyState({
+        environment: {
+          connectionState: "connected",
+          connectionError: null,
+        },
+        networkOffline: false,
+        shellStatus: "cached",
+        shellError: "Could not synchronize environment data.",
+        hasShellSnapshot: true,
+      }),
+    ).toEqual({
+      title: "No projects found",
+      detail: "The selected environment did not report any projects.",
+      loading: false,
+    });
+  });
 });
