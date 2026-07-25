@@ -98,7 +98,7 @@ describe("selectLocalServerPairingCandidates", () => {
     ]);
   });
 
-  it("suppresses usable saved environments and offers Pair again for failed credentials", () => {
+  it("suppresses connected saved environments and offers Pair again while reconnecting", () => {
     expect(
       selectLocalServerPairingCandidates(
         [advertisement],
@@ -116,7 +116,7 @@ describe("selectLocalServerPairingCandidates", () => {
         [
           {
             environmentId: advertisement.environmentId,
-            connection: { phase: "error" },
+            connection: { phase: "reconnecting" },
           },
         ],
       ),
