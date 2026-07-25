@@ -44,6 +44,35 @@ export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string
   }
 }
 
+/**
+ * Pick the pairing URL to show for a link, from the addresses that reach the
+ * server being administered.
+ *
+ * The page's own origin is only one of those addresses when this page is served
+ * by the administered server — the managed-backend case. For any other
+ * environment (a saved server reached over the network, a relay, or an SSH
+ * tunnel) an origin-relative link would pair the scanning device to this client
+ * app instead of the server the link belongs to, so there is no shareable URL
+ * and the caller falls back to showing the bare pairing code. A loopback origin
+ * is likewise unshareable: it resolves to the scanning device, not to us.
+ */
+export function resolveShareablePairingUrl(input: {
+  /** Pairing URL for the advertised endpoint the user picked, when there is one. */
+  readonly endpointPairingUrl: string | null;
+  /** Pairing URL built from the administered server's own base URL. */
+  readonly basePairingUrl: string | null;
+  /** Pairing URL on this page's origin. */
+  readonly currentOriginPairingUrl: string;
+  /** Whether the administered server is the one serving this page. */
+  readonly servesCurrentOrigin: boolean;
+  readonly isCurrentOriginLoopback: boolean;
+}): string | null {
+  if (input.endpointPairingUrl !== null) return input.endpointPairingUrl;
+  if (input.basePairingUrl !== null) return input.basePairingUrl;
+  if (!input.servesCurrentOrigin || input.isCurrentOriginLoopback) return null;
+  return input.currentOriginPairingUrl;
+}
+
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
 
 export async function applyWslEnableSelection(input: {

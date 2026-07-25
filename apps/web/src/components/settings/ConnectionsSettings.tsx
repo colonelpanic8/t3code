@@ -45,6 +45,7 @@ import {
   applyWslEnableSelection,
   environmentPairingBaseUrl,
   resolveAccessEnvironment,
+  resolveShareablePairingUrl,
 } from "./ConnectionsSettings.logic";
 import {
   SettingsPageContainer,
@@ -513,6 +514,8 @@ type PairingLinkListRowProps = {
   endpointUrl: string | null | undefined;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
   defaultEndpointKey: string | null;
+  // Whether the server these links belong to is the one serving this page.
+  servesCurrentOrigin: boolean;
   presentation?: AccessSectionPresentation;
   revokingPairingLinkId: string | null;
   onRevoke: (id: string) => void;
@@ -523,6 +526,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   endpointUrl,
   endpoints,
   defaultEndpointKey,
+  servesCurrentOrigin,
   presentation = "current",
   revokingPairingLinkId,
   onRevoke,
@@ -538,10 +542,11 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     () => resolveCurrentOriginPairingUrl(pairingLink.credential),
     [pairingLink.credential],
   );
-  const hostedPairingUrl = useMemo(
+  const basePairingUrl = useMemo(
     () =>
       endpointUrl != null && endpointUrl !== ""
-        ? resolveHostedPairingUrl(endpointUrl, pairingLink.credential)
+        ? (resolveHostedPairingUrl(endpointUrl, pairingLink.credential) ??
+          resolveDesktopPairingUrl(endpointUrl, pairingLink.credential))
         : null,
     [endpointUrl, pairingLink.credential],
   );
@@ -570,13 +575,13 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     }
     return options;
   }, [endpoints, pairingLink.credential]);
-  const shareablePairingUrl =
-    endpointPairingUrl ??
-    (endpointUrl != null && endpointUrl !== ""
-      ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, pairingLink.credential))
-      : isLoopbackHostname(window.location.hostname)
-        ? null
-        : currentOriginPairingUrl);
+  const shareablePairingUrl = resolveShareablePairingUrl({
+    endpointPairingUrl,
+    basePairingUrl,
+    currentOriginPairingUrl,
+    servesCurrentOrigin,
+    isCurrentOriginLoopback: isLoopbackHostname(window.location.hostname),
+  });
   const revealValue = shareablePairingUrl ?? pairingLink.credential;
   const isShareableHostedAppPairingUrl =
     shareablePairingUrl !== null && isHostedAppPairingUrl(shareablePairingUrl);
@@ -1158,6 +1163,7 @@ type PairingClientsListProps = {
   endpointUrl: string | null | undefined;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
   defaultEndpointKey: string | null;
+  servesCurrentOrigin: boolean;
   presentation?: AccessSectionPresentation;
   isLoading: boolean;
   pairingLinks: ReadonlyArray<ServerPairingLinkRecord>;
@@ -1172,6 +1178,7 @@ const PairingClientsList = memo(function PairingClientsList({
   endpointUrl,
   endpoints,
   defaultEndpointKey,
+  servesCurrentOrigin,
   presentation = "current",
   isLoading,
   pairingLinks,
@@ -1190,6 +1197,7 @@ const PairingClientsList = memo(function PairingClientsList({
           endpointUrl={endpointUrl}
           endpoints={endpoints}
           defaultEndpointKey={defaultEndpointKey}
+          servesCurrentOrigin={servesCurrentOrigin}
           presentation={presentation}
           revokingPairingLinkId={revokingPairingLinkId}
           onRevoke={onRevokePairingLink}
@@ -3013,6 +3021,7 @@ export function ConnectionsSettings() {
       readonly endpointUrl: string | null | undefined;
       readonly endpoints: ReadonlyArray<AdvertisedEndpoint>;
       readonly defaultEndpointKey: string | null;
+      readonly servesCurrentOrigin: boolean;
     },
   ) => (
     <>
@@ -3025,6 +3034,7 @@ export function ConnectionsSettings() {
         endpointUrl={endpoints.endpointUrl}
         endpoints={endpoints.endpoints}
         defaultEndpointKey={endpoints.defaultEndpointKey}
+        servesCurrentOrigin={endpoints.servesCurrentOrigin}
         presentation={presentation}
         isLoading={isLoadingDesktopAccessManagement}
         pairingLinks={visibleDesktopPairingLinks}
@@ -3040,6 +3050,7 @@ export function ConnectionsSettings() {
     readonly endpointUrl: string | null | undefined;
     readonly endpoints: ReadonlyArray<AdvertisedEndpoint>;
     readonly defaultEndpointKey: string | null;
+    readonly servesCurrentOrigin: boolean;
   }) => (
     <SettingsSection
       title="Authorized clients"
@@ -3136,6 +3147,9 @@ export function ConnectionsSettings() {
             endpointUrl: accessEnvironmentPairingBaseUrl,
             endpoints: EMPTY_ADVERTISED_ENDPOINTS,
             defaultEndpointKey: null,
+            // This page is not served by the environment being administered, so
+            // its own origin never stands in for that server's address.
+            servesCurrentOrigin: false,
           })
         : null}
 
@@ -3186,6 +3200,9 @@ export function ConnectionsSettings() {
                 endpointUrl: desktopServerExposureState?.endpointUrl,
                 endpoints: visibleDesktopAdvertisedEndpoints,
                 defaultEndpointKey: defaultDesktopAdvertisedEndpointKey,
+                // The managed backend is the origin that served this page, so a
+                // non-loopback current-origin link does reach it.
+                servesCurrentOrigin: true,
               })
             : null}
           <AlertDialog
