@@ -21,6 +21,7 @@ import {
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
   pruneSidebarChangeRequestStates,
+  resolveProjectRepositoryKey,
   resolveSidebarThreadGitCwd,
   resolveSidebarStageBadgeLabel,
   resolveThreadRowClassName,
@@ -94,6 +95,21 @@ describe("shouldPublishSidebarChangeRequestState", () => {
 
   it("publishes the resolved state after git status settles", () => {
     expect(shouldPublishSidebarChangeRequestState(false)).toBe(true);
+  });
+});
+
+describe("resolveProjectRepositoryKey", () => {
+  it("preserves a repository identity for sidebar favicon cache revisions", () => {
+    expect(
+      resolveProjectRepositoryKey({
+        repositoryIdentity: { canonicalKey: "github.com/pingdotgg/t3code" },
+      }),
+    ).toBe("github.com/pingdotgg/t3code");
+  });
+
+  it("returns null while repository identity is unavailable", () => {
+    expect(resolveProjectRepositoryKey(undefined)).toBeNull();
+    expect(resolveProjectRepositoryKey({ repositoryIdentity: null })).toBeNull();
   });
 });
 
