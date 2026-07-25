@@ -377,7 +377,7 @@ type CommandPaletteUiAction =
   | { readonly _tag: "OpenNewThreadOn" }
   | { readonly _tag: "ClearOpenIntent" };
 
-function reduceCommandPaletteUiState(
+export function reduceCommandPaletteUiState(
   state: CommandPaletteUiState,
   action: CommandPaletteUiAction,
 ): CommandPaletteUiState {
@@ -1273,14 +1273,14 @@ function OpenCommandPaletteDialog(props: {
       environmentItemCount: newThreadEnvironmentItems.length,
     });
     if (resolution === "clear") {
-      clearOpenIntent();
+      setOpen(false);
       return;
     }
     if (resolution !== "open") {
       return;
     }
     openNewThreadOnFlow();
-  }, [clearOpenIntent, environmentShellsLoaded, newThreadEnvironmentItems.length, openIntent]);
+  }, [environmentShellsLoaded, newThreadEnvironmentItems.length, openIntent, setOpen]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
 

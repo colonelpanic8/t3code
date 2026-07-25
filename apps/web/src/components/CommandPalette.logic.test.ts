@@ -8,6 +8,7 @@ import {
   resolveNewThreadOnIntent,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+import { reduceCommandPaletteUiState } from "./CommandPalette";
 
 describe("resolveNewThreadOnIntent", () => {
   it("distinguishes loading from a loaded-empty environment list", () => {
@@ -23,6 +24,17 @@ describe("resolveNewThreadOnIntent", () => {
     expect(
       resolveNewThreadOnIntent({ isActive: true, isLoaded: true, environmentItemCount: 1 }),
     ).toBe("open");
+  });
+});
+
+describe("reduceCommandPaletteUiState", () => {
+  it("closes and clears a deferred open intent when no targets are available", () => {
+    expect(
+      reduceCommandPaletteUiState(
+        { open: true, openIntent: { kind: "new-thread-on" } },
+        { _tag: "SetOpen", open: false },
+      ),
+    ).toEqual({ open: false, openIntent: null });
   });
 });
 
