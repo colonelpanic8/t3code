@@ -22,6 +22,7 @@ import {
   ThreadWorktreeIndicator,
 } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { RemoteEnvironmentIndicator } from "./RemoteEnvironmentIndicator";
 import { ProjectIconDialog, type ProjectIconTarget } from "./ProjectIconSettings";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -472,6 +473,11 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   // for desktop-local projects, see sidebarProjectGrouping).
   const isDesktopLocalThread =
     environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
+  // Same rule as shouldShowRemoteEnvironmentIndicator, but sourced from the
+  // presence scope: it is the authoritative remoteness test here because it
+  // also treats every environment as remote on client-only desktops and the
+  // hosted web app, which never have a primary environment id to compare to.
+  const showRemoteEnvironmentIndicator = isRemoteThread && !isDesktopLocalThread;
   const threadEnvironmentLabel = isRemoteThread
     ? (remoteEnvLabel ?? (isDesktopLocalThread ? "Local" : "Remote"))
     : null;
@@ -762,7 +768,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
-        className={`${resolveThreadRowClassName({
+        className={`@container/thread-row ${resolveThreadRowClassName({
           isActive,
           isSelected,
         })} relative isolate`}
@@ -919,18 +925,18 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             ) : null}
             <span className={threadMetaClassName}>
               <span className="inline-flex items-center gap-1">
-                {isRemoteThread && !isDesktopLocalThread && (
+                {showRemoteEnvironmentIndicator && (
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <span
-                          aria-label={threadEnvironmentLabel ?? "Remote"}
-                          className="inline-flex items-center justify-center"
+                        <RemoteEnvironmentIndicator
+                          icon={CloudIcon}
+                          label={threadEnvironmentLabel ?? "Remote"}
+                          className="max-w-24 text-muted-foreground/40"
+                          iconClassName="size-3"
                         />
                       }
-                    >
-                      <CloudIcon className="size-3 text-muted-foreground/40" />
-                    </TooltipTrigger>
+                    />
                     <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
                   </Tooltip>
                 )}
