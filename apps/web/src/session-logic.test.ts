@@ -1595,6 +1595,61 @@ describe("deriveWorkLogEntries clarifying questions", () => {
     expect(entries[0]?.userInput?.questions[0]?.customAnswer).toBeUndefined();
   });
 
+  it("keeps an option label that contains a comma whole", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "ask",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-1",
+          questions: [
+            {
+              id: "Scope?",
+              header: "Scope",
+              question: "Scope?",
+              options: [
+                { label: "Small, safe change", description: "Minimal diff" },
+                { label: "Tests", description: "Add coverage" },
+              ],
+              multiSelect: true,
+            },
+          ],
+        },
+      }),
+      makeActivity({
+        id: "answer",
+        createdAt: "2026-02-23T00:00:09.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: { requestId: "req-1", answers: { "Scope?": "Small, safe change, Tests" } },
+      }),
+    ]);
+
+    expect(entries[0]?.userInput?.questions[0]?.selectedLabels).toEqual([
+      "Small, safe change",
+      "Tests",
+    ]);
+    expect(entries[0]?.userInput?.questions[0]?.customAnswer).toBeUndefined();
+  });
+
+  it("keeps a multi-select free-text answer containing a comma intact", () => {
+    const entries = deriveWorkLogEntries(
+      makeQuestionActivities({
+        multiSelect: true,
+        answers: { "How should we proceed?": "Ship it, but revert the migration first" },
+      }),
+    );
+
+    expect(entries[0]?.userInput?.questions[0]?.selectedLabels).toEqual([]);
+    expect(entries[0]?.userInput?.questions[0]?.customAnswer).toBe(
+      "Ship it, but revert the migration first",
+    );
+  });
+
   it("shows the question while it is still unanswered", () => {
     const entries = deriveWorkLogEntries(makeQuestionActivities({}));
 

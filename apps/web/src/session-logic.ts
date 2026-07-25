@@ -483,23 +483,39 @@ function parseUserInputQuestions(
   return parsed.length > 0 ? parsed : null;
 }
 
-function parseUserInputAnswerValues(
-  value: unknown,
-  splitCommaSeparated: boolean = false,
-): ReadonlyArray<string> {
-  const values =
-    typeof value === "string"
-      ? splitCommaSeparated
-        ? value.split(",")
-        : [value]
-      : Array.isArray(value)
-        ? value
-        : [];
+function parseUserInputAnswerValues(value: unknown): ReadonlyArray<string> {
+  const values = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
   return values.flatMap((entry) => {
     if (typeof entry !== "string") return [];
     const trimmed = entry.trim();
     return trimmed.length > 0 ? [trimmed] : [];
   });
+}
+
+/**
+ * OpenCode reports a multi-select reply as one `", "`-joined string rather than
+ * a list. Consume the value label by label, longest first, so a label that
+ * itself contains a comma survives; anything that is not a run of option labels
+ * is left alone as free text.
+ */
+function splitJoinedOptionLabels(
+  value: string,
+  optionLabels: ReadonlySet<string>,
+): ReadonlyArray<string> | null {
+  const labelsByLength = [...optionLabels].toSorted((left, right) => right.length - left.length);
+  const picked: string[] = [];
+  let rest = value.trim();
+  while (rest.length > 0) {
+    const label = labelsByLength.find(
+      (candidate) => rest === candidate || rest.startsWith(`${candidate},`),
+    );
+    if (label === undefined) {
+      return null;
+    }
+    picked.push(label);
+    rest = rest.slice(label.length).replace(/^,\s*/, "");
+  }
+  return picked.length > 1 ? picked : null;
 }
 
 /** Structural shape shared by a freshly parsed question and an already-derived one. */
@@ -517,13 +533,15 @@ function toWorkLogUserInputQuestion(
   answers: Record<string, unknown> | null,
 ): WorkLogUserInputQuestion {
   const optionLabels = new Set(question.options.map((option) => option.label));
-  const rawAnswer = answers?.[question.id];
-  const rawAnswerIsExactOption =
-    typeof rawAnswer === "string" && optionLabels.has(rawAnswer.trim());
-  const answered = parseUserInputAnswerValues(
-    rawAnswer,
-    question.multiSelect === true && !rawAnswerIsExactOption,
-  );
+  const reported = parseUserInputAnswerValues(answers?.[question.id]);
+  const [onlyValue] = reported;
+  const answered =
+    (question.multiSelect === true &&
+    reported.length === 1 &&
+    onlyValue !== undefined &&
+    !optionLabels.has(onlyValue)
+      ? splitJoinedOptionLabels(onlyValue, optionLabels)
+      : null) ?? reported;
   // Keep question order rather than answer order so multi-select reads consistently.
   const selectedLabels = question.options
     .map((option) => option.label)
