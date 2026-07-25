@@ -15,7 +15,11 @@ import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
 import { useEnvironmentShellState } from "../../state/shell";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
-import { buildNewTaskProjectItems, deriveNewTaskProjectPickerEmptyState } from "./newTaskPicker";
+import {
+  buildNewTaskProjectItems,
+  deriveNewTaskProjectPickerAction,
+  deriveNewTaskProjectPickerEmptyState,
+} from "./newTaskPicker";
 import * as Option from "effect/Option";
 
 type NewTaskRouteParams = {
@@ -74,8 +78,12 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     shellError: Option.getOrNull(environmentShellState.error),
     hasShellSnapshot: hasEnvironmentShellSnapshot,
   });
-  const canAddProject =
-    selectedEnvironment?.connectionState === "connected" && hasEnvironmentShellSnapshot;
+  const emptyStateAction = deriveNewTaskProjectPickerAction({
+    hasSelectedEnvironment: selectedEnvironment !== null,
+    canAddProject:
+      selectedEnvironment?.connectionState === "connected" && hasEnvironmentShellSnapshot,
+    loading: projectEmptyState.loading,
+  });
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
     ? (projects.find(
@@ -207,7 +215,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
             <Text className="text-center text-sm leading-normal text-foreground-muted">
               {projectEmptyState.detail}
             </Text>
-            {!canAddProject ? (
+            {emptyStateAction === "add-environment" ? (
               <Pressable
                 className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
                 onPress={() => navigation.navigate("ConnectionsNew")}
@@ -216,7 +224,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   Add environment
                 </Text>
               </Pressable>
-            ) : (
+            ) : emptyStateAction === "add-project" ? (
               <Pressable
                 className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
                 onPress={() =>
@@ -230,7 +238,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                   Add new project
                 </Text>
               </Pressable>
-            )}
+            ) : null}
           </View>
         ) : (
           <View collapsable={false} className="overflow-hidden rounded-[24px] bg-card">
