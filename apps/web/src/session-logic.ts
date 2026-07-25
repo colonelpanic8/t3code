@@ -483,8 +483,18 @@ function parseUserInputQuestions(
   return parsed.length > 0 ? parsed : null;
 }
 
-function parseUserInputAnswerValues(value: unknown): ReadonlyArray<string> {
-  const values = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+function parseUserInputAnswerValues(
+  value: unknown,
+  splitCommaSeparated: boolean = false,
+): ReadonlyArray<string> {
+  const values =
+    typeof value === "string"
+      ? splitCommaSeparated
+        ? value.split(",")
+        : [value]
+      : Array.isArray(value)
+        ? value
+        : [];
   return values.flatMap((entry) => {
     if (typeof entry !== "string") return [];
     const trimmed = entry.trim();
@@ -506,8 +516,14 @@ function toWorkLogUserInputQuestion(
   question: AskedUserInputQuestion,
   answers: Record<string, unknown> | null,
 ): WorkLogUserInputQuestion {
-  const answered = parseUserInputAnswerValues(answers?.[question.id]);
   const optionLabels = new Set(question.options.map((option) => option.label));
+  const rawAnswer = answers?.[question.id];
+  const rawAnswerIsExactOption =
+    typeof rawAnswer === "string" && optionLabels.has(rawAnswer.trim());
+  const answered = parseUserInputAnswerValues(
+    rawAnswer,
+    question.multiSelect === true && !rawAnswerIsExactOption,
+  );
   // Keep question order rather than answer order so multi-select reads consistently.
   const selectedLabels = question.options
     .map((option) => option.label)
@@ -781,15 +797,17 @@ export function deriveWorkLogEntries(
       const payload = asRecord(activity.payload);
       const requestId = asTrimmedString(payload?.requestId);
       const questions = parseUserInputQuestions(payload);
-      if (requestId && questions) {
-        const derived = toWorkLogUserInputEntry(activity, {
-          requestId,
-          answered: false,
-          questions: questions.map((question) => toWorkLogUserInputQuestion(question, null)),
-        });
+      if (requestId) {
         userInputEntryIndexByRequestId.set(requestId, entries.length);
-        entries.push(derived);
-        continue;
+        if (questions) {
+          const derived = toWorkLogUserInputEntry(activity, {
+            requestId,
+            answered: false,
+            questions: questions.map((question) => toWorkLogUserInputQuestion(question, null)),
+          });
+          entries.push(derived);
+          continue;
+        }
       }
     }
 
@@ -811,6 +829,20 @@ export function deriveWorkLogEntries(
           };
           continue;
         }
+        if (asked && requestId && answers) {
+          const questions = toOrphanedWorkLogUserInputQuestions(answers);
+          if (questions.length > 0) {
+            entries[askedIndex] = {
+              ...asked,
+              label: userInputWorkLogLabel(questions),
+              tone: "info",
+              userInput: { requestId, answered: true, questions },
+            };
+          }
+        }
+        // The matching request already represents this lifecycle. Keep one
+        // generic row when neither side has enough structure for a Q&A card.
+        continue;
       }
       if (requestId && answers) {
         const questions = toOrphanedWorkLogUserInputQuestions(answers);
