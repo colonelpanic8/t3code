@@ -14,6 +14,7 @@ import {
   getSidebarThreadKeysNeedingChangeRequestReporter,
   hasUnseenCompletion,
   isContextMenuPointerDown,
+  isSidebarThreadActiveForPostSettleNavigation,
   isSidebarThreadEffectivelySnoozed,
   isSidebarThreadEffectivelySettled,
   isTrailingDoubleClick,
@@ -791,6 +792,40 @@ describe("isSidebarThreadEffectivelySnoozed", () => {
             thread !== undefined &&
             !isSidebarThreadEffectivelySnoozed({
               thread,
+              snoozeSupported: true,
+              now,
+            })
+          );
+        },
+      }),
+    ).toBe("active");
+  });
+
+  it("skips snoozed legacy targets even when they are not effectively settled", () => {
+    const threads = new Map([
+      ["current", makeThreadShell({ id: ThreadId.make("current") })],
+      [
+        "snoozed",
+        makeThreadShell({
+          id: ThreadId.make("snoozed"),
+          snoozedAt: "2026-04-10T09:00:00.000Z",
+          snoozedUntil: "2026-04-11T09:00:00.000Z",
+        }),
+      ],
+      ["active", makeThreadShell({ id: ThreadId.make("active") })],
+    ]);
+
+    expect(
+      resolveNextActiveThreadIdAfterSettle({
+        threadIds: ["current", "snoozed", "active"],
+        settledThreadId: "current",
+        isActive: (threadId) => {
+          const thread = threads.get(threadId);
+          return (
+            thread !== undefined &&
+            isSidebarThreadActiveForPostSettleNavigation({
+              thread,
+              effectivelySettled: false,
               snoozeSupported: true,
               now,
             })

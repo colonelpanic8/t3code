@@ -186,6 +186,7 @@ import {
   getSidebarThreadKeysNeedingChangeRequestReporter,
   getSidebarThreadIdsToPrewarm,
   isContextMenuPointerDown,
+  isSidebarThreadActiveForPostSettleNavigation,
   isSidebarThreadEffectivelySettled,
   isTrailingDoubleClick,
   resolveNextActiveThreadIdAfterSettle,
@@ -3584,13 +3585,24 @@ export default function Sidebar() {
       settlingThreadKeysRef.current.add(threadKey);
       setSettleConfirmationThreadKey((current) => (current === threadKey ? null : current));
 
+      const navigationNow = new Date().toISOString();
       const nextThreadKey = resolveNextActiveThreadIdAfterSettle({
         threadIds: orderedSidebarThreadKeys,
         fallbackThreadIds: allUnarchivedSidebarThreadKeys,
         settledThreadId: threadKey,
         isActive: (candidateKey) => {
           const candidate = sidebarThreadByKey.get(candidateKey);
-          return candidate != null && !isThreadEffectivelySettled(candidate);
+          return (
+            candidate != null &&
+            isSidebarThreadActiveForPostSettleNavigation({
+              thread: candidate,
+              effectivelySettled: isThreadEffectivelySettled(candidate),
+              snoozeSupported:
+                serverConfigs.get(candidate.environmentId)?.environment.capabilities
+                  .threadSnooze === true,
+              now: navigationNow,
+            })
+          );
         },
       });
       const nextThread = nextThreadKey ? sidebarThreadByKey.get(nextThreadKey) : null;
@@ -3629,6 +3641,7 @@ export default function Sidebar() {
       isThreadEffectivelySettled,
       navigateToThread,
       orderedSidebarThreadKeys,
+      serverConfigs,
       settleThread,
       sidebarThreadByKey,
     ],
