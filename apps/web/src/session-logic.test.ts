@@ -1492,6 +1492,181 @@ describe("deriveWorkLogEntries", () => {
   });
 });
 
+describe("deriveWorkLogEntries clarifying questions", () => {
+  function makeQuestionActivities(options: {
+    readonly multiSelect?: boolean;
+    readonly answers?: Record<string, unknown>;
+  }): OrchestrationThreadActivity[] {
+    const requested = makeActivity({
+      id: "ask",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      kind: "user-input.requested",
+      summary: "User input requested",
+      tone: "info",
+      payload: {
+        requestId: "req-1",
+        questions: [
+          {
+            id: "How should we proceed?",
+            header: "Approach",
+            question: "How should we proceed?",
+            options: [
+              { label: "Ship it", description: "Merge as-is" },
+              { label: "Iterate", description: "Another review round" },
+            ],
+            multiSelect: options.multiSelect === true,
+          },
+        ],
+      },
+    });
+    if (!options.answers) {
+      return [requested];
+    }
+    return [
+      requested,
+      makeActivity({
+        id: "answer",
+        createdAt: "2026-02-23T00:00:09.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: { requestId: "req-1", answers: options.answers },
+      }),
+    ];
+  }
+
+  it("merges the request and its answer into one entry carrying the picked option", () => {
+    const entries = deriveWorkLogEntries(
+      makeQuestionActivities({ answers: { "How should we proceed?": "Iterate" } }),
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.label).toBe("Question: Approach");
+    expect(entries[0]?.userInput).toEqual({
+      requestId: "req-1",
+      answered: true,
+      questions: [
+        {
+          id: "How should we proceed?",
+          header: "Approach",
+          question: "How should we proceed?",
+          multiSelect: false,
+          options: [
+            { label: "Ship it", description: "Merge as-is" },
+            { label: "Iterate", description: "Another review round" },
+          ],
+          selectedLabels: ["Iterate"],
+        },
+      ],
+    });
+  });
+
+  it("keeps a free-text answer that matched no option", () => {
+    const entries = deriveWorkLogEntries(
+      makeQuestionActivities({ answers: { "How should we proceed?": "  Split it in two  " } }),
+    );
+
+    expect(entries[0]?.userInput?.questions[0]?.selectedLabels).toEqual([]);
+    expect(entries[0]?.userInput?.questions[0]?.customAnswer).toBe("Split it in two");
+  });
+
+  it("lists multi-select answers in question order", () => {
+    const entries = deriveWorkLogEntries(
+      makeQuestionActivities({
+        multiSelect: true,
+        answers: { "How should we proceed?": ["Iterate", "Ship it"] },
+      }),
+    );
+
+    expect(entries[0]?.userInput?.questions[0]?.selectedLabels).toEqual(["Ship it", "Iterate"]);
+  });
+
+  it("shows the question while it is still unanswered", () => {
+    const entries = deriveWorkLogEntries(makeQuestionActivities({}));
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.userInput?.answered).toBe(false);
+    expect(entries[0]?.userInput?.questions[0]?.selectedLabels).toEqual([]);
+  });
+
+  it("drops the duplicate AskUserQuestion tool rows", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "tool-started",
+        createdAt: "2026-02-23T00:00:00.500Z",
+        kind: "tool.started",
+        summary: "Tool call started",
+        payload: { itemType: "dynamic_tool_call", detail: "AskUserQuestion: {}" },
+      }),
+      makeActivity({
+        id: "tool-completed",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          detail: 'AskUserQuestion: {"questions":[{"question":"How should we proceed?"}]}',
+          data: { toolName: "AskUserQuestion" },
+        },
+      }),
+      ...makeQuestionActivities({ answers: { "How should we proceed?": "Ship it" } }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.userInput?.answered).toBe(true);
+  });
+
+  it("still shows the answer when the request activity is out of view", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "answer-only",
+        createdAt: "2026-02-23T00:00:09.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: {
+          requestId: "req-1",
+          answers: { "How should we proceed?": "Ship it" },
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.userInput).toEqual({
+      requestId: "req-1",
+      answered: true,
+      questions: [
+        {
+          id: "How should we proceed?",
+          header: "Answer",
+          question: "How should we proceed?",
+          multiSelect: false,
+          options: [],
+          selectedLabels: [],
+          customAnswer: "Ship it",
+        },
+      ],
+    });
+  });
+
+  it("falls back to the generic row when the questions cannot be parsed", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "ask-broken",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId: "req-1", questions: [{ header: "Approach" }] },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.userInput).toBeUndefined();
+    expect(entries[0]?.label).toBe("User input requested");
+  });
+});
+
 describe("deriveTimelineEntries", () => {
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
     const entries = deriveTimelineEntries(
