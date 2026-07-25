@@ -290,6 +290,25 @@ export function useUpdateClientSettings() {
   }, []);
 }
 
+/**
+ * Client-settings updater whose patch is derived from the settings in effect at
+ * call time rather than at render time.
+ *
+ * Use it whenever the new value is computed from the old one — merging one key
+ * into a record, toggling a flag. Deriving from a render-time snapshot loses
+ * writes when two updates run before React re-renders, because both start from
+ * the same stale value and the second overwrites the first.
+ */
+export function useUpdateClientSettingsWith() {
+  return useCallback((derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
+    const settings = getClientSettingsSnapshot();
+    persistClientSettings({
+      ...settings,
+      ...derivePatch(settings),
+    });
+  }, []);
+}
+
 export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrationGeneration += 1;
   clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;

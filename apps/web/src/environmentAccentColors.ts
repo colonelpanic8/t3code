@@ -19,7 +19,7 @@ import type { ClientSettings, EnvironmentId } from "@t3tools/contracts";
 import { useCallback, type CSSProperties } from "react";
 
 import { normalizeAccentColor } from "./accentColors";
-import { useClientSettings, useUpdateClientSettings } from "./hooks/useSettings";
+import { useClientSettings, useUpdateClientSettingsWith } from "./hooks/useSettings";
 
 export type EnvironmentAccentColors = ClientSettings["environmentAccentColors"];
 
@@ -101,14 +101,21 @@ export function useSetEnvironmentAccentColor(): (
   environmentId: EnvironmentId,
   color: string | undefined,
 ) => void {
-  const accentColors = useEnvironmentAccentColors();
-  const updateSettings = useUpdateClientSettings();
+  // Derived from the settings in effect at call time, not at render time: the
+  // picker commits on a delay, so two environments recolored in quick
+  // succession would otherwise both start from the same stale map and the
+  // second write would drop the first environment's color.
+  const updateSettings = useUpdateClientSettingsWith();
   return useCallback(
     (environmentId, color) => {
-      updateSettings({
-        environmentAccentColors: applyEnvironmentAccentColor(accentColors, environmentId, color),
-      });
+      updateSettings((settings) => ({
+        environmentAccentColors: applyEnvironmentAccentColor(
+          settings.environmentAccentColors,
+          environmentId,
+          color,
+        ),
+      }));
     },
-    [accentColors, updateSettings],
+    [updateSettings],
   );
 }
