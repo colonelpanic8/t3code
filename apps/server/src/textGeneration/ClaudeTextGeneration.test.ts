@@ -255,6 +255,41 @@ it.layer(ClaudeTextGenerationTestLayer)("ClaudeTextGeneration", (it) => {
     ),
   );
 
+  it.effect("forwards options for an SDK-discovered Claude model", () =>
+    withFakeClaudeEnv(
+      {
+        output: JSON.stringify({
+          structured_output: {
+            title: "Use live Claude models",
+            body: "Body",
+          },
+        }),
+        argsMustContain: '--model opus[1m] --effort xhigh --settings {"fastMode":true}',
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const generated = yield* textGeneration.generatePrContent({
+            cwd: process.cwd(),
+            baseBranch: "main",
+            headBranch: "fix/claude-model-discovery",
+            commitSummary: "Use live Claude models",
+            diffSummary: "1 file changed",
+            diffPatch: "diff --git a/provider.ts b/provider.ts",
+            modelSelection: createModelSelection(
+              ProviderInstanceId.make("claudeAgent"),
+              "opus[1m]",
+              [
+                { id: "effort", value: "xhigh" },
+                { id: "fastMode", value: true },
+              ],
+            ),
+          });
+
+          expect(generated.title).toBe("Use live Claude models");
+        }),
+    ),
+  );
+
   it.effect("generates thread titles through the Claude provider", () =>
     withFakeClaudeEnv(
       {
