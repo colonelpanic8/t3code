@@ -244,7 +244,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const explicitLegacyRoots = Option.map(configuredBaseDir, (baseDir) =>
     resolveLegacyT3StorageRoots({
       baseDir,
-      stateDirectoryName: isDevelopment ? "dev" : "userdata",
+      stateDirectoryName: "userdata",
       path,
     }),
   );
@@ -254,6 +254,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     path.join(legacyRoots.configDir, "keybindings.json"),
     path.join(legacyRoots.stateDir, "environment-id"),
     path.join(legacyRoots.stateDir, "connection-catalog.json"),
+    path.join(legacyRoots.stateDir, "secrets"),
   ];
   const legacyStorageInitialized = (yield* Effect.all(
     legacyArtifacts.map((artifact) => fileSystem.exists(artifact)),

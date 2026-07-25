@@ -55,13 +55,16 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.isDevelopment, true);
       assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
       assert.equal(environment.baseDir, "/tmp/t3");
-      assert.equal(environment.stateDir, "/tmp/t3/dev");
-      assert.equal(environment.desktopSettingsPath, "/tmp/t3/dev/desktop-settings.json");
-      assert.equal(environment.clientSettingsPath, "/tmp/t3/dev/client-settings.json");
-      assert.equal(environment.savedEnvironmentRegistryPath, "/tmp/t3/dev/saved-environments.json");
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/dev/settings.json");
-      assert.equal(environment.logDir, "/tmp/t3/dev/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/dev/browser-artifacts");
+      assert.equal(environment.stateDir, "/tmp/t3/userdata");
+      assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
+      assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
+      assert.equal(
+        environment.savedEnvironmentRegistryPath,
+        "/tmp/t3/userdata/saved-environments.json",
+      );
+      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
+      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
+      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
       assert.equal(environment.rootDir, "/repo");
       assert.equal(environment.appRoot, "/repo");
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
@@ -190,6 +193,32 @@ describe("DesktopEnvironment", () => {
         },
         { XDG_STATE_HOME: splitStateHome },
       );
+
+      assert.equal(environment.storageLayout, "legacy");
+      assert.equal(environment.stateDir, legacyStateDir);
+      assert.equal(environment.serverSettingsPath, path.join(legacyStateDir, "settings.json"));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps legacy storage when only legacy secrets are initialized", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-legacy-secrets-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const legacyStateDir = path.join(homeDirectory, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(path.join(legacyStateDir, "secrets"), {
+        recursive: true,
+      });
+
+      const environment = yield* makeEnvironment({
+        platform: "linux",
+        homeDirectory,
+        temporaryDirectory: root,
+        userId: 1000,
+      });
 
       assert.equal(environment.storageLayout, "legacy");
       assert.equal(environment.stateDir, legacyStateDir);
