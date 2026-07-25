@@ -108,7 +108,7 @@ async function waitForFileContent(filePath: string, attempts = 40) {
         return raw;
       }
     } catch {}
-    await Effect.runPromise(Effect.yieldNow);
+    await Effect.runPromise(Effect.sleep("25 millis"));
   }
   throw new Error(`Timed out waiting for file content at ${filePath}`);
 }
@@ -124,7 +124,9 @@ function waitForJsonLogMatch(
       if (requests.some(predicate)) {
         return requests;
       }
-      yield* Effect.yieldNow;
+      // The mock ACP process runs on the real clock, so TestClock.adjust just
+      // provides the scheduler hops for its stdio responses to land.
+      yield* TestClock.adjust("25 millis");
     }
     return yield* Effect.promise(() => readJsonLines(filePath));
   });
