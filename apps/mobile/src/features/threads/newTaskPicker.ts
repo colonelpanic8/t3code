@@ -85,6 +85,25 @@ export function deriveNewTaskProjectPickerEmptyState(input: {
   };
 }
 
+export type NewTaskProjectPickerAction = "none" | "add-environment" | "add-project";
+
+export function deriveNewTaskProjectPickerAction(input: {
+  readonly hasSelectedEnvironment: boolean;
+  readonly canAddProject: boolean;
+  readonly loading: boolean;
+}): NewTaskProjectPickerAction {
+  if (input.canAddProject) {
+    return "add-project";
+  }
+  if (input.loading) {
+    return "none";
+  }
+  // Adding another connection is only useful when no environment was chosen.
+  // Once one is selected the offer contradicts the screen the user is on, and
+  // adding a project needs that environment to be reachable first.
+  return input.hasSelectedEnvironment ? "none" : "add-environment";
+}
+
 export function deriveNewTaskPickerEmptyState(catalogState: WorkspaceState): {
   readonly title: string;
   readonly detail: string;
