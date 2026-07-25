@@ -14,6 +14,7 @@ import {
   applyWslEnableSelection,
   environmentPairingBaseUrl,
   resolveAccessEnvironment,
+  resolveShareablePairingUrl,
 } from "./ConnectionsSettings.logic";
 
 const baseWslState: DesktopWslState = {
@@ -203,6 +204,73 @@ describe("environmentPairingBaseUrl", () => {
       environmentPairingBaseUrl(
         entry(new RelayConnectionTarget({ environmentId: savedId, label: "cloud" })),
       ),
+    ).toBeNull();
+  });
+});
+
+describe("resolveShareablePairingUrl", () => {
+  const currentOriginPairingUrl = "https://client.example/pair?token=secret";
+
+  it("prefers the selected advertised endpoint", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: "https://box.tail.ts.net/pair?token=secret",
+        basePairingUrl: "http://192.168.1.5:3773/pair?token=secret",
+        currentOriginPairingUrl,
+        servesCurrentOrigin: true,
+        isCurrentOriginLoopback: false,
+      }),
+    ).toBe("https://box.tail.ts.net/pair?token=secret");
+  });
+
+  it("falls back to the administered server's own base URL", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: null,
+        basePairingUrl: "http://192.168.1.5:3773/pair?token=secret",
+        currentOriginPairingUrl,
+        servesCurrentOrigin: false,
+        isCurrentOriginLoopback: false,
+      }),
+    ).toBe("http://192.168.1.5:3773/pair?token=secret");
+  });
+
+  it("uses this page's origin only for the server that serves this page", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: null,
+        basePairingUrl: null,
+        currentOriginPairingUrl,
+        servesCurrentOrigin: true,
+        isCurrentOriginLoopback: false,
+      }),
+    ).toBe(currentOriginPairingUrl);
+  });
+
+  it("shows the bare code for another server with no address, not a link to this client", () => {
+    // A relay or SSH environment, or a bearer environment whose profile is
+    // missing: an origin-relative link would pair the scanning device to this
+    // client app instead of the server the link belongs to.
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: null,
+        basePairingUrl: null,
+        currentOriginPairingUrl,
+        servesCurrentOrigin: false,
+        isCurrentOriginLoopback: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("shows the bare code when this page's origin is loopback", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: null,
+        basePairingUrl: null,
+        currentOriginPairingUrl: "http://localhost:3773/pair?token=secret",
+        servesCurrentOrigin: true,
+        isCurrentOriginLoopback: true,
+      }),
     ).toBeNull();
   });
 });
