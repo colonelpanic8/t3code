@@ -104,7 +104,6 @@ import {
   revokeOtherServerClientSessions,
   revokeServerClientSession,
   revokeServerPairingLink,
-  isLoopbackHostname,
   usePrimarySessionState,
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
@@ -580,7 +579,6 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     basePairingUrl,
     currentOriginPairingUrl,
     servesCurrentOrigin,
-    isCurrentOriginLoopback: isLoopbackHostname(window.location.hostname),
   });
   const revealValue = shareablePairingUrl ?? pairingLink.credential;
   const isShareableHostedAppPairingUrl =

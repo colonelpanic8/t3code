@@ -1,5 +1,6 @@
 import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
 import type { DesktopBridge, DesktopWslState, EnvironmentId } from "@t3tools/contracts";
+import { isLoopbackHost } from "@t3tools/shared/preview";
 import * as Option from "effect/Option";
 
 /**
@@ -44,6 +45,17 @@ export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string
   }
 }
 
+function isLoopbackPairingUrl(value: string): boolean {
+  const pairingUrl = new URL(value);
+  if (isLoopbackHost(pairingUrl.hostname)) return true;
+
+  // Hosted app links wrap the administered server's address in `host`, so the
+  // outer URL can be public even when the target still resolves to the scanning
+  // device itself.
+  const targetUrl = pairingUrl.searchParams.get("host");
+  return targetUrl !== null && isLoopbackHost(new URL(targetUrl).hostname);
+}
+
 /**
  * Pick the pairing URL to show for a link, from the addresses that reach the
  * server being administered.
@@ -53,8 +65,9 @@ export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string
  * environment (a saved server reached over the network, a relay, or an SSH
  * tunnel) an origin-relative link would pair the scanning device to this client
  * app instead of the server the link belongs to, so there is no shareable URL
- * and the caller falls back to showing the bare pairing code. A loopback origin
- * is likewise unshareable: it resolves to the scanning device, not to us.
+ * and the caller falls back to showing the bare pairing code. Any loopback
+ * candidate is likewise unshareable: it resolves to the scanning device, not
+ * to us.
  */
 export function resolveShareablePairingUrl(input: {
   /** Pairing URL for the advertised endpoint the user picked, when there is one. */
@@ -65,12 +78,15 @@ export function resolveShareablePairingUrl(input: {
   readonly currentOriginPairingUrl: string;
   /** Whether the administered server is the one serving this page. */
   readonly servesCurrentOrigin: boolean;
-  readonly isCurrentOriginLoopback: boolean;
 }): string | null {
-  if (input.endpointPairingUrl !== null) return input.endpointPairingUrl;
-  if (input.basePairingUrl !== null) return input.basePairingUrl;
-  if (!input.servesCurrentOrigin || input.isCurrentOriginLoopback) return null;
-  return input.currentOriginPairingUrl;
+  const candidates = [
+    input.endpointPairingUrl,
+    input.basePairingUrl,
+    input.servesCurrentOrigin ? input.currentOriginPairingUrl : null,
+  ];
+  return (
+    candidates.find((candidate) => candidate !== null && !isLoopbackPairingUrl(candidate)) ?? null
+  );
 }
 
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
