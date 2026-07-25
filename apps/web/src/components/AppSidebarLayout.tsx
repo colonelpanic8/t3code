@@ -19,6 +19,7 @@ import ThreadSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
+  resolveThreadSidebarCssWidth,
   resolveThreadSidebarMaximumWidth,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
   THREAD_SIDEBAR_DEFAULT_WIDTH,
@@ -117,6 +118,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   const sidebarResizable = useMemo(
     () => ({
+      getCssWidth: resolveThreadSidebarCssWidth,
       maxWidth: () => resolveThreadSidebarMaximumWidth(window.innerWidth),
       minWidth: THREAD_SIDEBAR_MIN_WIDTH,
       shouldAcceptWidth: ({
@@ -143,7 +145,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       : false;
   });
   const sidebarProviderStyle = {
-    "--sidebar-width": `min(${sidebarWidth}px, max(${THREAD_SIDEBAR_MIN_WIDTH}px, calc(100vw - ${THREAD_MAIN_CONTENT_MIN_WIDTH}px)))`,
+    "--sidebar-width": resolveThreadSidebarCssWidth(sidebarWidth),
     ...(isMacosDesktop && !isWindowFullscreen
       ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
       : {}),

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   clampSidebarWidthValue,
+  resolveSidebarCssWidth,
   resolveSidebarMaximumWidth,
   SidebarMenuAction,
   SidebarMenuButton,
@@ -31,6 +32,13 @@ describe("sidebar interactive cursors", () => {
     maximumWidth = 208;
     expect(resolveSidebarMaximumWidth(liveMaximumWidth)).toBe(208);
     expect(clampSidebarWidthValue(340, 208, liveMaximumWidth)).toBe(208);
+  });
+
+  it("preserves a dynamic CSS width when committing a rail resize", () => {
+    const getCssWidth = (width: number) => `min(${width}px, calc(100vw - 640px))`;
+
+    expect(resolveSidebarCssWidth(340, getCssWidth)).toBe("min(340px, calc(100vw - 640px))");
+    expect(resolveSidebarCssWidth(340)).toBe("340px");
   });
 
   it("uses mobile sheet visibility for the shared responsive state", () => {
