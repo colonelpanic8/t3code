@@ -40,6 +40,7 @@ type SidebarContextProps = {
 };
 
 type SidebarResizableOptions = {
+  getCssWidth?: (width: number) => string;
   hydrateStoredWidth?: boolean;
   maxWidth?: number | (() => number);
   minWidth?: number;
@@ -56,6 +57,7 @@ type SidebarResizableOptions = {
 };
 
 type SidebarResolvedResizableOptions = {
+  getCssWidth?: (width: number) => string;
   hydrateStoredWidth: boolean;
   maxWidth: number | (() => number);
   minWidth: number;
@@ -205,6 +207,7 @@ function Sidebar({
       maxWidth: options.maxWidth ?? Number.POSITIVE_INFINITY,
       minWidth: options.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH,
       storageKey: options.storageKey ?? null,
+      ...(options.getCssWidth ? { getCssWidth: options.getCssWidth } : {}),
       ...(options.onResize ? { onResize: options.onResize } : {}),
       ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
     };
@@ -358,6 +361,13 @@ export function clampSidebarWidthValue(
   return Math.max(minWidth, Math.min(width, resolveSidebarMaximumWidth(maxWidth)));
 }
 
+export function resolveSidebarCssWidth(
+  width: number,
+  getCssWidth?: (width: number) => string,
+): string {
+  return getCssWidth?.(width) ?? `${width}px`;
+}
+
 function clampSidebarWidth(width: number, options: SidebarResolvedResizableOptions): number {
   return clampSidebarWidthValue(width, options.minWidth, options.maxWidth);
 }
@@ -406,7 +416,11 @@ function SidebarRail({
       const width = resolvedResizable
         ? clampSidebarWidth(resizeState.width, resolvedResizable)
         : resizeState.width;
-      resizeState.wrapper.style.setProperty("--sidebar-width", `${width}px`);
+      // Keep caller-owned viewport clamps even when onResize does not trigger a render.
+      resizeState.wrapper.style.setProperty(
+        "--sidebar-width",
+        resolveSidebarCssWidth(width, resolvedResizable?.getCssWidth),
+      );
       if (resolvedResizable?.storageKey && typeof window !== "undefined") {
         setLocalStorageItem(resolvedResizable.storageKey, width, Schema.Finite);
       }
