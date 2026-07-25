@@ -23,6 +23,7 @@ import {
 } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectIconDialog, type ProjectIconTarget } from "./ProjectIconSettings";
+import {
   RemoteEnvironmentIndicator,
   shouldShowRemoteEnvironmentIndicator,
 } from "./RemoteEnvironmentIndicator";
@@ -944,14 +945,10 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                           label={threadEnvironmentLabel ?? "Remote"}
                           className="max-w-24 text-muted-foreground/40"
                           iconClassName="size-3"
+                          style={environmentAccentStyle(threadEnvironmentAccentColor)}
                         />
                       }
                     />
-                    >
-                      <CloudIcon
-                        className="size-3 text-muted-foreground/40"
-                        style={environmentAccentStyle(threadEnvironmentAccentColor)}
-                    </TooltipTrigger>
                     <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
                   </Tooltip>
                 )}

@@ -95,9 +95,7 @@ import {
 } from "../commandPaletteBus";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { resolveChatNewShortcutBehavior } from "../lib/chatRouteShortcuts";
-import { openCommandPalette } from "../commandPaletteBus";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -111,7 +109,11 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { useEnvironment, useEnvironmentPresenceScope, useEnvironments } from "../state/environments";
+import {
+  useEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+} from "../state/environments";
 import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
@@ -167,6 +169,7 @@ import {
   ProjectIconPathField,
   type ProjectIconTarget,
 } from "./ProjectIconSettings";
+import {
   RemoteEnvironmentIndicator,
   shouldShowRemoteEnvironmentIndicator,
 } from "./RemoteEnvironmentIndicator";
@@ -644,8 +647,6 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     threadEnvironmentId: thread.environmentId,
     isDesktopLocal,
   });
-  const isRemote =
-    props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
   const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
 
   const detailsTooltip = (
@@ -1024,6 +1025,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     />
                   </span>
                 )}
+                {props.projectTitle ? (
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
@@ -1115,17 +1117,18 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
                   </span>
                 ) : null}
-                <span
-                  aria-hidden
-                  className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
-                >
-                  {isRemote ? (
-                    <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-                      <ServerIcon aria-hidden className="size-3.5" />
-                    </span>
+                <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
+                  {showRemoteEnvironmentIndicator ? (
+                    <RemoteEnvironmentIndicator
+                      icon={ServerIcon}
+                      label={props.environmentLabel ?? "Remote"}
+                      className="max-w-24 shrink-0 text-sidebar-muted-foreground/70"
+                      iconClassName="size-3.5"
+                      style={environmentAccentStyle(environmentAccentColor)}
+                    />
                   ) : null}
                   {driverKind ? (
-                    <span className="inline-flex shrink-0 items-center opacity-60">
+                    <span aria-hidden className="inline-flex shrink-0 items-center opacity-60">
                       <ProviderInstanceIcon
                         driverKind={driverKind}
                         displayName={thread.session?.providerName ?? modelInstanceId}
@@ -1135,37 +1138,6 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   ) : null}
                 </span>
               </div>
-              ) : null}
-              <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
-                {showRemoteEnvironmentIndicator ? (
-                  <RemoteEnvironmentIndicator
-                    icon={ServerIcon}
-                    label={props.environmentLabel ?? "Remote"}
-                    className="max-w-24 shrink-0 text-sidebar-muted-foreground/70"
-                    iconClassName="size-3.5"
-                  />
-              <span
-                aria-hidden
-                className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
-              >
-                {isRemote ? (
-                  <span
-                    className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70"
-                    style={environmentAccentStyle(environmentAccentColor)}
-                  >
-                    <ServerIcon aria-hidden className="size-3.5" />
-                  </span>
-                ) : null}
-                {driverKind ? (
-                  <span aria-hidden className="inline-flex shrink-0 items-center opacity-60">
-                    <ProviderInstanceIcon
-                      driverKind={driverKind}
-                      displayName={thread.session?.providerName ?? modelInstanceId}
-                      iconClassName="size-3.5"
-                    />
-                  </span>
-                ) : null}
-              </span>
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
