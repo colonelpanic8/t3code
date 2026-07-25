@@ -1581,6 +1581,20 @@ describe("deriveWorkLogEntries clarifying questions", () => {
     expect(entries[0]?.userInput?.questions[0]?.selectedLabels).toEqual(["Ship it", "Iterate"]);
   });
 
+  it("classifies comma-joined multi-select answers from OpenCode", () => {
+    const entries = deriveWorkLogEntries(
+      makeQuestionActivities({
+        multiSelect: true,
+        answers: { "How should we proceed?": "Iterate, Ship it" },
+      }),
+    );
+
+    expect(entries[0]?.userInput?.questions[0]).toMatchObject({
+      selectedLabels: ["Ship it", "Iterate"],
+    });
+    expect(entries[0]?.userInput?.questions[0]?.customAnswer).toBeUndefined();
+  });
+
   it("shows the question while it is still unanswered", () => {
     const entries = deriveWorkLogEntries(makeQuestionActivities({}));
 
@@ -1664,6 +1678,43 @@ describe("deriveWorkLogEntries clarifying questions", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.userInput).toBeUndefined();
     expect(entries[0]?.label).toBe("User input requested");
+  });
+
+  it("replaces an unparsed request row when its answer arrives", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "ask-broken",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId: "req-1", questions: [{ header: "Approach" }] },
+      }),
+      makeActivity({
+        id: "answer",
+        createdAt: "2026-02-23T00:00:09.000Z",
+        kind: "user-input.resolved",
+        summary: "User input submitted",
+        tone: "info",
+        payload: {
+          requestId: "req-1",
+          answers: { "How should we proceed?": "Ship it" },
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.id).toBe("ask-broken");
+    expect(entries[0]?.userInput).toMatchObject({
+      requestId: "req-1",
+      answered: true,
+      questions: [
+        {
+          question: "How should we proceed?",
+          customAnswer: "Ship it",
+        },
+      ],
+    });
   });
 });
 
