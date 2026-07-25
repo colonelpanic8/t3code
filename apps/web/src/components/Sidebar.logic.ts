@@ -137,6 +137,22 @@ export function isSidebarThreadEffectivelySnoozed(input: {
   return input.snoozeSupported && effectiveSnoozed(input.thread, { now: input.now });
 }
 
+export function isSidebarThreadActiveForPostSettleNavigation(input: {
+  readonly thread: SidebarThreadSummary;
+  readonly effectivelySettled: boolean;
+  readonly snoozeSupported: boolean;
+  readonly now: string;
+}): boolean {
+  return (
+    !input.effectivelySettled &&
+    !isSidebarThreadEffectivelySnoozed({
+      thread: input.thread,
+      snoozeSupported: input.snoozeSupported,
+      now: input.now,
+    })
+  );
+}
+
 export function canSettleLegacySidebarRouteThread(input: {
   readonly thread: SidebarThreadSummary | null;
   readonly settlementSupported: boolean;
