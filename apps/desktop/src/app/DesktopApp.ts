@@ -6,6 +6,7 @@ import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
+import type { DesktopBackendMode as DesktopBackendModeValue } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import * as Crypto from "effect/Crypto";
 import * as ElectronApp from "../electron/ElectronApp.ts";
@@ -150,6 +151,26 @@ const handleFatalStartupError = Effect.fn("desktop.startup.handleFatalStartupErr
 const fatalStartupCause = <E>(stage: string, cause: Cause.Cause<E>) =>
   handleFatalStartupError(stage, Cause.pretty(cause)).pipe(Effect.andThen(Effect.failCause(cause)));
 
+export const latchDesktopBackendModeForStartup = Effect.fn(
+  "desktop.startup.latchDesktopBackendMode",
+)(function* (configuredMode: DesktopBackendModeValue) {
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+  return yield* backendMode
+    .latch(configuredMode)
+    .pipe(Effect.catchCause((cause) => fatalStartupCause("backendMode", cause)));
+});
+
+export const handleClientOnlyRendererReady = <E extends { readonly message: string }>(
+  rendererReady: Effect.Effect<void, E>,
+): Effect.Effect<void, E> =>
+  rendererReady.pipe(
+    Effect.tapError((error) =>
+      logBootstrapWarning("failed to open main window after renderer readiness", {
+        error: error.message,
+      }),
+    ),
+  );
+
 const resolvePackagedClientRoot = Effect.fn("desktop.bootstrap.resolvePackagedClientRoot")(
   function* (candidates: readonly string[]) {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -199,13 +220,7 @@ const bootstrap = Effect.gen(function* () {
     yield* installDesktopIpcHandlers();
     yield* logBootstrapInfo("bootstrap ipc handlers registered");
     if (!(yield* Ref.get(state.quitting))) {
-      yield* desktopWindow.handleRendererReady.pipe(
-        Effect.catch((error) =>
-          logBootstrapWarning("failed to open main window after renderer readiness", {
-            error: error.message,
-          }),
-        ),
-      );
+      yield* handleClientOnlyRendererReady(desktopWindow.handleRendererReady);
     }
     return;
   }
@@ -289,7 +304,6 @@ const startup = Effect.gen(function* () {
   const clerk = yield* DesktopClerk.DesktopClerk;
   const shellEnvironment = yield* DesktopShellEnvironment.DesktopShellEnvironment;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
-  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
   const updates = yield* DesktopUpdates.DesktopUpdates;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
 
@@ -298,7 +312,7 @@ const startup = Effect.gen(function* () {
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   const settings = yield* desktopSettings.load;
-  const launchMode = yield* backendMode.latch(settings.backendMode);
+  const launchMode = yield* latchDesktopBackendModeForStartup(settings.backendMode);
   yield* logStartupInfo("desktop backend mode selected", {
     effectiveMode: launchMode.effectiveMode,
     configuredMode: launchMode.configuredMode,
