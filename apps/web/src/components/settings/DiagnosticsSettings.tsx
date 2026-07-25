@@ -802,10 +802,12 @@ function DiagnosticsLastChecked({ checkedAt }: { checkedAt: DateTime.Utc | null 
 
 function DiagnosticsRefreshButton({
   isPending,
+  isDisabled = false,
   label,
   onClick,
 }: {
   isPending: boolean;
+  isDisabled?: boolean;
   label: string;
   onClick: () => void;
 }) {
@@ -817,7 +819,7 @@ function DiagnosticsRefreshButton({
             size="icon-xs"
             variant="ghost"
             className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-            disabled={isPending}
+            disabled={isPending || isDisabled}
             onClick={onClick}
             aria-label={label}
           >
@@ -937,7 +939,8 @@ export function DiagnosticsSettingsPanel() {
       return;
     }
 
-    setLogsDirectoryState({ environmentId, isOpening: true, error: null });
+    const request: LogsDirectoryState = { environmentId, isOpening: true, error: null };
+    setLogsDirectoryState(request);
     void (async () => {
       const result = await openInEditor({
         environmentId,
@@ -950,17 +953,16 @@ export function DiagnosticsSettingsPanel() {
         result._tag === "Failure" && !isAtomCommandInterrupted(result)
           ? squashAtomCommandFailure(result)
           : null;
-      const error =
+      const failureMessage =
         failure === null
           ? null
           : failure instanceof Error
             ? failure.message
             : "Unable to open logs folder.";
-      // Only the request that owns the current pending state may clear it.
+      // Identity check: only the request that still owns the slot may clear it,
+      // so a later request (in this or another environment) is never disturbed.
       setLogsDirectoryState((current) =>
-        current !== null && current.environmentId === environmentId
-          ? { environmentId, isOpening: false, error }
-          : current,
+        current === request ? { environmentId, isOpening: false, error: failureMessage } : current,
       );
     })();
   }, [availableEditors, environmentId, observability?.logsDirectoryPath, openInEditor]);
@@ -1127,6 +1129,7 @@ export function DiagnosticsSettingsPanel() {
             <DiagnosticsLastChecked checkedAt={processData?.readAt ?? null} />
             <DiagnosticsRefreshButton
               isPending={isProcessPending && isConnected}
+              isDisabled={!isConnected}
               label="Refresh process diagnostics"
               onClick={refreshProcesses}
             />
@@ -1193,6 +1196,7 @@ export function DiagnosticsSettingsPanel() {
             <DiagnosticsLastChecked checkedAt={resourceData?.readAt ?? null} />
             <DiagnosticsRefreshButton
               isPending={isResourcePending && isConnected}
+              isDisabled={!isConnected}
               label="Refresh resource history"
               onClick={refreshResources}
             />
@@ -1275,6 +1279,7 @@ export function DiagnosticsSettingsPanel() {
             </Tooltip>
             <DiagnosticsRefreshButton
               isPending={isPending && isConnected}
+              isDisabled={!isConnected}
               label="Refresh trace diagnostics"
               onClick={refresh}
             />
