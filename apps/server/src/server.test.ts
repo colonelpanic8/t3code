@@ -714,6 +714,7 @@ const buildAppUnderTest = (options?: {
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
+          getActiveProjectWorkspaceRoots: () => Effect.succeed([]),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
@@ -5192,17 +5193,55 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("surfaces project snapshot failures before review workspace validation", () =>
+  it.effect("loads review project roots without hydrating the shell snapshot", () =>
+    Effect.gen(function* () {
+      const repositoryRoots = ["/tmp/project-a", "/tmp/project-b"];
+      let receivedRepositoryRoots: ReadonlyArray<string> | undefined;
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getShellSnapshot: () => Effect.die("review preview must not hydrate shell snapshots"),
+            getActiveProjectWorkspaceRoots: () => Effect.succeed(repositoryRoots),
+          },
+          reviewService: {
+            getDiffPreview: (input) =>
+              Effect.sync(() => {
+                receivedRepositoryRoots = input.repositoryRoots;
+                return {
+                  cwd: input.cwd,
+                  generatedAt: TEST_EPOCH,
+                  sources: [],
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.reviewGetDiffPreview]({
+            cwd: "/tmp/project-a/.worktrees/feature",
+          }),
+        ),
+      );
+
+      assert.deepEqual(receivedRepositoryRoots, repositoryRoots);
+      assert.equal(result.cwd, "/tmp/project-a/.worktrees/feature");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("surfaces project root query failures before review workspace validation", () =>
     Effect.gen(function* () {
       const projectionError = new PersistenceSqlError({
-        operation: "ProjectionSnapshotQuery.getShellSnapshot:test-review",
+        operation: "ProjectionSnapshotQuery.getActiveProjectWorkspaceRoots:test-review",
         detail: "failed to read review project roots",
       });
       let reviewCalls = 0;
       yield* buildAppUnderTest({
         layers: {
           projectionSnapshotQuery: {
-            getShellSnapshot: () => Effect.fail(projectionError),
+            getActiveProjectWorkspaceRoots: () => Effect.fail(projectionError),
           },
           reviewService: {
             getDiffPreview: () =>
