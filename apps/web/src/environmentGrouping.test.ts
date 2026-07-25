@@ -12,7 +12,6 @@ import {
   buildPhysicalToLogicalProjectKeyMap,
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
-  resolveNewThreadPickerProjectRef,
   resolveScopedNewThreadProjectRef,
 } from "./sidebarProjectGrouping";
 import { orderItemsByPreferredIds } from "./components/Sidebar.logic";
@@ -81,6 +80,33 @@ describe("environment grouping", () => {
     }).length;
 
     expect(projectGroupCount).toBe(1);
+  });
+
+  it("marks every project remote for an app with no local backend of its own", () => {
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+    });
+
+    const [clientOnly] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      ownsLocalEnvironment: false,
+      resolveEnvironmentLabel: () => "remote",
+    });
+
+    expect(clientOnly?.environmentPresence).toBe("remote-only");
+    expect(clientOnly?.remoteEnvironmentLabels).toEqual(["remote"]);
+
+    const [managed] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      resolveEnvironmentLabel: () => "remote",
+    });
+
+    expect(managed?.environmentPresence).toBe("local-only");
   });
 
   it("keeps projects without repository identity physically scoped", () => {
@@ -379,38 +405,41 @@ describe("environment grouping", () => {
     });
   });
 
-  it("uses the sidebar scope when the command palette has no explicit project preference", () => {
+  it("builds environment-scoped picker entries without falling back to another machine", () => {
     const primary = makeProject({ repositoryIdentity });
     const remote = makeProject({
       id: ProjectId.make("project-remote"),
       environmentId: remoteEnvironmentId,
       repositoryIdentity,
     });
-    const separate = makeProject({
-      id: ProjectId.make("project-separate"),
-      title: "separate",
-      workspaceRoot: "/tmp/separate",
+    const primaryOnly = makeProject({
+      id: ProjectId.make("project-primary-only"),
+      title: "primary-only",
+      workspaceRoot: "/tmp/primary-only",
     });
-    const [group] = buildSidebarProjectSnapshots({
-      projects: [primary, remote, separate],
+    const groups = buildSidebarProjectSnapshots({
+      projects: [primaryOnly, primary, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
       resolveEnvironmentLabel: () => null,
     });
 
-    expect(
-      resolveNewThreadPickerProjectRef({
-        preferredProjectRef: null,
-        scopedProjectGroup: group ?? null,
-        contextualProjectRef: {
-          environmentId: separate.environmentId,
-          projectId: separate.id,
-        },
-      }),
-    ).toEqual({
-      environmentId: primary.environmentId,
-      projectId: primary.id,
+    const entries = buildSidebarProjectPickerEntries({
+      groups,
+      preferredProjectRef: {
+        environmentId: primaryEnvironmentId,
+        projectId: primary.id,
+      },
+      targetEnvironmentId: remoteEnvironmentId,
     });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.group.projectKey).toBe(repositoryIdentity.canonicalKey);
+    expect(entries[0]?.targetProject).toMatchObject({
+      environmentId: remoteEnvironmentId,
+      id: remote.id,
+    });
+    expect(entries[0]?.isPreferred).toBe(false);
   });
 
   it("keeps manual project order when building grouped sidebar entries", () => {
