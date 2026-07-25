@@ -252,9 +252,12 @@ const make = Effect.fn("desktop.environment.make")(function* (
     path.join(legacyRoots.stateDir, "state.sqlite"),
     path.join(legacyRoots.configDir, "settings.json"),
     path.join(legacyRoots.configDir, "keybindings.json"),
+    path.join(legacyRoots.configDir, "desktop-settings.json"),
+    path.join(legacyRoots.configDir, "client-settings.json"),
     path.join(legacyRoots.stateDir, "environment-id"),
     path.join(legacyRoots.stateDir, "connection-catalog.json"),
     path.join(legacyRoots.stateDir, "secrets"),
+    path.join(legacyRoots.stateDir, "saved-environments.json"),
   ];
   const legacyStorageInitialized = (yield* Effect.all(
     legacyArtifacts.map((artifact) => fileSystem.exists(artifact)),
