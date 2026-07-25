@@ -100,6 +100,36 @@
         default = pkgs.t3code.override {t3code-unwrapped = unwrapped;};
       };
 
+      # Launch the packaged app headlessly and fail on a renderer crash.
+      #
+      # A dropped import is a runtime ReferenceError, not a bundler error, so a
+      # green `nix build` says nothing about whether the app boots. That has
+      # shipped a build whose first paint was "Something went wrong:
+      # useEnvironmentSettings is not defined". This check catches that class.
+      checks.smoke =
+        pkgs.runCommand "t3code-smoke" {
+          nativeBuildInputs = [pkgs.xvfb-run pkgs.dbus];
+        } ''
+          export HOME=$(mktemp -d)
+          export XDG_RUNTIME_DIR=$(mktemp -d)
+          set +e
+          timeout 90 xvfb-run -a dbus-run-session -- \
+            ${self.packages.${system}.t3code}/bin/t3code-desktop \
+              --backend-mode=client-only --no-sandbox \
+            > "$HOME/out.log" 2>&1
+          set -e
+
+          echo "--- app output ---"; cat "$HOME/out.log" || true
+
+          # Electron logs renderer exceptions to stderr; any of these means the
+          # UI failed to mount even if the process exited 0.
+          if grep -qE "is not defined|ReferenceError|Something went wrong" "$HOME/out.log"; then
+            echo "SMOKE FAILED: renderer crashed on boot" >&2
+            exit 1
+          fi
+          touch $out
+        '';
+
       devShells.default = pkgs.mkShell {
         packages = [nodejs pnpm pkgs.git];
 
