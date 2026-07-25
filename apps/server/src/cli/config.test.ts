@@ -18,12 +18,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import {
   resolveServerConfig,
+  RuntimeDirectoryOpenError,
+  RuntimeDirectoryOwnerMismatchError,
   StorageDirectoryConfigurationConflictError,
   StorageLayoutConfigurationConflictError,
-  UnsafeRuntimeDirectoryError,
 } from "./config.ts";
 
-const isUnsafeRuntimeDirectoryError = Schema.is(UnsafeRuntimeDirectoryError);
+const isRuntimeDirectoryOwnerMismatchError = Schema.is(RuntimeDirectoryOwnerMismatchError);
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl);
@@ -776,10 +777,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         Effect.flip,
       );
 
-      expect(error).toBeInstanceOf(UnsafeRuntimeDirectoryError);
-      if (isUnsafeRuntimeDirectoryError(error)) {
-        expect(error.reason).toBe("open");
-      }
+      expect(error).toBeInstanceOf(RuntimeDirectoryOpenError);
       expect((yield* fs.stat(targetDir)).mode & 0o777).toBe(0o750);
     }),
   );
@@ -833,9 +831,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         Effect.flip,
       );
 
-      expect(error).toBeInstanceOf(UnsafeRuntimeDirectoryError);
-      if (isUnsafeRuntimeDirectoryError(error)) {
-        expect(error.reason).toBe("wrong-owner");
+      expect(error).toBeInstanceOf(RuntimeDirectoryOwnerMismatchError);
+      if (isRuntimeDirectoryOwnerMismatchError(error)) {
         expect(error.actualUserId).toBe(actualUserId);
         expect(error.expectedUserId).toBe(actualUserId + 1);
       }

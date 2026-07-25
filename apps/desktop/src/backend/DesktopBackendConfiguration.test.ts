@@ -462,10 +462,12 @@ describe("DesktopBackendConfiguration", () => {
       const previousXdgStateHome = process.env.XDG_STATE_HOME;
       const previousXdgCacheHome = process.env.XDG_CACHE_HOME;
       const previousXdgRuntimeDir = process.env.XDG_RUNTIME_DIR;
+      const previousLowercaseT3CodeHome = process.env.t3code_home;
       try {
-        process.env.WSLENV = "GOPATH/p:OPENAI_API_KEY/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u";
+        process.env.WSLENV = "GOPATH/p:openai_api_key/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u";
         process.env.OPENAI_API_KEY = "openai-key";
         process.env.ANTHROPIC_API_KEY = "anthropic-key";
+        process.env.t3code_home = "C:\\t3code";
         process.env.XDG_CONFIG_HOME = "C:\\xdg\\config";
         process.env.XDG_DATA_HOME = "C:\\xdg\\data";
         process.env.XDG_STATE_HOME = "C:\\xdg\\state";
@@ -488,6 +490,7 @@ describe("DesktopBackendConfiguration", () => {
           assert.equal(config.httpBaseUrl.href, "http://172.27.0.99:5050/");
           assert.equal(config.env.OPENAI_API_KEY, "openai-key");
           assert.equal(config.env.ANTHROPIC_API_KEY, "anthropic-key");
+          assert.isUndefined(config.env.t3code_home);
           assert.isUndefined(config.env.XDG_CONFIG_HOME);
           assert.isUndefined(config.env.XDG_DATA_HOME);
           assert.isUndefined(config.env.XDG_STATE_HOME);
@@ -499,7 +502,7 @@ describe("DesktopBackendConfiguration", () => {
           // already declared, so it isn't forwarded twice.
           assert.equal(
             config.env.WSLENV,
-            "GOPATH/p:OPENAI_API_KEY/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u:ANTHROPIC_API_KEY",
+            "GOPATH/p:openai_api_key/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u:ANTHROPIC_API_KEY",
           );
         }).pipe(
           Effect.provide(
@@ -526,6 +529,7 @@ describe("DesktopBackendConfiguration", () => {
         restoreEnv("XDG_STATE_HOME", previousXdgStateHome);
         restoreEnv("XDG_CACHE_HOME", previousXdgCacheHome);
         restoreEnv("XDG_RUNTIME_DIR", previousXdgRuntimeDir);
+        restoreEnv("t3code_home", previousLowercaseT3CodeHome);
       }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );

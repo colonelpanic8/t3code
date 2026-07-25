@@ -299,27 +299,51 @@ export class StorageLayoutConfigurationConflictError extends Schema.TaggedErrorC
   }
 }
 
-export class UnsafeRuntimeDirectoryError extends Schema.TaggedErrorClass<UnsafeRuntimeDirectoryError>()(
-  "UnsafeRuntimeDirectoryError",
+export class RuntimeDirectoryOpenError extends Schema.TaggedErrorClass<RuntimeDirectoryOpenError>()(
+  "RuntimeDirectoryOpenError",
   {
     runtimeDir: Schema.String,
-    reason: Schema.Literals(["open", "not-directory", "wrong-owner", "chmod"]),
-    expectedUserId: Schema.optional(Schema.Number),
-    actualUserId: Schema.optional(Schema.Number),
-    cause: Schema.optional(Schema.Defect()),
+    cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    switch (this.reason) {
-      case "open":
-        return `Refusing to use runtime directory '${this.runtimeDir}' because it could not be opened without following symbolic links.`;
-      case "not-directory":
-        return `Refusing to use runtime directory '${this.runtimeDir}' because it is not a directory.`;
-      case "wrong-owner":
-        return `Refusing to use runtime directory '${this.runtimeDir}' because it is owned by user ${this.actualUserId ?? "unknown"} instead of ${this.expectedUserId ?? "unknown"}.`;
-      case "chmod":
-        return `Failed to restrict runtime directory '${this.runtimeDir}' permissions.`;
-    }
+    return `Refusing to use runtime directory '${this.runtimeDir}' because it could not be opened without following symbolic links.`;
+  }
+}
+
+export class RuntimeDirectoryNotADirectoryError extends Schema.TaggedErrorClass<RuntimeDirectoryNotADirectoryError>()(
+  "RuntimeDirectoryNotADirectoryError",
+  {
+    runtimeDir: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Refusing to use runtime directory '${this.runtimeDir}' because it is not a directory.`;
+  }
+}
+
+export class RuntimeDirectoryOwnerMismatchError extends Schema.TaggedErrorClass<RuntimeDirectoryOwnerMismatchError>()(
+  "RuntimeDirectoryOwnerMismatchError",
+  {
+    runtimeDir: Schema.String,
+    expectedUserId: Schema.Number,
+    actualUserId: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return `Refusing to use runtime directory '${this.runtimeDir}' because it is owned by user ${this.actualUserId} instead of ${this.expectedUserId}.`;
+  }
+}
+
+export class RuntimeDirectoryChmodError extends Schema.TaggedErrorClass<RuntimeDirectoryChmodError>()(
+  "RuntimeDirectoryChmodError",
+  {
+    runtimeDir: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to restrict runtime directory '${this.runtimeDir}' permissions.`;
   }
 }
 
@@ -348,9 +372,8 @@ const prepareSplitRuntimeDirectory = Effect.fn("prepareSplitRuntimeDirectory")(f
   yield* Effect.tryPromise({
     try: () => NodeFSP.mkdir(runtimeDir, { recursive: true, mode: 0o700 }),
     catch: (cause) =>
-      new UnsafeRuntimeDirectoryError({
+      new RuntimeDirectoryOpenError({
         runtimeDir,
-        reason: "open",
         cause,
       }),
   });
@@ -363,9 +386,8 @@ const prepareSplitRuntimeDirectory = Effect.fn("prepareSplitRuntimeDirectory")(f
           NodeFS.constants.O_RDONLY | NodeFS.constants.O_DIRECTORY | NodeFS.constants.O_NOFOLLOW,
         ),
       catch: (cause) =>
-        new UnsafeRuntimeDirectoryError({
+        new RuntimeDirectoryOpenError({
           runtimeDir,
-          reason: "open",
           cause,
         }),
     }),
@@ -374,22 +396,19 @@ const prepareSplitRuntimeDirectory = Effect.fn("prepareSplitRuntimeDirectory")(f
         const stat = yield* Effect.tryPromise({
           try: () => handle.stat(),
           catch: (cause) =>
-            new UnsafeRuntimeDirectoryError({
+            new RuntimeDirectoryOpenError({
               runtimeDir,
-              reason: "open",
               cause,
             }),
         });
         if (!stat.isDirectory()) {
-          return yield* new UnsafeRuntimeDirectoryError({
+          return yield* new RuntimeDirectoryNotADirectoryError({
             runtimeDir,
-            reason: "not-directory",
           });
         }
         if (stat.uid !== userId) {
-          return yield* new UnsafeRuntimeDirectoryError({
+          return yield* new RuntimeDirectoryOwnerMismatchError({
             runtimeDir,
-            reason: "wrong-owner",
             expectedUserId: userId,
             actualUserId: stat.uid,
           });
@@ -397,9 +416,8 @@ const prepareSplitRuntimeDirectory = Effect.fn("prepareSplitRuntimeDirectory")(f
         yield* Effect.tryPromise({
           try: () => handle.chmod(0o700),
           catch: (cause) =>
-            new UnsafeRuntimeDirectoryError({
+            new RuntimeDirectoryChmodError({
               runtimeDir,
-              reason: "chmod",
               cause,
             }),
         });
