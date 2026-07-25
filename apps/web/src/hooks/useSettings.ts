@@ -24,6 +24,14 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import {
+  applyPendingServerPatches,
+  getPendingServerPatches,
+  NO_PENDING_SERVER_PATCHES,
+  releasePendingServerPatch,
+  retainPendingServerPatch,
+  subscribePendingServerPatches,
+} from "./pendingServerSettings";
 import { ensureLocalApi } from "~/localApi";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
@@ -140,6 +148,17 @@ function persistClientSettings(settings: ClientSettings): void {
     });
 }
 
+function usePendingServerPatches(
+  environmentId: EnvironmentId | null,
+): ReadonlyArray<ServerSettingsPatch> {
+  const getSnapshot = useCallback(() => getPendingServerPatches(environmentId), [environmentId]);
+  return useSyncExternalStore(
+    subscribePendingServerPatches,
+    getSnapshot,
+    () => NO_PENDING_SERVER_PATCHES,
+  );
+}
+
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
@@ -198,14 +217,21 @@ export function mergeEnvironmentSettings(
 }
 
 function useMergedSettings<T>(
+  environmentId: EnvironmentId | null,
   serverSettings: ServerSettings,
   selector: ((settings: UnifiedSettings) => T) | undefined,
 ): T {
   const clientSettings = useClientSettingsValue();
+  const pendingPatches = usePendingServerPatches(environmentId);
+
+  const optimisticServerSettings = useMemo<ServerSettings>(
+    () => applyPendingServerPatches(serverSettings, pendingPatches),
+    [pendingPatches, serverSettings],
+  );
 
   const merged = useMemo<UnifiedSettings>(
-    () => mergeEnvironmentSettings(serverSettings, clientSettings),
-    [clientSettings, serverSettings],
+    () => mergeEnvironmentSettings(optimisticServerSettings, clientSettings),
+    [clientSettings, optimisticServerSettings],
   );
 
   return useMemo(() => (selector ? selector(merged) : (merged as T)), [merged, selector]);
@@ -224,20 +250,21 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
   const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
-  return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
+  return useMergedSettings(environmentId, serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
 /** Primary-only settings access for the settings UI and other explicitly global surfaces. */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  return useMergedSettings(useAtomValue(primaryServerSettingsAtom), selector);
+  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  return useMergedSettings(environmentId, useAtomValue(primaryServerSettingsAtom), selector);
 }
 
 /**
  * Returns an updater that routes each key to the correct backing store.
  *
- * Server keys are optimistically patched in atom-backed server state, then
+ * Server keys are applied optimistically through `./pendingServerSettings` and
  * persisted via RPC. Client keys go through client persistence.
  */
 function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
@@ -251,9 +278,12 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
 
       if (Object.keys(serverPatch).length > 0) {
         if (environmentId) {
+          retainPendingServerPatch(environmentId, serverPatch);
           void persistServerSettings({
             environmentId,
             input: { patch: serverPatch },
+          }).finally(() => {
+            releasePendingServerPatch(environmentId);
           });
         }
       }
