@@ -218,7 +218,6 @@ describe("resolveShareablePairingUrl", () => {
         basePairingUrl: "http://192.168.1.5:3773/pair?token=secret",
         currentOriginPairingUrl,
         servesCurrentOrigin: true,
-        isCurrentOriginLoopback: false,
       }),
     ).toBe("https://box.tail.ts.net/pair?token=secret");
   });
@@ -230,7 +229,6 @@ describe("resolveShareablePairingUrl", () => {
         basePairingUrl: "http://192.168.1.5:3773/pair?token=secret",
         currentOriginPairingUrl,
         servesCurrentOrigin: false,
-        isCurrentOriginLoopback: false,
       }),
     ).toBe("http://192.168.1.5:3773/pair?token=secret");
   });
@@ -242,7 +240,6 @@ describe("resolveShareablePairingUrl", () => {
         basePairingUrl: null,
         currentOriginPairingUrl,
         servesCurrentOrigin: true,
-        isCurrentOriginLoopback: false,
       }),
     ).toBe(currentOriginPairingUrl);
   });
@@ -257,7 +254,6 @@ describe("resolveShareablePairingUrl", () => {
         basePairingUrl: null,
         currentOriginPairingUrl,
         servesCurrentOrigin: false,
-        isCurrentOriginLoopback: false,
       }),
     ).toBeNull();
   });
@@ -269,7 +265,54 @@ describe("resolveShareablePairingUrl", () => {
         basePairingUrl: null,
         currentOriginPairingUrl: "http://localhost:3773/pair?token=secret",
         servesCurrentOrigin: true,
-        isCurrentOriginLoopback: true,
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    "http://localhost:3773/pair?token=secret",
+    "http://127.0.0.1:3773/pair?token=secret",
+    "http://[::1]:3773/pair?token=secret",
+  ])("skips the loopback advertised endpoint %s", (endpointPairingUrl) => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl,
+        basePairingUrl: "http://192.168.1.5:3773/pair?token=secret",
+        currentOriginPairingUrl,
+        servesCurrentOrigin: true,
+      }),
+    ).toBe("http://192.168.1.5:3773/pair?token=secret");
+  });
+
+  it("skips a loopback base URL and falls back to a shareable current origin", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: null,
+        basePairingUrl: "http://127.0.0.1:3773/pair?token=secret",
+        currentOriginPairingUrl,
+        servesCurrentOrigin: true,
+      }),
+    ).toBe(currentOriginPairingUrl);
+  });
+
+  it("shows the bare code when another server only has a loopback base URL", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: null,
+        basePairingUrl: "http://127.0.0.1:3773/pair?token=secret",
+        currentOriginPairingUrl,
+        servesCurrentOrigin: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("skips a hosted app link whose wrapped backend URL is loopback", () => {
+    expect(
+      resolveShareablePairingUrl({
+        endpointPairingUrl: "https://t3.chat/pair?host=https%3A%2F%2Flocalhost%3A3773&token=secret",
+        basePairingUrl: null,
+        currentOriginPairingUrl,
+        servesCurrentOrigin: false,
       }),
     ).toBeNull();
   });
