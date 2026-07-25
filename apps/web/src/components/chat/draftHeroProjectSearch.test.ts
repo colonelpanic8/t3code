@@ -4,6 +4,7 @@ import {
   filterDraftHeroProjects,
   isImeCommitKey,
   isVisibleDraftHeroProjectSelection,
+  reduceDraftHeroProjectPickerState,
 } from "./draftHeroProjectSearch";
 
 const projects = [
@@ -11,6 +12,17 @@ const projects = [
   { title: "Mobile App", workspaceRoot: "/work/products/mobile" },
   { title: "Marketing Site", workspaceRoot: "/work/products/marketing" },
 ];
+
+describe("reduceDraftHeroProjectPickerState", () => {
+  it("clears the search query whenever the picker closes", () => {
+    expect(
+      reduceDraftHeroProjectPickerState(
+        { open: true, query: "mobile" },
+        { type: "set-open", open: false },
+      ),
+    ).toEqual({ open: false, query: "" });
+  });
+});
 
 describe("filterDraftHeroProjects", () => {
   it("narrows candidates as the title query becomes more specific", () => {
