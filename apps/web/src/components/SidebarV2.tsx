@@ -1021,6 +1021,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     />
                   </span>
                 )}
+                {props.projectTitle ? (
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate text-xs text-muted-foreground/85",
