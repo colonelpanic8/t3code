@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
+  DEFAULT_WORKTREE_PATH_TEMPLATE,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthReviewWriteScope,
@@ -49,6 +50,8 @@ import {
   OrchestrationReplayEventsError,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
+  AssetGeneratedImageInspectionError,
+  AssetGeneratedImageNotFoundError,
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceAssetNotFoundError,
   AssetWorkspaceContextNotFoundError,
@@ -59,6 +62,7 @@ import {
   type TerminalError,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  VcsRepositoryDetectionError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -88,6 +92,10 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl, issueThreadArtifactUrl } from "./assets/AssetAccess.ts";
+import {
+  findGeneratedImagePath,
+  retryGeneratedImageFileLookup,
+} from "./assets/GeneratedImageResolver.ts";
 import {
   findThreadArtifactPath,
   retryThreadArtifactLookup,
@@ -445,6 +453,14 @@ const makeWsRpcLayer = (
           Effect.logWarning("Failed to read automatic Git fetch interval setting", {
             detail: cause.message,
           }).pipe(Effect.as(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
+        ),
+      );
+      const worktreePathTemplate = serverSettings.getSettings.pipe(
+        Effect.map((settings) => settings.worktreePathTemplate),
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to read worktree path template; using the default", {
+            detail: cause.message,
+          }).pipe(Effect.as(DEFAULT_WORKTREE_PATH_TEMPLATE)),
         ),
       );
       const sourceControlRepositories =
@@ -854,7 +870,7 @@ const makeWsRpcLayer = (
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
 
-          const cleanupCreatedThread = () =>
+          const cleanupCreatedThread = (): Effect.Effect<boolean> =>
             createdThread
               ? serverCommandId("bootstrap-thread-delete").pipe(
                   Effect.flatMap((commandId) =>
@@ -864,9 +880,18 @@ const makeWsRpcLayer = (
                       threadId: command.threadId,
                     }),
                   ),
-                  Effect.ignoreCause({ log: true }),
+                  Effect.as(true),
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Failed to clean up bootstrap thread").pipe(
+                      Effect.annotateLogs({
+                        threadId: command.threadId,
+                        cause: Cause.pretty(cause),
+                      }),
+                      Effect.as(false),
+                    ),
+                  ),
                 )
-              : Effect.void;
+              : Effect.succeed(false);
 
           const recordSetupScriptLaunchFailure = (input: {
             readonly error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError;
@@ -1021,6 +1046,7 @@ const makeWsRpcLayer = (
                 newRefName: bootstrap.prepareWorktree.branch,
                 baseRefName: bootstrap.prepareWorktree.baseBranch,
                 path: null,
+                pathTemplate: yield* worktreePathTemplate,
               });
               targetWorktreePath = worktree.worktree.path;
               yield* orchestrationEngine.dispatch({
@@ -1044,7 +1070,19 @@ const makeWsRpcLayer = (
               if (Cause.hasInterruptsOnly(cause)) {
                 return Effect.fail(dispatchError);
               }
-              return cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.fail(dispatchError)));
+              return cleanupCreatedThread().pipe(
+                Effect.flatMap((cleanedUp) =>
+                  Effect.fail(
+                    cleanedUp
+                      ? new OrchestrationDispatchCommandError({
+                          message: dispatchError.message,
+                          cause: dispatchError.cause,
+                          retryWithNewThreadId: true,
+                        })
+                      : dispatchError,
+                  ),
+                ),
+              );
             }),
           );
         });
@@ -1100,6 +1138,22 @@ const makeWsRpcLayer = (
               ? { otlpMetricsUrl: config.otlpMetricsUrl }
               : {}),
             otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
+          },
+          storage: {
+            layout: config.layout,
+            configDirectoryPath: config.configDir,
+            dataDirectoryPath: config.dataDir,
+            stateDirectoryPath: config.stateDir,
+            cacheDirectoryPath: config.cacheDir,
+            runtimeDirectoryPath: config.runtimeDir,
+            databaseFilePath: config.dbPath,
+            settingsFilePath: config.settingsPath,
+            keybindingsFilePath: config.keybindingsConfigPath,
+            worktreesDirectoryPath: config.worktreesDir,
+            attachmentsDirectoryPath: config.attachmentsDir,
+            ...(config.legacyBaseDir === undefined
+              ? {}
+              : { legacyBaseDirectoryPath: config.legacyBaseDir }),
           },
           settings,
           shellResumeCompletionMarker: true,
@@ -1708,6 +1762,34 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,
             Effect.gen(function* () {
+              if (input.resource._tag === "generated-image") {
+                const resource = input.resource;
+                const snapshot = yield* projectionSnapshotQuery
+                  .getThreadDetailSnapshot(resource.threadId)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new AssetGeneratedImageInspectionError({
+                          resource,
+                          cause,
+                        }),
+                    ),
+                  );
+                const generatedImagePath = Option.isSome(snapshot)
+                  ? findGeneratedImagePath(snapshot.value.thread.activities, resource.activityId)
+                  : null;
+                if (!generatedImagePath) {
+                  return yield* new AssetGeneratedImageNotFoundError({
+                    resource,
+                  });
+                }
+                return yield* retryGeneratedImageFileLookup(
+                  issueAssetUrl({
+                    resource,
+                    generatedImagePath,
+                  }),
+                );
+              }
               if (input.resource._tag === "thread-artifact") {
                 const resource = input.resource;
                 return yield* retryThreadArtifactLookup(
@@ -1888,7 +1970,12 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            worktreePathTemplate.pipe(
+              Effect.flatMap((pathTemplate) =>
+                gitWorkflow.createWorktree({ ...input, pathTemplate }),
+              ),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
@@ -1918,9 +2005,29 @@ const makeWsRpcLayer = (
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
-          observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
-            "rpc.aggregate": "review",
-          }),
+          observeRpcEffect(
+            WS_METHODS.reviewGetDiffPreview,
+            Effect.gen(function* () {
+              const repositoryRoots = yield* projectionSnapshotQuery
+                .getActiveProjectWorkspaceRoots()
+                .pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new VcsRepositoryDetectionError({
+                        operation: "review.getDiffPreview",
+                        cwd: input.cwd,
+                        detail:
+                          "Failed to load project roots required to validate the review workspace.",
+                        cause,
+                      }),
+                  ),
+                );
+              return yield* review.getDiffPreview({ ...input, repositoryRoots });
+            }),
+            {
+              "rpc.aggregate": "review",
+            },
+          ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",
