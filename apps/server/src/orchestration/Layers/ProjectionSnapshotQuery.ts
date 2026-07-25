@@ -108,6 +108,9 @@ const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
 });
+const ProjectionWorkspaceRootRowSchema = Schema.Struct({
+  workspaceRoot: Schema.String,
+});
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
 });
@@ -312,6 +315,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
         FROM projection_projects
+        ORDER BY created_at ASC, project_id ASC
+      `,
+  });
+
+  const listActiveProjectWorkspaceRootRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionWorkspaceRootRowSchema,
+    execute: () =>
+      sql`
+        SELECT workspace_root AS "workspaceRoot"
+        FROM projection_projects
+        WHERE deleted_at IS NULL
         ORDER BY created_at ASC, project_id ASC
       `,
   });
@@ -1737,6 +1752,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
+  const getActiveProjectWorkspaceRoots: ProjectionSnapshotQueryShape["getActiveProjectWorkspaceRoots"] =
+    () =>
+      listActiveProjectWorkspaceRootRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getActiveProjectWorkspaceRoots:query",
+            "ProjectionSnapshotQuery.getActiveProjectWorkspaceRoots:decodeRows",
+          ),
+        ),
+        Effect.map((rows) => rows.map((row) => row.workspaceRoot)),
+      );
+
   const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
     (workspaceRoot) =>
       getActiveProjectRowByWorkspaceRoot({ workspaceRoot }).pipe(
@@ -2110,6 +2137,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getArchivedShellSnapshot,
     getSnapshotSequence,
     getCounts,
+    getActiveProjectWorkspaceRoots,
     getActiveProjectByWorkspaceRoot,
     getProjectShellById,
     getFirstActiveThreadIdByProjectId,

@@ -794,6 +794,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           threadCount: 3,
         });
 
+        assert.deepEqual(yield* snapshotQuery.getActiveProjectWorkspaceRoots(), ["/tmp/workspace"]);
+
         const project = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/workspace");
         assert.equal(project._tag, "Some");
         if (project._tag === "Some") {
