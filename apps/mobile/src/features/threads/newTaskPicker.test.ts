@@ -9,6 +9,7 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import {
   buildNewTaskEnvironmentItems,
   buildNewTaskProjectItems,
+  deriveNewTaskProjectPickerAction,
   deriveNewTaskProjectPickerEmptyState,
 } from "./newTaskPicker";
 
@@ -216,5 +217,45 @@ describe("new task picker", () => {
       detail: "The selected environment did not report any projects.",
       loading: false,
     });
+  });
+
+  it("offers adding an environment only when no environment is selected", () => {
+    expect(
+      deriveNewTaskProjectPickerAction({
+        hasSelectedEnvironment: false,
+        canAddProject: false,
+        loading: false,
+      }),
+    ).toBe("add-environment");
+  });
+
+  it("does not offer adding an environment for a selected environment that is unavailable", () => {
+    expect(
+      deriveNewTaskProjectPickerAction({
+        hasSelectedEnvironment: true,
+        canAddProject: false,
+        loading: false,
+      }),
+    ).toBe("none");
+  });
+
+  it("hides the empty state action while the selected environment is still loading", () => {
+    expect(
+      deriveNewTaskProjectPickerAction({
+        hasSelectedEnvironment: true,
+        canAddProject: false,
+        loading: true,
+      }),
+    ).toBe("none");
+  });
+
+  it("offers adding a project once the selected environment is ready", () => {
+    expect(
+      deriveNewTaskProjectPickerAction({
+        hasSelectedEnvironment: true,
+        canAddProject: true,
+        loading: false,
+      }),
+    ).toBe("add-project");
   });
 });
