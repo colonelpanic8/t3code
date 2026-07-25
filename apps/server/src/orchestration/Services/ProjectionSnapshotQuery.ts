@@ -109,6 +109,14 @@ export interface ProjectionSnapshotQueryShape {
   readonly getCounts: () => Effect.Effect<ProjectionSnapshotCounts, ProjectionRepositoryError>;
 
   /**
+   * Read only the workspace roots for active projects.
+   */
+  readonly getActiveProjectWorkspaceRoots: () => Effect.Effect<
+    ReadonlyArray<string>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read the active project for an exact workspace root match.
    */
   readonly getActiveProjectByWorkspaceRoot: (
