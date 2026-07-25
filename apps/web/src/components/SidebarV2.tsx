@@ -103,7 +103,8 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import { useEnvironmentPresenceScope, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -443,7 +444,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   wokeAt: string | null;
   isActive: boolean;
   jumpLabel: string | null;
-  currentEnvironmentId: string | null;
+  presenceScope: EnvironmentPresenceScope;
   environmentLabel: string | null;
   projectCwd: string | null;
   projectRepositoryKey: string | null;
@@ -612,8 +613,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  const isRemote =
-    props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
+  const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
 
   const detailsTooltip = (
     <SidebarV2ThreadTooltip
@@ -1175,7 +1175,8 @@ export default function SidebarV2() {
     [],
   );
   const { environments } = useEnvironments();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const presenceScope = useEnvironmentPresenceScope();
+  const { ownsLocalEnvironment, primaryEnvironmentId } = presenceScope;
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1221,11 +1222,13 @@ export default function SidebarV2() {
         projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       environmentLabelById,
       orderedProjects,
+      ownsLocalEnvironment,
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,
@@ -2812,7 +2815,7 @@ export default function SidebarV2() {
                       wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                       isActive={routeThreadKey === threadKey}
                       jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
-                      currentEnvironmentId={primaryEnvironmentId}
+                      presenceScope={presenceScope}
                       environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                       projectCwd={
                         projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
