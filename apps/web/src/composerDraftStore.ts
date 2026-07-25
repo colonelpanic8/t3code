@@ -401,7 +401,8 @@ interface ComposerDraftStoreState {
   finalizePromotedDraftThread: (threadRef: ComposerThreadTarget) => void;
   /**
    * Replaces the reserved server thread identity after a failed bootstrap
-   * conclusively cleaned up the previous identity.
+   * conclusively cleaned up the previous identity. Any promotion marker left
+   * behind for that now-deleted identity is cleared with it.
    */
   renewDraftThreadId: (
     threadRef: ComposerThreadTarget,
@@ -2490,10 +2491,21 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           let renewed = false;
           set((state) => {
             const existing = state.draftThreadsByThreadKey[threadKey];
+            if (existing === undefined || existing.threadId !== expectedThreadId) {
+              return state;
+            }
+            // Bootstrap materializes the server thread before it prepares the
+            // worktree, so the client can observe `thread.created` and mark the
+            // draft as promoting moments before bootstrap fails and deletes
+            // that same thread again. A promotion marker pointing at the
+            // identity we are replacing is therefore stale, and clearing it is
+            // exactly the recovery this renewal performs. A marker pointing at
+            // any *other* server thread means the draft really was promoted,
+            // and its identity must not be reminted.
+            const stalePromotedTo = scopeThreadRef(existing.environmentId, expectedThreadId);
             if (
-              existing === undefined ||
-              existing.promotedTo !== null ||
-              existing.threadId !== expectedThreadId
+              existing.promotedTo != null &&
+              !scopedThreadRefsEqual(existing.promotedTo, stalePromotedTo)
             ) {
               return state;
             }
@@ -2505,6 +2517,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   ...existing,
                   threadId: nextThreadId,
                   createdAt,
+                  promotedTo: null,
                 },
               },
             };
