@@ -9,7 +9,11 @@ import {
 } from "../commandPaletteBus";
 import { useClientSettings } from "../hooks/useSettings";
 import { useProjects } from "../state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useAppOwnsLocalEnvironment,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
 import {
@@ -48,6 +52,7 @@ function ChatRouteGlobalShortcuts() {
   const projectOrder = useUiStateStore((state) => state.projectOrder);
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const environmentLabelById = useMemo(
     () =>
       new Map(
@@ -74,11 +79,13 @@ function ChatRouteGlobalShortcuts() {
         projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       environmentLabelById,
       orderedProjects,
+      ownsLocalEnvironment,
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,
