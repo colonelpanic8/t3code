@@ -22,11 +22,12 @@ are intentionally not fetched.
 `pnpmDeps.hash` is a fixed-output hash over the offline dependency closure. It
 must be refreshed whenever `pnpm-lock.yaml` changes:
 
-1. Set `hash = pkgs.lib.fakeHash;` in `flake.nix` (this is the checked-in
-   default, so a fresh clone will fail loudly rather than silently using a
-   stale closure).
+1. Set `hash = pkgs.lib.fakeHash;` in `flake.nix`.
 2. Run `nix build .#unwrapped`.
 3. Copy the `got:` hash from the error into `flake.nix`.
+
+A mismatched hash fails the build loudly rather than silently using a stale
+closure, so this is safe to forget until the lockfile actually moves.
 
 ## Scope
 
