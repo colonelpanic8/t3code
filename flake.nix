@@ -74,10 +74,10 @@
               pnpmWorkspaces
               ;
             fetcherVersion = 4;
-            # Dependencies change with the lockfile, so this hash must be
-            # refreshed whenever pnpm-lock.yaml does. Build once with
-            # lib.fakeHash to obtain the correct value.
-            hash = pkgs.lib.fakeHash;
+            # Fixed-output hash over the offline dependency closure. It is
+            # derived from pnpm-lock.yaml, so refresh it whenever the lockfile
+            # changes: set lib.fakeHash, build, and copy the reported `got:`.
+            hash = "sha256-QNVBRvXVUOKZEdIqKY2dfjvmivMTaJJSh2cexvtdJ6k=";
           };
         }
       );
