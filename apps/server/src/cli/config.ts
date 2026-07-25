@@ -288,14 +288,21 @@ export class StorageDirectoryConfigurationConflictError extends Schema.TaggedErr
   }
 }
 
-export class StorageLayoutConfigurationConflictError extends Schema.TaggedErrorClass<StorageLayoutConfigurationConflictError>()(
-  "StorageLayoutConfigurationConflictError",
-  { storageLayout: CliStorageLayout },
+export class ForcedXdgLayoutConflictError extends Schema.TaggedErrorClass<ForcedXdgLayoutConflictError>()(
+  "ForcedXdgLayoutConflictError",
+  {},
 ) {
   override get message(): string {
-    return this.storageLayout === "xdg"
-      ? "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir."
-      : "--storage-layout legacy cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
+    return "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.";
+  }
+}
+
+export class ForcedLegacyLayoutConflictError extends Schema.TaggedErrorClass<ForcedLegacyLayoutConflictError>()(
+  "ForcedLegacyLayoutConflictError",
+  {},
+) {
+  override get message(): string {
+    return "--storage-layout legacy cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
   }
 }
 
@@ -354,9 +361,12 @@ const legacyStorageIsInitialized = Effect.fn(function* (roots: T3StorageRoots) {
     path.join(roots.stateDir, "state.sqlite"),
     path.join(roots.configDir, "settings.json"),
     path.join(roots.configDir, "keybindings.json"),
+    path.join(roots.configDir, "desktop-settings.json"),
+    path.join(roots.configDir, "client-settings.json"),
     path.join(roots.stateDir, "environment-id"),
     path.join(roots.stateDir, "connection-catalog.json"),
     path.join(roots.stateDir, "secrets"),
+    path.join(roots.stateDir, "saved-environments.json"),
   ];
   const results = yield* Effect.all(
     artifacts.map((artifact) => fs.exists(artifact)),
@@ -541,18 +551,14 @@ export const resolveServerConfig = (
       forcedStorageLayout === "xdg" &&
       Option.isSome(explicitBaseDir)
     ) {
-      return yield* new StorageLayoutConfigurationConflictError({
-        storageLayout: forcedStorageLayout,
-      });
+      return yield* new ForcedXdgLayoutConflictError();
     }
     if (
       !bootstrapStorageIsPinned &&
       forcedStorageLayout === "legacy" &&
       hasT3StorageDirectoryOverrides(directoryOverrides)
     ) {
-      return yield* new StorageLayoutConfigurationConflictError({
-        storageLayout: forcedStorageLayout,
-      });
+      return yield* new ForcedLegacyLayoutConflictError();
     }
     const defaultSplitRoots = resolveDefaultT3StorageRoots({
       platform,
