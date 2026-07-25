@@ -1,7 +1,7 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { FolderPlusIcon, SearchIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useReducer } from "react";
 
 import { openCommandPalette } from "~/commandPaletteBus";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
@@ -27,6 +27,7 @@ import {
   filterDraftHeroProjects,
   isImeCommitKey,
   isVisibleDraftHeroProjectSelection,
+  reduceDraftHeroProjectPickerState,
 } from "./draftHeroProjectSearch";
 
 interface DraftHeroHeadlineProps {
@@ -46,8 +47,11 @@ export function DraftHeroHeadline({
   const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   const handleNewThread = useNewThreadHandler();
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
-  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
-  const [projectQuery, setProjectQuery] = useState("");
+  const [projectPickerState, dispatchProjectPicker] = useReducer(
+    reduceDraftHeroProjectPickerState,
+    { open: false, query: "" },
+  );
+  const { open: isProjectPickerOpen, query: projectQuery } = projectPickerState;
 
   const environmentLabelById = useMemo(
     () =>
@@ -128,14 +132,11 @@ export function DraftHeroHeadline({
       open={isProjectPickerOpen}
       value={activeProjectKey}
       onOpenChange={(open) => {
-        setIsProjectPickerOpen(open);
-        if (!open) {
-          setProjectQuery("");
-        }
+        dispatchProjectPicker({ type: "set-open", open });
       }}
       onValueChange={(value) => {
         if (!value || value === activeProjectKey) {
-          setIsProjectPickerOpen(false);
+          dispatchProjectPicker({ type: "set-open", open: false });
           return;
         }
         if (
@@ -150,7 +151,7 @@ export function DraftHeroHeadline({
         if (!entry) {
           return;
         }
-        setIsProjectPickerOpen(false);
+        dispatchProjectPicker({ type: "set-open", open: false });
         const project = entry.targetProject;
         void handleNewThread(scopeProjectRef(project.environmentId, project.id), {
           replace: true,
@@ -179,7 +180,9 @@ export function DraftHeroHeadline({
               size="sm"
               unstyled
               value={projectQuery}
-              onChange={(event) => setProjectQuery(event.target.value)}
+              onChange={(event) =>
+                dispatchProjectPicker({ type: "set-query", query: event.target.value })
+              }
               onKeyDownCapture={(event) => {
                 if (
                   isImeCommitKey({
@@ -211,7 +214,7 @@ export function DraftHeroHeadline({
             type="button"
             className="flex min-h-8 w-full cursor-default items-center gap-2 rounded-sm px-2 py-1 text-left text-base text-foreground outline-none hover:bg-accent focus-visible:bg-accent sm:min-h-7 sm:text-sm"
             onClick={() => {
-              setIsProjectPickerOpen(false);
+              dispatchProjectPicker({ type: "set-open", open: false });
               openAddProject();
             }}
           >

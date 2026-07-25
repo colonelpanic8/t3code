@@ -4,6 +4,29 @@ type SearchableProject = {
   readonly searchTerms?: ReadonlyArray<string>;
 };
 
+export type DraftHeroProjectPickerState = {
+  readonly open: boolean;
+  readonly query: string;
+};
+
+export type DraftHeroProjectPickerAction =
+  | { readonly type: "set-open"; readonly open: boolean }
+  | { readonly type: "set-query"; readonly query: string };
+
+export function reduceDraftHeroProjectPickerState(
+  state: DraftHeroProjectPickerState,
+  action: DraftHeroProjectPickerAction,
+): DraftHeroProjectPickerState {
+  if (action.type === "set-query") {
+    return { ...state, query: action.query };
+  }
+
+  return {
+    open: action.open,
+    query: action.open ? state.query : "",
+  };
+}
+
 export function isImeCommitKey(input: {
   readonly key: string;
   readonly isComposing: boolean;
