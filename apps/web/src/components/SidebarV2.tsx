@@ -91,6 +91,9 @@ import {
 } from "../commandPaletteBus";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { resolveChatNewShortcutBehavior } from "../lib/chatRouteShortcuts";
+import { openCommandPalette } from "../commandPaletteBus";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
+import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -103,7 +106,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { useEnvironmentPresenceScope, useEnvironments } from "../state/environments";
+import { useEnvironment, useEnvironmentPresenceScope, useEnvironments } from "../state/environments";
 import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
@@ -159,6 +162,9 @@ import {
   ProjectIconPathField,
   type ProjectIconTarget,
 } from "./ProjectIconSettings";
+  RemoteEnvironmentIndicator,
+  shouldShowRemoteEnvironmentIndicator,
+} from "./RemoteEnvironmentIndicator";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
@@ -614,6 +620,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     : thread.modelSelection.model;
 
   const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
+  const environment = useEnvironment(thread.environmentId);
+  const isDesktopLocal =
+    environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
+  const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
+    currentEnvironmentId: props.currentEnvironmentId,
+    threadEnvironmentId: thread.environmentId,
+    isDesktopLocal,
+  });
 
   const detailsTooltip = (
     <SidebarV2ThreadTooltip
@@ -955,7 +969,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               role="button"
               tabIndex={0}
               data-testid="sidebar-v2-row-card"
-              className={rowSurfaceClassName}
+              className={cn("@container/thread-row", rowSurfaceClassName)}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
@@ -1102,6 +1116,26 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   ) : null}
                 </span>
               </div>
+              ) : null}
+              <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
+                {showRemoteEnvironmentIndicator ? (
+                  <RemoteEnvironmentIndicator
+                    icon={ServerIcon}
+                    label={props.environmentLabel ?? "Remote"}
+                    className="max-w-24 shrink-0 text-sidebar-muted-foreground/70"
+                    iconClassName="size-3.5"
+                  />
+                ) : null}
+                {driverKind ? (
+                  <span aria-hidden className="inline-flex shrink-0 items-center opacity-60">
+                    <ProviderInstanceIcon
+                      driverKind={driverKind}
+                      displayName={thread.session?.providerName ?? modelInstanceId}
+                      iconClassName="size-3.5"
+                    />
+                  </span>
+                ) : null}
+              </span>
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
