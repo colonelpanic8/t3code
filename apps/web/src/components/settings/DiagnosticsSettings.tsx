@@ -53,7 +53,14 @@ import {
   SettingsSection,
   useRelativeTimeTick,
 } from "./settingsLayout";
-import { resolveDiagnosticsEnvironmentId } from "./DiagnosticsSettings.logic";
+import {
+  addPendingProcessSignal,
+  diagnosticsConnectionNotice,
+  pendingProcessSignalPids,
+  removePendingProcessSignal,
+  resolveDiagnosticsEnvironmentId,
+  type PendingProcessSignal,
+} from "./DiagnosticsSettings.logic";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 const NUMBER_FORMAT = new Intl.NumberFormat();
@@ -410,12 +417,12 @@ function ProcessSignalActions({
 
 function ProcessDiagnosticsTable({
   processes,
-  signalingPid,
+  signalingPids,
   onSignal,
   emptyLabel,
 }: {
   processes: ReadonlyArray<ServerProcessDiagnosticsEntry>;
-  signalingPid: number | null;
+  signalingPids: ReadonlySet<number>;
   onSignal: (pid: number, signal: ServerProcessSignal) => void;
   emptyLabel?: string;
 }) {
@@ -524,7 +531,7 @@ function ProcessDiagnosticsTable({
               <td className="p-2 align-middle sm:pr-4">
                 <ProcessSignalActions
                   process={process}
-                  isSignaling={signalingPid === process.pid}
+                  isSignaling={signalingPids.has(process.pid)}
                   onSignal={onSignal}
                 />
               </td>
@@ -823,6 +830,12 @@ function DiagnosticsRefreshButton({
   );
 }
 
+interface LogsDirectoryState {
+  readonly environmentId: EnvironmentId | null;
+  readonly isOpening: boolean;
+  readonly error: string | null;
+}
+
 export function DiagnosticsSettingsPanel() {
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -887,9 +900,20 @@ export function DiagnosticsSettingsPanel() {
           },
         }),
   );
-  const [isOpeningLogsDirectory, setIsOpeningLogsDirectory] = useState(false);
-  const [openLogsDirectoryError, setOpenLogsDirectoryError] = useState<string | null>(null);
-  const [signalingPid, setSignalingPid] = useState<number | null>(null);
+  // Panel-local state is keyed by environment so that a result produced for one
+  // environment is never shown for (or applied to) another one.
+  const [logsDirectoryState, setLogsDirectoryState] = useState<LogsDirectoryState | null>(null);
+  const [pendingSignals, setPendingSignals] = useState<ReadonlyArray<PendingProcessSignal>>([]);
+  const logsDirectory =
+    logsDirectoryState !== null && logsDirectoryState.environmentId === environmentId
+      ? logsDirectoryState
+      : null;
+  const isOpeningLogsDirectory = logsDirectory?.isOpening ?? false;
+  const openLogsDirectoryError = logsDirectory?.error ?? null;
+  const signalingPids = useMemo(
+    () => pendingProcessSignalPids(pendingSignals, environmentId),
+    [environmentId, pendingSignals],
+  );
 
   const openLogsDirectory = useCallback(() => {
     const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
@@ -897,16 +921,23 @@ export function DiagnosticsSettingsPanel() {
 
     const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
     if (!editor) {
-      setOpenLogsDirectoryError("No available editors found.");
+      setLogsDirectoryState({
+        environmentId,
+        isOpening: false,
+        error: "No available editors found.",
+      });
       return;
     }
     if (environmentId === null) {
-      setOpenLogsDirectoryError("No environment is selected.");
+      setLogsDirectoryState({
+        environmentId,
+        isOpening: false,
+        error: "No environment is selected.",
+      });
       return;
     }
 
-    setIsOpeningLogsDirectory(true);
-    setOpenLogsDirectoryError(null);
+    setLogsDirectoryState({ environmentId, isOpening: true, error: null });
     void (async () => {
       const result = await openInEditor({
         environmentId,
@@ -915,13 +946,22 @@ export function DiagnosticsSettingsPanel() {
           editor,
         },
       });
-      setIsOpeningLogsDirectory(false);
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        setOpenLogsDirectoryError(
-          error instanceof Error ? error.message : "Unable to open logs folder.",
-        );
-      }
+      const failure =
+        result._tag === "Failure" && !isAtomCommandInterrupted(result)
+          ? squashAtomCommandFailure(result)
+          : null;
+      const error =
+        failure === null
+          ? null
+          : failure instanceof Error
+            ? failure.message
+            : "Unable to open logs folder.";
+      // Only the request that owns the current pending state may clear it.
+      setLogsDirectoryState((current) =>
+        current !== null && current.environmentId === environmentId
+          ? { environmentId, isOpening: false, error }
+          : current,
+      );
     })();
   }, [availableEditors, environmentId, observability?.logsDirectoryPath, openInEditor]);
 
@@ -939,13 +979,14 @@ export function DiagnosticsSettingsPanel() {
         return;
       }
 
-      setSignalingPid(pid);
+      const pendingSignal: PendingProcessSignal = { environmentId, pid };
+      setPendingSignals((current) => addPendingProcessSignal(current, pendingSignal));
       void (async () => {
         const result = await signalServerProcess({
           environmentId,
           input: { pid, signal },
         });
-        setSignalingPid(null);
+        setPendingSignals((current) => removePendingProcessSignal(current, pendingSignal));
         if (result._tag === "Failure") {
           if (!isAtomCommandInterrupted(result)) {
             const error = squashAtomCommandFailure(result);
@@ -982,6 +1023,16 @@ export function DiagnosticsSettingsPanel() {
     },
     [environmentId, refreshProcesses, signalServerProcess],
   );
+
+  // Diagnostics RPCs only run while the environment's supervisor is connected,
+  // so anything else has to surface as a state instead of an endless spinner.
+  const connectionNotice = diagnosticsConnectionNotice({
+    phase: diagnosticsEnvironment?.connection.phase ?? "available",
+    label: diagnosticsEnvironment?.label ?? "This environment",
+    error: diagnosticsEnvironment?.connection.error ?? null,
+  });
+  const isConnected = connectionNotice === null;
+  const statPlaceholder = isConnected ? "..." : "—";
 
   const processDiagnosticsError = processData ? Option.getOrNull(processData.error) : null;
   const processResourceError = resourceData ? Option.getOrNull(resourceData.error) : null;
@@ -1075,7 +1126,7 @@ export function DiagnosticsSettingsPanel() {
           <div className="flex items-center gap-1.5">
             <DiagnosticsLastChecked checkedAt={processData?.readAt ?? null} />
             <DiagnosticsRefreshButton
-              isPending={isProcessPending}
+              isPending={isProcessPending && isConnected}
               label="Refresh process diagnostics"
               onClick={refreshProcesses}
             />
@@ -1085,21 +1136,21 @@ export function DiagnosticsSettingsPanel() {
         <StatsGrid>
           <StatBlock
             label="Child Processes"
-            value={processData ? formatCount(processData.processCount) : "..."}
+            value={processData ? formatCount(processData.processCount) : statPlaceholder}
           />
           <StatBlock
             label="CPU"
-            value={processData ? `${processData.totalCpuPercent.toFixed(1)}%` : "..."}
+            value={processData ? `${processData.totalCpuPercent.toFixed(1)}%` : statPlaceholder}
             tooltip="Total CPU across live child processes of the current server process. The desktop shell and other parent processes are not included."
           />
           <StatBlock
             label="Memory"
-            value={processData ? formatBytes(processData.totalRssBytes) : "..."}
+            value={processData ? formatBytes(processData.totalRssBytes) : statPlaceholder}
             tooltip="Total resident memory across live child processes of the current server process. The desktop shell and other parent processes are not included."
           />
           <StatBlock
             label="Server PID"
-            value={processData ? String(processData.serverPid) : "..."}
+            value={processData ? String(processData.serverPid) : statPlaceholder}
           />
         </StatsGrid>
         {processDiagnosticsError || processError ? (
@@ -1120,12 +1171,13 @@ export function DiagnosticsSettingsPanel() {
         ) : null}
         <ProcessDiagnosticsTable
           processes={processData?.processes ?? []}
-          signalingPid={signalingPid}
+          signalingPids={signalingPids}
           onSignal={signalProcess}
           emptyLabel={
-            isProcessInitialLoading
+            connectionNotice ??
+            (isProcessInitialLoading
               ? "Loading live processes..."
-              : "No live descendant processes found."
+              : "No live descendant processes found.")
           }
         />
       </SettingsSection>
@@ -1140,7 +1192,7 @@ export function DiagnosticsSettingsPanel() {
             />
             <DiagnosticsLastChecked checkedAt={resourceData?.readAt ?? null} />
             <DiagnosticsRefreshButton
-              isPending={isResourcePending}
+              isPending={isResourcePending && isConnected}
               label="Refresh resource history"
               onClick={refreshResources}
             />
@@ -1150,21 +1202,23 @@ export function DiagnosticsSettingsPanel() {
         <StatsGrid>
           <StatBlock
             label="CPU Time"
-            value={resourceData ? formatCpuTime(resourceData.totalCpuSecondsApprox) : "..."}
+            value={
+              resourceData ? formatCpuTime(resourceData.totalCpuSecondsApprox) : statPlaceholder
+            }
             tooltip="Approximate active CPU time for the T3 server root process and its descendants during the selected window. It grows only while sampled processes use CPU and older samples leave as the window moves."
           />
           <StatBlock
             label="Samples"
-            value={resourceData ? formatCount(resourceData.retainedSampleCount) : "..."}
+            value={resourceData ? formatCount(resourceData.retainedSampleCount) : statPlaceholder}
             tooltip="In-memory process samples retained by the server. This resets when the server restarts."
           />
           <StatBlock
             label="Interval"
-            value={resourceData ? formatDuration(resourceData.sampleIntervalMs) : "..."}
+            value={resourceData ? formatDuration(resourceData.sampleIntervalMs) : statPlaceholder}
           />
           <StatBlock
             label="Processes"
-            value={resourceData ? formatCount(resourceData.topProcesses.length) : "..."}
+            value={resourceData ? formatCount(resourceData.topProcesses.length) : statPlaceholder}
           />
         </StatsGrid>
         {processResourceError || resourceError ? (
@@ -1187,9 +1241,10 @@ export function DiagnosticsSettingsPanel() {
         <ProcessResourceHistoryTable
           processes={resourceData?.topProcesses ?? []}
           emptyLabel={
-            isResourcePending && resourceData === null
+            connectionNotice ??
+            (isResourcePending && resourceData === null
               ? "Collecting process resource samples..."
-              : "No process resource samples found for this window."
+              : "No process resource samples found for this window.")
           }
         />
       </SettingsSection>
@@ -1206,7 +1261,9 @@ export function DiagnosticsSettingsPanel() {
                     size="icon-xs"
                     variant="ghost"
                     className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-                    disabled={!observability?.logsDirectoryPath || isOpeningLogsDirectory}
+                    disabled={
+                      !isConnected || !observability?.logsDirectoryPath || isOpeningLogsDirectory
+                    }
                     onClick={openLogsDirectory}
                     aria-label="Open logs folder"
                   >
@@ -1217,7 +1274,7 @@ export function DiagnosticsSettingsPanel() {
               <TooltipPopup side="top">Open logs folder</TooltipPopup>
             </Tooltip>
             <DiagnosticsRefreshButton
-              isPending={isPending}
+              isPending={isPending && isConnected}
               label="Refresh trace diagnostics"
               onClick={refresh}
             />
@@ -1225,15 +1282,15 @@ export function DiagnosticsSettingsPanel() {
         }
       >
         <StatsGrid>
-          <StatBlock label="Spans" value={data ? formatCount(data.recordCount) : "..."} />
+          <StatBlock label="Spans" value={data ? formatCount(data.recordCount) : statPlaceholder} />
           <StatBlock
             label="Failures"
-            value={data ? formatCount(data.failureCount) : "..."}
+            value={data ? formatCount(data.failureCount) : statPlaceholder}
             tone={data && data.failureCount > 0 ? "danger" : "default"}
           />
           <StatBlock
             label="Slow Spans"
-            value={data ? formatCount(data.slowSpanCount) : "..."}
+            value={data ? formatCount(data.slowSpanCount) : statPlaceholder}
             tooltip={
               data
                 ? `Spans with a duration of ${formatDuration(data.slowSpanThresholdMs)} or longer.`
@@ -1243,7 +1300,7 @@ export function DiagnosticsSettingsPanel() {
           />
           <StatBlock
             label="Parse Errors"
-            value={data ? formatCount(data.parseErrorCount) : "..."}
+            value={data ? formatCount(data.parseErrorCount) : statPlaceholder}
             tone={data && data.parseErrorCount > 0 ? "warning" : "default"}
           />
         </StatsGrid>
@@ -1303,7 +1360,12 @@ export function DiagnosticsSettingsPanel() {
             ))}
           </DiagnosticsTable>
         ) : (
-          <EmptyRows label={isInitialLoading ? "Loading failures..." : "No failed spans found."} />
+          <EmptyRows
+            label={
+              connectionNotice ??
+              (isInitialLoading ? "Loading failures..." : "No failed spans found.")
+            }
+          />
         )}
       </SettingsSection>
 
@@ -1332,7 +1394,10 @@ export function DiagnosticsSettingsPanel() {
           </DiagnosticsTable>
         ) : (
           <EmptyRows
-            label={isInitialLoading ? "Loading failure groups..." : "No repeated failures found."}
+            label={
+              connectionNotice ??
+              (isInitialLoading ? "Loading failure groups..." : "No repeated failures found.")
+            }
           />
         )}
       </SettingsSection>
@@ -1362,7 +1427,11 @@ export function DiagnosticsSettingsPanel() {
             ))}
           </DiagnosticsTable>
         ) : (
-          <EmptyRows label={isInitialLoading ? "Loading slow spans..." : "No spans found."} />
+          <EmptyRows
+            label={
+              connectionNotice ?? (isInitialLoading ? "Loading slow spans..." : "No spans found.")
+            }
+          />
         )}
       </SettingsSection>
 
@@ -1425,7 +1494,10 @@ export function DiagnosticsSettingsPanel() {
           </ScrollArea>
         ) : (
           <EmptyRows
-            label={isInitialLoading ? "Loading recent logs..." : "No warnings or errors found."}
+            label={
+              connectionNotice ??
+              (isInitialLoading ? "Loading recent logs..." : "No warnings or errors found.")
+            }
           />
         )}
       </SettingsSection>
@@ -1458,7 +1530,11 @@ export function DiagnosticsSettingsPanel() {
             ))}
           </DiagnosticsTable>
         ) : (
-          <EmptyRows label={isInitialLoading ? "Loading span names..." : "No spans found."} />
+          <EmptyRows
+            label={
+              connectionNotice ?? (isInitialLoading ? "Loading span names..." : "No spans found.")
+            }
+          />
         )}
       </SettingsSection>
     </SettingsPageContainer>
