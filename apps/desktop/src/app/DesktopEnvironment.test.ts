@@ -226,6 +226,35 @@ describe("DesktopEnvironment", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect.each([
+    { artifactName: "desktop settings", fileName: "desktop-settings.json" },
+    { artifactName: "client settings", fileName: "client-settings.json" },
+    { artifactName: "saved environments", fileName: "saved-environments.json" },
+  ])("keeps legacy storage when only legacy $artifactName are initialized", ({ fileName }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-legacy-settings-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const legacyStateDir = path.join(homeDirectory, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(legacyStateDir, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, fileName), "{}");
+
+      const environment = yield* makeEnvironment({
+        platform: "linux",
+        homeDirectory,
+        temporaryDirectory: root,
+        userId: 1000,
+      });
+
+      assert.equal(environment.storageLayout, "legacy");
+      assert.equal(environment.configDir, legacyStateDir);
+      assert.equal(environment.stateDir, legacyStateDir);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("does not treat Electron preferences as initialized server storage", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
