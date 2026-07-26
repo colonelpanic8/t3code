@@ -44,8 +44,6 @@ import {
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 
-import { connectionStatusText } from "@t3tools/client-runtime/connection";
-
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -744,7 +742,6 @@ function OpenCommandPaletteDialog(props: {
     environmentLabel: browseEnvironment?.label ?? null,
     connectionPhase: browseEnvironmentConnection?.phase ?? null,
     connectionError: browseEnvironmentConnection?.error ?? null,
-    browseError: browseQuery.error,
   });
   const browseUnavailableMessage =
     isBrowsing && browseAvailability._tag === "Unavailable" ? browseAvailability.message : null;
@@ -1290,16 +1287,25 @@ function OpenCommandPaletteDialog(props: {
 
       // The path is resolved on the target environment, so refuse outright when
       // that environment is unreachable rather than dispatching an add that can
-      // only fail — or silently create a directory we never verified.
+      // only fail. Reuse the browse verdict so the toast states the reason
+      // ("<env> isn't connected.") rather than a bare status word.
       const targetEnvironment =
         environments.find((environment) => environment.environmentId === input.environmentId) ??
         null;
-      if (targetEnvironment !== null && targetEnvironment.connection.phase !== "connected") {
+      const targetAvailability =
+        targetEnvironment === null
+          ? null
+          : resolveBrowseAvailability({
+              environmentLabel: targetEnvironment.label,
+              connectionPhase: targetEnvironment.connection.phase,
+              connectionError: targetEnvironment.connection.error,
+            });
+      if (targetAvailability?._tag === "Unavailable") {
         toastManager.add(
           stackedThreadToast({
             type: "error",
             title: "Failed to add project",
-            description: connectionStatusText(targetEnvironment.connection),
+            description: targetAvailability.message,
           }),
         );
         return;
