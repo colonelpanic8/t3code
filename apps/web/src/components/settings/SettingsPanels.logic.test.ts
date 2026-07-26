@@ -11,16 +11,16 @@ import {
   formatDiagnosticsDescription,
   isProjectGroupingEnabled,
   projectGroupingModeFromToggle,
-  resolveProviderSettingsEnvironmentId,
+  resolveSettingsEnvironmentId,
 } from "./SettingsPanels.logic";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("00000000-0000-4000-8000-000000000001");
 const REMOTE_ENVIRONMENT_ID = EnvironmentId.make("00000000-0000-4000-8000-000000000002");
 
-describe("provider settings environment selection", () => {
+describe("settings environment selection", () => {
   it("preserves an explicit selected environment", () => {
     expect(
-      resolveProviderSettingsEnvironmentId({
+      resolveSettingsEnvironmentId({
         availableEnvironmentIds: [LOCAL_ENVIRONMENT_ID, REMOTE_ENVIRONMENT_ID],
         selectedEnvironmentId: REMOTE_ENVIRONMENT_ID,
         primaryEnvironmentId: LOCAL_ENVIRONMENT_ID,
@@ -31,7 +31,7 @@ describe("provider settings environment selection", () => {
 
   it("defaults to the primary environment in managed mode", () => {
     expect(
-      resolveProviderSettingsEnvironmentId({
+      resolveSettingsEnvironmentId({
         availableEnvironmentIds: [REMOTE_ENVIRONMENT_ID, LOCAL_ENVIRONMENT_ID],
         selectedEnvironmentId: null,
         primaryEnvironmentId: LOCAL_ENVIRONMENT_ID,
@@ -42,7 +42,7 @@ describe("provider settings environment selection", () => {
 
   it("defaults to the active remote environment in client-only mode", () => {
     expect(
-      resolveProviderSettingsEnvironmentId({
+      resolveSettingsEnvironmentId({
         availableEnvironmentIds: [LOCAL_ENVIRONMENT_ID, REMOTE_ENVIRONMENT_ID],
         selectedEnvironmentId: null,
         primaryEnvironmentId: null,
@@ -53,7 +53,7 @@ describe("provider settings environment selection", () => {
 
   it("falls back when the selected environment is no longer available", () => {
     expect(
-      resolveProviderSettingsEnvironmentId({
+      resolveSettingsEnvironmentId({
         availableEnvironmentIds: [LOCAL_ENVIRONMENT_ID],
         selectedEnvironmentId: REMOTE_ENVIRONMENT_ID,
         primaryEnvironmentId: LOCAL_ENVIRONMENT_ID,
@@ -62,9 +62,20 @@ describe("provider settings environment selection", () => {
     ).toBe(LOCAL_ENVIRONMENT_ID);
   });
 
+  it("uses the first saved environment when client-only mode has no active environment yet", () => {
+    expect(
+      resolveSettingsEnvironmentId({
+        availableEnvironmentIds: [REMOTE_ENVIRONMENT_ID, LOCAL_ENVIRONMENT_ID],
+        selectedEnvironmentId: null,
+        primaryEnvironmentId: null,
+        activeEnvironmentId: null,
+      }),
+    ).toBe(REMOTE_ENVIRONMENT_ID);
+  });
+
   it("returns null when no environments are available", () => {
     expect(
-      resolveProviderSettingsEnvironmentId({
+      resolveSettingsEnvironmentId({
         availableEnvironmentIds: [],
         selectedEnvironmentId: null,
         primaryEnvironmentId: null,

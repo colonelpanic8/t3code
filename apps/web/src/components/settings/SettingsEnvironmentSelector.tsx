@@ -13,19 +13,19 @@ import {
   SelectValue,
 } from "../ui/select";
 
-interface ProviderEnvironmentSelectorProps {
+interface SettingsEnvironmentSelectorProps {
   readonly environmentId: EnvironmentId;
   readonly environments: ReadonlyArray<EnvironmentPresentation>;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly onEnvironmentChange: (environmentId: EnvironmentId) => void;
 }
 
-export function ProviderEnvironmentSelector({
+export function SettingsEnvironmentSelector({
   environmentId,
   environments,
   primaryEnvironmentId,
   onEnvironmentChange,
-}: ProviderEnvironmentSelectorProps) {
+}: SettingsEnvironmentSelectorProps) {
   const selectedEnvironment =
     environments.find((environment) => environment.environmentId === environmentId) ?? null;
   const items = useMemo(
@@ -43,11 +43,7 @@ export function ProviderEnvironmentSelector({
       items={items}
       onValueChange={(value) => onEnvironmentChange(value as EnvironmentId)}
     >
-      <SelectTrigger
-        size="sm"
-        className="w-36 sm:w-52"
-        aria-label="Configure providers on environment"
-      >
+      <SelectTrigger size="sm" className="w-36 sm:w-52" aria-label="Settings environment">
         {environmentId === primaryEnvironmentId ? (
           <MonitorIcon className="size-3.5" />
         ) : (
@@ -57,7 +53,7 @@ export function ProviderEnvironmentSelector({
       </SelectTrigger>
       <SelectPopup align="end" alignItemWithTrigger={false}>
         <SelectGroup>
-          <SelectGroupLabel>Configure providers on</SelectGroupLabel>
+          <SelectGroupLabel>Configure environment</SelectGroupLabel>
           {environments.map((environment) => (
             <SelectItem key={environment.environmentId} value={environment.environmentId}>
               <span className="inline-flex items-center gap-1.5">
