@@ -136,6 +136,7 @@ import { closePreviewSession } from "./preview/closePreviewSession";
 import { subscribePreviewAction } from "./preview/previewActionBus";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
 import { RightPanelTabs } from "./RightPanelTabs";
+import { GeneratedImagePanel } from "./chat/GeneratedImagePanel";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -5662,6 +5663,14 @@ function ChatViewContent(props: ChatViewProps) {
         workspaceRoot={activeWorkspaceRoot}
         timestampFormat={timestampFormat}
         mode="embedded"
+      />
+    ) : activeRightPanelSurface?.kind === "generated-image" ? (
+      <GeneratedImagePanel
+        key={`${activeRightPanelSurface.id}:${activeRightPanelSurface.loadRequestId}`}
+        environmentId={activeThreadRef.environmentId}
+        threadRef={activeThreadRef}
+        activityId={activeRightPanelSurface.activityId}
+        name={activeRightPanelSurface.name}
       />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
