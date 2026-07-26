@@ -473,6 +473,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const environment = useEnvironment(thread.environmentId);
   const presenceScope = useEnvironmentPresenceScope();
   const isRemoteThread = isRemoteEnvironmentId(thread.environmentId, presenceScope);

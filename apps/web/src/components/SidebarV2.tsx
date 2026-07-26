@@ -114,7 +114,7 @@ import {
   useEnvironmentPresenceScope,
   useEnvironments,
 } from "../state/environments";
-import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
+import type { EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -135,7 +135,6 @@ import {
   isSidebarThreadEffectivelySettled,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
-  resolveAdjacentThreadId,
   resolveProjectRepositoryKey,
   resolveSettledTimestamp,
   pruneSidebarChangeRequestStates,
@@ -639,12 +638,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
   const environment = useEnvironment(thread.environmentId);
   const isDesktopLocal =
     environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
   const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
-    currentEnvironmentId: props.currentEnvironmentId,
+    currentEnvironmentId: props.presenceScope.primaryEnvironmentId,
     threadEnvironmentId: thread.environmentId,
     isDesktopLocal,
   });
