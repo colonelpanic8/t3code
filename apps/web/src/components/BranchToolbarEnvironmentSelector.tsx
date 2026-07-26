@@ -21,6 +21,7 @@ interface BranchToolbarEnvironmentSelectorProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   shortcutHintLabel?: string | null;
+  onSelectionComplete?: () => void;
   // Absent when there is only one environment to show: the indicator still
   // renders (as a static label) so remote projects are always identifiable.
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
@@ -33,6 +34,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   open,
   onOpenChange,
   shortcutHintLabel,
+  onSelectionComplete,
   onEnvironmentChange,
 }: BranchToolbarEnvironmentSelectorProps) {
   const activeEnvironment = useMemo(() => {
@@ -67,7 +69,10 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       value={environmentId}
       {...(open !== undefined ? { open } : {})}
       {...(onOpenChange ? { onOpenChange } : {})}
-      onValueChange={(value) => onEnvironmentChange(value as EnvironmentId)}
+      onValueChange={(value) => {
+        onEnvironmentChange(value as EnvironmentId);
+        onSelectionComplete?.();
+      }}
       items={environmentItems}
     >
       <SelectTrigger variant="ghost" size="xs" className="font-medium" aria-label="Run on">
