@@ -11,7 +11,11 @@ import {
   scopeThreadRef,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, SidebarProjectGroupingMode } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ScopedThreadRef,
+  SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
@@ -91,7 +95,9 @@ import {
 } from "../commandPaletteBus";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { resolveChatNewShortcutBehavior } from "../lib/chatRouteShortcuts";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import {
@@ -103,9 +109,14 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+} from "../state/environments";
+import type { EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
-import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
+import { environmentServerConfigsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
 import { projectEnvironment } from "../state/projects";
@@ -158,10 +169,15 @@ import {
   ProjectIconPathField,
   type ProjectIconTarget,
 } from "./ProjectIconSettings";
+import {
+  RemoteEnvironmentIndicator,
+  shouldShowRemoteEnvironmentIndicator,
+} from "./RemoteEnvironmentIndicator";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
-import { primaryServerProvidersAtom } from "../state/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { CommandDialogTrigger } from "./ui/command";
 import { Button } from "./ui/button";
@@ -282,6 +298,17 @@ function WorkingDuration(props: { startedAt: string | null }) {
   return <span className="tabular-nums">{formatWorkingDurationLabel(Date.now() - startedMs)}</span>;
 }
 
+/** Server glyph tinted with the environment's accent color, when one is set. */
+function EnvironmentServerIcon({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const accentColor = useEnvironmentAccentColor(environmentId);
+  return (
+    <ServerIcon
+      className="size-4 shrink-0 stroke-muted-foreground"
+      style={environmentAccentStyle(accentColor, "stroke")}
+    />
+  );
+}
+
 function SidebarV2ThreadTooltip({
   thread,
   projectTitle,
@@ -333,7 +360,7 @@ function SidebarV2ThreadTooltip({
           ) : null}
           {environmentLabel ? (
             <div className="flex min-w-0 items-center gap-2">
-              <ServerIcon className="size-4 shrink-0 stroke-muted-foreground" />
+              <EnvironmentServerIcon environmentId={thread.environmentId} />
               <div className="min-w-0 wrap-break-word text-foreground/90">{environmentLabel}</div>
             </div>
           ) : null}
@@ -443,7 +470,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   wokeAt: string | null;
   isActive: boolean;
   jumpLabel: string | null;
-  currentEnvironmentId: string | null;
+  presenceScope: EnvironmentPresenceScope;
   environmentLabel: string | null;
   projectCwd: string | null;
   projectRepositoryKey: string | null;
@@ -612,8 +639,15 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  const isRemote =
-    props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
+  const environment = useEnvironment(thread.environmentId);
+  const isDesktopLocal =
+    environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
+  const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
+    presenceScope: props.presenceScope,
+    threadEnvironmentId: thread.environmentId,
+    isDesktopLocal,
+  });
+  const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
 
   const detailsTooltip = (
     <SidebarV2ThreadTooltip
@@ -955,7 +989,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               role="button"
               tabIndex={0}
               data-testid="sidebar-v2-row-card"
-              className={rowSurfaceClassName}
+              className={cn("@container/thread-row", rowSurfaceClassName)}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
@@ -1083,17 +1117,18 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
                   </span>
                 ) : null}
-                <span
-                  aria-hidden
-                  className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
-                >
-                  {isRemote ? (
-                    <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-                      <ServerIcon aria-hidden className="size-3.5" />
-                    </span>
+                <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
+                  {showRemoteEnvironmentIndicator ? (
+                    <RemoteEnvironmentIndicator
+                      icon={ServerIcon}
+                      label={props.environmentLabel ?? "Remote"}
+                      className="max-w-24 shrink-0 text-sidebar-muted-foreground/70"
+                      iconClassName="size-3.5"
+                      style={environmentAccentStyle(environmentAccentColor)}
+                    />
                   ) : null}
                   {driverKind ? (
-                    <span className="inline-flex shrink-0 items-center opacity-60">
+                    <span aria-hidden className="inline-flex shrink-0 items-center opacity-60">
                       <ProviderInstanceIcon
                         driverKind={driverKind}
                         displayName={thread.session?.providerName ?? modelInstanceId}
@@ -1128,7 +1163,8 @@ export default function SidebarV2() {
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const defaultServerConfig = useDefaultServerConfig();
+  const keybindings = defaultServerConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
@@ -1175,7 +1211,10 @@ export default function SidebarV2() {
     [],
   );
   const { environments } = useEnvironments();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const presenceScope = useEnvironmentPresenceScope();
+  const ownsLocalEnvironment = presenceScope.kind === "local-owner";
+  const primaryEnvironmentId =
+    presenceScope.kind === "local-owner" ? presenceScope.localEnvironmentId : null;
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1221,11 +1260,13 @@ export default function SidebarV2() {
         projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       environmentLabelById,
       orderedProjects,
+      ownsLocalEnvironment,
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,
@@ -1236,7 +1277,7 @@ export default function SidebarV2() {
     () => sortLogicalProjectsForSidebar(unsortedProjectGroups, threads, sidebarProjectSortOrder),
     [sidebarProjectSortOrder, threads, unsortedProjectGroups],
   );
-  const serverProviders = useAtomValue(primaryServerProvidersAtom);
+  const serverProviders = defaultServerConfig?.providers ?? [];
   const providerEntryByInstanceId = useMemo(
     () =>
       new Map(
@@ -2812,7 +2853,7 @@ export default function SidebarV2() {
                       wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                       isActive={routeThreadKey === threadKey}
                       jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
-                      currentEnvironmentId={primaryEnvironmentId}
+                      presenceScope={presenceScope}
                       environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                       projectCwd={
                         projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
@@ -2986,7 +3027,7 @@ export default function SidebarV2() {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-1.5 text-base text-muted-foreground sm:text-sm">
-                        <ServerIcon className="size-4 shrink-0 stroke-muted-foreground" />
+                        <EnvironmentServerIcon environmentId={member.environmentId} />
                         <p className="min-w-0 truncate">
                           {member.environmentLabel ?? "Current environment"}
                         </p>
