@@ -15,6 +15,7 @@ import {
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import {
   isAtomCommandInterrupted,
@@ -44,12 +45,8 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import { useTheme } from "../../hooks/useTheme";
-import {
-  useEnvironmentSettings,
-  usePrimarySettings,
-  useUpdateEnvironmentSettings,
-  useUpdatePrimarySettings,
-} from "../../hooks/useSettings";
+import { useSettingsEnvironment } from "../../hooks/useSettingsEnvironment";
+import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -62,17 +59,9 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
-import {
-  primaryServerObservabilityAtom,
-  primaryServerProvidersAtom,
-  serverEnvironment,
-} from "../../state/server";
-import {
-  type EnvironmentPresentation,
-  useEnvironments,
-  usePrimaryEnvironmentId,
-} from "../../state/environments";
-import { useActiveEnvironmentId, useProjects } from "../../state/entities";
+import { serverEnvironment } from "../../state/server";
+import { type EnvironmentPresentation } from "../../state/environments";
+import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -90,7 +79,7 @@ import {
   type ProviderUpdateCandidate,
 } from "../ProviderUpdateLaunchNotification.logic";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
-import { ProviderEnvironmentSelector } from "./ProviderEnvironmentSelector";
+import { SettingsEnvironmentSelector } from "./SettingsEnvironmentSelector";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import {
   buildProviderInstanceUpdatePatch,
@@ -99,7 +88,6 @@ import {
   projectGroupingModeFromToggle,
   readLastEnabledProjectGroupingMode,
   rememberEnabledProjectGroupingMode,
-  resolveProviderSettingsEnvironmentId,
 } from "./SettingsPanels.logic";
 import {
   SettingResetButton,
@@ -401,8 +389,9 @@ function AboutVersionSection() {
 
 export function useSettingsRestore(onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
+  const { environmentId } = useSettingsEnvironment();
+  const settings = useEnvironmentSettings(environmentId);
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
 
   const isTextGenerationModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
@@ -520,13 +509,23 @@ export function useSettingsRestore(onRestored?: () => void) {
 
 export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
-  const settings = usePrimarySettings();
-  const updateSettings = useUpdatePrimarySettings();
+  const {
+    environmentId,
+    environment,
+    environments,
+    primaryEnvironmentId,
+    selectEnvironment,
+    isReady: environmentsReady,
+  } = useSettingsEnvironment();
+  const settings = useEnvironmentSettings(environmentId);
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const lastEnabledProjectGroupingMode = useRef<SidebarProjectGroupingMode>(
     readLastEnabledProjectGroupingMode(),
   );
-  const observability = useAtomValue(primaryServerObservabilityAtom);
-  const serverProviders = useAtomValue(primaryServerProvidersAtom);
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const observability = serverConfig?.observability ?? null;
+  const serverProviders = serverConfig?.providers ?? [];
+  const canConfigureServer = environment?.connection.phase === "connected";
   const glassOpacityRatio =
     (settings.glassOpacity - MIN_GLASS_OPACITY) / (MAX_GLASS_OPACITY - MIN_GLASS_OPACITY);
   const glassOpacitySliderStyle = {
@@ -566,6 +565,36 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <SettingsSection title="Environment">
+        <SettingsRow
+          title="Server settings"
+          description="Assistant behavior, workspace defaults, provider maintenance, and text generation are configured per environment."
+          status={
+            environment
+              ? [connectionStatusText(environment.connection), environment.displayUrl]
+                  .filter(Boolean)
+                  .join(" · ")
+              : environmentsReady
+                ? "Connect an environment to configure its server settings."
+                : "Loading environments."
+          }
+          control={
+            environmentId !== null && environment !== null ? (
+              <SettingsEnvironmentSelector
+                environmentId={environmentId}
+                environments={environments}
+                primaryEnvironmentId={primaryEnvironmentId}
+                onEnvironmentChange={selectEnvironment}
+              />
+            ) : environmentsReady ? (
+              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                Open connections
+              </Button>
+            ) : null
+          }
+        />
+      </SettingsSection>
+
       <SettingsSection title="General">
         <SettingsRow
           title="Theme"
@@ -793,6 +822,7 @@ export function GeneralSettingsPanel() {
           control={
             <Switch
               checked={settings.enableAssistantStreaming}
+              disabled={!canConfigureServer}
               onCheckedChange={(checked) =>
                 updateSettings({ enableAssistantStreaming: Boolean(checked) })
               }
@@ -820,6 +850,7 @@ export function GeneralSettingsPanel() {
           control={
             <Switch
               checked={settings.enableProviderUpdateChecks}
+              disabled={!canConfigureServer}
               onCheckedChange={(checked) =>
                 updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
               }
@@ -882,7 +913,11 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
+              <SelectTrigger
+                className="w-full sm:w-44"
+                aria-label="Default thread mode"
+                disabled={!canConfigureServer}
+              >
                 <SelectValue>
                   {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
                 </SelectValue>
@@ -921,6 +956,7 @@ export function GeneralSettingsPanel() {
             control={
               <Switch
                 checked={settings.newWorktreesStartFromOrigin}
+                disabled={!canConfigureServer}
                 onCheckedChange={(checked) =>
                   updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
                 }
@@ -949,6 +985,7 @@ export function GeneralSettingsPanel() {
           control={
             <DraftInput
               className="w-full sm:w-72"
+              disabled={!canConfigureServer}
               value={settings.addProjectBaseDirectory}
               onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
               placeholder="~/"
@@ -1027,9 +1064,13 @@ export function GeneralSettingsPanel() {
             ) : null
           }
           control={
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <fieldset
+              className="flex flex-wrap items-center justify-end gap-1.5"
+              disabled={!canConfigureServer}
+            >
               <ProviderModelPicker
                 activeInstanceId={textGenInstanceId}
+                disabled={!canConfigureServer}
                 model={textGenModel}
                 lockedProvider={null}
                 instanceEntries={textGenerationModelInstanceEntries}
@@ -1080,7 +1121,7 @@ export function GeneralSettingsPanel() {
                   });
                 }}
               />
-            </div>
+            </fieldset>
           }
         />
       </SettingsSection>
@@ -1109,20 +1150,14 @@ export function GeneralSettingsPanel() {
 }
 
 export function ProviderSettingsPanel() {
-  const { isReady, environments } = useEnvironments();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const activeEnvironmentId = useActiveEnvironmentId();
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
-  const environmentId = resolveProviderSettingsEnvironmentId({
-    availableEnvironmentIds: environments.map((environment) => environment.environmentId),
-    selectedEnvironmentId,
+  const {
+    isReady,
+    environments,
     primaryEnvironmentId,
-    activeEnvironmentId,
-  });
-  const environment =
-    environmentId === null
-      ? null
-      : (environments.find((candidate) => candidate.environmentId === environmentId) ?? null);
+    environmentId,
+    environment,
+    selectEnvironment,
+  } = useSettingsEnvironment();
 
   if (environmentId === null || environment === null) {
     return (
@@ -1153,9 +1188,11 @@ export function ProviderSettingsPanel() {
       key={environmentId}
       environmentId={environmentId}
       environmentLabel={environment.label}
+      environmentStatus={connectionStatusText(environment.connection)}
+      isConnected={environment.connection.phase === "connected"}
       environments={environments}
       primaryEnvironmentId={primaryEnvironmentId}
-      onEnvironmentChange={setSelectedEnvironmentId}
+      onEnvironmentChange={selectEnvironment}
     />
   );
 }
@@ -1163,12 +1200,16 @@ export function ProviderSettingsPanel() {
 function ProviderSettingsEnvironmentPanel({
   environmentId,
   environmentLabel,
+  environmentStatus,
+  isConnected,
   environments,
   primaryEnvironmentId,
   onEnvironmentChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
+  readonly environmentStatus: string;
+  readonly isConnected: boolean;
   readonly environments: ReadonlyArray<EnvironmentPresentation>;
   readonly primaryEnvironmentId: EnvironmentId | null;
   readonly onEnvironmentChange: (environmentId: EnvironmentId) => void;
@@ -1192,7 +1233,7 @@ function ProviderSettingsEnvironmentPanel({
   const refreshingRef = useRef(false);
 
   const environmentSelector = (
-    <ProviderEnvironmentSelector
+    <SettingsEnvironmentSelector
       environmentId={environmentId}
       environments={environments}
       primaryEnvironmentId={primaryEnvironmentId}
@@ -1295,13 +1336,13 @@ function ProviderSettingsEnvironmentPanel({
     [environmentId, updateProvider],
   );
 
-  if (serverSettings === null) {
+  if (serverSettings === null || !isConnected) {
     return (
       <SettingsPageContainer>
         <SettingsSection title="Providers" headerAction={environmentSelector}>
           <SettingsRow
-            title={`Connecting to ${environmentLabel}`}
-            description="Provider settings will be available when this environment connects."
+            title={`${environmentStatus}: ${environmentLabel}`}
+            description="Provider settings are available while this environment is connected."
           />
         </SettingsSection>
       </SettingsPageContainer>

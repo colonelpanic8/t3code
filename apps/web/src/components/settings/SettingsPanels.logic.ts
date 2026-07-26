@@ -9,7 +9,7 @@ import type {
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 
-export function resolveProviderSettingsEnvironmentId(input: {
+export function resolveSettingsEnvironmentId(input: {
   readonly availableEnvironmentIds: ReadonlyArray<EnvironmentId>;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly primaryEnvironmentId: EnvironmentId | null;
