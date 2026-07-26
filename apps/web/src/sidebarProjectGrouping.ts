@@ -222,31 +222,42 @@ export function buildSidebarProjectSnapshots(input: {
 export function buildSidebarProjectPickerEntries(input: {
   groups: ReadonlyArray<SidebarProjectSnapshot>;
   preferredProjectRef: ScopedProjectRef | null;
+  targetEnvironmentId?: EnvironmentId;
 }) {
   const entries = input.groups.flatMap((group): SidebarProjectPickerEntry[] => {
+    const environmentMembers =
+      input.targetEnvironmentId === undefined
+        ? group.memberProjects
+        : group.memberProjects.filter(
+            (project) => project.environmentId === input.targetEnvironmentId,
+          );
+    if (environmentMembers.length === 0) return [];
+
     const isPreferred = input.preferredProjectRef
       ? group.memberProjectRefs.some(
           (projectRef) =>
             projectRef.environmentId === input.preferredProjectRef?.environmentId &&
-            projectRef.projectId === input.preferredProjectRef.projectId,
+            projectRef.projectId === input.preferredProjectRef.projectId &&
+            (input.targetEnvironmentId === undefined ||
+              projectRef.environmentId === input.targetEnvironmentId),
         )
       : false;
     const preferredProject = isPreferred
-      ? (group.memberProjects.find(
+      ? (environmentMembers.find(
           (project) =>
             project.environmentId === input.preferredProjectRef?.environmentId &&
             project.id === input.preferredProjectRef?.projectId,
         ) ??
-        group.memberProjects.find(
+        environmentMembers.find(
           (project) => project.environmentId === input.preferredProjectRef?.environmentId,
         ))
       : null;
     const targetProject =
       preferredProject ??
-      group.memberProjects.find(
+      environmentMembers.find(
         (project) => project.environmentId === group.environmentId && project.id === group.id,
       ) ??
-      group.memberProjects[0];
+      environmentMembers[0];
     if (!targetProject) return [];
 
     return [{ group, targetProject, isPreferred }];
@@ -259,4 +270,40 @@ export function buildSidebarProjectPickerEntries(input: {
     ...entries.slice(0, preferredIndex),
     ...entries.slice(preferredIndex + 1),
   ];
+}
+
+export function resolveScopedNewThreadProjectRef(input: {
+  scopedProjectGroup: SidebarProjectSnapshot | null;
+  contextualProjectRef: ScopedProjectRef | null;
+}): ScopedProjectRef | null {
+  if (input.scopedProjectGroup === null) {
+    return input.contextualProjectRef;
+  }
+
+  const contextualProjectIsInScope =
+    input.contextualProjectRef !== null &&
+    input.scopedProjectGroup.memberProjectRefs.some(
+      (projectRef) =>
+        projectRef.environmentId === input.contextualProjectRef?.environmentId &&
+        projectRef.projectId === input.contextualProjectRef.projectId,
+    );
+  if (contextualProjectIsInScope) {
+    return input.contextualProjectRef;
+  }
+
+  return scopeProjectRef(input.scopedProjectGroup.environmentId, input.scopedProjectGroup.id);
+}
+
+export function resolveNewThreadPickerProjectRef(input: {
+  preferredProjectRef: ScopedProjectRef | null;
+  scopedProjectGroup: SidebarProjectSnapshot | null;
+  contextualProjectRef: ScopedProjectRef | null;
+}): ScopedProjectRef | null {
+  return (
+    input.preferredProjectRef ??
+    resolveScopedNewThreadProjectRef({
+      scopedProjectGroup: input.scopedProjectGroup,
+      contextualProjectRef: input.contextualProjectRef,
+    })
+  );
 }
