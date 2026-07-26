@@ -5,8 +5,128 @@ import {
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
+  resolveBrowseAvailability,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+
+describe("resolveBrowseAvailability", () => {
+  it("allows browsing a connected environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "connected",
+        connectionError: null,
+        browseError: null,
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("blocks browsing an environment that is not connected", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "available",
+        connectionError: null,
+        browseError: null,
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "workstation isn't connected, so its files can't be browsed.",
+    });
+  });
+
+  it("blocks browsing an offline environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "offline",
+        connectionError: null,
+        browseError: null,
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "workstation is offline, so its files can't be browsed.",
+    });
+  });
+
+  it("surfaces the connection failure reason when the environment is unreachable", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "error",
+        connectionError: "ssh: connect: host unreachable",
+        browseError: null,
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Can't reach remote-box. Reason: ssh: connect: host unreachable",
+    });
+  });
+
+  it("reports a bare unreachable message when no reason is available", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "error",
+        connectionError: null,
+        browseError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Can't reach remote-box." });
+  });
+
+  it("reports transient reconnects without claiming the host is gone", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "reconnecting",
+        connectionError: "socket closed",
+        browseError: null,
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Reconnecting to remote-box. Reason: socket closed",
+    });
+  });
+
+  it("surfaces a browse failure on an otherwise connected environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "connected",
+        connectionError: null,
+        browseError: "EACCES: permission denied",
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Can't browse remote-box. Reason: EACCES: permission denied",
+    });
+  });
+
+  it("falls back to a generic label when the environment has no label", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: "offline",
+        connectionError: null,
+        browseError: null,
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "this environment is offline, so its files can't be browsed.",
+    });
+  });
+
+  it("blocks browsing when no environment is selected", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: null,
+        connectionError: null,
+        browseError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Select an environment to browse." });
+  });
+});
 
 describe("enumerateCommandPaletteItems", () => {
   it("assigns positional jump shortcuts to the first nine displayed items", () => {
