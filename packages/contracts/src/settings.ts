@@ -6,6 +6,7 @@ import { EnvironmentId, TrimmedNonEmptyString, TrimmedString } from "./baseSchem
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import { DEFAULT_KEYBINDINGS, KeybindingsConfig } from "./keybindings.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -80,6 +81,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  hasMigratedServerKeybindings: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  keybindings: KeybindingsConfig.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_KEYBINDINGS)),
   ),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
@@ -587,6 +594,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   environmentDisplayNames: Schema.optionalKey(Schema.Record(EnvironmentId, TrimmedNonEmptyString)),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  hasMigratedServerKeybindings: Schema.optionalKey(Schema.Boolean),
+  keybindings: Schema.optionalKey(KeybindingsConfig),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({

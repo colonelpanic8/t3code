@@ -29,7 +29,6 @@ import {
 } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Arr from "effect/Array";
-import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Result from "effect/Result";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
@@ -405,9 +404,6 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
-      ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
-        ? ["Visible threads"]
-        : []),
       ...(settings.sidebarProjectGroupingMode !==
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
@@ -433,14 +429,6 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
-      ...(settings.enableProviderUpdateChecks !==
-      DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
-        ? ["Provider update checks"]
-        : []),
-      ...(Duration.toMillis(settings.automaticGitFetchInterval) !==
-      Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval)
-        ? ["Automatic Git fetch interval"]
-        : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
@@ -465,12 +453,9 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
     settings.newWorktreesStartFromOrigin,
     settings.diffIgnoreWhitespace,
     settings.glassOpacity,
-    settings.automaticGitFetchInterval,
     settings.enableAssistantStreaming,
-    settings.enableProviderUpdateChecks,
     settings.showEnvironmentBadges,
     settings.sidebarProjectGroupingMode,
-    settings.sidebarThreadPreviewCount,
     settings.timestampFormat,
     settings.wordWrap,
     theme,
@@ -493,7 +478,6 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
         wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
         diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
         glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
-        sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
         sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
         showEnvironmentBadges: DEFAULT_UNIFIED_SETTINGS.showEnvironmentBadges,
         autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
@@ -503,8 +487,6 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
     } else {
       updateSettings({
         enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
-        enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-        automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
         defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
         newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
         addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
@@ -837,35 +819,6 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
                     updateSettings({ enableAssistantStreaming: Boolean(checked) })
                   }
                   aria-label="Stream assistant messages"
-                />
-              }
-            />
-
-            <SettingsRow
-              title="Provider update checks"
-              description="Check installed provider CLIs for newer available versions."
-              resetAction={
-                settings.enableProviderUpdateChecks !==
-                DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks ? (
-                  <SettingResetButton
-                    label="provider update checks"
-                    onClick={() =>
-                      updateSettings({
-                        enableProviderUpdateChecks:
-                          DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.enableProviderUpdateChecks}
-                  disabled={!canConfigureServer}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
-                  }
-                  aria-label="Check provider versions"
                 />
               }
             />
@@ -1580,6 +1533,32 @@ function ProviderSettingsEnvironmentPanel({
           </div>
         }
       >
+        <SettingsRow
+          title="Provider update checks"
+          description="Check installed provider CLIs in this environment for newer available versions."
+          resetAction={
+            settings.enableProviderUpdateChecks !==
+            DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks ? (
+              <SettingResetButton
+                label="provider update checks"
+                onClick={() =>
+                  updateSettings({
+                    enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.enableProviderUpdateChecks}
+              onCheckedChange={(checked) =>
+                updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
+              }
+              aria-label="Check provider versions"
+            />
+          }
+        />
         {rows.map((row) => {
           const driverOption = getDriverOption(row.driver);
           const liveProvider = serverProviders.find(

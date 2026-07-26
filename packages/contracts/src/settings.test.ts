@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { EnvironmentId } from "./baseSchemas.ts";
+import { DEFAULT_KEYBINDINGS } from "./keybindings.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -31,6 +32,25 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings keybindings", () => {
+  it("defaults new and legacy clients to the shared client shortcuts", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.keybindings).toEqual(DEFAULT_KEYBINDINGS);
+    expect(settings.hasMigratedServerKeybindings).toBe(false);
+  });
+
+  it("accepts client-local shortcut updates and their migration marker", () => {
+    const patch = decodeClientSettingsPatch({
+      hasMigratedServerKeybindings: true,
+      keybindings: [{ key: "mod+shift+p", command: "commandPalette.toggle" }],
+    });
+    expect(patch).toEqual({
+      hasMigratedServerKeybindings: true,
+      keybindings: [{ key: "mod+shift+p", command: "commandPalette.toggle" }],
+    });
   });
 });
 

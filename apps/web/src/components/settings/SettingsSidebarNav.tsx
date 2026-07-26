@@ -47,6 +47,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     label: "Client",
     items: [
       { label: "General", to: "/settings/general", icon: Settings2Icon },
+      { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
       { label: "Connections", to: "/settings/connections", icon: Link2Icon },
       { label: "Beta", to: "/settings/beta", icon: FlaskConicalIcon },
       { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
@@ -56,7 +57,6 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     label: "Environment",
     items: [
       { label: "General", to: "/settings/environment", icon: Settings2Icon },
-      { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
       { label: "Providers", to: "/settings/providers", icon: BotIcon },
       { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
     ],
