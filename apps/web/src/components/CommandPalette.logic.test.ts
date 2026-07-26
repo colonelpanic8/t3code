@@ -2,11 +2,26 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import {
+  buildNewThreadPickerGroups,
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
+  resolveBrowseTabCompletion,
+  resolveCommandPaletteEmptyStateMessage,
+  resolveNewThreadOnIntent,
+  resetAddProjectFlowState,
+  shouldIgnoreAddProjectShortcut,
+  shouldResetPaletteFlowOnPop,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+
+describe("resolveNewThreadOnIntent", () => {
+  it("keeps the intent pending until environment-backed projects load", () => {
+    expect(resolveNewThreadOnIntent({ isActive: false, environmentItemCount: 0 })).toBe("ignore");
+    expect(resolveNewThreadOnIntent({ isActive: true, environmentItemCount: 0 })).toBe("defer");
+    expect(resolveNewThreadOnIntent({ isActive: true, environmentItemCount: 1 })).toBe("open");
+  });
+});
 
 describe("enumerateCommandPaletteItems", () => {
   it("assigns positional jump shortcuts to the first nine displayed items", () => {
@@ -35,8 +50,283 @@ describe("enumerateCommandPaletteItems", () => {
   });
 });
 
+const makeActionItem = (value: string) => ({
+  kind: "action" as const,
+  value,
+  searchTerms: [],
+  title: value,
+  icon: null,
+  run: async () => undefined,
+});
+
+describe("buildNewThreadPickerGroups", () => {
+  const addProjectItem = {
+    ...makeActionItem("action:add-project"),
+    shortcutCommand: "project.add" as const,
+  };
+
+  it("waits for projects before showing an empty picker", () => {
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [],
+        addProjectItem,
+        areProjectsLoading: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps Add project keyboard-addressable after project choices", () => {
+    const projectItem = makeActionItem("new-thread-in:environment-local:project-1");
+
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [projectItem],
+        addProjectItem,
+        areProjectsLoading: false,
+      }).map((group) => ({
+        value: group.value,
+        items: group.items.map((item) => item.value),
+      })),
+    ).toEqual([
+      {
+        value: "new-thread-projects",
+        items: ["new-thread-in:environment-local:project-1"],
+      },
+      { value: "new-thread-actions", items: ["action:add-project"] },
+    ]);
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [projectItem],
+        addProjectItem,
+        areProjectsLoading: false,
+      })[1]?.items[0]?.shortcutCommand,
+    ).toBe("project.add");
+  });
+
+  it("offers Add project when loading completes without projects", () => {
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [],
+        addProjectItem,
+        areProjectsLoading: false,
+      }),
+    ).toEqual([
+      {
+        value: "new-thread-actions",
+        label: "Actions",
+        items: [addProjectItem],
+      },
+    ]);
+  });
+});
+
+describe("resolveCommandPaletteEmptyStateMessage", () => {
+  it("keeps browse/create guidance when the new-thread picker has no projects", () => {
+    expect(
+      resolveCommandPaletteEmptyStateMessage({
+        contextualMessage: "Press Enter to create this folder and add it as a project.",
+        isNewThreadProjectPickerView: true,
+        projectCount: 0,
+        allEnvironmentShellsBootstrapped: true,
+        query: "/work/new-project",
+      }),
+    ).toBe("Press Enter to create this folder and add it as a project.");
+  });
+
+  it("uses zero-project guidance only when no more specific state applies", () => {
+    expect(
+      resolveCommandPaletteEmptyStateMessage({
+        isNewThreadProjectPickerView: true,
+        projectCount: 0,
+        allEnvironmentShellsBootstrapped: true,
+        query: "",
+      }),
+    ).toBe("No projects yet. Add a project to start a thread.");
+    expect(
+      resolveCommandPaletteEmptyStateMessage({
+        isNewThreadProjectPickerView: true,
+        projectCount: 0,
+        allEnvironmentShellsBootstrapped: false,
+        query: "",
+      }),
+    ).toBe("Loading projects…");
+  });
+});
+
+describe("filterCommandPaletteGroups actions-only filter", () => {
+  it("keeps dedicated picker actions visible", () => {
+    const addProjectItem = {
+      ...makeActionItem("action:add-project"),
+      searchTerms: ["add project"],
+    };
+
+    expect(
+      filterCommandPaletteGroups({
+        activeGroups: [
+          {
+            value: "new-thread-actions",
+            label: "Actions",
+            items: [addProjectItem],
+          },
+        ],
+        query: ">",
+        isInSubmenu: true,
+        projectSearchItems: [],
+        threadSearchItems: [],
+      }),
+    ).toEqual([
+      {
+        value: "new-thread-actions",
+        label: "Actions",
+        items: [addProjectItem],
+      },
+    ]);
+  });
+});
+
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
+
+describe("resolveBrowseTabCompletion", () => {
+  const entries = [
+    { name: "alpha", fullPath: "/workspace/alpha" },
+    { name: "alpine", fullPath: "/workspace/alpine" },
+  ];
+
+  it("uses the highlighted directory", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: "browse:/workspace/alpine",
+      }),
+    ).toEqual({ kind: "entry", entry: entries[1] });
+  });
+
+  it("uses the first directory when none is highlighted", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: null,
+      }),
+    ).toEqual({ kind: "entry", entry: entries[0] });
+  });
+
+  it("preserves the highlighted parent-directory action", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: "browse:up",
+      }),
+    ).toEqual({ kind: "up" });
+  });
+
+  it("returns null when there are no matching directories", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: [],
+        highlightedItemValue: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not enter the first child when the completed path has no leaf filter", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        allowFirstEntryFallback: false,
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("uses the case-sensitive exact entry before the first prefix match", () => {
+    const caseVariants = [
+      { name: "Docs", fullPath: "/workspace/Docs" },
+      { name: "docs", fullPath: "/workspace/docs" },
+    ];
+
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: null,
+      }),
+    ).toEqual({ kind: "entry", entry: caseVariants[1] });
+  });
+
+  it("keeps a highlighted row ahead of a different exact entry", () => {
+    const caseVariants = [
+      { name: "Docs", fullPath: "/workspace/Docs" },
+      { name: "docs", fullPath: "/workspace/docs" },
+    ];
+
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: "browse:/workspace/Docs",
+      }),
+    ).toEqual({ kind: "entry", entry: caseVariants[0] });
+  });
+
+  it("uses an exact entry when a stored highlight no longer resolves", () => {
+    const caseVariants = [
+      { name: "Docs", fullPath: "/workspace/Docs" },
+      { name: "docs", fullPath: "/workspace/docs" },
+    ];
+
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: "browse:/workspace/removed",
+      }),
+    ).toEqual({ kind: "entry", entry: caseVariants[1] });
+  });
+});
+
+describe("shouldIgnoreAddProjectShortcut", () => {
+  it("allows Alt+A from the editable search input while the new-task palette is open", () => {
+    expect(shouldIgnoreAddProjectShortcut({ paletteOpen: true, editableTarget: true })).toBe(false);
+  });
+
+  it("continues to ignore Alt+A from editors outside the palette", () => {
+    expect(shouldIgnoreAddProjectShortcut({ paletteOpen: false, editableTarget: true })).toBe(true);
+  });
+});
+
+describe("shouldResetPaletteFlowOnPop", () => {
+  it("resets a flow opened from a nested parent when its first view is popped", () => {
+    expect(shouldResetPaletteFlowOnPop(1, 2)).toBe(true);
+  });
+
+  it("keeps a flow active while popping between its own nested views", () => {
+    expect(shouldResetPaletteFlowOnPop(1, 3)).toBe(false);
+  });
+});
+
+describe("resetAddProjectFlowState", () => {
+  it("clears every piece of add-project state before opening another palette flow", () => {
+    const flowBaseDepthRef = { current: 2 as number | null };
+    const clearEnvironment = vi.fn();
+    const clearCloneFlow = vi.fn();
+
+    resetAddProjectFlowState({
+      flowBaseDepthRef,
+      clearEnvironment,
+      clearCloneFlow,
+    });
+
+    expect(clearEnvironment).toHaveBeenCalledOnce();
+    expect(clearCloneFlow).toHaveBeenCalledOnce();
+    expect(flowBaseDepthRef.current).toBeNull();
+  });
+});
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
