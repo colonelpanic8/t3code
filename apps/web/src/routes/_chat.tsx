@@ -1,5 +1,4 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
-import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
 
 import {
@@ -9,7 +8,11 @@ import {
 } from "../commandPaletteBus";
 import { useClientSettings } from "../hooks/useSettings";
 import { useProjects } from "../state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useAppOwnsLocalEnvironment,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
 import {
@@ -33,14 +36,15 @@ import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
-import { primaryServerKeybindingsAtom } from "~/state/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { useDefaultServerConfig } from "~/hooks/useDefaultServerConfig";
 
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const sidebarV2Enabled = useClientSettings((settings) => settings.sidebarV2Enabled);
   const sidebarProjectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -48,6 +52,7 @@ function ChatRouteGlobalShortcuts() {
   const projectOrder = useUiStateStore((state) => state.projectOrder);
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const environmentLabelById = useMemo(
     () =>
       new Map(
@@ -74,10 +79,12 @@ function ChatRouteGlobalShortcuts() {
         projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       environmentLabelById,
+      ownsLocalEnvironment,
       orderedProjects,
       primaryEnvironmentId,
       projectGroupingSettings,
