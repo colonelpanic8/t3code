@@ -298,11 +298,16 @@ export function filterCommandPaletteGroups(input: {
 }
 
 /**
- * Whether the filesystem behind the add-project browser can actually be
- * reached right now. Browsing resolves paths on the *selected environment*, so
- * an unreachable environment must fail loudly: without this the browse query
- * just returns nothing, the directory list renders empty, and the palette
- * cheerfully offers to "Create & Add" a folder on a host we never contacted.
+ * Whether the *selected environment* can be reached right now. Browsing
+ * resolves paths on that environment's filesystem, so an unreachable one must
+ * fail loudly: otherwise the browse query returns nothing and the empty
+ * directory list is indistinguishable from a real empty directory.
+ *
+ * Deliberately keyed on reachability ONLY, never on a browse failure. Browse
+ * legitimately fails on a reachable host when the path does not exist yet --
+ * the server surfaces `read_directory_failed` for a missing parent, which is
+ * exactly the "type a new folder name and press Enter to create it" case. If
+ * that blocked submission, Create & Add could never create anything.
  */
 export type BrowseAvailability =
   | { readonly _tag: "Available" }
@@ -318,44 +323,29 @@ export function resolveBrowseAvailability(input: {
   readonly environmentLabel: string | null;
   readonly connectionPhase: EnvironmentConnectionPhase | null;
   readonly connectionError: string | null;
-  readonly browseError: string | null;
 }): BrowseAvailability {
   const label = input.environmentLabel ?? "this environment";
+  const withReason = (text: string) =>
+    input.connectionError ? `${text} Reason: ${input.connectionError}` : text;
 
   if (input.connectionPhase === null) {
-    return unavailable("Select an environment to browse.");
+    return unavailable("Select an environment first.");
   }
 
   switch (input.connectionPhase) {
+    case "connected":
+      return AVAILABLE_BROWSE;
     case "connecting":
       return unavailable(`Connecting to ${label}...`);
     case "reconnecting":
-      return unavailable(
-        input.connectionError
-          ? `Reconnecting to ${label}. Reason: ${input.connectionError}`
-          : `Reconnecting to ${label}...`,
-      );
+      return unavailable(withReason(`Reconnecting to ${label}.`));
     case "offline":
-      return unavailable(`${label} is offline, so its files can't be browsed.`);
+      return unavailable(`${label} is offline.`);
     case "available":
-      return unavailable(`${label} isn't connected, so its files can't be browsed.`);
+      return unavailable(`${label} isn't connected.`);
     case "error":
-      return unavailable(
-        input.connectionError
-          ? `Can't reach ${label}. Reason: ${input.connectionError}`
-          : `Can't reach ${label}.`,
-      );
-    case "connected":
-      break;
+      return unavailable(withReason(`Can't reach ${label}.`));
   }
-
-  // Connected, but the browse RPC itself failed (permission denied, path
-  // resolution error, environment wedged mid-request).
-  if (input.browseError !== null) {
-    return unavailable(`Can't browse ${label}. Reason: ${input.browseError}`);
-  }
-
-  return AVAILABLE_BROWSE;
 }
 
 export function buildBrowseGroups(input: {
