@@ -38,6 +38,7 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
+import { BuildCommitLink } from "./BuildCommitLink";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
@@ -173,6 +174,7 @@ function AboutVersionTitle() {
     <span className="inline-flex items-center gap-2">
       <span>Version</span>
       <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+      <BuildCommitLink />
     </span>
   );
 }
