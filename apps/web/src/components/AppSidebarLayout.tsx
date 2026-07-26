@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -7,7 +6,8 @@ import { isElectron } from "../env";
 import { getLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
-import { primaryServerKeybindingsAtom } from "../state/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import { useClientSettings } from "../hooks/useSettings";
 import ThreadSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
@@ -45,7 +45,7 @@ function readInitialThreadSidebarWidth(): number {
 }
 
 function SidebarControl() {
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const { toggleSidebar } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const stageBackdropVariant = useSidebarStageBackdropVariant();
