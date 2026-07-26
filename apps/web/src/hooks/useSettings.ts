@@ -24,6 +24,7 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import {
   applyPendingServerPatches,
   getPendingServerPatches,
@@ -242,6 +243,12 @@ export function useClientSettings<T = ClientSettings>(
 ): T {
   const settings = useClientSettingsValue();
   return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
+}
+
+/** Resolve the shortcuts owned and persisted by this client. */
+export function useClientKeybindings() {
+  const keybindings = useClientSettings((settings) => settings.keybindings);
+  return useMemo(() => compileResolvedKeybindingsConfig(keybindings), [keybindings]);
 }
 
 /** Read current settings for one environment, merged with client-local preferences. */

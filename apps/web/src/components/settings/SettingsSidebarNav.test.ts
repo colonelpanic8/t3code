@@ -14,6 +14,7 @@ describe("settings navigation ownership", () => {
         label: "Client",
         routes: [
           "/settings/general",
+          "/settings/keybindings",
           "/settings/connections",
           "/settings/beta",
           "/settings/archived",
@@ -21,12 +22,7 @@ describe("settings navigation ownership", () => {
       },
       {
         label: "Environment",
-        routes: [
-          "/settings/environment",
-          "/settings/keybindings",
-          "/settings/providers",
-          "/settings/source-control",
-        ],
+        routes: ["/settings/environment", "/settings/providers", "/settings/source-control"],
       },
     ]);
   });
