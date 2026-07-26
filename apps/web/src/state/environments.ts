@@ -88,7 +88,10 @@ export function useEnvironmentPresenceScope(): EnvironmentPresenceScope {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   return useMemo(
-    () => ({ primaryEnvironmentId, ownsLocalEnvironment }),
+    () =>
+      ownsLocalEnvironment
+        ? { kind: "local-owner", localEnvironmentId: primaryEnvironmentId }
+        : { kind: "remote-client" },
     [primaryEnvironmentId, ownsLocalEnvironment],
   );
 }

@@ -1,7 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import type { ComponentProps } from "react";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 import { cn } from "~/lib/utils";
+import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
 
 export function RemoteEnvironmentIndicator({
   icon: Icon,
@@ -28,13 +30,11 @@ export function RemoteEnvironmentIndicator({
 }
 
 export function shouldShowRemoteEnvironmentIndicator(input: {
-  readonly currentEnvironmentId: string | null;
-  readonly threadEnvironmentId: string;
+  readonly presenceScope: EnvironmentPresenceScope;
+  readonly threadEnvironmentId: EnvironmentId;
   readonly isDesktopLocal: boolean;
 }) {
   return (
-    input.currentEnvironmentId !== null &&
-    input.threadEnvironmentId !== input.currentEnvironmentId &&
-    !input.isDesktopLocal
+    isRemoteEnvironmentId(input.threadEnvironmentId, input.presenceScope) && !input.isDesktopLocal
   );
 }

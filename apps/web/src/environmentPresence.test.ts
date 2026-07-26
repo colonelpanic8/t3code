@@ -8,21 +8,24 @@ const remoteEnvironmentId = EnvironmentId.make("env-remote");
 
 describe("isRemoteEnvironmentId", () => {
   it("treats the primary environment as local and everything else as remote", () => {
-    const scope = { primaryEnvironmentId, ownsLocalEnvironment: true };
+    const scope = {
+      kind: "local-owner",
+      localEnvironmentId: primaryEnvironmentId,
+    } as const;
 
     expect(isRemoteEnvironmentId(primaryEnvironmentId, scope)).toBe(false);
     expect(isRemoteEnvironmentId(remoteEnvironmentId, scope)).toBe(true);
   });
 
   it("treats every environment as remote when the app owns no local backend", () => {
-    const scope = { primaryEnvironmentId: null, ownsLocalEnvironment: false };
+    const scope = { kind: "remote-client" } as const;
 
     expect(isRemoteEnvironmentId(remoteEnvironmentId, scope)).toBe(true);
     expect(isRemoteEnvironmentId(primaryEnvironmentId, scope)).toBe(true);
   });
 
   it("treats nothing as remote while a managed app's primary is still registering", () => {
-    const scope = { primaryEnvironmentId: null, ownsLocalEnvironment: true };
+    const scope = { kind: "local-owner", localEnvironmentId: null } as const;
 
     expect(isRemoteEnvironmentId(remoteEnvironmentId, scope)).toBe(false);
   });

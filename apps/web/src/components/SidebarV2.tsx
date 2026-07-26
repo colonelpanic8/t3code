@@ -99,7 +99,7 @@ import {
   useEnvironmentPresenceScope,
   useEnvironments,
 } from "../state/environments";
-import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
+import type { EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -550,11 +550,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
   const environment = useEnvironment(thread.environmentId);
   const isDesktopLocal =
     environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
-  const showRemoteEnvironmentIndicator = isRemote && !isDesktopLocal;
+  const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
+    presenceScope: props.presenceScope,
+    threadEnvironmentId: thread.environmentId,
+    isDesktopLocal,
+  });
   const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
 
   const detailsTooltip = (
@@ -1080,7 +1083,9 @@ export default function SidebarV2() {
   );
   const { environments } = useEnvironments();
   const presenceScope = useEnvironmentPresenceScope();
-  const { ownsLocalEnvironment, primaryEnvironmentId } = presenceScope;
+  const ownsLocalEnvironment = presenceScope.kind === "local-owner";
+  const primaryEnvironmentId =
+    presenceScope.kind === "local-owner" ? presenceScope.localEnvironmentId : null;
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);

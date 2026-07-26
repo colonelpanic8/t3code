@@ -26,7 +26,6 @@ import {
   RemoteEnvironmentIndicator,
   shouldShowRemoteEnvironmentIndicator,
 } from "./RemoteEnvironmentIndicator";
-import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -411,7 +410,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const isDesktopLocalThread =
     environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
   const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
-    currentEnvironmentId: primaryEnvironmentId,
+    presenceScope,
     threadEnvironmentId: thread.environmentId,
     isDesktopLocal: isDesktopLocalThread,
   });

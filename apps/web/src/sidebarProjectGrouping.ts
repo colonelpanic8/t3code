@@ -168,10 +168,13 @@ export function buildSidebarProjectSnapshots(input: {
     }
   }
 
-  const presenceScope: EnvironmentPresenceScope = {
-    primaryEnvironmentId: input.primaryEnvironmentId,
-    ownsLocalEnvironment: input.ownsLocalEnvironment ?? true,
-  };
+  const presenceScope: EnvironmentPresenceScope =
+    (input.ownsLocalEnvironment ?? true)
+      ? {
+          kind: "local-owner",
+          localEnvironmentId: input.primaryEnvironmentId,
+        }
+      : { kind: "remote-client" };
   const result: SidebarProjectSnapshot[] = [];
   const seen = new Set<string>();
   for (const project of input.projects) {
