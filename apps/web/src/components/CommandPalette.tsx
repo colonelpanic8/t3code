@@ -46,7 +46,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { useAtomValue } from "@effect/atom-react";
 
 import { connectionStatusText } from "@t3tools/client-runtime/connection";
 
@@ -138,7 +137,8 @@ import { CommandPaletteResults } from "./CommandPaletteResults";
 import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
-import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import { resolveDefaultProviderModelSelection } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import {
@@ -469,7 +469,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   );
   const openNewThreadOn = useCallback(() => dispatch({ _tag: "OpenNewThreadOn" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
   const routeTarget = useParams({
     strict: false,
@@ -598,8 +598,9 @@ function OpenCommandPaletteDialog(props: {
   const allEnvironmentShellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const providers = useAtomValue(primaryServerProvidersAtom);
+  const defaultServerConfig = useDefaultServerConfig();
+  const keybindings = defaultServerConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const providers = defaultServerConfig?.providers ?? [];
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const viewStackDepthRef = useRef(0);
   viewStackDepthRef.current = viewStack.length;
