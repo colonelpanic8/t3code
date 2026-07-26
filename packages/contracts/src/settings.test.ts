@@ -54,6 +54,32 @@ describe("ClientSettings keybindings", () => {
   });
 });
 
+describe("ClientSettings workflow preferences", () => {
+  it("owns assistant presentation and new-thread defaults", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.enableAssistantStreaming).toBe(false);
+    expect(settings.defaultThreadEnvMode).toBe("local");
+    expect(settings.newWorktreesStartFromOrigin).toBe(true);
+    expect(settings.hasMigratedServerWorkflowPreferences).toBe(false);
+  });
+
+  it("accepts client-local updates and their migration marker", () => {
+    expect(
+      decodeClientSettingsPatch({
+        enableAssistantStreaming: true,
+        defaultThreadEnvMode: "worktree",
+        newWorktreesStartFromOrigin: false,
+        hasMigratedServerWorkflowPreferences: true,
+      }),
+    ).toEqual({
+      enableAssistantStreaming: true,
+      defaultThreadEnvMode: "worktree",
+      newWorktreesStartFromOrigin: false,
+      hasMigratedServerWorkflowPreferences: true,
+    });
+  });
+});
+
 describe("ClientSettings environment display names", () => {
   const environmentId = EnvironmentId.make("environment-1");
 
@@ -184,15 +210,20 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   });
 });
 
-describe("ServerSettings worktree defaults", () => {
-  it("defaults start-from-origin on for legacy configs", () => {
+describe("ServerSettings legacy workflow preferences", () => {
+  it("keeps old values readable for one-time client migration", () => {
     expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(true);
   });
 
-  it("accepts start-from-origin updates", () => {
-    expect(
-      decodeServerSettingsPatch({ newWorktreesStartFromOrigin: false }).newWorktreesStartFromOrigin,
-    ).toBe(false);
+  it("does not accept new environment-scoped updates", () => {
+    const patch = decodeServerSettingsPatch({
+      enableAssistantStreaming: true,
+      defaultThreadEnvMode: "worktree",
+      newWorktreesStartFromOrigin: false,
+    });
+    expect(patch).not.toHaveProperty("enableAssistantStreaming");
+    expect(patch).not.toHaveProperty("defaultThreadEnvMode");
+    expect(patch).not.toHaveProperty("newWorktreesStartFromOrigin");
   });
 });
 

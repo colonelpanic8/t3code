@@ -424,8 +424,6 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
-    ];
-    const environmentSettingLabels = [
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -436,6 +434,8 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
       DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
         ? ["New worktrees start from origin"]
         : []),
+    ];
+    const environmentSettingLabels = [
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
@@ -483,12 +483,12 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
         autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
         confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
         confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
-      });
-    } else {
-      updateSettings({
         enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
         defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
         newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+      });
+    } else {
+      updateSettings({
         addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
         textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       });
@@ -793,36 +793,33 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
           </>
         ) : null}
 
-        {ownership === "environment" ? (
-          <>
-            <SettingsRow
-              title="Assistant output"
-              description="Show token-by-token output while a response is in progress."
-              resetAction={
-                settings.enableAssistantStreaming !==
-                DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
-                  <SettingResetButton
-                    label="assistant output"
-                    onClick={() =>
-                      updateSettings({
-                        enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.enableAssistantStreaming}
-                  disabled={!canConfigureServer}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ enableAssistantStreaming: Boolean(checked) })
+        {ownership === "client" ? (
+          <SettingsRow
+            title="Assistant output"
+            description="Show token-by-token output while a response is in progress."
+            resetAction={
+              settings.enableAssistantStreaming !==
+              DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
+                <SettingResetButton
+                  label="assistant output"
+                  onClick={() =>
+                    updateSettings({
+                      enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+                    })
                   }
-                  aria-label="Stream assistant messages"
                 />
-              }
-            />
-          </>
+              ) : null
+            }
+            control={
+              <Switch
+                checked={settings.enableAssistantStreaming}
+                onCheckedChange={(checked) =>
+                  updateSettings({ enableAssistantStreaming: Boolean(checked) })
+                }
+                aria-label="Stream assistant messages"
+              />
+            }
+          />
         ) : null}
 
         {ownership === "client" ? (
@@ -853,7 +850,7 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
           />
         ) : null}
 
-        {ownership === "environment" ? (
+        {ownership === "client" ? (
           <>
             <SettingsRow
               title="New threads"
@@ -883,11 +880,7 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
                     }
                   }}
                 >
-                  <SelectTrigger
-                    className="w-full sm:w-44"
-                    aria-label="Default thread mode"
-                    disabled={!canConfigureServer}
-                  >
+                  <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
                     <SelectValue>
                       {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
                     </SelectValue>
@@ -926,7 +919,6 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
                 control={
                   <Switch
                     checked={settings.newWorktreesStartFromOrigin}
-                    disabled={!canConfigureServer}
                     onCheckedChange={(checked) =>
                       updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
                     }
@@ -935,36 +927,38 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
                 }
               />
             ) : null}
-
-            <SettingsRow
-              title="Add project starts in"
-              description='Leave empty to use "~/" when the Add Project browser opens.'
-              resetAction={
-                settings.addProjectBaseDirectory !==
-                DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
-                  <SettingResetButton
-                    label="add project base directory"
-                    onClick={() =>
-                      updateSettings({
-                        addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <DraftInput
-                  className="w-full sm:w-72"
-                  disabled={!canConfigureServer}
-                  value={settings.addProjectBaseDirectory}
-                  onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
-                  placeholder="~/"
-                  spellCheck={false}
-                  aria-label="Add project base directory"
-                />
-              }
-            />
           </>
+        ) : null}
+
+        {ownership === "environment" ? (
+          <SettingsRow
+            title="Add project starts in"
+            description='Leave empty to use "~/" when the Add Project browser opens.'
+            resetAction={
+              settings.addProjectBaseDirectory !==
+              DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
+                <SettingResetButton
+                  label="add project base directory"
+                  onClick={() =>
+                    updateSettings({
+                      addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <DraftInput
+                className="w-full sm:w-72"
+                disabled={!canConfigureServer}
+                value={settings.addProjectBaseDirectory}
+                onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
+                placeholder="~/"
+                spellCheck={false}
+                aria-label="Add project base directory"
+              />
+            }
+          />
         ) : null}
 
         {ownership === "client" ? (

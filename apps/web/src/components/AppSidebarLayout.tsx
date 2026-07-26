@@ -112,7 +112,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const hasMigratedServerKeybindings = useClientSettings(
     (settings) => settings.hasMigratedServerKeybindings,
   );
-  const legacyServerKeybindings = useDefaultServerConfig()?.keybindings ?? null;
+  const hasMigratedServerWorkflowPreferences = useClientSettings(
+    (settings) => settings.hasMigratedServerWorkflowPreferences,
+  );
+  const defaultServerConfig = useDefaultServerConfig();
+  const legacyServerKeybindings = defaultServerConfig?.keybindings ?? null;
+  const legacyServerWorkflowPreferences = defaultServerConfig?.settings ?? null;
   const updateClientSettingsWith = useUpdateClientSettingsWith();
   const sidebarV2Enabled = useClientSettings((settings) => settings.sidebarV2Enabled);
   // Settings routes render the settings nav, which lives in the v1 component
@@ -147,6 +152,27 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     clientSettingsHydrated,
     hasMigratedServerKeybindings,
     legacyServerKeybindings,
+    updateClientSettingsWith,
+  ]);
+
+  useEffect(() => {
+    if (
+      !clientSettingsHydrated ||
+      hasMigratedServerWorkflowPreferences ||
+      legacyServerWorkflowPreferences === null
+    ) {
+      return;
+    }
+    updateClientSettingsWith(() => ({
+      enableAssistantStreaming: legacyServerWorkflowPreferences.enableAssistantStreaming,
+      defaultThreadEnvMode: legacyServerWorkflowPreferences.defaultThreadEnvMode,
+      newWorktreesStartFromOrigin: legacyServerWorkflowPreferences.newWorktreesStartFromOrigin,
+      hasMigratedServerWorkflowPreferences: true,
+    }));
+  }, [
+    clientSettingsHydrated,
+    hasMigratedServerWorkflowPreferences,
+    legacyServerWorkflowPreferences,
     updateClientSettingsWith,
   ]);
 
