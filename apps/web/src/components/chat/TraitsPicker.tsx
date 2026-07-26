@@ -219,6 +219,7 @@ export interface TraitsMenuContentProps {
   allowPromptInjectedEffort?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
+  onSelectionComplete?: () => void;
 }
 
 export interface TraitsPickerControlProps {
@@ -236,6 +237,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
+  onSelectionComplete,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -288,6 +290,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           ? ULTRATHINK_PROMPT_PREFIX
           : applyClaudePromptEffortPrefix(prompt, "ultrathink");
       onPromptChange(nextPrompt);
+      onSelectionComplete?.();
       return;
     }
     if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
@@ -296,6 +299,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       onPromptChange(stripped);
     }
     updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
+    onSelectionComplete?.();
   };
 
   if (!hasAnyControls) {
@@ -368,6 +372,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                   updateDescriptors(
                     replaceDescriptorCurrentValue(descriptors, descriptor.id, value === "on"),
                   );
+                  onSelectionComplete?.();
                 }}
               >
                 {(["on", "off"] as const).map((value) => (
@@ -440,6 +445,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   open,
   onOpenChange,
   shortcutHintLabel,
+  onSelectionComplete,
   ...persistence
 }: TraitsMenuContentProps & TraitsPickerControlProps & TraitsPersistence) {
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
@@ -531,6 +537,13 @@ export const TraitsPicker = memo(function TraitsPicker({
           onPromptChange={onPromptChange}
           modelOptions={modelOptions}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
+          onSelectionComplete={() => {
+            onOpenChange?.(false);
+            if (open === undefined) {
+              setUncontrolledMenuOpen(false);
+            }
+            onSelectionComplete?.();
+          }}
           {...persistence}
         />
       </MenuPopup>

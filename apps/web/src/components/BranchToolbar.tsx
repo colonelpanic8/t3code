@@ -496,6 +496,9 @@ export const BranchToolbar = memo(function BranchToolbar({
                 open={environmentPickerOpen}
                 onOpenChange={(open) => handlePickerOpenChange("environment", open)}
                 shortcutHintLabel={availableEnvironmentHintLabel}
+                {...(onComposerFocusRequest
+                  ? { onSelectionComplete: onComposerFocusRequest }
+                  : {})}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
               <Separator orientation="vertical" className="mx-0.5 h-3.5!" />

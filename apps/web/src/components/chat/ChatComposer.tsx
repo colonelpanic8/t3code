@@ -291,6 +291,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
+  onSelectionComplete: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -353,7 +354,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           value={props.runtimeMode}
           open={props.runtimeModePickerOpen}
           onOpenChange={props.onRuntimeModePickerOpenChange}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+          onValueChange={(value) => {
+            props.onRuntimeModeChange(value!);
+            props.onSelectionComplete();
+          }}
         >
           <TooltipTrigger
             render={
@@ -1313,6 +1317,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       applyComposerPickerOpenChange("traits", open);
     },
     shortcutHintLabel: composerControlHintLabels?.modelOptionsPicker ?? null,
+    onSelectionComplete: scheduleComposerFocus,
   });
   const pendingPrimaryAction = useMemo(
     () =>
@@ -2879,6 +2884,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 ) : (
                   <>
@@ -2906,6 +2912,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
+                      onSelectionComplete={scheduleComposerFocus}
                     />
                   </>
                 )}
