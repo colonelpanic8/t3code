@@ -208,7 +208,8 @@ import {
   useEnvironmentAccentColor,
   useEnvironmentAccentColors,
 } from "~/environmentAccentColors";
-import { primaryServerKeybindingsAtom } from "../state/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -3048,7 +3049,7 @@ export default function Sidebar() {
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
       : false,
   );
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
