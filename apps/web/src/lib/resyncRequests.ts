@@ -33,9 +33,12 @@ const defaultScheduler: ResyncScheduler = {
 
 let lastFiredAtMs: number | null = null;
 let trailingScheduled = false;
+/** Whether a request has arrived that no reconcile has covered yet. */
+let requestOutstanding = false;
 
 function fire(atMs: number): void {
   lastFiredAtMs = atMs;
+  requestOutstanding = false;
   ResyncRequests.requestResync();
 }
 
@@ -54,12 +57,22 @@ export function requestResync(scheduler: ResyncScheduler = defaultScheduler): vo
     fire(nowMs);
     return;
   }
+  requestOutstanding = true;
   if (trailingScheduled) {
     return;
   }
   trailingScheduled = true;
   scheduler.setTimer(() => {
     trailingScheduled = false;
+    // An immediate reconcile may have landed since this was scheduled — an
+    // open window, or a backward clock jump. It already covered whatever was
+    // outstanding, so firing again would be the double reconcile the
+    // coalescing exists to prevent. Tracking outstanding work rather than
+    // cancelling the timer keeps a request that arrived *after* that
+    // reconcile from being dropped along with the obsolete one.
+    if (!requestOutstanding) {
+      return;
+    }
     fire(scheduler.now());
   }, RESYNC_MIN_INTERVAL_MS - elapsedMs);
 }
@@ -68,4 +81,5 @@ export function requestResync(scheduler: ResyncScheduler = defaultScheduler): vo
 export function resetResyncThrottleForTesting(): void {
   lastFiredAtMs = null;
   trailingScheduled = false;
+  requestOutstanding = false;
 }

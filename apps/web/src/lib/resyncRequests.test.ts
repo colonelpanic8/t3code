@@ -111,6 +111,34 @@ describe("requestResync", () => {
     expect(fired).toBe(2);
   });
 
+  it("does not fire a trailing reconcile that an immediate one already covered", () => {
+    // A backward clock jump fires immediately while a trailing reconcile is
+    // still scheduled. That pending timer is now obsolete: letting it run
+    // would produce two reconciles for one logical request.
+    const fired = withHarness((h) => {
+      h.requestAt(1_000_000);
+      h.requestAt(1_000_100);
+      h.requestAt(0);
+      expect(h.fired()).toBe(2);
+      h.runDueTimers();
+    });
+    expect(fired).toBe(2);
+  });
+
+  it("still reconciles for a request that arrives after an immediate fire", () => {
+    // The obsolete-timer check must not swallow a request raised *after* the
+    // reconcile that superseded it.
+    const fired = withHarness((h) => {
+      h.requestAt(0);
+      h.requestAt(100);
+      h.requestAt(RESYNC_MIN_INTERVAL_MS);
+      expect(h.fired()).toBe(2);
+      h.requestAt(RESYNC_MIN_INTERVAL_MS + 100);
+      h.runDueTimers();
+    });
+    expect(fired).toBe(3);
+  });
+
   it("recovers from a backward clock jump instead of wedging shut", () => {
     // An NTP correction or manual clock change must not suppress every
     // reconcile until wall time catches back up to the old timestamp.
