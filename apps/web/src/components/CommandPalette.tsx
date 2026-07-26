@@ -55,11 +55,7 @@ import { useEnvironmentQuery } from "../state/query";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
-import {
-  useAppOwnsLocalEnvironment,
-  useEnvironments,
-  usePrimaryEnvironmentId,
-} from "../state/environments";
+import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
@@ -496,7 +492,6 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useProjects();
@@ -546,14 +541,12 @@ function OpenCommandPaletteDialog(props: {
         projects: clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
-        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
       clientSettings.sidebarProjectSortOrder,
       environmentLabelById,
       orderedProjects,
-      ownsLocalEnvironment,
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,

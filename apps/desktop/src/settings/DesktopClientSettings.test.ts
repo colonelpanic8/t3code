@@ -21,9 +21,11 @@ const clientSettings: ClientSettings = {
   environmentAccentColors: {
     [EnvironmentId.make("environment-1")]: "#2563eb",
   },
+  environmentDisplayNames: {},
   favorites: [],
   glassOpacity: 80,
   providerModelPreferences: {},
+  showEnvironmentBadges: true,
   sidebarAutoSettleAfterDays: 3,
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {

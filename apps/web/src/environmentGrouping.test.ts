@@ -81,31 +81,21 @@ describe("environment grouping", () => {
     expect(projectGroupCount).toBe(1);
   });
 
-  it("marks every project remote for an app with no local backend of its own", () => {
+  it("marks every project remote while there is no primary environment", () => {
     const remote = makeProject({
       id: ProjectId.make("project-remote"),
       environmentId: remoteEnvironmentId,
     });
 
-    const [clientOnly] = buildSidebarProjectSnapshots({
-      projects: [remote],
-      settings: defaultGroupingSettings,
-      primaryEnvironmentId: null,
-      ownsLocalEnvironment: false,
-      resolveEnvironmentLabel: () => "remote",
-    });
-
-    expect(clientOnly?.environmentPresence).toBe("remote-only");
-    expect(clientOnly?.remoteEnvironmentLabels).toEqual(["remote"]);
-
-    const [managed] = buildSidebarProjectSnapshots({
+    const [withoutPrimary] = buildSidebarProjectSnapshots({
       projects: [remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId: null,
       resolveEnvironmentLabel: () => "remote",
     });
 
-    expect(managed?.environmentPresence).toBe("local-only");
+    expect(withoutPrimary?.environmentPresence).toBe("remote-only");
+    expect(withoutPrimary?.remoteEnvironmentLabels).toEqual(["remote"]);
   });
 
   it("keeps projects without repository identity physically scoped", () => {

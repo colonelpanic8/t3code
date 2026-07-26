@@ -9,8 +9,6 @@ import * as Option from "effect/Option";
 import { useMemo } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
-import { runtimeOwnsLocalEnvironment, type EnvironmentPresenceScope } from "../environmentPresence";
-import { isDesktopClientOnlyMode } from "../environments/primary";
 import { useClientSettings } from "../hooks/useSettings";
 import { environmentPresentations, useEnvironmentPresentation } from "./presentation";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
@@ -66,36 +64,6 @@ export function useEnvironments() {
 
 export function usePrimaryEnvironmentId(): EnvironmentId | null {
   return useAtomValue(primaryEnvironmentIdAtom);
-}
-
-/**
- * Whether this app can ever serve an environment from its own backend. Only a
- * managed desktop runtime owns that backend. Browser clients remain remote
- * clients even when the backend also served their application assets.
- */
-export function appOwnsLocalEnvironment(): boolean {
-  return runtimeOwnsLocalEnvironment({
-    hasDesktopBridge: window.desktopBridge !== undefined,
-    desktopClientOnlyMode: isDesktopClientOnlyMode(),
-  });
-}
-
-export function useAppOwnsLocalEnvironment(): boolean {
-  // The answer is fixed for the app's lifetime: the hosted-static check is
-  // origin/build derived, and changing the desktop backend mode relaunches.
-  return useMemo(appOwnsLocalEnvironment, []);
-}
-
-export function useEnvironmentPresenceScope(): EnvironmentPresenceScope {
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
-  return useMemo(
-    () =>
-      ownsLocalEnvironment
-        ? { kind: "local-owner", localEnvironmentId: primaryEnvironmentId }
-        : { kind: "remote-client" },
-    [primaryEnvironmentId, ownsLocalEnvironment],
-  );
 }
 
 export function useEnvironment(

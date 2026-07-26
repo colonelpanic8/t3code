@@ -58,6 +58,21 @@ describe("ClientSettings environment display names", () => {
   });
 });
 
+describe("ClientSettings environment badges", () => {
+  it("shows environment badges by default", () => {
+    expect(decodeClientSettings({}).showEnvironmentBadges).toBe(true);
+  });
+
+  it("allows environment badges to be hidden", () => {
+    expect(decodeClientSettings({ showEnvironmentBadges: false }).showEnvironmentBadges).toBe(
+      false,
+    );
+    expect(decodeClientSettingsPatch({ showEnvironmentBadges: false }).showEnvironmentBadges).toBe(
+      false,
+    );
+  });
+});
+
 describe("ClientSettings glass opacity", () => {
   it("defaults to a readable translucent surface", () => {
     expect(decodeClientSettings({}).glassOpacity).toBe(80);

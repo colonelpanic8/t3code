@@ -1,6 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
-import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "./environmentPresence";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -121,10 +120,6 @@ export function buildSidebarProjectSnapshots(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
   primaryEnvironmentId: EnvironmentId | null;
-  // False when the app has no backend of its own (a browser client or
-  // client-only desktop), which makes every member of a group remote.
-  // Defaults to true so callers that always own a local backend are unchanged.
-  ownsLocalEnvironment?: boolean;
   resolveEnvironmentLabel: (environmentId: EnvironmentId) => string | null;
   // Returns true when an env id maps to a desktopLocal saved-env
   // record (today: the WSL backend). Defaults to "false for every
@@ -168,13 +163,6 @@ export function buildSidebarProjectSnapshots(input: {
     }
   }
 
-  const presenceScope: EnvironmentPresenceScope =
-    (input.ownsLocalEnvironment ?? true)
-      ? {
-          kind: "local-owner",
-          localEnvironmentId: input.primaryEnvironmentId,
-        }
-      : { kind: "remote-client" };
   const result: SidebarProjectSnapshot[] = [];
   const seen = new Set<string>();
   for (const project of input.projects) {
@@ -193,9 +181,10 @@ export function buildSidebarProjectSnapshots(input: {
       continue;
     }
 
-    const remoteMembers = members.filter((member) =>
-      isRemoteEnvironmentId(member.environmentId, presenceScope),
-    );
+    const remoteMembers =
+      input.primaryEnvironmentId === null
+        ? members
+        : members.filter((member) => member.environmentId !== input.primaryEnvironmentId);
     const hasRemote = remoteMembers.length > 0;
     const hasLocal = remoteMembers.length < members.length;
     const remoteEnvironmentLabels = remoteMembers

@@ -412,6 +412,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
         : []),
+      ...(settings.showEnvironmentBadges !== DEFAULT_UNIFIED_SETTINGS.showEnvironmentBadges
+        ? ["Environment badges"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -461,6 +464,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.automaticGitFetchInterval,
       settings.enableAssistantStreaming,
       settings.enableProviderUpdateChecks,
+      settings.showEnvironmentBadges,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
@@ -487,6 +491,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+      showEnvironmentBadges: DEFAULT_UNIFIED_SETTINGS.showEnvironmentBadges,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -707,6 +712,30 @@ export function GeneralSettingsPanel() {
                 });
               }}
               aria-label="Project Grouping"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Environment badges"
+          description="Show the environment name and host icon on every thread, including localhost."
+          resetAction={
+            settings.showEnvironmentBadges !== DEFAULT_UNIFIED_SETTINGS.showEnvironmentBadges ? (
+              <SettingResetButton
+                label="environment badges"
+                onClick={() =>
+                  updateSettings({
+                    showEnvironmentBadges: DEFAULT_UNIFIED_SETTINGS.showEnvironmentBadges,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showEnvironmentBadges}
+              onCheckedChange={(showEnvironmentBadges) => updateSettings({ showEnvironmentBadges })}
+              aria-label="Environment badges"
             />
           }
         />
