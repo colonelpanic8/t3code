@@ -221,7 +221,10 @@ function AboutVersionSection() {
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = {
+    download: "Download",
+    install: "Install",
+  };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
@@ -298,7 +301,9 @@ function AboutVersionSection() {
               onValueChange={(value) => {
                 if (value === selectedHostedAppChannel) return;
                 window.location.assign(
-                  buildHostedChannelSelectionUrl({ channel: value as HostedAppChannel }),
+                  buildHostedChannelSelectionUrl({
+                    channel: value as HostedAppChannel,
+                  }),
                 );
               }}
             >
@@ -321,7 +326,9 @@ function AboutVersionSection() {
   );
 }
 
-export function useSettingsRestore(onRestored?: () => void) {
+export type SettingsOwnership = "client" | "environment";
+
+export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
   const { environmentId, environment } = useSettingsEnvironment();
   const settings = useEnvironmentSettings(environmentId);
@@ -333,10 +340,12 @@ export function useSettingsRestore(onRestored?: () => void) {
   );
   const hasChangedServerSettings = hasChangedGeneralServerSettings(settings);
   const canRestoreDefaults =
-    !hasChangedServerSettings || environment?.connection.phase === "connected";
+    ownership === "client" ||
+    !hasChangedServerSettings ||
+    environment?.connection.phase === "connected";
 
-  const changedSettingLabels = useMemo(
-    () => [
+  const changedSettingLabels = useMemo(() => {
+    const clientSettingLabels = [
       ...(theme !== "system" ? ["Theme"] : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
@@ -356,6 +365,14 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
+      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
+        ? ["Archive confirmation"]
+        : []),
+      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
+        ? ["Delete confirmation"]
+        : []),
+    ];
+    const environmentSettingLabels = [
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -377,34 +394,29 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
-      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
-        ? ["Archive confirmation"]
-        : []),
-      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
-        ? ["Delete confirmation"]
-        : []),
       ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
-    ],
-    [
-      isTextGenerationModelDirty,
-      settings.autoOpenPlanSidebar,
-      settings.confirmThreadArchive,
-      settings.confirmThreadDelete,
-      settings.addProjectBaseDirectory,
-      settings.defaultThreadEnvMode,
-      settings.newWorktreesStartFromOrigin,
-      settings.diffIgnoreWhitespace,
-      settings.glassOpacity,
-      settings.automaticGitFetchInterval,
-      settings.enableAssistantStreaming,
-      settings.enableProviderUpdateChecks,
-      settings.sidebarProjectGroupingMode,
-      settings.sidebarThreadPreviewCount,
-      settings.timestampFormat,
-      settings.wordWrap,
-      theme,
-    ],
-  );
+    ];
+    return ownership === "client" ? clientSettingLabels : environmentSettingLabels;
+  }, [
+    isTextGenerationModelDirty,
+    ownership,
+    settings.addProjectBaseDirectory,
+    settings.autoOpenPlanSidebar,
+    settings.automaticGitFetchInterval,
+    settings.confirmThreadArchive,
+    settings.confirmThreadDelete,
+    settings.defaultThreadEnvMode,
+    settings.diffIgnoreWhitespace,
+    settings.enableAssistantStreaming,
+    settings.enableProviderUpdateChecks,
+    settings.glassOpacity,
+    settings.newWorktreesStartFromOrigin,
+    settings.sidebarProjectGroupingMode,
+    settings.sidebarThreadPreviewCount,
+    settings.timestampFormat,
+    settings.wordWrap,
+    theme,
+  ]);
 
   const restoreDefaults = useCallback(async () => {
     if (changedSettingLabels.length === 0 || !canRestoreDefaults) return;
@@ -416,21 +428,22 @@ export function useSettingsRestore(onRestored?: () => void) {
     );
     if (!confirmed) return;
 
-    setTheme("system");
-    updateSettings(
-      buildGeneralSettingsRestorePatch({
-        includeServerSettings: hasChangedServerSettings,
-      }),
-    );
+    if (ownership === "client") {
+      setTheme("system");
+      updateSettings(buildGeneralSettingsRestorePatch({ includeServerSettings: false }));
+    } else {
+      updateSettings({
+        enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+        enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+        automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
+        defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+        newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+        addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+        textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+      });
+    }
     onRestored?.();
-  }, [
-    canRestoreDefaults,
-    changedSettingLabels,
-    hasChangedServerSettings,
-    onRestored,
-    setTheme,
-    updateSettings,
-  ]);
+  }, [canRestoreDefaults, changedSettingLabels, onRestored, ownership, setTheme, updateSettings]);
 
   return {
     canRestoreDefaults,
@@ -439,7 +452,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-export function GeneralSettingsPanel() {
+function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership }) {
   const { theme, setTheme } = useTheme();
   const {
     environmentId,
@@ -497,393 +510,331 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection title="Environment">
-        <SettingsRow
-          title="Server settings"
-          description="Assistant behavior, workspace defaults, provider maintenance, and text generation are configured per environment."
-          status={
-            environment
-              ? [connectionStatusText(environment.connection), environment.displayUrl]
-                  .filter(Boolean)
-                  .join(" · ")
-              : environmentsReady
-                ? "Connect an environment to configure its server settings."
-                : "Loading environments."
-          }
-          control={
-            environmentId !== null && environment !== null ? (
-              <SettingsEnvironmentSelector
-                environmentId={environmentId}
-                environments={environments}
-                primaryEnvironmentId={primaryEnvironmentId}
-                onEnvironmentChange={selectEnvironment}
-              />
-            ) : environmentsReady ? (
-              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
-                Open connections
-              </Button>
-            ) : null
-          }
-        />
-      </SettingsSection>
-
-      <SettingsSection title="General">
-        <SettingsRow
-          title="Theme"
-          description="Choose how T3 Code looks across the app."
-          resetAction={
-            theme !== "system" ? (
-              <SettingResetButton label="theme" onClick={() => setTheme("system")} />
-            ) : null
-          }
-          control={
-            <Select
-              value={theme}
-              onValueChange={(value) => {
-                if (value === "system" || value === "light" || value === "dark") {
-                  setTheme(value);
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
-                <SelectValue>
-                  {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                {THEME_OPTIONS.map((option) => (
-                  <SelectItem hideIndicator key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        <SettingsRow
-          title="Glass opacity"
-          description="Control how transparent glass surfaces are. Higher values make menus, dialogs, and the composer more solid."
-          resetAction={
-            settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
-              <SettingResetButton
-                label="glass opacity"
-                onClick={() =>
-                  updateSettings({ glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex w-full items-center gap-3 sm:w-52">
-              <output
-                className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                htmlFor="glass-opacity"
-              >
-                {settings.glassOpacity}%
-              </output>
-              <input
-                aria-label="Glass opacity"
-                className="glass-opacity-slider min-w-0 flex-1"
-                id="glass-opacity"
-                max={MAX_GLASS_OPACITY}
-                min={MIN_GLASS_OPACITY}
-                onChange={(event) => {
-                  const glassOpacity = Number(event.currentTarget.value);
-                  if (
-                    Number.isInteger(glassOpacity) &&
-                    glassOpacity >= MIN_GLASS_OPACITY &&
-                    glassOpacity <= MAX_GLASS_OPACITY
-                  ) {
-                    updateSettings({ glassOpacity });
-                  }
-                }}
-                step={5}
-                style={glassOpacitySliderStyle}
-                type="range"
-                value={settings.glassOpacity}
-              />
-            </div>
-          }
-        />
-
-        <SettingsRow
-          title="Project Grouping"
-          description="Combine matching repositories across environments."
-          resetAction={
-            settings.sidebarProjectGroupingMode !==
-            DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode ? (
-              <SettingResetButton
-                label="project grouping"
-                onClick={() =>
-                  updateSettings({
-                    sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={isProjectGroupingEnabled(settings.sidebarProjectGroupingMode)}
-              onCheckedChange={(checked) => {
-                if (!checked && settings.sidebarProjectGroupingMode !== "separate") {
-                  lastEnabledProjectGroupingMode.current = settings.sidebarProjectGroupingMode;
-                  rememberEnabledProjectGroupingMode(settings.sidebarProjectGroupingMode);
-                }
-                updateSettings({
-                  sidebarProjectGroupingMode: projectGroupingModeFromToggle(
-                    checked,
-                    lastEnabledProjectGroupingMode.current,
-                  ),
-                });
-              }}
-              aria-label="Project Grouping"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Time format"
-          description="System default follows your browser or OS clock preference."
-          resetAction={
-            settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat ? (
-              <SettingResetButton
-                label="time format"
-                onClick={() =>
-                  updateSettings({
-                    timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.timestampFormat}
-              onValueChange={(value) => {
-                if (value === "locale" || value === "12-hour" || value === "24-hour") {
-                  updateSettings({ timestampFormat: value });
-                }
-              }}
-            >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
-                <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="locale">
-                  {TIMESTAMP_FORMAT_LABELS.locale}
-                </SelectItem>
-                <SelectItem hideIndicator value="12-hour">
-                  {TIMESTAMP_FORMAT_LABELS["12-hour"]}
-                </SelectItem>
-                <SelectItem hideIndicator value="24-hour">
-                  {TIMESTAMP_FORMAT_LABELS["24-hour"]}
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        <SettingsRow
-          title="Word wrap"
-          description="Wrap long lines in code blocks, tables, diffs, and file previews by default."
-          resetAction={
-            settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? (
-              <SettingResetButton
-                label="word wrapping"
-                onClick={() =>
-                  updateSettings({
-                    wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.wordWrap}
-              onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
-              aria-label="Wrap code, tables, diffs, and file previews by default"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Hide whitespace changes"
-          description="Set whether the diff panel ignores whitespace-only edits by default."
-          resetAction={
-            settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace ? (
-              <SettingResetButton
-                label="diff whitespace changes"
-                onClick={() =>
-                  updateSettings({
-                    diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.diffIgnoreWhitespace}
-              onCheckedChange={(checked) =>
-                updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
-              }
-              aria-label="Hide whitespace changes by default"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Assistant output"
-          description="Show token-by-token output while a response is in progress."
-          resetAction={
-            settings.enableAssistantStreaming !==
-            DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
-              <SettingResetButton
-                label="assistant output"
-                disabled={!canConfigureServer}
-                onClick={() =>
-                  updateSettings({
-                    enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableAssistantStreaming}
-              disabled={!canConfigureServer}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableAssistantStreaming: Boolean(checked) })
-              }
-              aria-label="Stream assistant messages"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Provider update checks"
-          description="Check installed provider CLIs for newer available versions."
-          resetAction={
-            settings.enableProviderUpdateChecks !==
-            DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks ? (
-              <SettingResetButton
-                label="provider update checks"
-                disabled={!canConfigureServer}
-                onClick={() =>
-                  updateSettings({
-                    enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.enableProviderUpdateChecks}
-              disabled={!canConfigureServer}
-              onCheckedChange={(checked) =>
-                updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
-              }
-              aria-label="Check provider versions"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Auto-open task panel"
-          description="Open the right-side plan and task panel automatically when steps appear."
-          resetAction={
-            settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar ? (
-              <SettingResetButton
-                label="auto-open task panel"
-                onClick={() =>
-                  updateSettings({
-                    autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.autoOpenPlanSidebar}
-              onCheckedChange={(checked) =>
-                updateSettings({ autoOpenPlanSidebar: Boolean(checked) })
-              }
-              aria-label="Open the task panel automatically"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="New threads"
-          description="Pick the default workspace mode for newly created draft threads."
-          resetAction={
-            settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ||
-            settings.newWorktreesStartFromOrigin !==
-              DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
-              <SettingResetButton
-                label="new threads"
-                disabled={!canConfigureServer}
-                onClick={() =>
-                  updateSettings({
-                    defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
-                    newWorktreesStartFromOrigin:
-                      DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Select
-              value={settings.defaultThreadEnvMode}
-              onValueChange={(value) => {
-                if (value === "local" || value === "worktree") {
-                  updateSettings({ defaultThreadEnvMode: value });
-                }
-              }}
-            >
-              <SelectTrigger
-                className="w-full sm:w-44"
-                aria-label="Default thread mode"
-                disabled={!canConfigureServer}
-              >
-                <SelectValue>
-                  {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                <SelectItem hideIndicator value="local">
-                  Local
-                </SelectItem>
-                <SelectItem hideIndicator value="worktree">
-                  New worktree
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          }
-        />
-
-        {settings.defaultThreadEnvMode === "worktree" ? (
+      {ownership === "environment" ? (
+        <SettingsSection title="Environment">
           <SettingsRow
-            className="bg-muted/20 sm:pl-9"
-            title="Start from origin"
-            description="Creates the worktree from the latest matching branch on origin instead of your local branch."
-            resetAction={
-              settings.newWorktreesStartFromOrigin !==
-              DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
-                <SettingResetButton
-                  label="new worktrees start from origin"
+            title="Server settings"
+            description="Assistant behavior, workspace defaults, provider maintenance, and text generation are configured per environment."
+            status={
+              environment
+                ? [connectionStatusText(environment.connection), environment.displayUrl]
+                    .filter(Boolean)
+                    .join(" · ")
+                : environmentsReady
+                  ? "Connect an environment to configure its server settings."
+                  : "Loading environments."
+            }
+            control={
+              environmentId !== null && environment !== null ? (
+                <SettingsEnvironmentSelector
+                  environmentId={environmentId}
+                  environments={environments}
+                  primaryEnvironmentId={primaryEnvironmentId}
+                  onEnvironmentChange={selectEnvironment}
+                />
+              ) : environmentsReady ? (
+                <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                  Open connections
+                </Button>
+              ) : null
+            }
+          />
+        </SettingsSection>
+      ) : null}
+
+      <SettingsSection title={ownership === "client" ? "Client" : "General"}>
+        {ownership === "client" ? (
+          <>
+            <SettingsRow
+              title="Theme"
+              description="Choose how T3 Code looks across the app."
+              resetAction={
+                theme !== "system" ? (
+                  <SettingResetButton label="theme" onClick={() => setTheme("system")} />
+                ) : null
+              }
+              control={
+                <Select
+                  value={theme}
+                  onValueChange={(value) => {
+                    if (value === "system" || value === "light" || value === "dark") {
+                      setTheme(value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+                    <SelectValue>
+                      {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {THEME_OPTIONS.map((option) => (
+                      <SelectItem hideIndicator key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Glass opacity"
+              description="Control how transparent glass surfaces are. Higher values make menus, dialogs, and the composer more solid."
+              resetAction={
+                settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
+                  <SettingResetButton
+                    label="glass opacity"
+                    onClick={() =>
+                      updateSettings({
+                        glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <div className="flex w-full items-center gap-3 sm:w-52">
+                  <output
+                    className="min-w-12 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                    htmlFor="glass-opacity"
+                  >
+                    {settings.glassOpacity}%
+                  </output>
+                  <input
+                    aria-label="Glass opacity"
+                    className="glass-opacity-slider min-w-0 flex-1"
+                    id="glass-opacity"
+                    max={MAX_GLASS_OPACITY}
+                    min={MIN_GLASS_OPACITY}
+                    onChange={(event) => {
+                      const glassOpacity = Number(event.currentTarget.value);
+                      if (
+                        Number.isInteger(glassOpacity) &&
+                        glassOpacity >= MIN_GLASS_OPACITY &&
+                        glassOpacity <= MAX_GLASS_OPACITY
+                      ) {
+                        updateSettings({ glassOpacity });
+                      }
+                    }}
+                    step={5}
+                    style={glassOpacitySliderStyle}
+                    type="range"
+                    value={settings.glassOpacity}
+                  />
+                </div>
+              }
+            />
+
+            <SettingsRow
+              title="Project Grouping"
+              description="Combine matching repositories across environments."
+              resetAction={
+                settings.sidebarProjectGroupingMode !==
+                DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode ? (
+                  <SettingResetButton
+                    label="project grouping"
+                    onClick={() =>
+                      updateSettings({
+                        sidebarProjectGroupingMode:
+                          DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={isProjectGroupingEnabled(settings.sidebarProjectGroupingMode)}
+                  onCheckedChange={(checked) => {
+                    if (!checked && settings.sidebarProjectGroupingMode !== "separate") {
+                      lastEnabledProjectGroupingMode.current = settings.sidebarProjectGroupingMode;
+                      rememberEnabledProjectGroupingMode(settings.sidebarProjectGroupingMode);
+                    }
+                    updateSettings({
+                      sidebarProjectGroupingMode: projectGroupingModeFromToggle(
+                        checked,
+                        lastEnabledProjectGroupingMode.current,
+                      ),
+                    });
+                  }}
+                  aria-label="Project Grouping"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Time format"
+              description="System default follows your browser or OS clock preference."
+              resetAction={
+                settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat ? (
+                  <SettingResetButton
+                    label="time format"
+                    onClick={() =>
+                      updateSettings({
+                        timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.timestampFormat}
+                  onValueChange={(value) => {
+                    if (value === "locale" || value === "12-hour" || value === "24-hour") {
+                      updateSettings({ timestampFormat: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
+                    <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="locale">
+                      {TIMESTAMP_FORMAT_LABELS.locale}
+                    </SelectItem>
+                    <SelectItem hideIndicator value="12-hour">
+                      {TIMESTAMP_FORMAT_LABELS["12-hour"]}
+                    </SelectItem>
+                    <SelectItem hideIndicator value="24-hour">
+                      {TIMESTAMP_FORMAT_LABELS["24-hour"]}
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
+              }
+            />
+
+            <SettingsRow
+              title="Word wrap"
+              description="Wrap long lines in code blocks, tables, diffs, and file previews by default."
+              resetAction={
+                settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? (
+                  <SettingResetButton
+                    label="word wrapping"
+                    onClick={() =>
+                      updateSettings({
+                        wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.wordWrap}
+                  onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
+                  aria-label="Wrap code, tables, diffs, and file previews by default"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Hide whitespace changes"
+              description="Set whether the diff panel ignores whitespace-only edits by default."
+              resetAction={
+                settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace ? (
+                  <SettingResetButton
+                    label="diff whitespace changes"
+                    onClick={() =>
+                      updateSettings({
+                        diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.diffIgnoreWhitespace}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
+                  }
+                  aria-label="Hide whitespace changes by default"
+                />
+              }
+            />
+          </>
+        ) : null}
+
+        {ownership === "environment" ? (
+          <>
+            <SettingsRow
+              title="Assistant output"
+              description="Show token-by-token output while a response is in progress."
+              resetAction={
+                settings.enableAssistantStreaming !==
+                DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
+                  <SettingResetButton
+                    label="assistant output"
+                    disabled={!canConfigureServer}
+                    onClick={() =>
+                      updateSettings({
+                        enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.enableAssistantStreaming}
                   disabled={!canConfigureServer}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      enableAssistantStreaming: Boolean(checked),
+                    })
+                  }
+                  aria-label="Stream assistant messages"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Provider update checks"
+              description="Check installed provider CLIs for newer available versions."
+              resetAction={
+                settings.enableProviderUpdateChecks !==
+                DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks ? (
+                  <SettingResetButton
+                    label="provider update checks"
+                    disabled={!canConfigureServer}
+                    onClick={() =>
+                      updateSettings({
+                        enableProviderUpdateChecks:
+                          DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.enableProviderUpdateChecks}
+                  disabled={!canConfigureServer}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      enableProviderUpdateChecks: Boolean(checked),
+                    })
+                  }
+                  aria-label="Check provider versions"
+                />
+              }
+            />
+          </>
+        ) : null}
+
+        {ownership === "client" ? (
+          <SettingsRow
+            title="Auto-open task panel"
+            description="Open the right-side plan and task panel automatically when steps appear."
+            resetAction={
+              settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar ? (
+                <SettingResetButton
+                  label="auto-open task panel"
                   onClick={() =>
                     updateSettings({
-                      newWorktreesStartFromOrigin:
-                        DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+                      autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
                     })
                   }
                 />
@@ -891,200 +842,307 @@ export function GeneralSettingsPanel() {
             }
             control={
               <Switch
-                checked={settings.newWorktreesStartFromOrigin}
-                disabled={!canConfigureServer}
+                checked={settings.autoOpenPlanSidebar}
                 onCheckedChange={(checked) =>
-                  updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
+                  updateSettings({ autoOpenPlanSidebar: Boolean(checked) })
                 }
-                aria-label="Start new worktrees from origin by default"
+                aria-label="Open the task panel automatically"
               />
             }
           />
         ) : null}
 
-        <SettingsRow
-          title="Add project starts in"
-          description='Leave empty to use "~/" when the Add Project browser opens.'
-          resetAction={
-            settings.addProjectBaseDirectory !==
-            DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
-              <SettingResetButton
-                label="add project base directory"
-                disabled={!canConfigureServer}
-                onClick={() =>
-                  updateSettings({
-                    addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <DraftInput
-              className="w-full sm:w-72"
-              disabled={!canConfigureServer}
-              value={settings.addProjectBaseDirectory}
-              onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
-              placeholder="~/"
-              spellCheck={false}
-              aria-label="Add project base directory"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Archive confirmation"
-          description="Require a second click on the inline archive action before a thread is archived."
-          resetAction={
-            settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
-              <SettingResetButton
-                label="archive confirmation"
-                onClick={() =>
-                  updateSettings({
-                    confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.confirmThreadArchive}
-              onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadArchive: Boolean(checked) })
+        {ownership === "environment" ? (
+          <>
+            <SettingsRow
+              title="New threads"
+              description="Pick the default workspace mode for newly created draft threads."
+              resetAction={
+                settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ||
+                settings.newWorktreesStartFromOrigin !==
+                  DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
+                  <SettingResetButton
+                    label="new threads"
+                    disabled={!canConfigureServer}
+                    onClick={() =>
+                      updateSettings({
+                        defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+                        newWorktreesStartFromOrigin:
+                          DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+                      })
+                    }
+                  />
+                ) : null
               }
-              aria-label="Confirm thread archiving"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Delete confirmation"
-          description="Ask before deleting a thread and its chat history."
-          resetAction={
-            settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete ? (
-              <SettingResetButton
-                label="delete confirmation"
-                onClick={() =>
-                  updateSettings({
-                    confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.confirmThreadDelete}
-              onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadDelete: Boolean(checked) })
+              control={
+                <Select
+                  value={settings.defaultThreadEnvMode}
+                  onValueChange={(value) => {
+                    if (value === "local" || value === "worktree") {
+                      updateSettings({ defaultThreadEnvMode: value });
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    className="w-full sm:w-44"
+                    aria-label="Default thread mode"
+                    disabled={!canConfigureServer}
+                  >
+                    <SelectValue>
+                      {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    <SelectItem hideIndicator value="local">
+                      Local
+                    </SelectItem>
+                    <SelectItem hideIndicator value="worktree">
+                      New worktree
+                    </SelectItem>
+                  </SelectPopup>
+                </Select>
               }
-              aria-label="Confirm thread deletion"
             />
-          }
-        />
 
-        <SettingsRow
-          title="Text generation model"
-          description="Default model for generated text like thread titles and source control content. Source control settings can override it with a dedicated source control writer model."
-          resetAction={
-            isTextGenerationModelDirty ? (
-              <SettingResetButton
-                label="text generation model"
-                disabled={!canConfigureServer}
-                onClick={() =>
-                  updateSettings({
-                    textGenerationModelSelection:
-                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                  })
+            {settings.defaultThreadEnvMode === "worktree" ? (
+              <SettingsRow
+                className="bg-muted/20 sm:pl-9"
+                title="Start from origin"
+                description="Creates the worktree from the latest matching branch on origin instead of your local branch."
+                resetAction={
+                  settings.newWorktreesStartFromOrigin !==
+                  DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
+                    <SettingResetButton
+                      label="new worktrees start from origin"
+                      disabled={!canConfigureServer}
+                      onClick={() =>
+                        updateSettings({
+                          newWorktreesStartFromOrigin:
+                            DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Switch
+                    checked={settings.newWorktreesStartFromOrigin}
+                    disabled={!canConfigureServer}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        newWorktreesStartFromOrigin: Boolean(checked),
+                      })
+                    }
+                    aria-label="Start new worktrees from origin by default"
+                  />
                 }
               />
-            ) : null
-          }
-          control={
-            <fieldset
-              className="flex flex-wrap items-center justify-end gap-1.5"
-              disabled={!canConfigureServer}
-            >
-              <ProviderModelPicker
-                activeInstanceId={textGenInstanceId}
-                disabled={!canConfigureServer}
-                model={textGenModel}
-                lockedProvider={null}
-                instanceEntries={textGenerationModelInstanceEntries}
-                modelOptionsByInstance={textGenerationModelOptionsByInstance}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onInstanceModelChange={(instanceId, model) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: createModelSelection(instanceId, model),
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-              <TraitsPicker
-                provider={textGenProvider}
-                models={
-                  // Use the exact instance's models (rather than the
-                  // first-kind-match) so a custom text-gen instance like
-                  // `codex_personal` gets its own model list, not the
-                  // default Codex one.
-                  textGenInstanceEntry?.models ?? []
-                }
-                model={textGenModel}
-                prompt=""
-                onPromptChange={() => {}}
-                modelOptions={textGenModelOptions}
-                allowPromptInjectedEffort={false}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onModelOptionsChange={(nextOptions) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: createModelSelection(
-                          textGenInstanceId,
-                          textGenModel,
-                          nextOptions,
-                        ),
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-            </fieldset>
-          }
-        />
-      </SettingsSection>
+            ) : null}
 
-      <SettingsSection title="About">
-        {isElectron || HOSTED_APP_CHANNEL ? (
-          <AboutVersionSection />
-        ) : (
+            <SettingsRow
+              title="Add project starts in"
+              description='Leave empty to use "~/" when the Add Project browser opens.'
+              resetAction={
+                settings.addProjectBaseDirectory !==
+                DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
+                  <SettingResetButton
+                    label="add project base directory"
+                    disabled={!canConfigureServer}
+                    onClick={() =>
+                      updateSettings({
+                        addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <DraftInput
+                  className="w-full sm:w-72"
+                  disabled={!canConfigureServer}
+                  value={settings.addProjectBaseDirectory}
+                  onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
+                  placeholder="~/"
+                  spellCheck={false}
+                  aria-label="Add project base directory"
+                />
+              }
+            />
+          </>
+        ) : null}
+
+        {ownership === "client" ? (
+          <>
+            <SettingsRow
+              title="Archive confirmation"
+              description="Require a second click on the inline archive action before a thread is archived."
+              resetAction={
+                settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
+                  <SettingResetButton
+                    label="archive confirmation"
+                    onClick={() =>
+                      updateSettings({
+                        confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.confirmThreadArchive}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ confirmThreadArchive: Boolean(checked) })
+                  }
+                  aria-label="Confirm thread archiving"
+                />
+              }
+            />
+
+            <SettingsRow
+              title="Delete confirmation"
+              description="Ask before deleting a thread and its chat history."
+              resetAction={
+                settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete ? (
+                  <SettingResetButton
+                    label="delete confirmation"
+                    onClick={() =>
+                      updateSettings({
+                        confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.confirmThreadDelete}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ confirmThreadDelete: Boolean(checked) })
+                  }
+                  aria-label="Confirm thread deletion"
+                />
+              }
+            />
+          </>
+        ) : null}
+
+        {ownership === "environment" ? (
           <SettingsRow
-            title={<AboutVersionTitle />}
-            description="Current version of the application."
+            title="Text generation model"
+            description="Default model for generated text like thread titles and source control content. Source control settings can override it with a dedicated source control writer model."
+            resetAction={
+              isTextGenerationModelDirty ? (
+                <SettingResetButton
+                  label="text generation model"
+                  disabled={!canConfigureServer}
+                  onClick={() =>
+                    updateSettings({
+                      textGenerationModelSelection:
+                        DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <fieldset
+                className="flex flex-wrap items-center justify-end gap-1.5"
+                disabled={!canConfigureServer}
+              >
+                <ProviderModelPicker
+                  activeInstanceId={textGenInstanceId}
+                  disabled={!canConfigureServer}
+                  model={textGenModel}
+                  lockedProvider={null}
+                  instanceEntries={textGenerationModelInstanceEntries}
+                  modelOptionsByInstance={textGenerationModelOptionsByInstance}
+                  triggerVariant="outline"
+                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  onInstanceModelChange={(instanceId, model) => {
+                    updateSettings({
+                      textGenerationModelSelection: resolveAppModelSelectionState(
+                        {
+                          ...settings,
+                          textGenerationModelSelection: createModelSelection(instanceId, model),
+                        },
+                        serverProviders,
+                      ),
+                    });
+                  }}
+                />
+                <TraitsPicker
+                  provider={textGenProvider}
+                  models={
+                    // Use the exact instance's models (rather than the
+                    // first-kind-match) so a custom text-gen instance like
+                    // `codex_personal` gets its own model list, not the
+                    // default Codex one.
+                    textGenInstanceEntry?.models ?? []
+                  }
+                  model={textGenModel}
+                  prompt=""
+                  onPromptChange={() => {}}
+                  modelOptions={textGenModelOptions}
+                  allowPromptInjectedEffort={false}
+                  triggerVariant="outline"
+                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  onModelOptionsChange={(nextOptions) => {
+                    updateSettings({
+                      textGenerationModelSelection: resolveAppModelSelectionState(
+                        {
+                          ...settings,
+                          textGenerationModelSelection: createModelSelection(
+                            textGenInstanceId,
+                            textGenModel,
+                            nextOptions,
+                          ),
+                        },
+                        serverProviders,
+                      ),
+                    });
+                  }}
+                />
+              </fieldset>
+            }
           />
-        )}
-        <SettingsRow
-          title="Diagnostics"
-          description={diagnosticsDescription}
-          control={
-            <Button render={<Link to="/settings/diagnostics" />} size="xs" variant="outline">
-              View diagnostics
-            </Button>
-          }
-        />
+        ) : null}
       </SettingsSection>
+
+      {ownership === "client" ? (
+        <SettingsSection title="About">
+          {isElectron || HOSTED_APP_CHANNEL ? (
+            <AboutVersionSection />
+          ) : (
+            <SettingsRow
+              title={<AboutVersionTitle />}
+              description="Current version of the application."
+            />
+          )}
+        </SettingsSection>
+      ) : (
+        <SettingsSection title="Diagnostics">
+          <SettingsRow
+            title="Diagnostics"
+            description={diagnosticsDescription}
+            control={
+              <Button render={<Link to="/settings/diagnostics" />} size="xs" variant="outline">
+                View diagnostics
+              </Button>
+            }
+          />
+        </SettingsSection>
+      )}
     </SettingsPageContainer>
   );
+}
+
+export function GeneralSettingsPanel() {
+  return <OwnershipSettingsPanel ownership="client" />;
+}
+
+export function EnvironmentSettingsPanel() {
+  return <OwnershipSettingsPanel ownership="environment" />;
 }
 
 export function ArchivedThreadsPanel() {

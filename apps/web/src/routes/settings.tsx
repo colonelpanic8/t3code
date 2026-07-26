@@ -9,16 +9,24 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
-import { useSettingsRestore } from "../components/settings/SettingsPanels";
+import { type SettingsOwnership, useSettingsRestore } from "../components/settings/SettingsPanels";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { isElectron } from "../env";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
-function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
-  const { canRestoreDefaults, changedSettingLabels, restoreDefaults } =
-    useSettingsRestore(onRestored);
+function RestoreDefaultsButton({
+  ownership,
+  onRestored,
+}: {
+  ownership: SettingsOwnership;
+  onRestored: () => void;
+}) {
+  const { canRestoreDefaults, changedSettingLabels, restoreDefaults } = useSettingsRestore(
+    ownership,
+    onRestored,
+  );
 
   return (
     <Button
@@ -38,7 +46,12 @@ function SettingsContentLayout() {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
   const [restoreSignal, setRestoreSignal] = useState(0);
-  const showRestoreDefaults = location.pathname === "/settings/general";
+  const restoreOwnership: SettingsOwnership | null =
+    location.pathname === "/settings/general"
+      ? "client"
+      : location.pathname === "/settings/environment"
+        ? "environment"
+        : null;
   const handleRestored = () => setRestoreSignal((value) => value + 1);
   const navigateBackWithinApp = useCallback(() => {
     if (canGoBack) {
@@ -81,9 +94,9 @@ function SettingsContentLayout() {
           >
             <div className="flex min-h-7 items-center gap-2 sm:min-h-6">
               <span className="text-sm font-medium text-foreground">Settings</span>
-              {showRestoreDefaults ? (
+              {restoreOwnership ? (
                 <div className="ms-auto flex items-center gap-2">
-                  <RestoreDefaultsButton onRestored={handleRestored} />
+                  <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
                 </div>
               ) : null}
             </div>
@@ -100,9 +113,9 @@ function SettingsContentLayout() {
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>
-            {showRestoreDefaults ? (
+            {restoreOwnership ? (
               <div className="ms-auto flex items-center gap-2">
-                <RestoreDefaultsButton onRestored={handleRestored} />
+                <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
               </div>
             ) : null}
           </div>
