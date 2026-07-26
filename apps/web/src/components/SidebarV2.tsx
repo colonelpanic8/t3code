@@ -109,7 +109,11 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { useEnvironment, useEnvironmentPresenceScope, useEnvironments } from "../state/environments";
+import {
+  useEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+} from "../state/environments";
 import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "../environmentPresence";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
@@ -1113,10 +1117,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
                   </span>
                 ) : null}
-                <span
-                  aria-hidden
-                  className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
-                >
+                <span className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1">
                   {showRemoteEnvironmentIndicator ? (
                     <RemoteEnvironmentIndicator
                       icon={ServerIcon}
@@ -1127,7 +1128,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     />
                   ) : null}
                   {driverKind ? (
-                    <span className="inline-flex shrink-0 items-center opacity-60">
+                    <span aria-hidden className="inline-flex shrink-0 items-center opacity-60">
                       <ProviderInstanceIcon
                         driverKind={driverKind}
                         displayName={thread.session?.providerName ?? modelInstanceId}
