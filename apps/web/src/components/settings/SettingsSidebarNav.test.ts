@@ -7,11 +7,13 @@ describe("settings navigation ownership", () => {
     expect(
       SETTINGS_NAV_GROUPS.map((group) => ({
         label: group.label,
+        environmentSelector: group.environmentSelector,
         routes: group.items.map((item) => item.to),
       })),
     ).toEqual([
       {
         label: "Client",
+        environmentSelector: false,
         routes: [
           "/settings/general",
           "/settings/keybindings",
@@ -22,6 +24,7 @@ describe("settings navigation ownership", () => {
       },
       {
         label: "Environment",
+        environmentSelector: true,
         routes: ["/settings/environment", "/settings/providers", "/settings/source-control"],
       },
     ]);

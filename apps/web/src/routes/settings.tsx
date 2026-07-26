@@ -10,7 +10,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { type SettingsOwnership, useSettingsRestore } from "../components/settings/SettingsPanels";
-import { SettingsEnvironmentHeaderControl } from "../components/settings/SettingsEnvironmentSelector";
+import { SettingsEnvironmentControl } from "../components/settings/SettingsEnvironmentSelector";
 import { isEnvironmentSettingsPath } from "../components/settings/settingsEnvironmentRoutes";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
@@ -88,15 +88,9 @@ function SettingsContentLayout() {
           >
             <div className="flex min-h-7 items-center gap-2 sm:min-h-6">
               <span className="text-sm font-medium text-foreground">Settings</span>
-              {restoreOwnership || showEnvironmentSelector ? (
+              {restoreOwnership ? (
                 <div className="ms-auto flex items-center gap-2">
-                  {restoreOwnership ? (
-                    <RestoreDefaultsButton
-                      ownership={restoreOwnership}
-                      onRestored={handleRestored}
-                    />
-                  ) : null}
-                  {showEnvironmentSelector ? <SettingsEnvironmentHeaderControl /> : null}
+                  <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
                 </div>
               ) : null}
             </div>
@@ -113,16 +107,30 @@ function SettingsContentLayout() {
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>
-            {restoreOwnership || showEnvironmentSelector ? (
+            {restoreOwnership ? (
               <div className="ms-auto flex items-center gap-2">
-                {restoreOwnership ? (
-                  <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
-                ) : null}
-                {showEnvironmentSelector ? <SettingsEnvironmentHeaderControl /> : null}
+                <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
               </div>
             ) : null}
           </div>
         )}
+
+        {showEnvironmentSelector ? (
+          <div
+            className={cn(
+              "flex min-h-12 shrink-0 items-center justify-between gap-4 border-y border-border/60 bg-muted/15 px-3 py-2 sm:px-5",
+              COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            )}
+          >
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-foreground">Environment</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                Settings on this page apply to this environment.
+              </div>
+            </div>
+            <SettingsEnvironmentControl triggerClassName="shrink-0" />
+          </div>
+        ) : null}
 
         <div key={restoreSignal} className="min-h-0 flex flex-1 flex-col">
           <Outlet />
