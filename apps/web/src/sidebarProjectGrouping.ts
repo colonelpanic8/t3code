@@ -121,8 +121,8 @@ export function buildSidebarProjectSnapshots(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
   primaryEnvironmentId: EnvironmentId | null;
-  // False when the app has no backend of its own (a client-only desktop or the
-  // hosted static web app), which makes every member of a group remote.
+  // False when the app has no backend of its own (a browser client or
+  // client-only desktop), which makes every member of a group remote.
   // Defaults to true so callers that always own a local backend are unchanged.
   ownsLocalEnvironment?: boolean;
   resolveEnvironmentLabel: (environmentId: EnvironmentId) => string | null;

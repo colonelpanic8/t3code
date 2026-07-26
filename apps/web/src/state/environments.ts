@@ -9,9 +9,8 @@ import * as Option from "effect/Option";
 import { useMemo } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
-import type { EnvironmentPresenceScope } from "../environmentPresence";
+import { runtimeOwnsLocalEnvironment, type EnvironmentPresenceScope } from "../environmentPresence";
 import { isDesktopClientOnlyMode } from "../environments/primary";
-import { isHostedStaticApp } from "../hostedPairing";
 import { useClientSettings } from "../hooks/useSettings";
 import { environmentPresentations, useEnvironmentPresentation } from "./presentation";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
@@ -70,12 +69,15 @@ export function usePrimaryEnvironmentId(): EnvironmentId | null {
 }
 
 /**
- * Whether this app can ever serve an environment from its own backend. A
- * client-only desktop and the hosted static web app cannot, so they have no
- * local environment for threads and projects to belong to.
+ * Whether this app can ever serve an environment from its own backend. Only a
+ * managed desktop runtime owns that backend. Browser clients remain remote
+ * clients even when the backend also served their application assets.
  */
 export function appOwnsLocalEnvironment(): boolean {
-  return !isHostedStaticApp() && !isDesktopClientOnlyMode();
+  return runtimeOwnsLocalEnvironment({
+    hasDesktopBridge: window.desktopBridge !== undefined,
+    desktopClientOnlyMode: isDesktopClientOnlyMode(),
+  });
 }
 
 export function useAppOwnsLocalEnvironment(): boolean {

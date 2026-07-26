@@ -19,6 +19,13 @@ export type EnvironmentPresenceScope =
       readonly kind: "remote-client";
     };
 
+export function runtimeOwnsLocalEnvironment(input: {
+  readonly hasDesktopBridge: boolean;
+  readonly desktopClientOnlyMode: boolean;
+}): boolean {
+  return input.hasDesktopBridge && !input.desktopClientOnlyMode;
+}
+
 export function isRemoteEnvironmentId(
   environmentId: EnvironmentId,
   scope: EnvironmentPresenceScope,

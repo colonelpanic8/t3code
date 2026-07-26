@@ -1,7 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { isRemoteEnvironmentId } from "./environmentPresence";
+import { isRemoteEnvironmentId, runtimeOwnsLocalEnvironment } from "./environmentPresence";
 
 const primaryEnvironmentId = EnvironmentId.make("env-primary");
 const remoteEnvironmentId = EnvironmentId.make("env-remote");
@@ -28,5 +28,31 @@ describe("isRemoteEnvironmentId", () => {
     const scope = { kind: "local-owner", localEnvironmentId: null } as const;
 
     expect(isRemoteEnvironmentId(remoteEnvironmentId, scope)).toBe(false);
+  });
+});
+
+describe("runtimeOwnsLocalEnvironment", () => {
+  it("only lets a managed desktop runtime own a local environment", () => {
+    expect(
+      runtimeOwnsLocalEnvironment({
+        hasDesktopBridge: true,
+        desktopClientOnlyMode: false,
+      }),
+    ).toBe(true);
+    expect(
+      runtimeOwnsLocalEnvironment({
+        hasDesktopBridge: true,
+        desktopClientOnlyMode: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats a server-hosted browser as a remote client", () => {
+    expect(
+      runtimeOwnsLocalEnvironment({
+        hasDesktopBridge: false,
+        desktopClientOnlyMode: false,
+      }),
+    ).toBe(false);
   });
 });
