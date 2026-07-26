@@ -22,12 +22,9 @@ import {
   ThreadWorktreeIndicator,
 } from "./ThreadStatusIndicators";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { EnvironmentBadge } from "./EnvironmentBadge";
 import { ProjectIconDialog, type ProjectIconTarget } from "./ProjectIconSettings";
 import { useAtomValue } from "@effect/atom-react";
-import {
-  RemoteEnvironmentIndicator,
-  shouldShowRemoteEnvironmentIndicator,
-} from "./RemoteEnvironmentIndicator";
 import { autoAnimate } from "@formkit/auto-animate";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -81,7 +78,6 @@ import {
   type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
-import { isRemoteEnvironmentId } from "../environmentPresence";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { isElectron } from "../env";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
@@ -127,9 +123,7 @@ import { useEnvironmentQuery } from "../state/query";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
 import {
-  useAppOwnsLocalEnvironment,
   useEnvironment,
-  useEnvironmentPresenceScope,
   useEnvironments,
   usePrimaryEnvironmentId,
 } from "../state/environments";
@@ -474,24 +468,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     reportFailure: false,
   });
   const environment = useEnvironment(thread.environmentId);
-  const presenceScope = useEnvironmentPresenceScope();
-  const isRemoteThread = isRemoteEnvironmentId(thread.environmentId, presenceScope);
-  const remoteEnvLabel = environment?.label ?? null;
-  // A desktop-local secondary backend (e.g. the WSL backend) shows up as a
-  // bearer environment whose connection id is prefixed "local:". It runs on the
-  // user's own machine, so the cloud icon is misleading — label it "Local" and
-  // suppress the cloud icon (the project header already shows a container icon
-  // for desktop-local projects, see sidebarProjectGrouping).
-  const isDesktopLocalThread =
-    environment !== null && isDesktopLocalConnectionTarget(environment.entry.target);
-  const showRemoteEnvironmentIndicator = shouldShowRemoteEnvironmentIndicator({
-    presenceScope,
-    threadEnvironmentId: thread.environmentId,
-    isDesktopLocal: isDesktopLocalThread,
-  });
-  const threadEnvironmentLabel = isRemoteThread
-    ? (remoteEnvLabel ?? (isDesktopLocalThread ? "Local" : "Remote"))
-    : null;
+  const showEnvironmentBadges = useClientSettings((settings) => settings.showEnvironmentBadges);
+  const threadEnvironmentLabel = environment?.label ?? "Environment";
   const threadEnvironmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
   // For grouped projects, the thread may belong to a different environment
   // than the representative project.  Look up the thread's own project cwd
@@ -937,13 +915,13 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
             ) : null}
             <span className={threadMetaClassName}>
               <span className="inline-flex items-center gap-1">
-                {showRemoteEnvironmentIndicator && (
+                {showEnvironmentBadges && (
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <RemoteEnvironmentIndicator
+                        <EnvironmentBadge
                           icon={CloudIcon}
-                          label={threadEnvironmentLabel ?? "Remote"}
+                          label={threadEnvironmentLabel}
                           className="max-w-24 text-muted-foreground/40"
                           iconClassName="size-3"
                           style={environmentAccentStyle(threadEnvironmentAccentColor)}
@@ -3257,7 +3235,6 @@ export default function Sidebar() {
   const shortcutModifiers = useShortcutModifierState();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const environmentLabelById = useMemo(
     () =>
       new Map(
@@ -3312,7 +3289,6 @@ export default function Sidebar() {
       projects: orderedProjects,
       settings: projectGroupingSettings,
       primaryEnvironmentId,
-      ownsLocalEnvironment,
       resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       isDesktopLocalEnvironment: (environmentId) => desktopLocalEnvironmentIds.has(environmentId),
     });
@@ -3320,7 +3296,6 @@ export default function Sidebar() {
     environmentLabelById,
     desktopLocalEnvironmentIds,
     orderedProjects,
-    ownsLocalEnvironment,
     projectGroupingSettings,
     primaryEnvironmentId,
   ]);
