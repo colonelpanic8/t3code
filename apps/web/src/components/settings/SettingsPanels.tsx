@@ -387,7 +387,9 @@ function AboutVersionSection() {
   );
 }
 
-export function useSettingsRestore(onRestored?: () => void) {
+export type SettingsOwnership = "client" | "environment";
+
+export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
   const { environmentId } = useSettingsEnvironment();
   const settings = useEnvironmentSettings(environmentId);
@@ -398,8 +400,8 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
 
-  const changedSettingLabels = useMemo(
-    () => [
+  const changedSettingLabels = useMemo(() => {
+    const clientSettingLabels = [
       ...(theme !== "system" ? ["Theme"] : []),
       ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
@@ -422,6 +424,14 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
+      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
+        ? ["Archive confirmation"]
+        : []),
+      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
+        ? ["Delete confirmation"]
+        : []),
+    ];
+    const environmentSettingLabels = [
       ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
@@ -446,16 +456,12 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
-      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
-        ? ["Archive confirmation"]
-        : []),
-      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
-        ? ["Delete confirmation"]
-        : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
-    ],
-    [
+    ];
+    return ownership === "client" ? clientSettingLabels : environmentSettingLabels;
+  }, [
       isGitWritingModelDirty,
+    ownership,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
@@ -474,8 +480,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.timestampFormat,
       settings.wordWrap,
       theme,
-    ],
-  );
+  ]);
 
   const restoreDefaults = useCallback(async () => {
     if (changedSettingLabels.length === 0) return;
@@ -487,6 +492,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     );
     if (!confirmed) return;
 
+    if (ownership === "client") {
     setTheme("system");
     updateSettings({
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
@@ -497,6 +503,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       showEnvironmentBadges: DEFAULT_UNIFIED_SETTINGS.showEnvironmentBadges,
       autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+        confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
+        confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
+      });
+    } else {
+      updateSettings({
       enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -504,12 +515,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
       worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-      confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
-      confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
     });
+    }
     onRestored?.();
-  }, [changedSettingLabels, onRestored, setTheme, updateSettings]);
+  }, [changedSettingLabels, onRestored, ownership, setTheme, updateSettings]);
 
   return {
     changedSettingLabels,
@@ -517,7 +527,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   };
 }
 
-export function GeneralSettingsPanel() {
+function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership }) {
   const { theme, setTheme } = useTheme();
   const {
     environmentId,
@@ -575,37 +585,39 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection title="Environment">
-        <SettingsRow
-          title="Server settings"
-          description="Assistant behavior, workspace defaults, provider maintenance, and text generation are configured per environment."
-          status={
-            environment
-              ? [connectionStatusText(environment.connection), environment.displayUrl]
-                  .filter(Boolean)
-                  .join(" · ")
-              : environmentsReady
-                ? "Connect an environment to configure its server settings."
-                : "Loading environments."
-          }
-          control={
-            environmentId !== null && environment !== null ? (
-              <SettingsEnvironmentSelector
-                environmentId={environmentId}
-                environments={environments}
-                primaryEnvironmentId={primaryEnvironmentId}
-                onEnvironmentChange={selectEnvironment}
-              />
-            ) : environmentsReady ? (
-              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
-                Open connections
-              </Button>
-            ) : null
-          }
-        />
-      </SettingsSection>
+      <SettingsSection title={ownership === "client" ? "Client" : "Environment"}>
+        {ownership === "environment" ? (
+          <SettingsRow
+            title="Server settings"
+            description="Assistant behavior, workspace defaults, provider maintenance, and text generation are configured per environment."
+            status={
+              environment
+                ? [connectionStatusText(environment.connection), environment.displayUrl]
+                    .filter(Boolean)
+                    .join(" · ")
+                : environmentsReady
+                  ? "Connect an environment to configure its server settings."
+                  : "Loading environments."
+            }
+            control={
+              environmentId !== null && environment !== null ? (
+                <SettingsEnvironmentSelector
+                  environmentId={environmentId}
+                  environments={environments}
+                  primaryEnvironmentId={primaryEnvironmentId}
+                  onEnvironmentChange={selectEnvironment}
+                />
+              ) : environmentsReady ? (
+                <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                  Open connections
+                </Button>
+              ) : null
+            }
+          />
+        ) : null}
 
-      <SettingsSection title="General">
+        {ownership === "client" ? (
+          <>
         <SettingsRow
           title="Theme"
           description="Choose how T3 Code looks across the app."
@@ -695,7 +707,8 @@ export function GeneralSettingsPanel() {
                 label="project grouping"
                 onClick={() =>
                   updateSettings({
-                    sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
+                        sidebarProjectGroupingMode:
+                          DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
                   })
                 }
               />
@@ -836,7 +849,11 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+          </>
+        ) : null}
 
+        {ownership === "environment" ? (
+          <>
         <SettingsRow
           title="Assistant output"
           description="Show token-by-token output while a response is in progress."
@@ -875,7 +892,8 @@ export function GeneralSettingsPanel() {
                 label="provider update checks"
                 onClick={() =>
                   updateSettings({
-                    enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+                        enableProviderUpdateChecks:
+                          DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
                   })
                 }
               />
@@ -892,7 +910,10 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+          </>
+        ) : null}
 
+        {ownership === "client" ? (
         <SettingsRow
           title="Auto-open task panel"
           description="Open the right-side plan and task panel automatically when steps appear."
@@ -918,7 +939,10 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        ) : null}
 
+        {ownership === "environment" ? (
+          <>
         <SettingsRow
           title="New threads"
           description="Pick the default workspace mode for newly created draft threads."
@@ -1060,7 +1084,11 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+          </>
+        ) : null}
 
+        {ownership === "client" ? (
+          <>
         <SettingsRow
           title="Archive confirmation"
           description="Require a second click on the inline archive action before a thread is archived."
@@ -1112,7 +1140,10 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+          </>
+        ) : null}
 
+        {ownership === "environment" ? (
         <SettingsRow
           title="Text generation model"
           description="Configure the model used for generated commit messages, PR titles, and similar Git text."
@@ -1190,8 +1221,10 @@ export function GeneralSettingsPanel() {
             </fieldset>
           }
         />
+        ) : null}
       </SettingsSection>
 
+      {ownership === "client" ? (
       <SettingsSection title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (
           <AboutVersionSection />
@@ -1201,6 +1234,9 @@ export function GeneralSettingsPanel() {
             description="Current version of the application."
           />
         )}
+        </SettingsSection>
+      ) : (
+        <SettingsSection title="Diagnostics">
         <SettingsRow
           title="Diagnostics"
           description={diagnosticsDescription}
@@ -1211,8 +1247,17 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+      )}
     </SettingsPageContainer>
   );
+}
+
+export function GeneralSettingsPanel() {
+  return <OwnershipSettingsPanel ownership="client" />;
+}
+
+export function EnvironmentSettingsPanel() {
+  return <OwnershipSettingsPanel ownership="environment" />;
 }
 
 export function ProviderSettingsPanel() {
