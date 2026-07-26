@@ -28,6 +28,7 @@ import {
 } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { useClientSettings } from "../hooks/useSettings";
+import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKeyFromPath,
@@ -138,7 +139,7 @@ function RootRouteView() {
         <SlowRpcRequestToastCoordinator />
         <HostedStaticEnvironmentBootstrap />
         {primaryEnvironmentAuthenticated ? <EventRouter /> : null}
-        {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
+        <ProviderUpdateLaunchNotification />
         {appShell}
       </AnchoredToastProvider>
     </ToastProvider>
@@ -156,8 +157,7 @@ function GlassAppearanceSync() {
 }
 
 function DocumentTitleSync() {
-  const primaryServerVersion =
-    useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
+  const primaryServerVersion = useDefaultServerConfig()?.environment.serverVersion ?? null;
   const title = resolveServerBackedAppDisplayName({
     baseName: APP_BASE_NAME,
     fallbackDisplayName: APP_DISPLAY_NAME,
