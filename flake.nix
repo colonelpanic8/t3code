@@ -113,13 +113,23 @@
           export HOME=$(mktemp -d)
           export XDG_RUNTIME_DIR=$(mktemp -d)
           set +e
-          timeout 90 xvfb-run -a dbus-run-session -- \
+          timeout 20 xvfb-run -a ${pkgs.dbus}/bin/dbus-run-session \
+            --config-file=${pkgs.dbus}/share/dbus-1/session.conf -- \
             ${self.packages.${system}.t3code}/bin/t3code-desktop \
               --backend-mode=client-only --no-sandbox \
             > "$HOME/out.log" 2>&1
+          app_status=$?
           set -e
 
           echo "--- app output ---"; cat "$HOME/out.log" || true
+
+          # A healthy Electron main process stays up until the timeout. An
+          # early exit means the launcher failed before the renderer could be
+          # checked (for example, a broken D-Bus session).
+          if [ "$app_status" -ne 124 ]; then
+            echo "SMOKE FAILED: app exited before the timeout (status $app_status)" >&2
+            exit 1
+          fi
 
           # Electron logs renderer exceptions to stderr; any of these means the
           # UI failed to mount even if the process exited 0.
