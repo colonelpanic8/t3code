@@ -48,8 +48,6 @@ import {
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 
-import { connectionStatusText } from "@t3tools/client-runtime/connection";
-
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -124,7 +122,6 @@ import {
   ITEM_ICON_CLASS,
   NEW_THREAD_PROJECT_VIEW_GROUP,
   RECENT_THREAD_LIMIT,
-  resolveBrowseAvailability,
   resolveBrowseTabCompletion,
   resolveCommandPaletteEmptyStateMessage,
   resolveNewThreadOnIntent,
@@ -192,11 +189,13 @@ function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
 function renderProjectActionIcon(project: {
   environmentId: EnvironmentId;
   workspaceRoot: string;
+  repositoryIdentity?: { readonly canonicalKey?: string } | null;
 }): ReactNode {
   return (
     <ProjectFavicon
       environmentId={project.environmentId}
       cwd={project.workspaceRoot}
+      repositoryKey={project.repositoryIdentity?.canonicalKey}
       className={ITEM_ICON_CLASS}
     />
   );
@@ -868,16 +867,10 @@ function OpenCommandPaletteDialog(props: {
   const browseDirectoryPath = isBrowsing ? getBrowseDirectoryPath(query) : "";
   const browseFilterQuery =
     isBrowsing && !hasTrailingPathSeparator(query) ? getBrowseLeafPathSegment(query) : "";
-  // Browsing resolves paths on the selected environment's filesystem. Don't
-  // issue the request at all unless that environment is actually connected —
-  // otherwise the failure is indistinguishable from an empty directory.
-  const browseEnvironmentConnection = browseEnvironment?.connection ?? null;
-  const isBrowseEnvironmentConnected = browseEnvironmentConnection?.phase === "connected";
   const browseQuery = useEnvironmentQuery(
     isBrowsing &&
       browseDirectoryPath.length > 0 &&
       browseEnvironmentId !== null &&
-      isBrowseEnvironmentConnected &&
       !relativePathNeedsActiveProject
       ? filesystemEnvironment.browse({
           environmentId: browseEnvironmentId,
@@ -890,14 +883,6 @@ function OpenCommandPaletteDialog(props: {
   );
   const browseResult = browseQuery.data;
   const isBrowsePending = browseQuery.isPending;
-  const browseAvailability = resolveBrowseAvailability({
-    environmentLabel: browseEnvironment?.label ?? null,
-    connectionPhase: browseEnvironmentConnection?.phase ?? null,
-    connectionError: browseEnvironmentConnection?.error ?? null,
-    browseError: browseQuery.error,
-  });
-  const browseUnavailableMessage =
-    isBrowsing && browseAvailability._tag === "Unavailable" ? browseAvailability.message : null;
   const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
   const { filteredEntries: filteredBrowseEntries, exactEntry: exactBrowseEntry } = useMemo(
     () => filterBrowseEntries({ browseEntries, browseFilterQuery, highlightedItemValue }),
@@ -1615,23 +1600,6 @@ function OpenCommandPaletteDialog(props: {
     }) => {
       const rawCwd = input.rawCwd;
 
-      // The path is resolved on the target environment, so refuse outright when
-      // that environment is unreachable rather than dispatching an add that can
-      // only fail — or silently create a directory we never verified.
-      const targetEnvironment =
-        environments.find((environment) => environment.environmentId === input.environmentId) ??
-        null;
-      if (targetEnvironment !== null && targetEnvironment.connection.phase !== "connected") {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to add project",
-            description: connectionStatusText(targetEnvironment.connection),
-          }),
-        );
-        return;
-      }
-
       if (isUnsupportedWindowsProjectPath(rawCwd.trim(), input.platform)) {
         toastManager.add(
           stackedThreadToast({
@@ -1964,13 +1932,9 @@ function OpenCommandPaletteDialog(props: {
   if (addProjectCloneFlow?.step === "repository") {
     displayedGroups = [];
   } else if (addProjectCloneFlow?.step === "confirm") {
-    displayedGroups =
-      relativePathNeedsActiveProject || browseUnavailableMessage !== null
-        ? []
-        : cloneDestinationBrowseGroups;
+    displayedGroups = relativePathNeedsActiveProject ? [] : cloneDestinationBrowseGroups;
   } else if (isBrowsing) {
-    displayedGroups =
-      relativePathNeedsActiveProject || browseUnavailableMessage !== null ? [] : browseGroups;
+    displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
   }
 
   const inputPlaceholder =
@@ -1978,10 +1942,7 @@ function OpenCommandPaletteDialog(props: {
     getCommandPaletteInputPlaceholder(paletteMode);
   const isSubmenu = paletteMode === "submenu" || paletteMode === "submenu-browse";
   const hasHighlightedBrowseItem = highlightedItemValue?.startsWith("browse:") ?? false;
-  // An unreachable environment can't confirm whether the path exists, so never
-  // offer to add — or worse, create — a directory we were unable to inspect.
-  const canSubmitBrowsePath =
-    isBrowsing && !relativePathNeedsActiveProject && browseUnavailableMessage === null;
+  const canSubmitBrowsePath = isBrowsing && !relativePathNeedsActiveProject;
   const willCreateProjectPath =
     canSubmitBrowsePath &&
     !isBrowsePending &&
@@ -2259,15 +2220,13 @@ function OpenCommandPaletteDialog(props: {
       ? addProjectCloneFlow.source === "url"
         ? "Enter a Git clone URL and press Enter to continue."
         : "Enter a repository path and press Enter to look it up."
-      : browseUnavailableMessage !== null
-        ? browseUnavailableMessage
-        : addProjectCloneFlow?.step === "confirm"
-          ? "Choose a destination path and press Enter to clone."
-          : relativePathNeedsActiveProject
-            ? "Relative paths require an active project."
-            : willCreateProjectPath
-              ? "Press Enter to create this folder and add it as a project."
-              : undefined;
+      : addProjectCloneFlow?.step === "confirm"
+        ? "Choose a destination path and press Enter to clone."
+        : relativePathNeedsActiveProject
+          ? "Relative paths require an active project."
+          : willCreateProjectPath
+            ? "Press Enter to create this folder and add it as a project."
+            : undefined;
   const emptyStateMessage = resolveCommandPaletteEmptyStateMessage({
     ...(contextualEmptyStateMessage ? { contextualMessage: contextualEmptyStateMessage } : {}),
     isNewThreadProjectPickerView,
@@ -2380,14 +2339,13 @@ function OpenCommandPaletteDialog(props: {
                     aria-label={`${submitActionLabel} (${addShortcutLabel})`}
                     disabled={
                       relativePathNeedsActiveProject ||
-                      browseUnavailableMessage !== null ||
                       (isCloneDestinationStep && isRemoteProjectPending)
                     }
                     onMouseDown={(event) => {
                       event.preventDefault();
                     }}
                     onClick={() => {
-                      if (relativePathNeedsActiveProject || browseUnavailableMessage !== null) {
+                      if (relativePathNeedsActiveProject) {
                         return;
                       }
                       if (isCloneDestinationStep) {
