@@ -1,3 +1,4 @@
+import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   type KeybindingCommand,
   type FilesystemBrowseEntry,
@@ -294,6 +295,67 @@ export function filterCommandPaletteGroups(input: {
 
     return [{ value: group.value, label: group.label, items }];
   });
+}
+
+/**
+ * Whether the filesystem behind the add-project browser can actually be
+ * reached right now. Browsing resolves paths on the *selected environment*, so
+ * an unreachable environment must fail loudly: without this the browse query
+ * just returns nothing, the directory list renders empty, and the palette
+ * cheerfully offers to "Create & Add" a folder on a host we never contacted.
+ */
+export type BrowseAvailability =
+  | { readonly _tag: "Available" }
+  | { readonly _tag: "Unavailable"; readonly message: string };
+
+const AVAILABLE_BROWSE: BrowseAvailability = { _tag: "Available" };
+
+function unavailable(message: string): BrowseAvailability {
+  return { _tag: "Unavailable", message };
+}
+
+export function resolveBrowseAvailability(input: {
+  readonly environmentLabel: string | null;
+  readonly connectionPhase: EnvironmentConnectionPhase | null;
+  readonly connectionError: string | null;
+  readonly browseError: string | null;
+}): BrowseAvailability {
+  const label = input.environmentLabel ?? "this environment";
+
+  if (input.connectionPhase === null) {
+    return unavailable("Select an environment to browse.");
+  }
+
+  switch (input.connectionPhase) {
+    case "connecting":
+      return unavailable(`Connecting to ${label}...`);
+    case "reconnecting":
+      return unavailable(
+        input.connectionError
+          ? `Reconnecting to ${label}. Reason: ${input.connectionError}`
+          : `Reconnecting to ${label}...`,
+      );
+    case "offline":
+      return unavailable(`${label} is offline, so its files can't be browsed.`);
+    case "available":
+      return unavailable(`${label} isn't connected, so its files can't be browsed.`);
+    case "error":
+      return unavailable(
+        input.connectionError
+          ? `Can't reach ${label}. Reason: ${input.connectionError}`
+          : `Can't reach ${label}.`,
+      );
+    case "connected":
+      break;
+  }
+
+  // Connected, but the browse RPC itself failed (permission denied, path
+  // resolution error, environment wedged mid-request).
+  if (input.browseError !== null) {
+    return unavailable(`Can't browse ${label}. Reason: ${input.browseError}`);
+  }
+
+  return AVAILABLE_BROWSE;
 }
 
 export function buildBrowseGroups(input: {
