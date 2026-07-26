@@ -399,6 +399,17 @@ interface ComposerDraftStoreState {
   markDraftThreadPromoting: (threadRef: ComposerThreadTarget, promotedTo?: ScopedThreadRef) => void;
   /** Removes draft-session metadata after promotion is complete. */
   finalizePromotedDraftThread: (threadRef: ComposerThreadTarget) => void;
+  /**
+   * Replaces the reserved server thread identity after a failed bootstrap
+   * conclusively cleaned up the previous identity. Any promotion marker left
+   * behind for that now-deleted identity is cleared with it.
+   */
+  renewDraftThreadId: (
+    threadRef: ComposerThreadTarget,
+    expectedThreadId: ThreadId,
+    nextThreadId: ThreadId,
+    createdAt: string,
+  ) => boolean;
   clearDraftThread: (threadRef: ComposerThreadTarget) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadRef: ComposerThreadTarget, prompt: string) => void;
@@ -2471,6 +2482,47 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             }
             return removeDraftThreadReferences(state, threadKey);
           });
+        },
+        renewDraftThreadId: (threadRef, expectedThreadId, nextThreadId, createdAt) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) {
+            return false;
+          }
+          let renewed = false;
+          set((state) => {
+            const existing = state.draftThreadsByThreadKey[threadKey];
+            if (existing === undefined || existing.threadId !== expectedThreadId) {
+              return state;
+            }
+            // Bootstrap materializes the server thread before it prepares the
+            // worktree, so the client can observe `thread.created` and mark the
+            // draft as promoting moments before bootstrap fails and deletes
+            // that same thread again. A promotion marker pointing at the
+            // identity we are replacing is therefore stale, and clearing it is
+            // exactly the recovery this renewal performs. A marker pointing at
+            // any *other* server thread means the draft really was promoted,
+            // and its identity must not be reminted.
+            const stalePromotedTo = scopeThreadRef(existing.environmentId, expectedThreadId);
+            if (
+              existing.promotedTo != null &&
+              !scopedThreadRefsEqual(existing.promotedTo, stalePromotedTo)
+            ) {
+              return state;
+            }
+            renewed = true;
+            return {
+              draftThreadsByThreadKey: {
+                ...state.draftThreadsByThreadKey,
+                [threadKey]: {
+                  ...existing,
+                  threadId: nextThreadId,
+                  createdAt,
+                  promotedTo: null,
+                },
+              },
+            };
+          });
+          return renewed;
         },
         clearDraftThread: (threadRef) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
