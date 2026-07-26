@@ -8,34 +8,18 @@ import {
   filterCommandPaletteGroups,
   resolveBrowseTabCompletion,
   resolveCommandPaletteEmptyStateMessage,
-  shouldClearAddProjectEnvironmentOnPop,
-  shouldHandleCommandPaletteShortcut,
+  resolveNewThreadOnIntent,
+  resetAddProjectFlowState,
+  shouldIgnoreAddProjectShortcut,
+  shouldResetPaletteFlowOnPop,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
 
-describe("shouldHandleCommandPaletteShortcut", () => {
-  it("does not capture the add-project shortcut from an editable target", () => {
-    expect(
-      shouldHandleCommandPaletteShortcut({
-        command: "project.add",
-        editableTarget: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("still handles add-project outside editors and the palette toggle everywhere", () => {
-    expect(
-      shouldHandleCommandPaletteShortcut({
-        command: "project.add",
-        editableTarget: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldHandleCommandPaletteShortcut({
-        command: "commandPalette.toggle",
-        editableTarget: true,
-      }),
-    ).toBe(true);
+describe("resolveNewThreadOnIntent", () => {
+  it("keeps the intent pending until environment-backed projects load", () => {
+    expect(resolveNewThreadOnIntent({ isActive: false, environmentItemCount: 0 })).toBe("ignore");
+    expect(resolveNewThreadOnIntent({ isActive: true, environmentItemCount: 0 })).toBe("defer");
+    expect(resolveNewThreadOnIntent({ isActive: true, environmentItemCount: 1 })).toBe("open");
   });
 });
 
@@ -76,7 +60,10 @@ const makeActionItem = (value: string) => ({
 });
 
 describe("buildNewThreadPickerGroups", () => {
-  const addProjectItem = makeActionItem("action:add-project");
+  const addProjectItem = {
+    ...makeActionItem("action:add-project"),
+    shortcutCommand: "project.add" as const,
+  };
 
   it("waits for projects before showing an empty picker", () => {
     expect(
@@ -107,6 +94,13 @@ describe("buildNewThreadPickerGroups", () => {
       },
       { value: "new-thread-actions", items: ["action:add-project"] },
     ]);
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [projectItem],
+        addProjectItem,
+        areProjectsLoading: false,
+      })[1]?.items[0]?.shortcutCommand,
+    ).toBe("project.add");
   });
 
   it("offers Add project when loading completes without projects", () => {
@@ -159,30 +153,8 @@ describe("resolveCommandPaletteEmptyStateMessage", () => {
   });
 });
 
-describe("shouldClearAddProjectEnvironmentOnPop", () => {
-  it("clears the selected environment when returning from source selection", () => {
-    expect(
-      shouldClearAddProjectEnvironmentOnPop({
-        viewStackDepth: 2,
-        currentGroupValue: "sources:environment-local",
-        addProjectEnvironmentId: "environment-local",
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps the selected environment while returning to source selection", () => {
-    expect(
-      shouldClearAddProjectEnvironmentOnPop({
-        viewStackDepth: 3,
-        currentGroupValue: undefined,
-        addProjectEnvironmentId: "environment-local",
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("filterCommandPaletteGroups", () => {
-  it("keeps dedicated picker actions visible for the actions-only filter", () => {
+describe("filterCommandPaletteGroups actions-only filter", () => {
+  it("keeps dedicated picker actions visible", () => {
     const addProjectItem = {
       ...makeActionItem("action:add-project"),
       searchTerms: ["add project"],
@@ -315,6 +287,44 @@ describe("resolveBrowseTabCompletion", () => {
         highlightedItemValue: "browse:/workspace/removed",
       }),
     ).toEqual({ kind: "entry", entry: caseVariants[1] });
+  });
+});
+
+describe("shouldIgnoreAddProjectShortcut", () => {
+  it("allows Alt+A from the editable search input while the new-task palette is open", () => {
+    expect(shouldIgnoreAddProjectShortcut({ paletteOpen: true, editableTarget: true })).toBe(false);
+  });
+
+  it("continues to ignore Alt+A from editors outside the palette", () => {
+    expect(shouldIgnoreAddProjectShortcut({ paletteOpen: false, editableTarget: true })).toBe(true);
+  });
+});
+
+describe("shouldResetPaletteFlowOnPop", () => {
+  it("resets a flow opened from a nested parent when its first view is popped", () => {
+    expect(shouldResetPaletteFlowOnPop(1, 2)).toBe(true);
+  });
+
+  it("keeps a flow active while popping between its own nested views", () => {
+    expect(shouldResetPaletteFlowOnPop(1, 3)).toBe(false);
+  });
+});
+
+describe("resetAddProjectFlowState", () => {
+  it("clears every piece of add-project state before opening another palette flow", () => {
+    const flowBaseDepthRef = { current: 2 as number | null };
+    const clearEnvironment = vi.fn();
+    const clearCloneFlow = vi.fn();
+
+    resetAddProjectFlowState({
+      flowBaseDepthRef,
+      clearEnvironment,
+      clearCloneFlow,
+    });
+
+    expect(clearEnvironment).toHaveBeenCalledOnce();
+    expect(clearCloneFlow).toHaveBeenCalledOnce();
+    expect(flowBaseDepthRef.current).toBeNull();
   });
 });
 
