@@ -10,6 +10,8 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { type SettingsOwnership, useSettingsRestore } from "../components/settings/SettingsPanels";
+import { SettingsEnvironmentHeaderControl } from "../components/settings/SettingsEnvironmentSelector";
+import { isEnvironmentSettingsPath } from "../components/settings/settingsEnvironmentRoutes";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { isElectron } from "../env";
@@ -49,6 +51,7 @@ function SettingsContentLayout() {
       : location.pathname === "/settings/environment"
         ? "environment"
         : null;
+  const showEnvironmentSelector = isEnvironmentSettingsPath(location.pathname);
   const handleRestored = () => setRestoreSignal((value) => value + 1);
   const navigateBackWithinApp = useCallback(() => {
     if (canGoBack) {
@@ -85,9 +88,15 @@ function SettingsContentLayout() {
           >
             <div className="flex min-h-7 items-center gap-2 sm:min-h-6">
               <span className="text-sm font-medium text-foreground">Settings</span>
-              {restoreOwnership ? (
+              {restoreOwnership || showEnvironmentSelector ? (
                 <div className="ms-auto flex items-center gap-2">
-                  <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
+                  {restoreOwnership ? (
+                    <RestoreDefaultsButton
+                      ownership={restoreOwnership}
+                      onRestored={handleRestored}
+                    />
+                  ) : null}
+                  {showEnvironmentSelector ? <SettingsEnvironmentHeaderControl /> : null}
                 </div>
               ) : null}
             </div>
@@ -104,9 +113,12 @@ function SettingsContentLayout() {
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>
-            {restoreOwnership ? (
+            {restoreOwnership || showEnvironmentSelector ? (
               <div className="ms-auto flex items-center gap-2">
-                <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
+                {restoreOwnership ? (
+                  <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
+                ) : null}
+                {showEnvironmentSelector ? <SettingsEnvironmentHeaderControl /> : null}
               </div>
             ) : null}
           </div>

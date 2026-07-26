@@ -1,8 +1,11 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { CloudIcon, MonitorIcon } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 
+import { useSettingsEnvironment } from "../../hooks/useSettingsEnvironment";
 import type { EnvironmentPresentation } from "../../state/environments";
+import { Button } from "../ui/button";
 import {
   Select,
   SelectGroup,
@@ -69,5 +72,41 @@ export function SettingsEnvironmentSelector({
         </SelectGroup>
       </SelectPopup>
     </Select>
+  );
+}
+
+export function SettingsEnvironmentHeaderControl() {
+  const {
+    environmentId,
+    environment,
+    environments,
+    primaryEnvironmentId,
+    selectEnvironment,
+    isReady,
+  } = useSettingsEnvironment();
+
+  if (environmentId !== null && environment !== null) {
+    return (
+      <SettingsEnvironmentSelector
+        environmentId={environmentId}
+        environments={environments}
+        primaryEnvironmentId={primaryEnvironmentId}
+        onEnvironmentChange={selectEnvironment}
+      />
+    );
+  }
+
+  if (isReady) {
+    return (
+      <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+        Connect environment
+      </Button>
+    );
+  }
+
+  return (
+    <Button size="xs" variant="outline" disabled>
+      Loading environments
+    </Button>
   );
 }
