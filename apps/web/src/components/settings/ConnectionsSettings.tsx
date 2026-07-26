@@ -51,6 +51,7 @@ import {
   resolveShareablePairingUrl,
   selectLocalServerPairingCandidates,
 } from "./ConnectionsSettings.logic";
+import { EnvironmentAccentColorControl } from "./EnvironmentAccentColorControl";
 import {
   SettingsPageContainer,
   SettingsRow,
@@ -1479,6 +1480,7 @@ function SavedBackendListRow({
           ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
+          <EnvironmentAccentColorControl environmentId={environmentId} label={environment.label} />
           {isWslEnvironment ? (
             <Tooltip>
               <TooltipTrigger
@@ -3294,6 +3296,20 @@ export function ConnectionsSettings() {
     }
   };
 
+  const primaryAccentColorRow =
+    primaryEnvironmentId === null ? null : (
+      <SettingsRow
+        title="Accent color"
+        description="Tint this environment's icons in the sidebar and pickers so you can tell its threads apart at a glance."
+        control={
+          <EnvironmentAccentColorControl
+            environmentId={primaryEnvironmentId}
+            label={primaryEnvironment?.label ?? "this environment"}
+          />
+        }
+      />
+    );
+
   return (
     <SettingsPageContainer>
       {desktopBridge && desktopBackendModeState ? (
@@ -3393,6 +3409,7 @@ export function ConnectionsSettings() {
                 }
               />
             ) : null}
+            {primaryAccentColorRow}
             {desktopBridge ? (
               <>
                 {renderNetworkAccessRow()}
@@ -3698,6 +3715,7 @@ export function ConnectionsSettings() {
             title="Administrative access"
             description="Pairing links and client-session management require the access:write scope for this backend."
           />
+          {primaryAccentColorRow}
           <CloudLinkRow canManageRelay={canManageRelay} />
         </SettingsSection>
       ) : (
