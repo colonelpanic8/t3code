@@ -68,7 +68,6 @@ import {
   unknownWhenVariables,
   whenAstToExpression,
 } from "./KeybindingsSettings.logic";
-import { SettingsEnvironmentSelector } from "./SettingsEnvironmentSelector";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -1084,14 +1083,7 @@ function NewKeybindingTableRow({
 }
 
 export function KeybindingsSettingsPanel() {
-  const {
-    environmentId,
-    environment,
-    environments,
-    primaryEnvironmentId,
-    selectEnvironment,
-    isReady: environmentsReady,
-  } = useSettingsEnvironment();
+  const { environmentId, environment, isReady: environmentsReady } = useSettingsEnvironment();
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const keybindings = serverConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const keybindingsConfigPath = serverConfig?.keybindingsConfigPath ?? null;
@@ -1251,14 +1243,7 @@ export function KeybindingsSettingsPanel() {
                 : "Loading environments."
           }
           control={
-            environmentId !== null && environment !== null ? (
-              <SettingsEnvironmentSelector
-                environmentId={environmentId}
-                environments={environments}
-                primaryEnvironmentId={primaryEnvironmentId}
-                onEnvironmentChange={selectEnvironment}
-              />
-            ) : environmentsReady ? (
+            environmentId === null && environmentsReady ? (
               <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
                 Open connections
               </Button>

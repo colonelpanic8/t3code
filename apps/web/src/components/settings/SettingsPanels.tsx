@@ -60,7 +60,6 @@ import {
 } from "../../providerInstances";
 import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { serverEnvironment } from "../../state/server";
-import { type EnvironmentPresentation } from "../../state/environments";
 import { useProjects } from "../../state/entities";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { formatRelativeTimeLabel, getRelativeTimeState } from "../../timestampFormat";
@@ -79,7 +78,6 @@ import {
   type ProviderUpdateCandidate,
 } from "../ProviderUpdateLaunchNotification.logic";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
-import { SettingsEnvironmentSelector } from "./SettingsEnvironmentSelector";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import {
   buildProviderInstanceUpdatePatch,
@@ -1228,14 +1226,7 @@ export function EnvironmentSettingsPanel() {
 }
 
 export function ProviderSettingsPanel() {
-  const {
-    isReady,
-    environments,
-    primaryEnvironmentId,
-    environmentId,
-    environment,
-    selectEnvironment,
-  } = useSettingsEnvironment();
+  const { isReady, environmentId, environment } = useSettingsEnvironment();
 
   if (environmentId === null || environment === null) {
     return (
@@ -1268,9 +1259,6 @@ export function ProviderSettingsPanel() {
       environmentLabel={environment.label}
       environmentStatus={connectionStatusText(environment.connection)}
       isConnected={environment.connection.phase === "connected"}
-      environments={environments}
-      primaryEnvironmentId={primaryEnvironmentId}
-      onEnvironmentChange={selectEnvironment}
     />
   );
 }
@@ -1280,17 +1268,11 @@ function ProviderSettingsEnvironmentPanel({
   environmentLabel,
   environmentStatus,
   isConnected,
-  environments,
-  primaryEnvironmentId,
-  onEnvironmentChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly environmentStatus: string;
   readonly isConnected: boolean;
-  readonly environments: ReadonlyArray<EnvironmentPresentation>;
-  readonly primaryEnvironmentId: EnvironmentId | null;
-  readonly onEnvironmentChange: (environmentId: EnvironmentId) => void;
 }) {
   const settings = useEnvironmentSettings(environmentId);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -1309,15 +1291,6 @@ function ProviderSettingsEnvironmentPanel({
   >(() => new Set());
   const [openInstanceDetails, setOpenInstanceDetails] = useState<Record<string, boolean>>({});
   const refreshingRef = useRef(false);
-
-  const environmentSelector = (
-    <SettingsEnvironmentSelector
-      environmentId={environmentId}
-      environments={environments}
-      primaryEnvironmentId={primaryEnvironmentId}
-      onEnvironmentChange={onEnvironmentChange}
-    />
-  );
 
   const providerUpdateCandidates = useMemo(
     () => collectProviderUpdateCandidates(serverProviders),
@@ -1417,7 +1390,7 @@ function ProviderSettingsEnvironmentPanel({
   if (serverSettings === null || !isConnected) {
     return (
       <SettingsPageContainer>
-        <SettingsSection title="Providers" headerAction={environmentSelector}>
+        <SettingsSection title="Providers">
           <SettingsRow
             title={`${environmentStatus}: ${environmentLabel}`}
             description="Provider settings are available while this environment is connected."
@@ -1604,7 +1577,6 @@ function ProviderSettingsEnvironmentPanel({
         title="Providers"
         headerAction={
           <div className="flex items-center gap-1.5">
-            {environmentSelector}
             <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
             <Tooltip>
               <TooltipTrigger
