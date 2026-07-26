@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
@@ -13,9 +13,10 @@ import ThreadSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
-  resolveInitialThreadSidebarWidth,
+  resolveThreadSidebarCssWidth,
   resolveThreadSidebarMaximumWidth,
   THREAD_MAIN_CONTENT_MIN_WIDTH,
+  THREAD_SIDEBAR_DEFAULT_WIDTH,
   THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./threadSidebarWidth";
@@ -33,13 +34,13 @@ const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "90px";
 
 function readInitialThreadSidebarWidth(): number {
   try {
-    return resolveInitialThreadSidebarWidth(
-      getLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, Schema.Finite),
-      window.innerWidth,
-    );
+    const storedWidth = getLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, Schema.Finite);
+    return storedWidth === null
+      ? THREAD_SIDEBAR_DEFAULT_WIDTH
+      : Math.max(THREAD_SIDEBAR_MIN_WIDTH, storedWidth);
   } catch (error) {
     console.error("Could not read persisted thread sidebar width.", error);
-    return resolveInitialThreadSidebarWidth(null, window.innerWidth);
+    return THREAD_SIDEBAR_DEFAULT_WIDTH;
   }
 }
 
@@ -109,7 +110,28 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const useSidebarV2Theme = useSidebarV2 || isOnSettings;
   const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
-  const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(window.innerWidth);
+  const sidebarResizable = useMemo(
+    () => ({
+      getCssWidth: resolveThreadSidebarCssWidth,
+      maxWidth: () => resolveThreadSidebarMaximumWidth(window.innerWidth),
+      minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+      shouldAcceptWidth: ({
+        currentWidth,
+        nextWidth,
+        wrapper,
+      }: {
+        currentWidth: number;
+        nextWidth: number;
+        wrapper: HTMLElement;
+      }) =>
+        nextWidth <= currentWidth ||
+        wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+      storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+      hydrateStoredWidth: false,
+      onResize: setSidebarWidth,
+    }),
+    [],
+  );
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(() => {
     const getWindowFullscreenState = window.desktopBridge?.getWindowFullscreenState;
     return isMacosDesktop && typeof getWindowFullscreenState === "function"
@@ -117,7 +139,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       : false;
   });
   const sidebarProviderStyle = {
-    "--sidebar-width": `${sidebarWidth}px`,
+    "--sidebar-width": resolveThreadSidebarCssWidth(sidebarWidth),
     ...(isMacosDesktop && !isWindowFullscreen
       ? { "--workspace-controls-left": MACOS_TRAFFIC_LIGHTS_LEFT_INSET }
       : {}),
@@ -168,15 +190,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         data-app-sidebar=""
         data-sidebar-version={useSidebarV2Theme ? "v2" : "v1"}
         className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
-        resizable={{
-          maxWidth: sidebarMaximumWidth,
-          minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-          shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-            nextWidth <= currentWidth ||
-            wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-          storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-          onResize: setSidebarWidth,
-        }}
+        resizable={sidebarResizable}
       >
         {useSidebarV2 ? <ThreadSidebarV2 /> : <ThreadSidebar />}
         <SidebarRail />
