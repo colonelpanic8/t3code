@@ -187,7 +187,7 @@ function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
 function renderProjectActionIcon(project: {
   environmentId: EnvironmentId;
   workspaceRoot: string;
-  repositoryIdentity?: { readonly canonicalKey?: string } | null;
+  repositoryIdentity?: { readonly canonicalKey?: string } | null | undefined;
 }): ReactNode {
   return (
     <ProjectFavicon
