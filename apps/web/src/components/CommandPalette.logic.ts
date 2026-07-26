@@ -16,6 +16,16 @@ export const ITEM_ICON_CLASS = "size-4 text-muted-foreground/80";
 export const ADDON_ICON_CLASS = "size-4";
 export const NEW_THREAD_PROJECT_VIEW_GROUP = "new-thread-projects";
 
+export function shouldHandleCommandPaletteShortcut(input: {
+  command: KeybindingCommand | null;
+  editableTarget: boolean;
+}): boolean {
+  if (input.command === "commandPalette.toggle") {
+    return true;
+  }
+  return input.command === "project.add" && !input.editableTarget;
+}
+
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
   readonly value: string;
