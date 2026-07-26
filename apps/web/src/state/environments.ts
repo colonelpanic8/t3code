@@ -12,6 +12,7 @@ import { environmentCatalog } from "../connection/catalog";
 import type { EnvironmentPresenceScope } from "../environmentPresence";
 import { isDesktopClientOnlyMode } from "../environments/primary";
 import { isHostedStaticApp } from "../hostedPairing";
+import { useClientSettings } from "../hooks/useSettings";
 import { environmentPresentations, useEnvironmentPresentation } from "./presentation";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { useEnvironmentQuery } from "./query";
@@ -21,6 +22,7 @@ import { usePreparedConnection } from "./session";
 export interface EnvironmentPresentation extends BaseEnvironmentPresentation {
   readonly environmentId: EnvironmentId;
   readonly label: string;
+  readonly defaultLabel: string;
   readonly displayUrl: string | null;
   readonly relayManaged: boolean;
 }
@@ -28,11 +30,14 @@ export interface EnvironmentPresentation extends BaseEnvironmentPresentation {
 function projectEnvironmentPresentation(
   environmentId: EnvironmentId,
   presentation: BaseEnvironmentPresentation,
+  environmentDisplayNames: Readonly<Record<string, string>>,
 ): EnvironmentPresentation {
+  const defaultLabel = presentation.entry.target.label;
   return {
     ...presentation,
     environmentId,
-    label: presentation.entry.target.label,
+    label: environmentDisplayNames[environmentId] ?? defaultLabel,
+    defaultLabel,
     displayUrl: connectionCatalogDisplayUrl(presentation.entry),
     relayManaged: presentation.entry.target._tag === "RelayConnectionTarget",
   };
@@ -42,13 +47,14 @@ export function useEnvironments() {
   const catalog = useAtomValue(environmentCatalog.catalogValueAtom);
   const networkStatus = useAtomValue(environmentCatalog.networkStatusValueAtom);
   const presentationById = useAtomValue(environmentPresentations.presentationsAtom);
+  const environmentDisplayNames = useClientSettings((settings) => settings.environmentDisplayNames);
 
   const environments = useMemo(
     () =>
       [...presentationById.entries()].map(([environmentId, presentation]) =>
-        projectEnvironmentPresentation(environmentId, presentation),
+        projectEnvironmentPresentation(environmentId, presentation, environmentDisplayNames),
       ),
-    [presentationById],
+    [environmentDisplayNames, presentationById],
   );
 
   return {
@@ -91,12 +97,13 @@ export function useEnvironment(
   environmentId: EnvironmentId | null,
 ): EnvironmentPresentation | null {
   const { presentation } = useEnvironmentPresentation(environmentId);
+  const environmentDisplayNames = useClientSettings((settings) => settings.environmentDisplayNames);
   return useMemo(
     () =>
       environmentId === null || presentation === null
         ? null
-        : projectEnvironmentPresentation(environmentId, presentation),
-    [environmentId, presentation],
+        : projectEnvironmentPresentation(environmentId, presentation, environmentDisplayNames),
+    [environmentDisplayNames, environmentId, presentation],
   );
 }
 

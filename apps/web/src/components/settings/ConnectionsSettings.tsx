@@ -41,6 +41,7 @@ import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
@@ -1364,6 +1365,7 @@ type SavedBackendListRowProps = {
   environment: EnvironmentPresentation;
   removingEnvironmentId: EnvironmentId | null;
   onConnect: (environmentId: EnvironmentId) => void;
+  onRename: (environment: EnvironmentPresentation) => void;
   onRemove: (environmentId: EnvironmentId) => void;
 };
 
@@ -1371,6 +1373,7 @@ function SavedBackendListRow({
   environment,
   removingEnvironmentId,
   onConnect,
+  onRename,
   onRemove,
 }: SavedBackendListRowProps) {
   const environmentId = environment.environmentId;
@@ -1413,14 +1416,12 @@ function SavedBackendListRow({
     [copyTraceIdToClipboard],
   );
   const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
-  const sshTarget =
-    environment.entry.target._tag === "SshConnectionTarget" &&
-    Option.isSome(environment.entry.profile) &&
-    environment.entry.profile.value._tag === "SshConnectionProfile"
-      ? environment.entry.profile.value.target
-      : null;
   const metadataBits = [
-    sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null,
+    environment.displayUrl
+      ? environment.entry.target._tag === "SshConnectionTarget"
+        ? `SSH ${environment.displayUrl}`
+        : environment.displayUrl
+      : null,
     environment.relayManaged ? "T3 Connect" : null,
   ].filter((value): value is string => value !== null);
 
@@ -1481,6 +1482,9 @@ function SavedBackendListRow({
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
           <EnvironmentAccentColorControl environmentId={environmentId} label={environment.label} />
+          <Button size="xs" variant="outline" onClick={() => onRename(environment)}>
+            Rename
+          </Button>
           {isWslEnvironment ? (
             <Tooltip>
               <TooltipTrigger
@@ -1751,6 +1755,8 @@ export function ConnectionsSettings() {
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const activeEnvironmentId = useActiveEnvironmentId();
+  const environmentDisplayNames = useClientSettings((settings) => settings.environmentDisplayNames);
+  const updateClientSettings = useUpdateClientSettings();
   const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
   const connectSshEnvironment = useAtomCommand(connectSshEnvironmentAtom, {
     reportFailure: false,
@@ -1929,6 +1935,9 @@ export function ConnectionsSettings() {
   const [isAddingSavedBackend, setIsAddingSavedBackend] = useState(false);
   const [removingSavedEnvironmentId, setRemovingSavedEnvironmentId] =
     useState<EnvironmentId | null>(null);
+  const [renameEnvironmentTarget, setRenameEnvironmentTarget] =
+    useState<EnvironmentPresentation | null>(null);
+  const [renameEnvironmentValue, setRenameEnvironmentValue] = useState("");
   const [isUpdatingDesktopServerExposure, setIsUpdatingDesktopServerExposure] = useState(false);
   const [isDesktopServerExposureDialogOpen, setIsDesktopServerExposureDialogOpen] = useState(false);
   const [isUpdatingTailscaleServe, setIsUpdatingTailscaleServe] = useState(false);
@@ -2345,7 +2354,7 @@ export function ConnectionsSettings() {
         return;
       }
 
-      const result = await connectSshEnvironment({ target, label: "" });
+      const result = await connectSshEnvironment({ target, label: target.alias });
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
           setSavedBackendError(formatDesktopSshConnectionError(squashAtomCommandFailure(result)));
@@ -2451,6 +2460,41 @@ export function ConnectionsSettings() {
     },
     [retryEnvironment],
   );
+
+  const handleStartRenameEnvironment = useCallback(
+    (environment: EnvironmentPresentation) => {
+      setRenameEnvironmentTarget(environment);
+      setRenameEnvironmentValue(environmentDisplayNames[environment.environmentId] ?? "");
+    },
+    [environmentDisplayNames],
+  );
+
+  const handleCloseRenameEnvironment = useCallback(() => {
+    setRenameEnvironmentTarget(null);
+    setRenameEnvironmentValue("");
+  }, []);
+
+  const handleSaveRenameEnvironment = useCallback(() => {
+    if (!renameEnvironmentTarget) {
+      return;
+    }
+    const environmentId = renameEnvironmentTarget.environmentId;
+    const displayName = renameEnvironmentValue.trim();
+    const nextDisplayNames = { ...environmentDisplayNames };
+    if (displayName === "") {
+      delete nextDisplayNames[environmentId];
+    } else {
+      nextDisplayNames[environmentId] = displayName;
+    }
+    updateClientSettings({ environmentDisplayNames: nextDisplayNames });
+    handleCloseRenameEnvironment();
+  }, [
+    environmentDisplayNames,
+    handleCloseRenameEnvironment,
+    renameEnvironmentTarget,
+    renameEnvironmentValue,
+    updateClientSettings,
+  ]);
 
   const handleRemoveSavedBackend = useCallback(
     async (environmentId: EnvironmentId) => {
@@ -3836,6 +3880,7 @@ export function ConnectionsSettings() {
             environment={environment}
             removingEnvironmentId={removingSavedEnvironmentId}
             onConnect={handleConnectSavedBackend}
+            onRename={handleStartRenameEnvironment}
             onRemove={handleRemoveSavedBackend}
           />
         ))}
@@ -3844,6 +3889,52 @@ export function ConnectionsSettings() {
           savedEnvironments={savedEnvironments}
         />
       </SettingsSection>
+      <Dialog
+        open={renameEnvironmentTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleCloseRenameEnvironment();
+          }
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename environment</DialogTitle>
+            <DialogDescription>
+              Set an optional name for this client. Leave it empty to use the environment’s default
+              name.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-4">
+            <label className="grid gap-1.5">
+              <span className="text-xs font-medium text-foreground">Display name</span>
+              <Input
+                autoFocus
+                value={renameEnvironmentValue}
+                placeholder={renameEnvironmentTarget?.defaultLabel}
+                onChange={(event) => setRenameEnvironmentValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleSaveRenameEnvironment();
+                  }
+                }}
+              />
+            </label>
+            {renameEnvironmentTarget?.displayUrl ? (
+              <p className="truncate text-xs text-muted-foreground">
+                {renameEnvironmentTarget.displayUrl}
+              </p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseRenameEnvironment}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveRenameEnvironment}>Save</Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </SettingsPageContainer>
   );
 }
