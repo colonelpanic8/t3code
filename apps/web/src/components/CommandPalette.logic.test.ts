@@ -16,7 +16,20 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: "workstation",
         connectionPhase: "connected",
         connectionError: null,
-        browseError: null,
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("stays available on a connected environment even when browse fails", () => {
+    // A browse failure on a reachable host is not an availability problem. The
+    // server returns read_directory_failed for a missing parent, which is the
+    // "type a new folder name and press Enter to create it" case -- gating on
+    // it would make Create & Add unable to ever create anything.
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "connected",
+        connectionError: "read_directory_failed",
       }),
     ).toEqual({ _tag: "Available" });
   });
@@ -27,12 +40,8 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: "workstation",
         connectionPhase: "available",
         connectionError: null,
-        browseError: null,
       }),
-    ).toEqual({
-      _tag: "Unavailable",
-      message: "workstation isn't connected, so its files can't be browsed.",
-    });
+    ).toEqual({ _tag: "Unavailable", message: "workstation isn't connected." });
   });
 
   it("blocks browsing an offline environment", () => {
@@ -41,12 +50,8 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: "workstation",
         connectionPhase: "offline",
         connectionError: null,
-        browseError: null,
       }),
-    ).toEqual({
-      _tag: "Unavailable",
-      message: "workstation is offline, so its files can't be browsed.",
-    });
+    ).toEqual({ _tag: "Unavailable", message: "workstation is offline." });
   });
 
   it("surfaces the connection failure reason when the environment is unreachable", () => {
@@ -55,7 +60,6 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: "remote-box",
         connectionPhase: "error",
         connectionError: "ssh: connect: host unreachable",
-        browseError: null,
       }),
     ).toEqual({
       _tag: "Unavailable",
@@ -69,7 +73,6 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: "remote-box",
         connectionPhase: "error",
         connectionError: null,
-        browseError: null,
       }),
     ).toEqual({ _tag: "Unavailable", message: "Can't reach remote-box." });
   });
@@ -80,25 +83,10 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: "remote-box",
         connectionPhase: "reconnecting",
         connectionError: "socket closed",
-        browseError: null,
       }),
     ).toEqual({
       _tag: "Unavailable",
       message: "Reconnecting to remote-box. Reason: socket closed",
-    });
-  });
-
-  it("surfaces a browse failure on an otherwise connected environment", () => {
-    expect(
-      resolveBrowseAvailability({
-        environmentLabel: "remote-box",
-        connectionPhase: "connected",
-        connectionError: null,
-        browseError: "EACCES: permission denied",
-      }),
-    ).toEqual({
-      _tag: "Unavailable",
-      message: "Can't browse remote-box. Reason: EACCES: permission denied",
     });
   });
 
@@ -108,12 +96,8 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: null,
         connectionPhase: "offline",
         connectionError: null,
-        browseError: null,
       }),
-    ).toEqual({
-      _tag: "Unavailable",
-      message: "this environment is offline, so its files can't be browsed.",
-    });
+    ).toEqual({ _tag: "Unavailable", message: "this environment is offline." });
   });
 
   it("blocks browsing when no environment is selected", () => {
@@ -122,9 +106,8 @@ describe("resolveBrowseAvailability", () => {
         environmentLabel: null,
         connectionPhase: null,
         connectionError: null,
-        browseError: null,
       }),
-    ).toEqual({ _tag: "Unavailable", message: "Select an environment to browse." });
+    ).toEqual({ _tag: "Unavailable", message: "Select an environment first." });
   });
 });
 
