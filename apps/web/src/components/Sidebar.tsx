@@ -77,6 +77,7 @@ import {
   type SidebarThreadSortOrder,
 } from "@t3tools/contracts/settings";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
+import { isRemoteEnvironmentId } from "../environmentPresence";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { isElectron } from "../env";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
@@ -121,7 +122,13 @@ import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
-import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useAppOwnsLocalEnvironment,
+  useEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -455,9 +462,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     reportFailure: false,
   });
   const environment = useEnvironment(thread.environmentId);
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const isRemoteThread =
-    primaryEnvironmentId !== null && thread.environmentId !== primaryEnvironmentId;
+  const presenceScope = useEnvironmentPresenceScope();
+  const isRemoteThread = isRemoteEnvironmentId(thread.environmentId, presenceScope);
   const remoteEnvLabel = environment?.label ?? null;
   // A desktop-local secondary backend (e.g. the WSL backend) shows up as a
   // bearer environment whose connection id is prefixed "local:". It runs on the
@@ -3226,6 +3232,7 @@ export default function Sidebar() {
   const shortcutModifiers = useShortcutModifierState();
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const environmentLabelById = useMemo(
     () =>
       new Map(
@@ -3280,6 +3287,7 @@ export default function Sidebar() {
       projects: orderedProjects,
       settings: projectGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment,
       resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       isDesktopLocalEnvironment: (environmentId) => desktopLocalEnvironmentIds.has(environmentId),
     });
@@ -3287,6 +3295,7 @@ export default function Sidebar() {
     environmentLabelById,
     desktopLocalEnvironmentIds,
     orderedProjects,
+    ownsLocalEnvironment,
     projectGroupingSettings,
     primaryEnvironmentId,
   ]);
