@@ -1,5 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
+import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "./environmentPresence";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -29,6 +30,10 @@ export interface SidebarProjectSnapshot extends Project {
   memberProjects: readonly SidebarProjectGroupMember[];
   memberProjectRefs: readonly ScopedProjectRef[];
   remoteEnvironmentLabels: readonly string[];
+  // Environments backing `remoteEnvironmentLabels`, in the same order. The
+  // header badge stands for all of them at once, so it can only take on an
+  // accent color when they agree on one.
+  remoteEnvironmentIds: readonly EnvironmentId[];
 }
 
 export interface SidebarProjectPickerEntry {
@@ -116,6 +121,10 @@ export function buildSidebarProjectSnapshots(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
   primaryEnvironmentId: EnvironmentId | null;
+  // False when the app has no backend of its own (a client-only desktop or the
+  // hosted static web app), which makes every member of a group remote.
+  // Defaults to true so callers that always own a local backend are unchanged.
+  ownsLocalEnvironment?: boolean;
   resolveEnvironmentLabel: (environmentId: EnvironmentId) => string | null;
   // Returns true when an env id maps to a desktopLocal saved-env
   // record (today: the WSL backend). Defaults to "false for every
@@ -159,6 +168,13 @@ export function buildSidebarProjectSnapshots(input: {
     }
   }
 
+  const presenceScope: EnvironmentPresenceScope =
+    (input.ownsLocalEnvironment ?? true)
+      ? {
+          kind: "local-owner",
+          localEnvironmentId: input.primaryEnvironmentId,
+        }
+      : { kind: "remote-client" };
   const result: SidebarProjectSnapshot[] = [];
   const seen = new Set<string>();
   for (const project of input.projects) {
@@ -177,20 +193,19 @@ export function buildSidebarProjectSnapshots(input: {
       continue;
     }
 
-    const hasLocal =
-      input.primaryEnvironmentId !== null &&
-      members.some((member) => member.environmentId === input.primaryEnvironmentId);
-    const hasRemote =
-      input.primaryEnvironmentId !== null
-        ? members.some((member) => member.environmentId !== input.primaryEnvironmentId)
-        : false;
-    const remoteMembers = members.filter(
-      (member) =>
-        input.primaryEnvironmentId !== null && member.environmentId !== input.primaryEnvironmentId,
+    const remoteMembers = members.filter((member) =>
+      isRemoteEnvironmentId(member.environmentId, presenceScope),
     );
+    const hasRemote = remoteMembers.length > 0;
+    const hasLocal = remoteMembers.length < members.length;
     const remoteEnvironmentLabels = remoteMembers
       .flatMap((member) => (member.environmentLabel ? [member.environmentLabel] : []))
       .filter((label, index, labels) => labels.indexOf(label) === index);
+    const remoteEnvironmentIds = remoteMembers
+      .map((member) => member.environmentId)
+      .filter(
+        (environmentId, index, environmentIds) => environmentIds.indexOf(environmentId) === index,
+      );
     const isDesktopLocal = input.isDesktopLocalEnvironment ?? (() => false);
     const allRemoteMembersAreDesktopLocal =
       remoteMembers.length > 0 &&
@@ -213,6 +228,7 @@ export function buildSidebarProjectSnapshots(input: {
       memberProjects: members,
       memberProjectRefs: projectRefsByLogicalKey.get(logicalKey) ?? [],
       remoteEnvironmentLabels,
+      remoteEnvironmentIds,
     });
   }
 
