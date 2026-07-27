@@ -133,13 +133,8 @@ import {
 } from "../previewStateStore";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
-import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { subscribePreviewAction } from "./preview/previewActionBus";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
-import {
-  selectThreadPreviewMiniPlayer,
-  usePreviewMiniPlayerStore,
-} from "../previewMiniPlayerStore";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { GeneratedImagePanel } from "./chat/GeneratedImagePanel";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -171,7 +166,6 @@ import { getProviderModelCapabilities, resolveSelectableProvider } from "../prov
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
@@ -276,7 +270,7 @@ import {
   resolveThreadMetadataUpdateForNextTurn,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
-  startNewThreadForProject,
+  shouldRenewDraftThreadIdAfterFailure,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -1136,7 +1130,6 @@ function ChatViewContent(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
-  const handleNewThread = useNewThreadHandler();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -1499,9 +1492,6 @@ function ChatViewContent(props: ChatViewProps) {
   const activeFileSurface =
     activeRightPanelSurface?.kind === "file" ? activeRightPanelSurface : null;
   const activePreviewState = useThreadPreviewState(activeThreadRef);
-  const activePreviewMiniPlayer = usePreviewMiniPlayerStore((state) =>
-    selectThreadPreviewMiniPlayer(state.byThreadKey, activeThreadRef),
-  );
   const panelTerminalIds = useMemo(
     () =>
       new Set(
@@ -1524,24 +1514,6 @@ function ChatViewContent(props: ChatViewProps) {
       .getState()
       .reconcileBrowserSurfaces(activeThreadRef, Object.keys(activePreviewState.sessions));
   }, [activePreviewState.sessions, activeThreadRef]);
-
-  useEffect(() => {
-    if (!activeThreadRef || !activePreviewMiniPlayer) return;
-    const miniTabStillExists = Boolean(activePreviewState.sessions[activePreviewMiniPlayer.tabId]);
-    const sameTabOpenInPanel =
-      previewPanelOpen &&
-      activeRightPanelSurface?.kind === "preview" &&
-      activeRightPanelSurface.resourceId === activePreviewMiniPlayer.tabId;
-    if (!miniTabStillExists || sameTabOpenInPanel) {
-      usePreviewMiniPlayerStore.getState().close(activeThreadRef);
-    }
-  }, [
-    activePreviewMiniPlayer,
-    activePreviewState.sessions,
-    activeRightPanelSurface,
-    activeThreadRef,
-    previewPanelOpen,
-  ]);
 
   const planSidebarOpen = activeRightPanelKind === "plan";
 
@@ -1593,9 +1565,6 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
   const activeProject = useProject(activeProjectRef);
-  const handleNewThreadInActiveProject = useCallback(() => {
-    startNewThreadForProject(activeProjectRef, handleNewThread);
-  }, [activeProjectRef, handleNewThread]);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -3881,6 +3850,7 @@ function ChatViewContent(props: ChatViewProps) {
   const activeThreadPr = resolveThreadPr({
     threadBranch: activeThread?.branch ?? null,
     gitStatus: gitStatusQuery.data ?? null,
+    hasDedicatedWorktree: (activeThread?.worktreePath ?? null) !== null,
   });
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
@@ -4905,6 +4875,16 @@ function ChatViewContent(props: ChatViewProps) {
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
+        if (isLocalDraftThread && shouldRenewDraftThreadIdAfterFailure(error)) {
+          useComposerDraftStore
+            .getState()
+            .renewDraftThreadId(
+              composerDraftTarget,
+              threadIdForSend,
+              newThreadId(),
+              new Date().toISOString(),
+            );
+        }
         setThreadError(
           threadIdForSend,
           error instanceof Error ? error.message : "Failed to send message.",
@@ -5771,7 +5751,6 @@ function ChatViewContent(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
-            onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
@@ -6035,15 +6014,6 @@ function ChatViewContent(props: ChatViewProps) {
                 </div>
               </div>
             </div>
-
-            {activeThreadRef && activePreviewMiniPlayer ? (
-              <ThreadPreviewMiniPlayer
-                key={`${activeThreadKey}:${activePreviewMiniPlayer.tabId}`}
-                threadRef={activeThreadRef}
-                tabId={activePreviewMiniPlayer.tabId}
-                bottomInset={isDraftHeroState ? 0 : composerOverlayHeight}
-              />
-            ) : null}
 
             <AlertDialog open={branchRestoreConfirmOpen} onOpenChange={setBranchRestoreConfirmOpen}>
               <AlertDialogPopup>
