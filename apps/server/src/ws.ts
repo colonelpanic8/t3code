@@ -51,6 +51,8 @@ import {
   FilesystemBrowseError,
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceAssetNotFoundError,
+  AssetGeneratedImageInspectionError,
+  AssetGeneratedImageNotFoundError,
   AssetWorkspaceContextNotFoundError,
   AssetWorkspaceContextResolutionError,
   EnvironmentAuthorizationError,
@@ -92,10 +94,6 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import { issueAssetUrl, issueThreadArtifactUrl } from "./assets/AssetAccess.ts";
-import {
-  findThreadArtifactPath,
-  retryThreadArtifactLookup,
-} from "./assets/ThreadArtifactResolver.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -1774,6 +1772,36 @@ const makeWsRpcLayer = (
                       resource,
                       artifact,
                       ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+                    });
+                  }),
+                );
+              }
+              if (input.resource._tag === "generated-image") {
+                const resource = input.resource;
+                return yield* retryGeneratedImageFileLookup(
+                  Effect.gen(function* () {
+                    const thread = yield* projectionSnapshotQuery
+                      .getThreadDetailById(resource.threadId)
+                      .pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new AssetGeneratedImageInspectionError({
+                              resource,
+                              cause,
+                            }),
+                        ),
+                      );
+                    const generatedImagePath = Option.isSome(thread)
+                      ? findGeneratedImagePath(thread.value.activities, resource.activityId)
+                      : null;
+                    if (!generatedImagePath) {
+                      return yield* new AssetGeneratedImageNotFoundError({
+                        resource,
+                      });
+                    }
+                    return yield* issueAssetUrl({
+                      resource,
+                      generatedImagePath,
                     });
                   }),
                 );
