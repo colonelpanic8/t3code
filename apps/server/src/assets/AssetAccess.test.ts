@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import { MessageId, ThreadId, TurnId } from "@t3tools/contracts";
 import { PROJECT_FAVICON_FALLBACK_MARKER } from "@t3tools/shared/projectFavicon";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -13,7 +13,12 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { ASSET_ROUTE_PREFIX, issueAssetUrl, resolveAsset } from "./AssetAccess.ts";
+import {
+  ASSET_ROUTE_PREFIX,
+  issueAssetUrl,
+  issueThreadArtifactUrl,
+  resolveAsset,
+} from "./AssetAccess.ts";
 
 const configLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-asset-access-test-",
@@ -179,6 +184,99 @@ describe("AssetAccess", () => {
       });
       expect(yield* resolveAsset(token, "other.png")).toBeNull();
       expect(yield* resolveAsset(token, "../icon.png")).toBeNull();
+    }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("enforces thread artifact scope without granting arbitrary-root access", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-thread-artifact-workspace-",
+      });
+      const outsideRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-thread-artifact-outside-",
+      });
+      const workspaceImageDirectory = path.join(workspaceRoot, "images");
+      const workspaceImagePath = path.join(workspaceImageDirectory, "workspace.png");
+      const outsideImagePath = path.join(outsideRoot, "outside.png");
+      yield* fileSystem.makeDirectory(workspaceImageDirectory, { recursive: true });
+      yield* fileSystem.writeFile(workspaceImagePath, new Uint8Array([137, 80, 78, 71]));
+      yield* fileSystem.writeFile(outsideImagePath, new Uint8Array([137, 80, 78, 71]));
+
+      const resource = {
+        _tag: "thread-artifact" as const,
+        threadId: ThreadId.make("thread-1"),
+        turnId: TurnId.make("turn-1"),
+        messageId: MessageId.make("message-1"),
+        path: "images/workspace.png",
+      };
+      const workspaceResult = yield* issueThreadArtifactUrl({
+        resource,
+        artifact: {
+          path: "images/workspace.png",
+          scope: "workspace",
+          source: "raw-output",
+        },
+        workspaceRoot,
+      });
+      const workspaceSuffix = workspaceResult.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const workspaceSeparatorIndex = workspaceSuffix.indexOf("/");
+      expect(
+        yield* resolveAsset(
+          workspaceSuffix.slice(0, workspaceSeparatorIndex),
+          workspaceSuffix.slice(workspaceSeparatorIndex + 1),
+        ),
+      ).toEqual({ kind: "file", path: yield* fileSystem.realPath(workspaceImagePath) });
+
+      const outsideWorkspaceError = yield* issueThreadArtifactUrl({
+        resource: { ...resource, path: "outside.png" },
+        artifact: {
+          path: outsideImagePath,
+          scope: "workspace",
+          source: "image-view",
+        },
+        workspaceRoot,
+      }).pipe(Effect.flip);
+      expect(outsideWorkspaceError._tag).toBe("AssetWorkspacePathValidationError");
+
+      const outsideRawOutputError = yield* issueThreadArtifactUrl({
+        resource: { ...resource, path: "outside.png" },
+        artifact: {
+          path: outsideImagePath,
+          scope: "workspace",
+          source: "raw-output",
+        },
+        workspaceRoot,
+      }).pipe(Effect.flip);
+      expect(outsideRawOutputError._tag).toBe("AssetWorkspacePathValidationError");
+
+      const generatedResult = yield* issueThreadArtifactUrl({
+        resource: { ...resource, path: "outside.png" },
+        artifact: {
+          path: outsideImagePath,
+          scope: "provider-generated",
+          source: "image-generation",
+        },
+      });
+      const generatedSuffix = generatedResult.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const generatedSeparatorIndex = generatedSuffix.indexOf("/");
+      expect(
+        yield* resolveAsset(
+          generatedSuffix.slice(0, generatedSeparatorIndex),
+          generatedSuffix.slice(generatedSeparatorIndex + 1),
+        ),
+      ).toEqual({ kind: "file", path: yield* fileSystem.realPath(outsideImagePath) });
+
+      const relativeGeneratedError = yield* issueThreadArtifactUrl({
+        resource,
+        artifact: {
+          path: "images/workspace.png",
+          scope: "provider-generated",
+          source: "image-generation",
+        },
+      }).pipe(Effect.flip);
+      expect(relativeGeneratedError._tag).toBe("AssetWorkspaceAssetNotFoundError");
     }).pipe(Effect.provide(testLayer)),
   );
 
