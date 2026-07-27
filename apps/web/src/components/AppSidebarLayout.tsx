@@ -3,12 +3,20 @@ import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { isElectron } from "../env";
-import { getLocalStorageItem } from "../hooks/useLocalStorage";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import { cn, isMacPlatform } from "../lib/utils";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
-import { useClientSettings } from "../hooks/useSettings";
+import { getLocalStorageItem } from "../hooks/useLocalStorage";
+import {
+  resolvedKeybindingToClientRule,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+} from "../keybindings";
+import { cn, isMacPlatform } from "../lib/utils";
+import {
+  useClientKeybindings,
+  useClientSettings,
+  useClientSettingsHydrated,
+  useUpdateClientSettingsWith,
+} from "../hooks/useSettings";
 import ThreadSidebar from "./Sidebar";
 import ThreadSidebarV2 from "./SidebarV2";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
@@ -45,7 +53,7 @@ function readInitialThreadSidebarWidth(): number {
 }
 
 function SidebarControl() {
-  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindings = useClientKeybindings();
   const { toggleSidebar } = useSidebar();
   const isSidebarVisible = useSidebarVisibility();
   const stageBackdropVariant = useSidebarStageBackdropVariant();
@@ -101,6 +109,17 @@ function SidebarControl() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const clientSettingsHydrated = useClientSettingsHydrated();
+  const hasMigratedServerKeybindings = useClientSettings(
+    (settings) => settings.hasMigratedServerKeybindings,
+  );
+  const hasMigratedServerWorkflowPreferences = useClientSettings(
+    (settings) => settings.hasMigratedServerWorkflowPreferences,
+  );
+  const defaultServerConfig = useDefaultServerConfig();
+  const legacyServerKeybindings = defaultServerConfig?.keybindings ?? null;
+  const legacyServerWorkflowPreferences = defaultServerConfig?.settings ?? null;
+  const updateClientSettingsWith = useUpdateClientSettingsWith();
   const sidebarV2Enabled = useClientSettings((settings) => settings.sidebarV2Enabled);
   // Settings routes render the settings nav, which lives in the v1 component
   // and is identical for both sidebars — so v1 stays mounted there.
@@ -138,6 +157,47 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       ? getWindowFullscreenState()
       : false;
   });
+
+  useEffect(() => {
+    if (
+      !clientSettingsHydrated ||
+      hasMigratedServerKeybindings ||
+      legacyServerKeybindings === null
+    ) {
+      return;
+    }
+    updateClientSettingsWith(() => ({
+      hasMigratedServerKeybindings: true,
+      keybindings: legacyServerKeybindings.map(resolvedKeybindingToClientRule),
+    }));
+  }, [
+    clientSettingsHydrated,
+    hasMigratedServerKeybindings,
+    legacyServerKeybindings,
+    updateClientSettingsWith,
+  ]);
+
+  useEffect(() => {
+    if (
+      !clientSettingsHydrated ||
+      hasMigratedServerWorkflowPreferences ||
+      legacyServerWorkflowPreferences === null
+    ) {
+      return;
+    }
+    updateClientSettingsWith(() => ({
+      enableAssistantStreaming: legacyServerWorkflowPreferences.enableAssistantStreaming,
+      defaultThreadEnvMode: legacyServerWorkflowPreferences.defaultThreadEnvMode,
+      newWorktreesStartFromOrigin: legacyServerWorkflowPreferences.newWorktreesStartFromOrigin,
+      hasMigratedServerWorkflowPreferences: true,
+    }));
+  }, [
+    clientSettingsHydrated,
+    hasMigratedServerWorkflowPreferences,
+    legacyServerWorkflowPreferences,
+    updateClientSettingsWith,
+  ]);
+
   const sidebarProviderStyle = {
     "--sidebar-width": resolveThreadSidebarCssWidth(sidebarWidth),
     ...(isMacosDesktop && !isWindowFullscreen
