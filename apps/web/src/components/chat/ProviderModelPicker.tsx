@@ -44,6 +44,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   onOpenChange?: (open: boolean) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  onSelectionComplete?: () => void;
 }) {
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -133,6 +134,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     if (props.disabled) return;
     props.onInstanceModelChange(instanceId, model);
     setIsMenuOpen(false);
+    props.onSelectionComplete?.();
   };
 
   return (
