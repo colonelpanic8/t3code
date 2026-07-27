@@ -31,7 +31,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
-import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import { checkClaudeProviderStatus, parseClaudeInitializationModels } from "./ClaudeProvider.ts";
 import * as OpenCodeRuntime from "../opencodeRuntime.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
@@ -102,6 +102,7 @@ type TestClaudeCapabilities = {
   readonly subscriptionType: string | undefined;
   readonly tokenSource: string | undefined;
   readonly apiProvider: string | undefined;
+  readonly models: ServerProvider["models"];
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
 };
 
@@ -112,6 +113,7 @@ function claudeCapabilities(overrides: Partial<TestClaudeCapabilities> = {}) {
       subscriptionType: undefined,
       tokenSource: undefined,
       apiProvider: undefined,
+      models: [],
       slashCommands: [],
       ...overrides,
     });
@@ -609,6 +611,97 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
           ...refreshedProvider.models,
         ]);
+      });
+
+      it("drops fallback Claude models missing from successful SDK discovery", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          driver: ProviderDriverKind.make("claudeAgent"),
+          status: "warning",
+          enabled: true,
+          installed: false,
+          auth: { status: "unknown" },
+          checkedAt: "2026-07-24T00:00:00.000Z",
+          version: null,
+          models: [
+            {
+              slug: "claude-opus-4-8",
+              name: "Claude Opus 4.8",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshedProvider = {
+          ...previousProvider,
+          status: "ready",
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-07-24T00:01:00.000Z",
+          version: "2.1.219",
+          models: [
+            {
+              slug: "opus[1m]",
+              name: "Opus (1M context)",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [booleanDescriptor("fastMode", "Fast Mode")],
+              }),
+            },
+          ],
+        } as const satisfies ServerProvider;
+
+        assert.deepStrictEqual(mergeProviderSnapshot(previousProvider, refreshedProvider).models, [
+          ...refreshedProvider.models,
+        ]);
+      });
+
+      it("replaces discovered Claude models with the fallback inventory when the probe fails", () => {
+        const previousProvider = {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          driver: ProviderDriverKind.make("claudeAgent"),
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-07-24T00:00:00.000Z",
+          version: "2.1.219",
+          models: [
+            {
+              slug: "opus[1m]",
+              name: "Opus (1M context)",
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                optionDescriptors: [booleanDescriptor("fastMode", "Fast Mode")],
+              }),
+            },
+          ],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const degradedProvider = {
+          ...previousProvider,
+          status: "warning",
+          auth: { status: "unknown" },
+          checkedAt: "2026-07-24T00:01:00.000Z",
+          models: [
+            {
+              slug: "claude-opus-5",
+              name: "Claude Opus 5",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        } as const satisfies ServerProvider;
+
+        assert.deepStrictEqual(
+          mergeProviderSnapshot(previousProvider, degradedProvider).models.map(
+            (model) => model.slug,
+          ),
+          ["claude-opus-5"],
+        );
       });
 
       it("retains stale OpenCode models when a refresh fails", () => {
@@ -1792,6 +1885,135 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
     // ── checkClaudeProviderStatus tests ──────────────────────────
 
     describe("checkClaudeProviderStatus", () => {
+      it("maps Claude initialization models and their native capabilities", () => {
+        const models = parseClaudeInitializationModels([
+          {
+            value: "default",
+            displayName: "Default (recommended)",
+            description: "Opus 5 with 1M context",
+            supportsEffort: true,
+            supportedEffortLevels: ["low", "high", "xhigh", "max"],
+            supportsAdaptiveThinking: true,
+            supportsFastMode: true,
+            supportsAutoMode: true,
+          },
+          {
+            value: "sonnet",
+            displayName: "Sonnet",
+            description: "Sonnet 5",
+            supportsEffort: true,
+            supportedEffortLevels: ["low", "medium", "high"],
+          },
+        ]);
+
+        assert.deepStrictEqual(models, [
+          {
+            slug: "default",
+            name: "Default (recommended)",
+            isCustom: false,
+            isDefault: true,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "effort",
+                  label: "Reasoning",
+                  type: "select",
+                  options: [
+                    { id: "low", label: "Low" },
+                    { id: "high", label: "High" },
+                    { id: "xhigh", label: "Extra High" },
+                    { id: "max", label: "Max" },
+                    { id: "ultrathink", label: "Ultrathink" },
+                  ],
+                  promptInjectedValues: ["ultrathink"],
+                },
+                {
+                  id: "fastMode",
+                  label: "Fast Mode",
+                  type: "boolean",
+                },
+              ],
+            },
+          },
+          {
+            slug: "sonnet",
+            name: "Sonnet",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "effort",
+                  label: "Reasoning",
+                  type: "select",
+                  options: [
+                    { id: "low", label: "Low" },
+                    { id: "medium", label: "Medium" },
+                    { id: "high", label: "High" },
+                    { id: "ultrathink", label: "Ultrathink" },
+                  ],
+                  promptInjectedValues: ["ultrathink"],
+                },
+              ],
+            },
+          },
+        ]);
+      });
+
+      it("offers a thinking toggle for discovered models without effort levels", () => {
+        const models = parseClaudeInitializationModels([
+          {
+            value: "haiku",
+            displayName: "Haiku",
+            description: "Haiku 4.5",
+            supportsAdaptiveThinking: true,
+          },
+        ]);
+
+        assert.deepStrictEqual(models[0]?.capabilities?.optionDescriptors, [
+          {
+            id: "thinking",
+            label: "Thinking",
+            type: "boolean",
+          },
+        ]);
+      });
+
+      it.effect("uses Claude initialization models as the authoritative inventory", () =>
+        Effect.gen(function* () {
+          const discoveredModels = parseClaudeInitializationModels([
+            {
+              value: "opus[1m]",
+              displayName: "Opus (1M context)",
+              description: "Opus 5 with 1M context",
+              supportsEffort: true,
+              supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+              supportsAdaptiveThinking: true,
+              supportsFastMode: true,
+              supportsAutoMode: true,
+            },
+          ]);
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities({ models: discoveredModels }),
+          );
+
+          assert.deepStrictEqual(
+            status.models.map((model) => model.slug),
+            ["opus[1m]"],
+          );
+          assert.strictEqual(status.models[0]?.name, "Opus (1M context)");
+          assert.strictEqual(status.message, undefined);
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "2.1.219\n", stderr: "", code: 0 };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        ),
+      );
+
       it.effect("returns ready when claude is installed and authenticated", () =>
         Effect.gen(function* () {
           const status = yield* checkClaudeProviderStatus(
