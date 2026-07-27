@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import {
   highlightCodeSnippet,
@@ -11,23 +11,6 @@ import {
 } from "../review/shikiReviewHighlighter";
 
 const MARKDOWN_CODE_HIGHLIGHT_IDLE_TTL_MS = 5 * 60_000;
-// A code change on a mounted block means the text is still streaming (or a
-// backlog replay is appending to it). Feeding every intermediate state into
-// the atom family would run Shiki per delta and retain one atom per delta for
-// the idle TTL, so wait for the text to hold still before highlighting.
-const MARKDOWN_CODE_HIGHLIGHT_STREAMING_DEBOUNCE_MS = 200;
-
-function useSettledValue<T>(value: T, delayMs: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    if (settled === value) {
-      return;
-    }
-    const timer = setTimeout(() => setSettled(value), delayMs);
-    return () => clearTimeout(timer);
-  }, [delayMs, settled, value]);
-  return settled;
-}
 
 export type MarkdownHighlightedCode = ReadonlyArray<ReadonlyArray<ReviewHighlightedToken>>;
 
@@ -89,22 +72,22 @@ export function useMarkdownCodeHighlight(input: {
   const normalizedLanguage = input.language?.trim() || "text";
   const enabled = input.enabled && Boolean(input.language?.trim());
   const atomLanguage = enabled ? normalizedLanguage : "text";
-  const settledCode = useSettledValue(input.code, MARKDOWN_CODE_HIGHLIGHT_STREAMING_DEBOUNCE_MS);
+  // `enabled` is the streaming gate: feeding every intermediate state into the
+  // atom family runs Shiki per delta and retains one atom per delta for the
+  // idle TTL. Debouncing here cannot help, because a growing code block's React
+  // key encodes its source offsets and the block remounts on every delta, so
+  // any per-mount timer starts over. Callers disable highlighting until the
+  // message has finished streaming instead.
   const highlightAtom = useMemo(
     () =>
       markdownCodeHighlightAtom({
-        code: enabled ? settledCode : "",
+        code: enabled ? input.code : "",
         enabled,
         language: atomLanguage,
         theme: input.theme,
       }),
-    [atomLanguage, enabled, settledCode, input.theme],
+    [atomLanguage, enabled, input.code, input.theme],
   );
   const result = useAtomValue(highlightAtom);
-  if (!AsyncResult.isSuccess(result)) {
-    return null;
-  }
-  // Highlighted tokens carry their own text; never render tokens for code
-  // that no longer matches what is on screen.
-  return settledCode === input.code ? result.value : null;
+  return AsyncResult.isSuccess(result) ? result.value : null;
 }
