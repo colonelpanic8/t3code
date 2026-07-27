@@ -22,6 +22,7 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
+import { SettingsEnvironmentSidebarControl } from "./SettingsEnvironmentSelector";
 
 export type SettingsSectionPath =
   | "/settings/general"
@@ -41,12 +42,15 @@ export type SettingsNavItem = {
 
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   label: "Client" | "Environment";
+  environmentSelector: boolean;
   items: ReadonlyArray<SettingsNavItem>;
 }> = [
   {
     label: "Client",
+    environmentSelector: false,
     items: [
       { label: "General", to: "/settings/general", icon: Settings2Icon },
+      { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
       { label: "Connections", to: "/settings/connections", icon: Link2Icon },
       { label: "Beta", to: "/settings/beta", icon: FlaskConicalIcon },
       { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
@@ -54,9 +58,9 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     label: "Environment",
+    environmentSelector: true,
     items: [
       { label: "General", to: "/settings/environment", icon: Settings2Icon },
-      { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
       { label: "Providers", to: "/settings/providers", icon: BotIcon },
       { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
     ],
@@ -95,6 +99,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             <SidebarGroupLabel className="h-6 px-2 text-[10px] font-semibold tracking-[0.08em] text-sidebar-muted-foreground/55 uppercase">
               {group.label}
             </SidebarGroupLabel>
+            {group.environmentSelector ? <SettingsEnvironmentSidebarControl /> : null}
             <SidebarMenu>
               {group.items.map((item) => {
                 const Icon = item.icon;

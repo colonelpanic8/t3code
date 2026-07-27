@@ -122,6 +122,7 @@ function isFreshTimestamp(input: string): boolean {
 }
 
 export interface ThreadFeedProps {
+  readonly showStreamingAssistantOutput: boolean;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly workspaceRoot?: string | null;
@@ -797,6 +798,7 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
 function renderFeedEntry(
   info: { item: ThreadFeedEntry; index: number },
   props: Pick<ThreadFeedProps, "environmentId" | "skills"> & {
+    readonly showStreamingAssistantOutput: boolean;
     readonly copiedRowId: string | null;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
@@ -927,9 +929,12 @@ function renderFeedEntry(
       );
     }
 
+    const displayedAssistantText =
+      message.streaming && !props.showStreamingAssistantOutput ? "" : message.text;
+
     // Skip empty assistant messages (no text, no attachments) — they would
     // render as an orphaned timestamp and break adjacent activity-group merging.
-    if (message.text.trim().length === 0 && attachments.length === 0) {
+    if (displayedAssistantText.trim().length === 0 && attachments.length === 0) {
       return null;
     }
 
@@ -939,10 +944,10 @@ function renderFeedEntry(
         className={cn(showAssistantMeta ? "mb-5 px-1" : "mb-2 px-1")}
         {...(enterAnimated ? { entering: FadeIn.duration(220) } : {})}
       >
-        {message.text.trim().length > 0 ? (
+        {displayedAssistantText.trim().length > 0 ? (
           hasNativeSelectableMarkdownText() ? (
             <SelectableMarkdownText
-              markdown={message.text}
+              markdown={displayedAssistantText}
               skills={props.skills}
               textStyle={styles.nativeTextStyle}
               onLinkPress={props.onMarkdownLinkPress}
@@ -954,7 +959,7 @@ function renderFeedEntry(
               styles={styles.styles}
               theme={styles.theme}
             >
-              {message.text}
+              {displayedAssistantText}
             </Markdown>
           )
         ) : null}
@@ -1639,6 +1644,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const renderItem = useCallback(
     (info: { item: ThreadFeedEntry; index: number }) =>
       renderFeedEntry(info, {
+        showStreamingAssistantOutput: props.showStreamingAssistantOutput,
         environmentId: props.environmentId,
         copiedRowId,
         expandedWorkRows,
@@ -1676,6 +1682,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       props.environmentId,
+      props.showStreamingAssistantOutput,
       props.skills,
     ],
   );

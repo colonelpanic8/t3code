@@ -21,6 +21,7 @@ import {
   isTerminalSplitVerticalShortcut,
   isTerminalToggleShortcut,
   resolveShortcutCommand,
+  resolvedKeybindingToClientRule,
   resolveThreadSidebarShortcutAction,
   shouldShowComposerControlHintsForModifiers,
   shouldShowCommandHintForModifiers,
@@ -86,6 +87,27 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
     ...(binding.whenAst ? { whenAst: binding.whenAst } : {}),
   }));
 }
+
+describe("resolvedKeybindingToClientRule", () => {
+  it("preserves modifiers and nested when clauses for the one-time client migration", () => {
+    assert.deepEqual(
+      resolvedKeybindingToClientRule({
+        command: "terminal.split",
+        shortcut: modShortcut("+", { ctrlKey: true, altKey: true, shiftKey: true }),
+        whenAst: {
+          type: "and",
+          left: whenIdentifier("terminalFocus"),
+          right: whenNot(whenIdentifier("previewFocus")),
+        },
+      }),
+      {
+        command: "terminal.split",
+        key: "mod+ctrl+alt+shift++",
+        when: "(terminalFocus && !(previewFocus))",
+      },
+    );
+  });
+});
 
 const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("b"), command: "sidebar.toggle" },
