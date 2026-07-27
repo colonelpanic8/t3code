@@ -20,10 +20,12 @@ import {
 import {
   type ClientSettingsPatch,
   type ClientSettings,
+  ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import {
   applyPendingServerPatches,
   getPendingServerPatches,
@@ -162,18 +164,21 @@ function usePendingServerPatches(
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
+const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
 
-function splitPatch(patch: Partial<UnifiedSettings>): {
+export function splitSettingsPatch(patch: Partial<UnifiedSettings>): {
   serverPatch: ServerSettingsPatch;
   clientPatch: ClientSettingsPatch;
 } {
   const serverPatch: Record<string, unknown> = {};
   const clientPatch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
-    if (SERVER_SETTINGS_KEYS.has(key)) {
-      serverPatch[key] = value;
-    } else {
+    // During the legacy migration window a few preferences are present in
+    // both schemas. Client ownership wins whenever a key overlaps.
+    if (CLIENT_SETTINGS_KEYS.has(key)) {
       clientPatch[key] = value;
+    } else if (SERVER_SETTINGS_KEYS.has(key)) {
+      serverPatch[key] = value;
     }
   }
   return {
@@ -244,6 +249,12 @@ export function useClientSettings<T = ClientSettings>(
   return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
 }
 
+/** Resolve the shortcuts owned and persisted by this client. */
+export function useClientKeybindings() {
+  const keybindings = useClientSettings((settings) => settings.keybindings);
+  return useMemo(() => compileResolvedKeybindingsConfig(keybindings), [keybindings]);
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
   environmentId: EnvironmentId | null,
@@ -274,7 +285,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   );
   const updateSettings = useCallback(
     (patch: Partial<UnifiedSettings>) => {
-      const { serverPatch, clientPatch } = splitPatch(patch);
+      const { serverPatch, clientPatch } = splitSettingsPatch(patch);
 
       if (Object.keys(serverPatch).length > 0) {
         if (environmentId) {
