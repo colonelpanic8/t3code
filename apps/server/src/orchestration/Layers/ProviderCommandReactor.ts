@@ -211,6 +211,19 @@ function stalePendingRequestDetail(
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
+// A response can only reach the provider through the live session holding the
+// pending callback, so once that session is gone the request is permanently
+// unanswerable — exactly the stale-request case. Reuse the stale detail so the
+// pending accounting that keys off it (web/mobile derivePending*, the decider's
+// settle guard, ProjectionPipeline) clears the request instead of leaving an
+// answerable card that appends an identical failure on every submit.
+function noActiveSessionRequestDetail(
+  requestKind: "approval" | "user-input",
+  requestId: string,
+): string {
+  return `No active provider session is bound to this thread. ${stalePendingRequestDetail(requestKind, requestId)}`;
+}
+
 function buildGeneratedWorktreeBranchName(raw: string): string {
   const normalized = raw
     .trim()
@@ -1120,7 +1133,7 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         kind: "provider.approval.respond.failed",
         summary: "Provider approval response failed",
-        detail: "No active provider session is bound to this thread.",
+        detail: noActiveSessionRequestDetail("approval", event.payload.requestId),
         turnId: null,
         createdAt: event.payload.createdAt,
         requestId: event.payload.requestId,
@@ -1164,7 +1177,7 @@ const make = Effect.gen(function* () {
           threadId: event.payload.threadId,
           kind: "provider.user-input.respond.failed",
           summary: "Provider user input response failed",
-          detail: "No active provider session is bound to this thread.",
+          detail: noActiveSessionRequestDetail("user-input", event.payload.requestId),
           turnId: null,
           createdAt: event.payload.createdAt,
           requestId: event.payload.requestId,
