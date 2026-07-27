@@ -1,0 +1,15 @@
+Categories:
+  - Development
+License: MIT
+AuthorName: T3 Tools Inc.
+WebSite: https://t3.codes
+SourceCode: https://github.com/colonelpanic8/t3code-assembly
+IssueTracker: https://github.com/pingdotgg/t3code/issues
+
+AntiFeatures:
+  NonFreeNet:
+    en-US: >-
+      Connects to proprietary AI model providers and optional hosted
+      authentication and relay services.
+
+UpdateCheckMode: None
