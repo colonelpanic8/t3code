@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 1,
+  "manifest": "stack.toml",
+  "upstream": {
+    "remote": "https://github.com/pingdotgg/t3code",
+    "ref": "main",
+    "commit": "a17cbc3b4022b824cda9b199e4c53a8c9a608923",
+    "subject": "feat(dev): keep worktree dev state isolated on T3 Code dev servers (#4555)",
+    "date": "2026-07-26T15:26:59-07:00"
+  },
+  "fork": {
+    "remote": "https://github.com/colonelpanic8/t3code",
+    "branch": "t3code/stack"
+  },
+  "entries": [
+    {
+      "label": "#3984",
+      "kind": "external",
+      "status": "merged",
+      "commit": "690d45fdd7a903911b5ea47c5dbce6469def10c6",
+      "pr": 3984,
+      "ref": "refs/pull/3984/head",
+      "summary": "Render generated images inline in chat",
+      "note": "External (jakeleventhal). Cannot rebase; merged from the PR head."
+    },
+    {
+      "label": "t3code/local/artifact-safety",
+      "kind": "local",
+      "status": "merged",
+      "commit": "2593d03a2ada4267830d1233420430ca6cb29c8d",
+      "branch": "t3code/local/artifact-safety",
+      "summary": "Constrain #3984's generic artifact paths to the real thread workspace",
+      "note": "Only typed image-generation paths may use provider-managed storage. Also adds\ntransactional thread snapshots, correct streaming boundaries, and a bounded\nretry for projection/file visibility races. Was nix-shared/patches/t3code-pr-3984-artifact-safety.patch."
+    },
+    {
+      "label": "#4259",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "ece984160567e9eec4df58601f7bbe6b2e026e59",
+      "pr": 4259,
+      "branch": "t3code/searchable-new-thread-projects",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "label": "t3code/group/thread-picker",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "b15922fad031c605b31c6501097d649bc23cd83c",
+      "branch": "t3code/group/thread-picker",
+      "summary": "Thread-picker group: #4263 + #4257 + #4258 + #4426 + #4590 + glue",
+      "note": "GROUP entry, built from stack/thread-picker.toml. These PRs all\nedit the same CommandPalette trio, so combining them here -- against upstream\nmain -- resolves the combination once against a STABLE base instead of\nre-deriving it against a shifting assembled stack on every refresh.\n\nIt also gives the add-project flow helpers a home: they are what the group needs\nto coexist, so they live on the group branch rather than as a stack epilogue.\n\nRebuild the group first, then pin its new head here.",
+      "entries": [
+        {
+          "label": "#4263",
+          "kind": "fork",
+          "status": "merged",
+          "commit": "ef15fa2ea50b4b6f1c6c0929e0a214301211dac6",
+          "pr": 4263,
+          "branch": "t3code/replace-ctrl-n-thread-modal",
+          "summary": "Unify the new thread project picker"
+        },
+        {
+          "label": "#4257",
+          "kind": "fork",
+          "status": "merged",
+          "commit": "ee5da25a75f9d414a1e3c38d00d2129d01481ad2",
+          "pr": 4257,
+          "branch": "t3code/directory-path-tab-completion",
+          "summary": "Directory path tab completion"
+        },
+        {
+          "label": "#4258",
+          "kind": "fork",
+          "status": "merged",
+          "commit": "88cfcca843ba296d09471821d573f5ba6deda8e1",
+          "pr": 4258,
+          "branch": "t3code/add-project-shortcut",
+          "summary": "Add configurable add-project shortcut"
+        },
+        {
+          "label": "#4426",
+          "kind": "fork",
+          "status": "merged",
+          "commit": "a93d1ea2a70085115e30eb3fec3502954ea5745e",
+          "pr": 4426,
+          "branch": "t3code/remote-environment-thread-creation",
+          "summary": "Add environment-aware new thread picker"
+        },
+        {
+          "label": "#4590",
+          "kind": "fork",
+          "status": "merged",
+          "commit": "93f2a235fdfe9bfda7f19d96ced77a8075392eb1",
+          "pr": 4590,
+          "branch": "t3code/error-on-unreachable-environment-browse",
+          "summary": "Error instead of silently failing when browsing an unreachable environment",
+          "note": "Belongs in this group rather than the main stack: it edits the same\nCommandPalette trio, and specifically the browse/submit region that #4257\n(tab completion) and #4426 (environment-aware picker) also touch. Placed last\nso its availability gating composes on top of the combined browse flow."
+        }
+      ]
+    },
+    {
+      "label": "#4271",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "ae7005f0610c807bf0b99202a8647308deb71342",
+      "pr": 4271,
+      "branch": "t3code/composer-keyboard-shortcuts",
+      "summary": "Keyboard-select composer controls + hold-modifier hints"
+    },
+    {
+      "label": "#4394",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "dcd01dd1aade563102fb9f918f86b1d4e37cac0b",
+      "pr": 4394,
+      "branch": "t3code/fix-dropdown-keyboard-navigation",
+      "summary": "Navigate open selections with Ctrl-N/Ctrl-P"
+    },
+    {
+      "label": "#4277",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "a9108bfd2eddb7988132d69f3a1b9779d8299e96",
+      "pr": 4277,
+      "branch": "feat/settle-thread-keybinding",
+      "summary": "Settle the open thread with Mod+Shift+X"
+    },
+    {
+      "label": "#4318",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "0018ca24c00f6fa108fcf14a4367424abbb58b6d",
+      "pr": 4318,
+      "branch": "fix/draft-thread-promotion-recovery",
+      "summary": "Recover stalled draft-thread promotion"
+    },
+    {
+      "label": "#4323",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "f67b0914e57cd73e0a6cd26635ba6cc8ce060ad9",
+      "pr": 4323,
+      "branch": "fix/coalesce-assistant-streaming",
+      "summary": "Coalesce high-frequency assistant streaming deltas"
+    },
+    {
+      "label": "#4324",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "05d3203dcaa055ff87357436dad8d36057c28c03",
+      "pr": 4324,
+      "branch": "feat/sidebar-v2-large-icons",
+      "summary": "Optional larger sidebar v2 project icons"
+    },
+    {
+      "label": "#4181",
+      "kind": "external",
+      "status": "merged",
+      "commit": "d95abc106cdd4283bfc8ccc64525e795312b8c76",
+      "pr": 4181,
+      "ref": "refs/pull/4181/head",
+      "summary": "Trigger the slash-command menu mid-prompt, not just at line start",
+      "note": "External (dmstoykov). Cannot rebase; merged from the PR head."
+    },
+    {
+      "label": "#4332",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "e4395b63c430806bba1b23c31c518e2f00819275",
+      "pr": 4332,
+      "branch": "fix/android-adaptive-icon",
+      "summary": "Properly sized flat foreground for Android adaptive icons",
+      "note": "Under applyPatches this needed a separate fetchurl for the PNG plus a postPatch\ninstall, because GitHub cumulative diffs record binary files without payload.\nThe merge carries the real blob, so that machinery is gone."
+    },
+    {
+      "label": "#4337",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "bf76e6c79005c2f68e9fd7980ff65e54d9608571",
+      "pr": 4337,
+      "branch": "feat/favicon-reload-on-click",
+      "summary": "Refresh a project favicon when its icon is clicked"
+    },
+    {
+      "label": "#4386",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "7251022462701c515619852afda1ba66f9aa690c",
+      "pr": 4386,
+      "branch": "fix/stuck-turn-recovery",
+      "summary": "Recover stranded provider turns after lost completion events"
+    },
+    {
+      "label": "#4388",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "e6eff76ae220d77adfd14330dbb42ccb6c910cbe",
+      "pr": 4388,
+      "branch": "fix/android-composer-keyboard-positioning",
+      "summary": "Keep the Android new-task composer above the keyboard while it expands"
+    },
+    {
+      "label": "#4390",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "b779c54181e93998e572e82ae0ae25f148451105",
+      "pr": 4390,
+      "branch": "t3code/add-thread-forking",
+      "summary": "Clone a thread through its latest completed response from the sidebar"
+    },
+    {
+      "label": "#4401",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "975961667d38d6fd062c7c57e57b0141809b2a1d",
+      "pr": 4401,
+      "branch": "feat/project-icons",
+      "summary": "User-local project icons"
+    },
+    {
+      "label": "#4405",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "10b95f1c2566f8f6e55504a75185b9fd2362c147",
+      "pr": 4405,
+      "branch": "fix/thread-detail-load-hardening",
+      "summary": "Self-heal empty thread details and back off failed thread subscriptions"
+    },
+    {
+      "label": "#4447",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "70138785a18abc15f9ba5aec7fd39f7277f41e4b",
+      "pr": 4447,
+      "branch": "feat/mobile-environment-first-new-thread",
+      "summary": "Environment-first new task on mobile"
+    },
+    {
+      "label": "#4427",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "d2e6495f9e3dc52a8c791a5325ffc1bf316494bd",
+      "pr": 4427,
+      "branch": "t3code/inline-image-support",
+      "summary": "Show completed image-generation activity as compact evidence links",
+      "note": "Previously carried ONLY through t3code-pr-4427-stack-compat.patch, never as a raw diff."
+    },
+    {
+      "label": "#4506",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "f7eaa00b99e67a9c1caf09e2fe6ff1f536f66b91",
+      "pr": 4506,
+      "branch": "t3code/user-input-qna-timeline",
+      "summary": "Show answered questions in the thread timeline",
+      "note": "Overlaps #4427's generated-image handling, so it must follow #4427."
+    },
+    {
+      "label": "#4433",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "2b107b9f8a50dd7999e94a55f61509bdc7a1ed57",
+      "pr": 4433,
+      "branch": "fix/model-picker-shortcuts",
+      "summary": "Refresh positional model-picker shortcuts when virtualized rows are reordered"
+    },
+    {
+      "label": "#4439",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "72afbca6e61453b040e6c01a3b6613e571aa0aad",
+      "pr": 4439,
+      "branch": "t3code/configurable-workspace-placement",
+      "summary": "Configure centralized or repository-local worktree placement"
+    },
+    {
+      "label": "#4437",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "ee717d877a5b9e10506a0817ed9b019306efaac2",
+      "pr": 4437,
+      "branch": "t3code/xdg-storage-layout",
+      "summary": "Separate config, data, state, cache, and runtime storage with XDG/legacy override"
+    },
+    {
+      "label": "#4477",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "fc3bf5d6c120d1bb86f160fa3e18ec6452565cb3",
+      "pr": 4477,
+      "branch": "fix/discover-claude-models",
+      "summary": "Discover Claude models from SDK initialization rather than the fallback catalog"
+    },
+    {
+      "label": "#4482",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "ea0cea17c7cad9af1c75353c707c2882d83be0d8",
+      "pr": 4482,
+      "branch": "fix/sidebar-resize-after-window-growth",
+      "summary": "Refresh the sidebar resize cap when the window grows"
+    },
+    {
+      "label": "#4487",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "6b75ff3f0c09abac0de1f648e91adb2828efe2a9",
+      "pr": 4487,
+      "branch": "t3code/filter-hidden-codex-models",
+      "summary": "Drop non-interactive Codex models from the model picker"
+    },
+    {
+      "label": "#4494",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "b27a3135638bb32b59026a2aeabc5f6332a92271",
+      "pr": 4494,
+      "branch": "t3code/fix-provider-settings-toggle",
+      "summary": "Keep rapid settings edits from reverting each other",
+      "note": "Two attempts to also close the sub-millisecond response/broadcast gap were\nimplemented and reverted: `settingsUpdated` carries no revision or correlation\nmarker, so every client-side heuristic regressed something worse than the gap."
+    },
+    {
+      "label": "#4484",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "eaf7e88dd2b4eac1c810fdce18f02b4a5c0f08b6",
+      "pr": 4484,
+      "branch": "fix/recover-bootstrap-thread-id",
+      "summary": "Recover draft thread IDs after failed bootstrap cleanup",
+      "note": "Under applyPatches this needed a compat patch because\nOrchestrationGetSnapshotError and OrchestrationDispatchCommandError have\nbyte-identical bodies, so `patch` silently landed retryWithNewThreadId on the\nWRONG class at this stack's offset. A 3-way merge cannot make that mistake."
+    },
+    {
+      "label": "t3code/local/nix-flake",
+      "kind": "local",
+      "status": "merged",
+      "commit": "abeb0bc56a70f95b2341ad2d3ee94b32006eac74",
+      "branch": "t3code/local/nix-flake",
+      "summary": "Nix flake: dev shell and desktop package",
+      "note": "Purely additive (flake.nix + nix/README.md), so it carries at essentially zero\nconflict cost -- the ideal shape for a permanent-carry topic. Upstream\nCONTRIBUTING says they are not accepting contributions and want an issue first,\nso this is carried locally rather than opened as a cold PR."
+    },
+    {
+      "label": "t3code/client-suite",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "3bf7d489546f53439727d4d864797ae9df1098be",
+      "branch": "t3code/client-suite",
+      "summary": "Complete client-only desktop, pairing, environment presentation, and settings suite",
+      "note": "Canonical cumulative client branch. Subsumes #4444, #4474, #4496, #4505,\n#4538, #4548, #4559, #4567, the branch-linked\nt3code/show-remote-host-name topic, and the diagnostics work from #4486.\nThread host badges are client-local presentation, default on for every\nenvironment (including localhost), and do not depend on classifying the app as\na local owner or remote client."
+    },
+    {
+      "label": "t3code/unify-environment-selection",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "bad56da25af511e30a59ccbd847f9cab14e70e1a",
+      "branch": "t3code/unify-environment-selection",
+      "summary": "Align settings ownership and environment selection across settings pages",
+      "note": "Places the shared environment selector inside the Environment navigation group\nand repeats it in a clearly labeled scope strip on environment-owned pages.\nKeybindings are client-owned and client-persisted; Connections remains a\nclient page. Assistant output and new-thread/worktree defaults are client-owned\nacross web, desktop, and mobile. Provider configuration, host paths, source\ncontrol, and diagnostics remain environment-owned."
+    },
+    {
+      "label": "#4593",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "6980a8c13e16ce6241c238d9b1e636d980bb4dea",
+      "pr": 4593,
+      "branch": "t3code/settle-state-reconcile",
+      "summary": "Reconcile client state when a settle does not land",
+      "note": "Placed last among the client-runtime subscription topics: it adds a\n`resync-requested` wakeup and merges a request stream into the web wakeups\nlayer, so it touches apps/web/src/connection/platform.ts after both\nt3code/client-suite and t3code/unify-environment-selection have restructured\nit. Its one-line filter change in client-runtime state/threads.ts sits in a\ndifferent region than #4405's subscription backoff. Reported as #4589."
+    },
+    {
+      "label": "t3code/local/build-provenance",
+      "kind": "local",
+      "status": "merged",
+      "commit": "24300541acecec9149656c0f7fbcb3a747660f6c",
+      "branch": "t3code/local/build-provenance",
+      "summary": "Show the build's commit, and a Settings page describing the assembled stack",
+      "note": "Reads stack-build-info.json, which the rebuild writes as this branch's final\ncommit, so it has to be able to see the assembled result -- but it is ordinary\napp code and belongs on a topic, not in the tooling. Placed last so its edits\nto SettingsPanels.tsx and SettingsSidebarNav.tsx land after t3code/client-suite\nand t3code/unify-environment-selection have finished restructuring them.\n\nLocal rather than a PR: the value is entirely in describing a personally\nassembled stack, which upstream does not have."
+    },
+    {
+      "label": "#4598",
+      "kind": "fork",
+      "status": "merged",
+      "commit": "3f826e54032bf07b2b453eb2b88dac722b4a1a64",
+      "pr": 4598,
+      "branch": "t3code/clear-unanswerable-provider-requests",
+      "summary": "Clear pending approval and user-input requests when no provider session is bound",
+      "note": "Four carried topics touch its two files: #4386 and #4390 edit\nProviderCommandReactor.ts, #4427 and #4506 edit session-logic.test.ts. Appended\nso it merges once against their final assembled state rather than being\nre-resolved as each lands. Its own hunks are small: a helper beside\nstalePendingRequestDetail plus two `detail:` lines on the server, one test\ninside the derivePendingUserInputs describe on the web.\n\nBranched from upstream a17cbc3b4, which is newer than the lock's recorded\nupstream, so this entry wants a refresh rather than a reproduce."
+    },
+    {
+      "label": "t3code-sidebar-v2-large-icons-fixture.patch",
+      "kind": "epilogue",
+      "status": "epilogue",
+      "commit": "",
+      "summary": "Add sidebarV2LargeIcons to the desktop ClientSettings test fixture",
+      "note": "#4324 adds sidebarV2LargeIcons as a required ClientSettings field but does not\nupdate apps/desktop's fixture, which must list every field. Stack-emergent, so\nit cannot live on #4324's branch. Was patches/t3code-pr-4324-stack-compat.patch."
+    },
+    {
+      "label": "t3code-projection-threads-snoozed-migration-compat.patch",
+      "kind": "epilogue",
+      "status": "epilogue",
+      "commit": "",
+      "summary": "Re-run the snooze schema update as migration 36",
+      "note": "The snooze feature arrived upstream with migration ID 34 after that ID had\nalready been recorded locally for ProjectionThreadGoals. This is a function of\nthe assembled stack, not an independent topic, so it cannot be a normal entry.\nWas nix-shared/patches/t3code-projection-threads-snoozed-migration-compat.patch."
+    },
+    {
+      "label": "t3code-assembled-runtime-imports.patch",
+      "kind": "epilogue",
+      "status": "epilogue",
+      "commit": "",
+      "summary": "Restore assembled runtime imports and project icon types",
+      "note": "Stack-emergent glue: project icons and primary settings reference hooks supplied\nby other carried topics. Also widens the project-icon renderer's structural type\nto the exact optional-property shape used by the assembled project model."
+    }
+  ]
+}
