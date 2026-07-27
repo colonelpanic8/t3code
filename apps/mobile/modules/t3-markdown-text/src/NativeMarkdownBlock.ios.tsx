@@ -116,7 +116,7 @@ function useHighlightedCode(
   code: string,
   language: string | undefined,
   theme: "light" | "dark",
-  highlightCode: MarkdownCodeHighlighter,
+  highlightCode: MarkdownCodeHighlighter | null,
 ): HighlightedCode | null {
   const key = codeHighlightCacheKey(code, language, theme);
   const [highlighted, setHighlighted] = useState<{
@@ -133,6 +133,19 @@ function useHighlightedCode(
     if (cached) {
       cacheHighlightedCode(key, cached);
       setHighlighted({ key, tokens: cached });
+      return () => {
+        active = false;
+      };
+    }
+
+    // A withheld highlighter means the text is still growing (streaming, or a
+    // backlog replay appending to it). Highlighting every intermediate state
+    // runs Shiki once per delta and evicts settled entries from the cache.
+    // Debouncing here cannot help: a growing code block's React key encodes its
+    // source offsets, so the block remounts on every delta and any per-mount
+    // timer starts over. The caller withholds the highlighter until the text
+    // settles instead, and plain monospace renders in the interim.
+    if (highlightCode === null) {
       return () => {
         active = false;
       };
@@ -235,7 +248,7 @@ function HighlightedCodeText(props: {
 function NativeCodeBlock(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly compact?: boolean;
 }) {
   const content = nodeText(props.node).replace(/\n$/, "");
@@ -474,7 +487,7 @@ function NativeMixedParagraph(props: {
 function NativeList(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly onLinkPress?: (href: string) => void;
   readonly depth: number;
 }) {
@@ -552,7 +565,7 @@ function NativeList(props: {
 export function NativeMarkdownBlock(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly onLinkPress?: (href: string) => void;
   readonly depth?: number;
   readonly compact?: boolean;

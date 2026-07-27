@@ -52,6 +52,8 @@ export interface ThreadDetailScreenProps {
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
+  /** The feed is growing from a replayed backlog rather than live output. */
+  readonly replayCatchUp?: boolean;
   readonly activeWorkStartedAt: string | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
@@ -126,6 +128,7 @@ function useStreamingHaptics(
   threadId: ThreadId,
   feed: ReadonlyArray<ThreadFeedEntry>,
   enabled: boolean,
+  replayCatchUp: boolean,
 ) {
   const lastStreamingAssistantRef = useRef<{
     readonly id: string;
@@ -171,6 +174,12 @@ function useStreamingHaptics(
       return;
     }
 
+    // Replayed backlog growth is not live typing — buzzing through a
+    // catch-up burst would fire haptics for output the user already missed.
+    if (replayCatchUp) {
+      return;
+    }
+
     const now = Date.now();
     if (!isNewStream && now - lastStreamHapticAtRef.current < 320) {
       return;
@@ -178,7 +187,7 @@ function useStreamingHaptics(
 
     lastStreamHapticAtRef.current = now;
     void Haptics.selectionAsync();
-  }, [enabled, threadId, feed]);
+  }, [enabled, threadId, feed, replayCatchUp]);
 }
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
@@ -244,6 +253,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     props.selectedThread.id,
     props.selectedThreadFeed,
     showStreamingAssistantOutput,
+    props.replayCatchUp ?? false,
   );
   const selectedProviderSkills = useMemo(
     () =>
@@ -381,6 +391,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             agentLabel={agentLabel}
             latestTurn={props.selectedThread.latestTurn}
             activeWorkStartedAt={props.activeWorkStartedAt}
+            replayCatchUp={props.replayCatchUp}
             listRef={listRef}
             freeze={freeze}
             anchorMessageId={anchorMessageId}
