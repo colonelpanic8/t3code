@@ -2,7 +2,10 @@ import { ChevronDownIcon, GitPullRequestIcon, RefreshCwIcon } from "lucide-react
 import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
 import { useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import { connectionStatusText } from "@t3tools/client-runtime/connection";
 import type {
+  EnvironmentId,
   SourceControlProviderKind,
   SourceControlDiscoveryResult,
   SourceControlProviderAuth,
@@ -12,9 +15,9 @@ import type {
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useSettingsEnvironment } from "../../hooks/useSettingsEnvironment";
 import { cn } from "../../lib/utils";
-import { usePrimaryEnvironment } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { Badge } from "../ui/badge";
@@ -49,7 +52,13 @@ import {
 } from "../Icons";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
-import { SettingResetButton, SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import { SettingsEnvironmentSelector } from "./SettingsEnvironmentSelector";
+import {
+  SettingResetButton,
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "./settingsLayout";
 
 const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
   versionControlSystems: [],
@@ -291,11 +300,12 @@ function DiscoveryItemRow({
   );
 }
 
-function GitFetchIntervalSettings() {
-  const automaticGitFetchInterval = usePrimarySettings(
+function GitFetchIntervalSettings({ environmentId }: { environmentId: EnvironmentId }) {
+  const automaticGitFetchInterval = useEnvironmentSettings(
+    environmentId,
     (settings) => settings.automaticGitFetchInterval,
   );
-  const updateSettings = useUpdatePrimarySettings();
+  const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const automaticGitFetchIntervalSeconds = durationToSeconds(automaticGitFetchInterval);
   const defaultAutomaticGitFetchIntervalSeconds = durationToSeconds(
     DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -441,9 +451,17 @@ function EmptySourceControlDiscovery({
 }
 
 export function SourceControlSettingsPanel() {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const {
+    environmentId,
+    environment,
+    environments,
+    primaryEnvironmentId,
+    selectEnvironment,
+    isReady: environmentsReady,
+  } = useSettingsEnvironment();
+  const isConnected = environment?.connection.phase === "connected";
   const discovery = useEnvironmentQuery(
-    environmentId === null
+    environmentId === null || !isConnected
       ? null
       : sourceControlEnvironment.discovery({
           environmentId,
@@ -479,7 +497,37 @@ export function SourceControlSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {isInitialScanPending ? (
+      <SettingsSection title="Environment">
+        <SettingsRow
+          title="Source control environment"
+          description="Git tooling, credentials, hosting integrations, and fetch behavior belong to a specific server."
+          status={
+            environment
+              ? [connectionStatusText(environment.connection), environment.displayUrl]
+                  .filter(Boolean)
+                  .join(" · ")
+              : environmentsReady
+                ? "Connect an environment to inspect its source-control configuration."
+                : "Loading environments."
+          }
+          control={
+            environmentId !== null && environment !== null ? (
+              <SettingsEnvironmentSelector
+                environmentId={environmentId}
+                environments={environments}
+                primaryEnvironmentId={primaryEnvironmentId}
+                onEnvironmentChange={selectEnvironment}
+              />
+            ) : environmentsReady ? (
+              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                Open connections
+              </Button>
+            ) : null
+          }
+        />
+      </SettingsSection>
+
+      {!isConnected || environmentId === null ? null : isInitialScanPending ? (
         <>
           <SourceControlSectionSkeleton title="Version Control" headerAction={scanButton} />
           <SourceControlSectionSkeleton title="Source Control Providers" />
@@ -490,7 +538,9 @@ export function SourceControlSettingsPanel() {
             <SettingsSection title="Version Control" headerAction={scanButton}>
               {result.versionControlSystems.map((item) => (
                 <DiscoveryItemRow key={`vcs:${item.kind}`} item={item}>
-                  {item.kind === "git" ? <GitFetchIntervalSettings /> : undefined}
+                  {item.kind === "git" ? (
+                    <GitFetchIntervalSettings environmentId={environmentId} />
+                  ) : undefined}
                 </DiscoveryItemRow>
               ))}
             </SettingsSection>
