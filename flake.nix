@@ -76,13 +76,36 @@
                 else "0";
             };
 
-          postPatch =
-            (previousAttrs.postPatch or "")
-            + ''
-              substituteInPlace package.json \
-                --replace-warn '"packageManager": "pnpm@11.10.0"' \
-                               '"packageManager": "pnpm@${pnpm.version}"'
-            '';
+          # NOT `(previousAttrs.postPatch or "") + ...`. nixpkgs' postPatch
+          # rewrites the dev-server host default with --replace-fail against a
+          # one-line form that upstream has since split in two:
+          #
+          #   const host = process.env.HOST?.trim() || "localhost";
+          # became
+          #   const explicitHost = process.env.HOST?.trim();
+          #   const host = explicitHost || "localhost";
+          #
+          # Inheriting it fails the build outright whenever this stack is ahead
+          # of the pinned nixpkgs release. Restate the intent -- bind the dev
+          # server to 127.0.0.1 rather than the "localhost" alias -- against the
+          # shape this tree actually has, and tolerate either form so the build
+          # survives the next upstream edit to those lines.
+          postPatch = ''
+            substituteInPlace apps/web/vite.config.ts \
+              --replace-quiet 'const host = process.env.HOST?.trim() || "localhost";' \
+                              'const host = process.env.HOST?.trim() || "127.0.0.1";' \
+              --replace-quiet 'const host = explicitHost || "localhost";' \
+                              'const host = explicitHost || "127.0.0.1";'
+
+            grep -q 'const host = .*"127\.0\.0\.1";' apps/web/vite.config.ts || {
+              echo "vite.config.ts: dev host default did not match either known form" >&2
+              exit 1
+            }
+
+            substituteInPlace package.json \
+              --replace-warn '"packageManager": "pnpm@11.10.0"' \
+                             '"packageManager": "pnpm@${pnpm.version}"'
+          '';
 
           # The Vite+ task runner walks every declared workspace and tries to
           # install the mobile and infra workspaces, which are intentionally not
