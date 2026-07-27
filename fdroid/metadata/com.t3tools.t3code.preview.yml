@@ -1,0 +1,25 @@
+Categories:
+  - Development
+License: MIT
+AuthorName: T3 Tools Inc.
+WebSite: https://t3.chat
+SourceCode: https://github.com/colonelpanic8/t3code
+IssueTracker: https://github.com/pingdotgg/t3code/issues
+
+# T3 Code is a client for coding agents: it talks to Anthropic, OpenAI, and other
+# proprietary model providers, and sign-in goes through Clerk. None of that is
+# optional in the way a self-hosted app's sync might be, so the app is flagged
+# rather than described as working offline.
+AntiFeatures:
+  NonFreeNet:
+    en-US: >-
+      Connects to proprietary AI model providers and to a hosted authentication
+      service. The app is not useful without at least one of them.
+
+# The listing (name, summary, description, icon) comes from
+# fastlane/metadata/android/, which is the layout F-Droid, IzzyOnDroid, and
+# Play all read, so one source keeps them identical.
+
+# Versions come from whatever APKs scripts/fdroid/build-repo.sh puts in repo/,
+# so there is nothing to check for updates.
+UpdateCheckMode: None
