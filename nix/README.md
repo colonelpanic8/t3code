@@ -6,11 +6,21 @@
   `ELECTRON_OVERRIDE_DIST_PATH` so Electron does not try to download a binary.
 - `nix build` — the desktop app built from this checkout.
 
+The source build is exposed for `x86_64-linux`, `aarch64-linux`, and
+`aarch64-darwin`. Current nixpkgs no longer supports `x86_64-darwin`; use the
+release-artifact flake described below if Intel macOS support is required.
+
 ## How the package is built
 
 Rather than re-deriving the whole Electron + pnpm monorepo build, the flake
 overrides nixpkgs' existing `t3code` derivation with `src = self`. That keeps
 this file small and means upstream packaging fixes are inherited automatically.
+
+This is deliberately different from
+[`Sawrz/t3code-nix`](https://github.com/Sawrz/t3code-nix), which packages
+published desktop and npm artifacts. That flake is useful for installing a
+released T3 Code version; this one builds and tests the source in the current
+checkout.
 
 The build runs the desktop dependency chain directly (web → server → Electron
 shell) instead of `vp run`, because the Vite+ task runner walks every declared
