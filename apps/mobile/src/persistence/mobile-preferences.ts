@@ -15,6 +15,9 @@ const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
 
 export interface Preferences {
   readonly liveActivitiesEnabled?: boolean;
+  readonly defaultThreadEnvMode?: "local" | "worktree";
+  readonly enableAssistantStreaming?: boolean;
+  readonly newWorktreesStartFromOrigin?: boolean;
   readonly baseFontSize?: number;
   readonly terminalFontSize?: number | null;
   readonly markdownFontSize?: number;
@@ -71,6 +74,9 @@ export class MobilePreferencesStore extends Context.Service<
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
     liveActivitiesEnabled?: boolean;
+    defaultThreadEnvMode?: "local" | "worktree";
+    enableAssistantStreaming?: boolean;
+    newWorktreesStartFromOrigin?: boolean;
     baseFontSize?: number;
     terminalFontSize?: number | null;
     markdownFontSize?: number;
@@ -84,6 +90,15 @@ function sanitizePreferences(parsed: Preferences): Preferences {
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;
+  }
+  if (parsed.defaultThreadEnvMode === "local" || parsed.defaultThreadEnvMode === "worktree") {
+    preferences.defaultThreadEnvMode = parsed.defaultThreadEnvMode;
+  }
+  if (typeof parsed.enableAssistantStreaming === "boolean") {
+    preferences.enableAssistantStreaming = parsed.enableAssistantStreaming;
+  }
+  if (typeof parsed.newWorktreesStartFromOrigin === "boolean") {
+    preferences.newWorktreesStartFromOrigin = parsed.newWorktreesStartFromOrigin;
   }
   if (typeof parsed.baseFontSize === "number") preferences.baseFontSize = parsed.baseFontSize;
   if (typeof parsed.terminalFontSize === "number" || parsed.terminalFontSize === null) {

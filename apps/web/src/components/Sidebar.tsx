@@ -217,16 +217,18 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { CommandDialogTrigger } from "./ui/command";
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
-import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
+import {
+  useClientKeybindings,
+  useClientSettings,
+  useUpdateClientSettings,
+} from "~/hooks/useSettings";
+import { environmentServerConfigsAtom } from "../state/server";
 import {
   environmentAccentStyle,
   resolveSharedEnvironmentAccentColor,
   useEnvironmentAccentColor,
   useEnvironmentAccentColors,
 } from "~/environmentAccentColors";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -3212,7 +3214,7 @@ export default function Sidebar() {
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
       : false,
   );
-  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindings = useClientKeybindings();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
