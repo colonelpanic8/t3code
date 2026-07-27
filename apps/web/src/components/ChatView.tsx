@@ -219,6 +219,8 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { FindInThreadBar } from "./chat/FindInThreadBar";
+import { clampThreadFindIndex, stepThreadFindIndex } from "./chat/threadFind";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -302,6 +304,23 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+
+interface ChatFindState {
+  open: boolean;
+  query: string;
+  activeIndex: number;
+  matchCount: number;
+  /** Bumped on every open request so a repeat Cmd+F re-selects the field. */
+  focusRequestId: number;
+}
+const CLOSED_CHAT_FIND_STATE: ChatFindState = {
+  open: false,
+  query: "",
+  activeIndex: 0,
+  matchCount: 0,
+  focusRequestId: 0,
+};
+
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
   const transitionGroupRef = useRef<HTMLDivElement | null>(null);
   const composerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -1240,6 +1259,7 @@ function ChatViewContent(props: ChatViewProps) {
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [findState, setFindState] = useState<ChatFindState>(CLOSED_CHAT_FIND_STATE);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
@@ -4230,6 +4250,35 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiOpenByThreadRef.current[activeThreadKey] = current;
   }, [activeThreadKey, focusComposer, terminalUiState.terminalOpen]);
 
+  const openThreadFind = useCallback(() => {
+    setFindState((state) => ({
+      ...state,
+      open: true,
+      focusRequestId: state.focusRequestId + 1,
+    }));
+  }, []);
+  const closeThreadFind = useCallback(() => {
+    setFindState(CLOSED_CHAT_FIND_STATE);
+  }, []);
+  const changeThreadFindQuery = useCallback((query: string) => {
+    setFindState((state) => ({ ...state, query, activeIndex: 0 }));
+  }, []);
+  const stepThreadFind = useCallback((delta: number) => {
+    setFindState((state) => ({
+      ...state,
+      activeIndex: stepThreadFindIndex(state.activeIndex, state.matchCount, delta),
+    }));
+  }, []);
+  const handleThreadFindMatchCountChange = useCallback((matchCount: number) => {
+    setFindState((state) => (state.matchCount === matchCount ? state : { ...state, matchCount }));
+  }, []);
+  // Find is per-thread; switching threads drops it rather than carrying a query
+  // that matched somewhere else.
+  useEffect(() => {
+    setFindState(CLOSED_CHAT_FIND_STATE);
+  }, [activeThreadKey]);
+  const threadFindActiveIndex = clampThreadFindIndex(findState.activeIndex, findState.matchCount);
+
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || isCommandPaletteOpen()) {
@@ -4266,6 +4315,13 @@ function ChatViewContent(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         toggleTerminalVisibility();
+        return;
+      }
+
+      if (command === "chat.find") {
+        event.preventDefault();
+        event.stopPropagation();
+        openThreadFind();
         return;
       }
 
@@ -4372,6 +4428,7 @@ function ChatViewContent(props: ChatViewProps) {
     onToggleDiff,
     toggleRightPanel,
     toggleTerminalVisibility,
+    openThreadFind,
     composerRef,
   ]);
 
@@ -5707,7 +5764,25 @@ function ChatViewContent(props: ChatViewProps) {
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
+                findQuery={findState.open ? findState.query : ""}
+                findActiveIndex={threadFindActiveIndex}
+                onFindMatchCountChange={handleThreadFindMatchCountChange}
               />
+
+              {findState.open && (
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-end px-3 sm:px-5">
+                  <FindInThreadBar
+                    query={findState.query}
+                    matchCount={findState.matchCount}
+                    activeIndex={threadFindActiveIndex}
+                    focusRequestId={findState.focusRequestId}
+                    onQueryChange={changeThreadFindQuery}
+                    onNext={() => stepThreadFind(1)}
+                    onPrevious={() => stepThreadFind(-1)}
+                    onClose={closeThreadFind}
+                  />
+                </div>
+              )}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
