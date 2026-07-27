@@ -58,12 +58,23 @@
           # unset on purpose: an assembled build already names its fork in
           # stack-build-info.json, and a plain flake build of an arbitrary
           # checkout has no business claiming one.
-          T3CODE_BUILD_COMMIT = buildCommit;
-          T3CODE_BUILD_DATE = buildDate;
-          T3CODE_BUILD_DIRTY =
-            if self ? dirtyRev
-            then "1"
-            else "0";
+          #
+          # These MUST go in `env`, not at the top level. This derivation sets
+          # __structuredAttrs, under which top-level attributes become ordinary
+          # (unexported) shell variables in .attrs.sh -- so `vp build` would run
+          # as a child process that never sees them, and the app would ship with
+          # a blank commit while the build stayed green. Only `env` members
+          # become real environment variables.
+          env =
+            (previousAttrs.env or {})
+            // {
+              T3CODE_BUILD_COMMIT = buildCommit;
+              T3CODE_BUILD_DATE = buildDate;
+              T3CODE_BUILD_DIRTY =
+                if self ? dirtyRev
+                then "1"
+                else "0";
+            };
 
           postPatch =
             (previousAttrs.postPatch or "")
