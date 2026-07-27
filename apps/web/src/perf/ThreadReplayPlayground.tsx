@@ -40,6 +40,9 @@ import { deriveTimelineEntries, deriveWorkLogEntries } from "../session-logic";
  *
  * Query params:
  *   deltas  — number of streaming delta events to replay (default 2000)
+ *   activities — number of thread.activity-appended (tool) events interleaved
+ *             with the deltas (default 0); real agentic threads are dominated
+ *             by these even with assistant streaming off
  *   batch   — events applied per state publication (default 1 = today's
  *             behavior; raise to preview what client-side batching buys)
  *   history — settled message pairs present before the streaming one (default 8)
@@ -136,34 +139,80 @@ function makeBaseThread(historyPairs: number): OrchestrationThread {
   };
 }
 
-function makeDeltaEvents(count: number, historyPairs: number, withCode: boolean) {
+function makeDeltaEvents(
+  count: number,
+  activityCount: number,
+  historyPairs: number,
+  withCode: boolean,
+) {
   const streamStartSeconds = historyPairs * 60 + 5;
-  return Array.from(
-    { length: count },
-    (_, index) =>
-      ({
-        eventId: EventId.make(`event-delta-${index}`),
+  const events: OrchestrationEvent[] = [];
+  const total = count + activityCount;
+  let textIndex = 0;
+  let activityIndex = 0;
+  // Interleave text deltas and tool activities evenly, mirroring the event
+  // mix of real agentic threads (which are dominated by
+  // thread.activity-appended even with assistant streaming off).
+  for (let index = 0; index < total; index += 1) {
+    const occurredAt = isoAt(streamStartSeconds + index);
+    const emitActivity =
+      activityIndex < activityCount &&
+      (textIndex >= count || activityIndex / activityCount <= textIndex / count);
+    if (emitActivity) {
+      const toolCall = Math.floor(activityIndex / 2);
+      const started = activityIndex % 2 === 0;
+      events.push({
+        eventId: EventId.make(`event-activity-${activityIndex}`),
         sequence: index + 1,
-        occurredAt: isoAt(streamStartSeconds + index),
+        occurredAt,
         commandId: null,
         causationEventId: null,
         correlationId: null,
         metadata: {},
         aggregateKind: "thread",
         aggregateId: THREAD_ID,
-        type: "thread.message-sent",
+        type: "thread.activity-appended",
         payload: {
           threadId: THREAD_ID,
-          messageId: STREAMING_MESSAGE_ID,
-          role: "assistant",
-          text: chunkText(index, withCode),
-          turnId: STREAMING_TURN_ID,
-          streaming: true,
-          createdAt: isoAt(streamStartSeconds),
-          updatedAt: isoAt(streamStartSeconds + index),
+          activity: {
+            id: EventId.make(`activity-${activityIndex}`),
+            tone: "tool",
+            kind: started ? "tool.started" : "tool.completed",
+            summary: started ? `Tool call ${toolCall} started` : `Tool call ${toolCall} completed`,
+            payload: { itemType: "dynamic_tool_call", detail: `Tool ${toolCall}` },
+            turnId: STREAMING_TURN_ID,
+            createdAt: occurredAt,
+          },
         },
-      }) as OrchestrationEvent,
-  );
+      } as OrchestrationEvent);
+      activityIndex += 1;
+      continue;
+    }
+    events.push({
+      eventId: EventId.make(`event-delta-${textIndex}`),
+      sequence: index + 1,
+      occurredAt,
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      aggregateKind: "thread",
+      aggregateId: THREAD_ID,
+      type: "thread.message-sent",
+      payload: {
+        threadId: THREAD_ID,
+        messageId: STREAMING_MESSAGE_ID,
+        role: "assistant",
+        text: chunkText(textIndex, withCode),
+        turnId: STREAMING_TURN_ID,
+        streaming: true,
+        createdAt: isoAt(streamStartSeconds),
+        updatedAt: occurredAt,
+      },
+    } as OrchestrationEvent);
+    textIndex += 1;
+  }
+  return events;
 }
 
 const macrotask = () =>
@@ -210,6 +259,7 @@ function readParams() {
   };
   return {
     deltas: num("deltas", 2000),
+    activities: num("activities", 0),
     batch: num("batch", 1),
     history: num("history", 8),
     code: search.get("code") !== "0",
@@ -252,7 +302,10 @@ export function ThreadReplayPlayground() {
   const baseThread = useMemo(() => makeBaseThread(params.history), [params.history]);
   const [thread, setThread] = useState<OrchestrationThread>(baseThread);
   const listRef = useRef<LegendListRef | null>(null);
-  const statsRef = useRef<ReplayStats>({ ...INITIAL_STATS, totalDeltas: params.deltas });
+  const statsRef = useRef<ReplayStats>({
+    ...INITIAL_STATS,
+    totalDeltas: params.deltas + params.activities,
+  });
   const runningRef = useRef(false);
 
   useEffect(() => {
@@ -279,12 +332,12 @@ export function ThreadReplayPlayground() {
     Object.assign(stats, {
       ...INITIAL_STATS,
       running: true,
-      totalDeltas: params.deltas,
+      totalDeltas: params.deltas + params.activities,
     });
     setThread(baseThread);
     await macrotask();
 
-    const events = makeDeltaEvents(params.deltas, params.history, params.code);
+    const events = makeDeltaEvents(params.deltas, params.activities, params.history, params.code);
     const startedAt = performance.now();
     let current = baseThread;
     let previousTick = startedAt;
@@ -372,6 +425,14 @@ export function ThreadReplayPlayground() {
               className="w-20 rounded border border-border bg-transparent px-1 py-0.5"
               name="deltas"
               defaultValue={params.deltas}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            activities
+            <input
+              className="w-20 rounded border border-border bg-transparent px-1 py-0.5"
+              name="activities"
+              defaultValue={params.activities}
             />
           </label>
           <label className="flex flex-col gap-1">
