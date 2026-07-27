@@ -98,6 +98,7 @@ interface MobileRunContextSelectorProps {
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel: string | null;
   onUsePreviousWorktree: () => void;
+  onSelectionComplete?: () => void;
 }
 
 const MobileRunContextSelector = memo(function MobileRunContextSelector({
@@ -118,6 +119,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
+  onSelectionComplete,
 }: MobileRunContextSelectorProps) {
   const activeEnvironment = useMemo(
     () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
@@ -186,7 +188,10 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
               <MenuGroupLabel>Run on</MenuGroupLabel>
               <MenuRadioGroup
                 value={environmentId}
-                onValueChange={(value) => onEnvironmentChange(value as EnvironmentId)}
+                onValueChange={(value) => {
+                  onEnvironmentChange(value as EnvironmentId);
+                  onSelectionComplete?.();
+                }}
               >
                 {availableEnvironments.map((env) => {
                   const Icon = env.isPrimary ? MonitorIcon : CloudIcon;
@@ -215,9 +220,11 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
             onValueChange={(value) => {
               if (value === "previous-worktree") {
                 onUsePreviousWorktree();
+                onSelectionComplete?.();
                 return;
               }
               onEnvModeChange(value as EnvMode);
+              onSelectionComplete?.();
             }}
           >
             <MenuRadioItem disabled={envModeLocked} value="local">
@@ -484,9 +491,10 @@ export const BranchToolbar = memo(function BranchToolbar({
           onEnvModeChange={onEnvModeChange}
           previousWorktreeLabel={previousWorktreeLabel}
           onUsePreviousWorktree={onUsePreviousWorktree}
+          {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
         />
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+        <div className="flex min-w-0 shrink-0 items-center gap-1">
           {showEnvironmentIndicator && availableEnvironments && (
             <>
               <BranchToolbarEnvironmentSelector
@@ -496,6 +504,7 @@ export const BranchToolbar = memo(function BranchToolbar({
                 open={environmentPickerOpen}
                 onOpenChange={(open) => handlePickerOpenChange("environment", open)}
                 shortcutHintLabel={availableEnvironmentHintLabel}
+                {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
               <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
@@ -511,6 +520,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onEnvModeChange={onEnvModeChange}
             previousWorktreeLabel={previousWorktreeLabel}
             onUsePreviousWorktree={onUsePreviousWorktree}
+            {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
           />
         </div>
       )}
