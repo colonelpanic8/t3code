@@ -14,6 +14,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -150,6 +151,8 @@ const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
 /** Breathing room kept above a revealed find match, and below it. */
 const FIND_MATCH_VIEW_MARGIN = 96;
+/** Frames to wait for a navigated-to row to mount and lay out before giving up. */
+const FIND_NUDGE_MAX_FRAMES = 12;
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -188,6 +191,11 @@ interface MessagesTimelineProps {
   findQuery?: string;
   /** Index of the match to reveal, into the list this component reports back. */
   findActiveIndex?: number;
+  /**
+   * Bumped on every explicit next/previous step so re-stepping onto the same
+   * match (a single-match wrap-around) still re-reveals it.
+   */
+  findNavigationId?: number;
   onFindMatchCountChange?: (count: number) => void;
 }
 
@@ -226,6 +234,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   topFadeEnabled = false,
   findQuery = "",
   findActiveIndex = 0,
+  findNavigationId = 0,
   onFindMatchCountChange,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
@@ -479,7 +488,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ? (findMatches[clampThreadFindIndex(findActiveIndex, findMatches.length)] ?? null)
       : null;
 
-  useEffect(() => {
+  // Layout effect so the parent's count state commits before paint — the find
+  // bar must never display a total the step handlers aren't already using.
+  useLayoutEffect(() => {
     onFindMatchCountChange?.(findMatches.length);
   }, [findMatches.length, onFindMatchCountChange]);
 
@@ -491,11 +502,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   });
 
   // Rows churn while a turn streams; only navigate when the target itself
-  // changes, otherwise every streamed token would yank the scroll position.
+  // changes — or the user explicitly re-steps — otherwise every streamed token
+  // would yank the scroll position.
   const navigatedFindMatchKeyRef = useRef<string | null>(null);
+  // The nudge loop lives in a ref rather than effect cleanup: this effect
+  // re-runs on every streamed token, and cleanup would cancel a loop that is
+  // still waiting for the target row to mount.
+  const findNudgeFrameRef = useRef<number | null>(null);
+  const cancelFindNudge = useCallback(() => {
+    if (findNudgeFrameRef.current !== null) {
+      cancelAnimationFrame(findNudgeFrameRef.current);
+      findNudgeFrameRef.current = null;
+    }
+  }, []);
+  useEffect(() => cancelFindNudge, [cancelFindNudge]);
+
   useEffect(() => {
     if (!activeFindMatch) {
       navigatedFindMatchKeyRef.current = null;
+      cancelFindNudge();
       return;
     }
 
@@ -517,12 +542,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
 
-    const matchKey = `${activeFindMatch.entryId}:${activeFindMatch.occurrence}`;
+    const matchKey = `${findNavigationId}:${normalizedFindQuery}:${activeFindMatch.entryId}:${activeFindMatch.occurrence}`;
     if (navigatedFindMatchKeyRef.current === matchKey) {
       return;
     }
     navigatedFindMatchKeyRef.current = matchKey;
 
+    // Find is user navigation: without this, live follow scrolls right back to
+    // the streaming edge on the next layout pass and the match is lost.
+    onManualNavigation();
     void listRef.current?.scrollToIndex({
       index: rowIndex,
       animated: false,
@@ -530,12 +558,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     });
 
     // Once the row is laid out, nudge the exact occurrence into view — a long
-    // message can scroll to its top with the match still below the fold.
-    const frame = requestAnimationFrame(() => {
+    // message can scroll to its top with the match still below the fold. The
+    // row can take a few frames to mount and paint after scrollToIndex, so
+    // retry briefly instead of giving up on the first frame.
+    cancelFindNudge();
+    let attemptsLeft = FIND_NUDGE_MAX_FRAMES;
+    const nudge = () => {
+      findNudgeFrameRef.current = null;
       repaintFindHighlights();
+      attemptsLeft -= 1;
       const matchRect = activeRangeRef.current?.getBoundingClientRect();
       const viewportRect = timelineViewportElement?.getBoundingClientRect();
       if (!matchRect || !viewportRect || matchRect.height === 0) {
+        if (attemptsLeft > 0) {
+          findNudgeFrameRef.current = requestAnimationFrame(nudge);
+        }
         return;
       }
       const topBoundary = viewportRect.top + FIND_MATCH_VIEW_MARGIN;
@@ -554,13 +591,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (typeof currentScroll === "number") {
         listRef.current?.scrollToOffset({ offset: currentScroll + delta, animated: false });
       }
-    });
-    return () => cancelAnimationFrame(frame);
+    };
+    findNudgeFrameRef.current = requestAnimationFrame(nudge);
   }, [
     activeFindMatch,
     activeRangeRef,
+    cancelFindNudge,
     contentInsetEndAdjustment,
+    findNavigationId,
     listRef,
+    normalizedFindQuery,
+    onManualNavigation,
     repaintFindHighlights,
     rows,
     timelineViewportElement,
@@ -1121,13 +1162,15 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <ChatMarkdown
-          text={messageText}
-          cwd={ctx.markdownCwd}
-          threadRef={ctx.threadRef ?? undefined}
-          isStreaming={Boolean(row.message.streaming)}
-          skills={ctx.skills}
-        />
+        <div data-thread-find-text="true">
+          <ChatMarkdown
+            text={messageText}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            isStreaming={Boolean(row.message.streaming)}
+            skills={ctx.skills}
+          />
+        </div>
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
@@ -1528,6 +1571,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
         <div
           className={cn("relative", isCollapsed && "max-h-44 overflow-hidden")}
           data-user-message-body="true"
+          data-thread-find-text="true"
           data-user-message-collapsed={isCollapsed ? "true" : "false"}
           data-user-message-collapsible={canCollapse ? "true" : "false"}
           data-user-message-fade={isCollapsed ? "true" : "false"}
