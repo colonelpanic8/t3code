@@ -3,11 +3,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  DEFAULT_RUNTIME_MODE,
-  DEFAULT_SERVER_SETTINGS,
-  type ScopedProjectRef,
-} from "@t3tools/contracts";
+import { DEFAULT_RUNTIME_MODE, type ScopedProjectRef } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -23,7 +19,7 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { readThreadShell, useProjects, useServerConfigs, useThread } from "../state/entities";
+import { readThreadShell, useProjects, useThread } from "../state/entities";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -31,8 +27,11 @@ import { useClientSettings } from "./useSettings";
 
 export function useNewThreadHandler() {
   const projects = useProjects();
-  const serverConfigs = useServerConfigs();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const defaultThreadEnvMode = useClientSettings((settings) => settings.defaultThreadEnvMode);
+  const newWorktreesStartFromOrigin = useClientSettings(
+    (settings) => settings.newWorktreesStartFromOrigin,
+  );
   const router = useRouter();
   const getCurrentRouteTarget = useCallback(() => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
@@ -102,8 +101,6 @@ export function useNewThreadHandler() {
           candidate.id === projectRef.projectId &&
           candidate.environmentId === projectRef.environmentId,
       );
-      const targetServerSettings =
-        serverConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
@@ -145,7 +142,7 @@ export function useNewThreadHandler() {
           // preserved. When the draft is already open and no options were
           // passed, leave it alone entirely — the user may have just picked a
           // branch in the composer.
-          const defaultEnvMode = targetServerSettings.defaultThreadEnvMode;
+          const defaultEnvMode = defaultThreadEnvMode;
           const workspaceContext = hasExplicitWorkspaceOption
             ? {
                 ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -161,7 +158,7 @@ export function useNewThreadHandler() {
                   envMode: defaultEnvMode,
                   startFromOrigin: resolveNewDraftStartFromOrigin({
                     envMode: defaultEnvMode,
-                    newWorktreesStartFromOrigin: targetServerSettings.newWorktreesStartFromOrigin,
+                    newWorktreesStartFromOrigin,
                   }),
                 };
           if (workspaceContext) {
@@ -244,7 +241,7 @@ export function useNewThreadHandler() {
       const draftId = newDraftId();
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
-      const initialEnvMode = options?.envMode ?? targetServerSettings.defaultThreadEnvMode;
+      const initialEnvMode = options?.envMode ?? defaultThreadEnvMode;
       return (async () => {
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
@@ -256,7 +253,7 @@ export function useNewThreadHandler() {
             options?.startFromOrigin ??
             resolveNewDraftStartFromOrigin({
               envMode: initialEnvMode,
-              newWorktreesStartFromOrigin: targetServerSettings.newWorktreesStartFromOrigin,
+              newWorktreesStartFromOrigin,
             }),
           runtimeMode: carryRuntimeMode ?? DEFAULT_RUNTIME_MODE,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
@@ -278,7 +275,14 @@ export function useNewThreadHandler() {
         });
       })();
     },
-    [getCurrentRouteTarget, projectGroupingSettings, projects, router, serverConfigs],
+    [
+      defaultThreadEnvMode,
+      getCurrentRouteTarget,
+      newWorktreesStartFromOrigin,
+      projectGroupingSettings,
+      projects,
+      router,
+    ],
   );
 }
 
