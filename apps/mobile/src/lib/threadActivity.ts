@@ -57,6 +57,62 @@ export interface ThreadFeedActivity {
 
 const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
 
+// The thread reducer reuses untouched message/activity objects and arrays
+// across state publications, so identity-keyed caches survive streaming
+// updates and backlog replay — only objects that actually changed re-derive.
+const sortedActivitiesCache = new WeakMap<
+  ReadonlyArray<OrchestrationThreadActivity>,
+  ReadonlyArray<OrchestrationThreadActivity>
+>();
+const workLogEntriesCache = new WeakMap<
+  ReadonlyArray<OrchestrationThreadActivity>,
+  DerivedWorkLogEntry[]
+>();
+const derivedWorkLogEntryCache = new WeakMap<OrchestrationThreadActivity, DerivedWorkLogEntry>();
+const mergedWorkLogEntryCache = new WeakMap<
+  DerivedWorkLogEntry,
+  WeakMap<DerivedWorkLogEntry, DerivedWorkLogEntry>
+>();
+const pendingApprovalsCache = new WeakMap<
+  ReadonlyArray<OrchestrationThreadActivity>,
+  PendingApproval[]
+>();
+const pendingUserInputsCache = new WeakMap<
+  ReadonlyArray<OrchestrationThreadActivity>,
+  PendingUserInput[]
+>();
+const messageFeedEntryCache = new WeakMap<
+  OrchestrationThread["messages"][number],
+  RawThreadFeedEntry
+>();
+const activityFeedEntryCache = new WeakMap<DerivedWorkLogEntry, RawThreadFeedEntry>();
+const createdAtMsCache = new WeakMap<RawThreadFeedEntry, number>();
+const threadFeedCache = new WeakMap<
+  OrchestrationThread["messages"],
+  WeakMap<ReadonlyArray<OrchestrationThreadActivity>, ThreadFeedEntry[]>
+>();
+
+function sortActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyArray<OrchestrationThreadActivity> {
+  const cached = sortedActivitiesCache.get(activities);
+  if (cached) {
+    return cached;
+  }
+  // The reducer maintains activities in this exact order, so the common case
+  // is a linear verification pass with no sort.
+  let alreadySorted = true;
+  for (let index = 1; index < activities.length; index += 1) {
+    if (activityOrder(activities[index - 1]!, activities[index]!) > 0) {
+      alreadySorted = false;
+      break;
+    }
+  }
+  const sorted = alreadySorted ? activities : Arr.sort(activities, activityOrder);
+  sortedActivitiesCache.set(activities, sorted);
+  return sorted;
+}
+
 type WorkLogToolLifecycleStatus = "inProgress" | "completed" | "failed" | "declined" | "stopped";
 
 interface WorkLogEntry {
@@ -237,7 +293,11 @@ function resolvePendingUserInputAnswer(
 function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): DerivedWorkLogEntry[] {
-  const ordered = Arr.sort(activities, activityOrder);
+  const cached = workLogEntriesCache.get(activities);
+  if (cached) {
+    return cached;
+  }
+  const ordered = sortActivities(activities);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (activity.kind === "tool.started") continue;
@@ -247,7 +307,9 @@ function deriveWorkLogEntries(
     if (isPlanBoundaryToolActivity(activity)) continue;
     entries.push(toDerivedWorkLogEntry(activity));
   }
-  return collapseDerivedWorkLogEntries(entries);
+  const collapsed = collapseDerivedWorkLogEntries(entries);
+  workLogEntriesCache.set(activities, collapsed);
+  return collapsed;
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -263,6 +325,16 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
 }
 
 function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
+  const cached = derivedWorkLogEntryCache.get(activity);
+  if (cached) {
+    return cached;
+  }
+  const entry = buildDerivedWorkLogEntry(activity);
+  derivedWorkLogEntryCache.set(activity, entry);
+  return entry;
+}
+
+function buildDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
       ? (activity.payload as Record<string, unknown>)
@@ -379,6 +451,24 @@ function shouldCollapseToolLifecycleEntries(
 }
 
 function mergeDerivedWorkLogEntries(
+  previous: DerivedWorkLogEntry,
+  next: DerivedWorkLogEntry,
+): DerivedWorkLogEntry {
+  let byNext = mergedWorkLogEntryCache.get(previous);
+  if (!byNext) {
+    byNext = new WeakMap();
+    mergedWorkLogEntryCache.set(previous, byNext);
+  }
+  const cached = byNext.get(next);
+  if (cached) {
+    return cached;
+  }
+  const merged = buildMergedWorkLogEntry(previous, next);
+  byNext.set(next, merged);
+  return merged;
+}
+
+function buildMergedWorkLogEntry(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
@@ -949,10 +1039,9 @@ function groupAdjacentActivities(entries: ReadonlyArray<RawThreadFeedEntry>): Th
 
     const previous = grouped.at(-1);
     if (previous?.type === "activity-group" && previous.turnId === entry.turnId) {
-      grouped[grouped.length - 1] = {
-        ...previous,
-        activities: [...previous.activities, entry.activity],
-      };
+      // The group entry is created below within this pass, so appending in
+      // place is safe and avoids re-copying the array per activity.
+      (previous.activities as ThreadFeedActivity[]).push(entry.activity);
       continue;
     }
 
@@ -1206,8 +1295,12 @@ function appendPresentedFeedEntry(
 export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingApproval[] {
+  const cached = pendingApprovalsCache.get(activities);
+  if (cached) {
+    return cached;
+  }
   const openByRequestId = new Map<ApprovalRequestId, PendingApproval>();
-  const ordered = Arr.sort(activities, activityOrder);
+  const ordered = sortActivities(activities);
 
   for (const activity of ordered) {
     const payload =
@@ -1247,14 +1340,24 @@ export function derivePendingApprovals(
     }
   }
 
-  return Arr.sortWith([...openByRequestId.values()], (s) => new Date(s.createdAt), Order.Date);
+  const pending = Arr.sortWith(
+    [...openByRequestId.values()],
+    (s) => new Date(s.createdAt),
+    Order.Date,
+  );
+  pendingApprovalsCache.set(activities, pending);
+  return pending;
 }
 
 export function derivePendingUserInputs(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingUserInput[] {
+  const cached = pendingUserInputsCache.get(activities);
+  if (cached) {
+    return cached;
+  }
   const openByRequestId = new Map<ApprovalRequestId, PendingUserInput>();
-  const ordered = Arr.sort(activities, activityOrder);
+  const ordered = sortActivities(activities);
 
   for (const activity of ordered) {
     const payload =
@@ -1291,7 +1394,9 @@ export function derivePendingUserInputs(
     }
   }
 
-  return Arr.sortWith(openByRequestId.values(), (s) => new Date(s.createdAt), Order.Date);
+  const pending = Arr.sortWith(openByRequestId.values(), (s) => new Date(s.createdAt), Order.Date);
+  pendingUserInputsCache.set(activities, pending);
+  return pending;
 }
 
 export function setPendingUserInputCustomAnswer(
@@ -1323,64 +1428,105 @@ export function buildPendingUserInputAnswers(
   return answers;
 }
 
+function toMessageFeedEntry(message: OrchestrationThread["messages"][number]): RawThreadFeedEntry {
+  const cached = messageFeedEntryCache.get(message);
+  if (cached) {
+    return cached;
+  }
+  const entry: RawThreadFeedEntry = {
+    type: "message",
+    id: message.id,
+    createdAt: message.createdAt,
+    message,
+  };
+  messageFeedEntryCache.set(message, entry);
+  return entry;
+}
+
+function toActivityFeedEntry(entry: DerivedWorkLogEntry): RawThreadFeedEntry {
+  const cached = activityFeedEntryCache.get(entry);
+  if (cached) {
+    return cached;
+  }
+  const summary = workEntryHeading(entry);
+  const detail = workEntryPreview(entry);
+  const fullDetail = buildWorkEntryExpandedBody(entry);
+  const feedEntry: RawThreadFeedEntry = {
+    type: "activity",
+    id: entry.id,
+    createdAt: entry.createdAt,
+    turnId: entry.turnId,
+    activity: {
+      id: entry.id,
+      createdAt: entry.createdAt,
+      turnId: entry.turnId,
+      summary,
+      detail,
+      fullDetail,
+      icon: workEntryIcon(entry),
+      copyText: [summary, detail, fullDetail]
+        .filter((value, index, values): value is string => {
+          return Boolean(value) && values.indexOf(value) === index;
+        })
+        .join("\n"),
+      toolLike: workLogEntryIsToolLike(entry),
+      status: workEntryStatus(entry),
+    },
+  };
+  activityFeedEntryCache.set(entry, feedEntry);
+  return feedEntry;
+}
+
+function feedEntryCreatedAtMs(entry: RawThreadFeedEntry): number {
+  const cached = createdAtMsCache.get(entry);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const ms = Date.parse(entry.createdAt);
+  createdAtMsCache.set(entry, ms);
+  return ms;
+}
+
 export function buildThreadFeed(
   thread: OrchestrationThread,
   options?: {
     readonly loadedMessages?: ReadonlyArray<OrchestrationThread["messages"][number]>;
   },
 ): ThreadFeedEntry[] {
+  const cacheable = options === undefined;
+  if (cacheable) {
+    const cachedFeed = threadFeedCache.get(thread.messages)?.get(thread.activities);
+    if (cachedFeed) {
+      return cachedFeed;
+    }
+  }
   const loadedMessages = options?.loadedMessages ?? thread.messages;
   const oldestLoadedMessageCreatedAt =
     options?.loadedMessages !== undefined ? (loadedMessages[0]?.createdAt ?? null) : null;
   const workLogEntries = deriveWorkLogEntries(thread.activities);
-  const entries = Arr.sortWith(
-    [
-      ...loadedMessages.map<RawThreadFeedEntry>((message) => ({
-        type: "message",
-        id: message.id,
-        createdAt: message.createdAt,
-        message,
-      })),
-      ...workLogEntries
-        .filter((entry) => {
-          if (options?.loadedMessages === undefined) {
-            return true;
-          }
-          return (
-            oldestLoadedMessageCreatedAt === null || entry.createdAt >= oldestLoadedMessageCreatedAt
-          );
-        })
-        .map<RawThreadFeedEntry>((entry) => {
-          const summary = workEntryHeading(entry);
-          const detail = workEntryPreview(entry);
-          const fullDetail = buildWorkEntryExpandedBody(entry);
-          return {
-            type: "activity",
-            id: entry.id,
-            createdAt: entry.createdAt,
-            turnId: entry.turnId,
-            activity: {
-              id: entry.id,
-              createdAt: entry.createdAt,
-              turnId: entry.turnId,
-              summary,
-              detail,
-              fullDetail,
-              icon: workEntryIcon(entry),
-              copyText: [summary, detail, fullDetail]
-                .filter((value, index, values): value is string => {
-                  return Boolean(value) && values.indexOf(value) === index;
-                })
-                .join("\n"),
-              toolLike: workLogEntryIsToolLike(entry),
-              status: workEntryStatus(entry),
-            },
-          };
-        }),
-    ],
-    (s) => new Date(s.createdAt),
-    Order.Date,
-  );
+  const entries = [
+    ...loadedMessages.map(toMessageFeedEntry),
+    ...workLogEntries
+      .filter((entry) => {
+        if (options?.loadedMessages === undefined) {
+          return true;
+        }
+        return (
+          oldestLoadedMessageCreatedAt === null || entry.createdAt >= oldestLoadedMessageCreatedAt
+        );
+      })
+      .map(toActivityFeedEntry),
+  ];
+  entries.sort((a, b) => feedEntryCreatedAtMs(a) - feedEntryCreatedAtMs(b));
 
-  return groupAdjacentActivities(entries);
+  const feed = groupAdjacentActivities(entries);
+  if (cacheable) {
+    let byActivities = threadFeedCache.get(thread.messages);
+    if (!byActivities) {
+      byActivities = new WeakMap();
+      threadFeedCache.set(thread.messages, byActivities);
+    }
+    byActivities.set(thread.activities, feed);
+  }
+  return feed;
 }

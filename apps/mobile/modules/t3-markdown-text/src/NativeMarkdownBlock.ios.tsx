@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, ScrollView, Text, useColorScheme, View } from "react-native";
 import type { MarkdownNode } from "react-native-nitro-markdown/headless";
 
@@ -21,6 +21,11 @@ type HighlightedCode = ReadonlyArray<ReadonlyArray<MarkdownHighlightedToken>>;
 const highlightedCodeCache = new Map<string, HighlightedCode>();
 const highlightedCodePromiseCache = new Map<string, Promise<HighlightedCode>>();
 const HIGHLIGHTED_CODE_CACHE_LIMIT = 64;
+// A code change on a mounted block means the text is still streaming (or a
+// backlog replay is appending to it). Highlighting every intermediate state
+// runs Shiki once per delta and evicts settled entries from the cache, so wait
+// for the text to hold still before spending a highlight pass.
+const HIGHLIGHT_STREAMING_DEBOUNCE_MS = 200;
 
 function nodeKey(node: MarkdownNode, index: number): string {
   return `${node.type}:${node.beg ?? index}:${node.end ?? index}`;
@@ -127,8 +132,11 @@ function useHighlightedCode(
     tokens: highlightedCodeCache.get(key) ?? null,
   }));
 
+  const hasRunRef = useRef(false);
   useEffect(() => {
     let active = true;
+    const isFirstRun = !hasRunRef.current;
+    hasRunRef.current = true;
     const cached = highlightedCodeCache.get(key);
     if (cached) {
       cacheHighlightedCode(key, cached);
@@ -138,19 +146,31 @@ function useHighlightedCode(
       };
     }
 
-    void loadHighlightedCode(code, language, theme, highlightCode)
-      .then((tokens) => {
-        if (active) {
-          setHighlighted({ key, tokens });
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setHighlighted({ key, tokens: null });
-        }
-      });
+    const load = () => {
+      void loadHighlightedCode(code, language, theme, highlightCode)
+        .then((tokens) => {
+          if (active) {
+            setHighlighted({ key, tokens });
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setHighlighted({ key, tokens: null });
+          }
+        });
+    };
+
+    if (isFirstRun) {
+      load();
+      return () => {
+        active = false;
+      };
+    }
+
+    const timer = setTimeout(load, HIGHLIGHT_STREAMING_DEBOUNCE_MS);
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [code, highlightCode, key, language, theme]);
 
