@@ -48,7 +48,6 @@ import {
   removePendingProcessSignal,
   type PendingProcessSignal,
 } from "./DiagnosticsSettings.logic";
-import { SettingsEnvironmentSelector } from "./SettingsEnvironmentSelector";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 const NUMBER_FORMAT = new Intl.NumberFormat();
@@ -860,13 +859,7 @@ interface LogsDirectoryState {
 }
 
 export function DiagnosticsSettingsPanel() {
-  const {
-    environmentId,
-    environment: diagnosticsEnvironment,
-    environments,
-    primaryEnvironmentId,
-    selectEnvironment,
-  } = useSettingsEnvironment();
+  const { environmentId, environment: diagnosticsEnvironment } = useSettingsEnvironment();
   const observability = diagnosticsEnvironment?.serverConfig?.observability ?? null;
   const storage = diagnosticsEnvironment?.serverConfig?.storage ?? null;
   const availableEditors = diagnosticsEnvironment?.serverConfig?.availableEditors ?? [];
@@ -1090,14 +1083,7 @@ export function DiagnosticsSettingsPanel() {
             )
           }
           control={
-            diagnosticsEnvironment ? (
-              <SettingsEnvironmentSelector
-                environmentId={diagnosticsEnvironment.environmentId}
-                environments={environments}
-                primaryEnvironmentId={primaryEnvironmentId}
-                onEnvironmentChange={selectEnvironment}
-              />
-            ) : (
+            diagnosticsEnvironment ? null : (
               <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
                 Manage connections
               </Button>
