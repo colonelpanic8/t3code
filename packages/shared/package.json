@@ -199,9 +199,9 @@
       "types": "./src/httpReadiness.ts",
       "import": "./src/httpReadiness.ts"
     },
-    "./devHome": {
-      "types": "./src/devHome.ts",
-      "import": "./src/devHome.ts"
+    "./localServerDiscovery": {
+      "types": "./src/localServerDiscovery.ts",
+      "import": "./src/localServerDiscovery.ts"
     }
   },
   "scripts": {
