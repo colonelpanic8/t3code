@@ -134,7 +134,6 @@ import {
   isSidebarThreadEffectivelySettled,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
-  resolveAdjacentThreadId,
   resolveProjectRepositoryKey,
   resolveSettledTimestamp,
   pruneSidebarChangeRequestStates,
