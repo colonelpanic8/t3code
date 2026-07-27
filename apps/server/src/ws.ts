@@ -866,7 +866,7 @@ const makeWsRpcLayer = (
           let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
           let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
 
-          const cleanupCreatedThread = () =>
+          const cleanupCreatedThread = (): Effect.Effect<boolean> =>
             createdThread
               ? serverCommandId("bootstrap-thread-delete").pipe(
                   Effect.flatMap((commandId) =>
@@ -876,9 +876,18 @@ const makeWsRpcLayer = (
                       threadId: command.threadId,
                     }),
                   ),
-                  Effect.ignoreCause({ log: true }),
+                  Effect.as(true),
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Failed to clean up bootstrap thread").pipe(
+                      Effect.annotateLogs({
+                        threadId: command.threadId,
+                        cause: Cause.pretty(cause),
+                      }),
+                      Effect.as(false),
+                    ),
+                  ),
                 )
-              : Effect.void;
+              : Effect.succeed(false);
 
           const recordSetupScriptLaunchFailure = (input: {
             readonly error: ProjectSetupScriptRunner.ProjectSetupScriptRunnerError;
@@ -1057,7 +1066,19 @@ const makeWsRpcLayer = (
               if (Cause.hasInterruptsOnly(cause)) {
                 return Effect.fail(dispatchError);
               }
-              return cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.fail(dispatchError)));
+              return cleanupCreatedThread().pipe(
+                Effect.flatMap((cleanedUp) =>
+                  Effect.fail(
+                    cleanedUp
+                      ? new OrchestrationDispatchCommandError({
+                          message: dispatchError.message,
+                          cause: dispatchError.cause,
+                          retryWithNewThreadId: true,
+                        })
+                      : dispatchError,
+                  ),
+                ),
+              );
             }),
           );
         });
