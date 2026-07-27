@@ -11,7 +11,11 @@
     nixpkgs,
     flake-utils,
   }:
-    flake-utils.lib.eachDefaultSystem (system: let
+    flake-utils.lib.eachSystem [
+      "aarch64-darwin"
+      "aarch64-linux"
+      "x86_64-linux"
+    ] (system: let
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
@@ -161,11 +165,11 @@
           };
         }
       );
+      t3code = pkgs.t3code.override {t3code-unwrapped = unwrapped;};
     in {
       packages = {
-        inherit unwrapped;
-        t3code = pkgs.t3code.override {t3code-unwrapped = unwrapped;};
-        default = pkgs.t3code.override {t3code-unwrapped = unwrapped;};
+        inherit t3code unwrapped;
+        default = t3code;
       };
 
       # Launch the packaged app headlessly and fail on a renderer crash.
@@ -174,39 +178,41 @@
       # green `nix build` says nothing about whether the app boots. That has
       # shipped a build whose first paint was "Something went wrong:
       # useEnvironmentSettings is not defined". This check catches that class.
-      checks.smoke =
-        pkgs.runCommand "t3code-smoke" {
-          nativeBuildInputs = [pkgs.xvfb-run pkgs.dbus];
-        } ''
-          export HOME=$(mktemp -d)
-          export XDG_RUNTIME_DIR=$(mktemp -d)
-          set +e
-          timeout 20 xvfb-run -a ${pkgs.dbus}/bin/dbus-run-session \
-            --config-file=${pkgs.dbus}/share/dbus-1/session.conf -- \
-            ${self.packages.${system}.t3code}/bin/t3code-desktop \
-              --backend-mode=client-only --no-sandbox \
-            > "$HOME/out.log" 2>&1
-          app_status=$?
-          set -e
+      checks = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        smoke =
+          pkgs.runCommand "t3code-smoke" {
+            nativeBuildInputs = [pkgs.xvfb-run pkgs.dbus];
+          } ''
+            export HOME=$(mktemp -d)
+            export XDG_RUNTIME_DIR=$(mktemp -d)
+            set +e
+            timeout 20 xvfb-run -a ${pkgs.dbus}/bin/dbus-run-session \
+              --config-file=${pkgs.dbus}/share/dbus-1/session.conf -- \
+              ${t3code}/bin/t3code-desktop \
+                --backend-mode=client-only --no-sandbox \
+              > "$HOME/out.log" 2>&1
+            app_status=$?
+            set -e
 
-          echo "--- app output ---"; cat "$HOME/out.log" || true
+            echo "--- app output ---"; cat "$HOME/out.log" || true
 
-          # A healthy Electron main process stays up until the timeout. An
-          # early exit means the launcher failed before the renderer could be
-          # checked (for example, a broken D-Bus session).
-          if [ "$app_status" -ne 124 ]; then
-            echo "SMOKE FAILED: app exited before the timeout (status $app_status)" >&2
-            exit 1
-          fi
+            # A healthy Electron main process stays up until the timeout. An
+            # early exit means the launcher failed before the renderer could be
+            # checked (for example, a broken D-Bus session).
+            if [ "$app_status" -ne 124 ]; then
+              echo "SMOKE FAILED: app exited before the timeout (status $app_status)" >&2
+              exit 1
+            fi
 
-          # Electron logs renderer exceptions to stderr; any of these means the
-          # UI failed to mount even if the process exited 0.
-          if grep -qE "is not defined|ReferenceError|Something went wrong" "$HOME/out.log"; then
-            echo "SMOKE FAILED: renderer crashed on boot" >&2
-            exit 1
-          fi
-          touch $out
-        '';
+            # Electron logs renderer exceptions to stderr; any of these means the
+            # UI failed to mount even if the process exited 0.
+            if grep -qE "is not defined|ReferenceError|Something went wrong" "$HOME/out.log"; then
+              echo "SMOKE FAILED: renderer crashed on boot" >&2
+              exit 1
+            fi
+            touch $out
+          '';
+      };
 
       devShells.default = pkgs.mkShell {
         packages = [nodejs pnpm pkgs.git];
