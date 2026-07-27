@@ -121,6 +121,15 @@ function isFreshTimestamp(input: string): boolean {
   return Number.isFinite(timestamp) && Date.now() - timestamp < FRESH_ENTRY_WINDOW_MS;
 }
 
+// The reducer stamps the detail thread's updatedAt with each event's original
+// occurredAt, so a stale value while the feed is changing means the client is
+// replaying a backlog (thread reopen, resume after backgrounding) rather than
+// receiving live output. Replay bursts should not pay for per-commit layout
+// animations, animated end scrolls, or haptics.
+export function isLiveThreadEventTimestamp(input: string | null | undefined): boolean {
+  return input == null || isFreshTimestamp(input);
+}
+
 export interface ThreadFeedProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -130,6 +139,8 @@ export interface ThreadFeedProps {
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
   readonly activeWorkStartedAt: string | null;
+  /** occurredAt of the latest applied detail event; stale ⇒ backlog replay. */
+  readonly lastEventAt?: string | null;
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
@@ -1440,6 +1451,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     return ids;
   }, [expandedWorkGroups]);
+  const replayCatchUp = !isLiveThreadEventTimestamp(props.lastEventAt);
   const presentedFeed = useMemo(
     () =>
       deriveThreadFeedPresentation(
@@ -1725,7 +1737,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                 }
               : { scrollIndicatorInsets: { top: topContentInset, bottom: 0 } })}
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-            itemLayoutAnimation={FEED_ITEM_LAYOUT_TRANSITION}
+            itemLayoutAnimation={replayCatchUp ? undefined : FEED_ITEM_LAYOUT_TRANSITION}
             // Patched LegendList prop (patches/@legendapp__list@3.2.0.patch):
             // lets its scroll math clamp programmatic scrolls to -headerInset
             // instead of 0, so initialScrollAtEnd/maintainScrollAtEnd on short
@@ -1753,7 +1765,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               disclosureToggleSettling
                 ? false
                 : {
-                    animated: true,
+                    // Instant (not animated) during backlog replay — an
+                    // animated scrollToEnd per catch-up publication churns the
+                    // scroll view for content the user never watched stream.
+                    animated: !replayCatchUp,
                     on: {
                       dataChange: true,
                       itemLayout: true,
