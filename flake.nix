@@ -10,16 +10,22 @@
     self,
     nixpkgs,
     flake-utils,
-  }:
-    flake-utils.lib.eachSystem [
+  }: let
+    systems = [
       "aarch64-darwin"
       "aarch64-linux"
       "x86_64-linux"
-    ] (system: let
+    ];
+  in
+    flake-utils.lib.eachSystem systems (system: let
       pkgs = import nixpkgs {
         inherit system;
-        config.allowUnfree = true;
+        config = {
+          allowUnfree = true;
+          android_sdk.accept_license = true;
+        };
       };
+      lib = pkgs.lib;
 
       # Vite+ bootstraps the exact version named in packageManager, so the
       # offline dependency closure must be installed by a matching pnpm.
@@ -55,7 +61,9 @@
       # upstream packaging changes.
       unwrapped = (pkgs.t3code.unwrapped.override {pnpm_10 = pnpm;}).overrideAttrs (
         finalAttrs: previousAttrs: {
-          version = "${previousAttrs.version}-flake";
+          version =
+            "${previousAttrs.version}-source"
+            + pkgs.lib.optionalString (buildCommit != "") "-${builtins.substring 0 8 buildCommit}";
           src = self;
 
           # Read by apps/web/vite.config.ts. The repository remote is left
@@ -166,10 +174,121 @@
         }
       );
       t3code = pkgs.t3code.override {t3code-unwrapped = unwrapped;};
+      client = t3code.overrideAttrs (previousAttrs: {
+        pname = "t3code-client";
+        buildCommand =
+          previousAttrs.buildCommand
+          + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            # Chromium does not recognize every Linux desktop as having a
+            # native password store. Prefer Secret Service explicitly so
+            # Electron safeStorage does not silently fall back to basic_text.
+            mv "$out/bin/t3code-desktop" \
+              "$out/bin/.t3code-desktop-client-unwrapped"
+            makeWrapper "$out/bin/.t3code-desktop-client-unwrapped" \
+              "$out/bin/t3code-desktop" \
+              --add-flags "--password-store=gnome-libsecret" \
+              --add-flags "--backend-mode=client-only"
+          ''
+          + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            # makeWrapper is makeBinaryWrapper here, so the app bundle still
+            # launches a native Mach-O executable rather than a shell script.
+            mv "$out/bin/t3code-desktop" \
+              "$out/bin/.t3code-desktop-client-unwrapped"
+            makeWrapper "$out/bin/.t3code-desktop-client-unwrapped" \
+              "$out/bin/t3code-desktop" \
+              --add-flags "--backend-mode=client-only"
+          '';
+      });
+
+      androidBuildToolsVersion = "36.0.0";
+      androidCommandLineToolsVersion = "8.0";
+      androidNdkVersion = "27.1.12297006";
+      expoNdkVersion = "27.0.12077973";
+      androidComposition = pkgs.androidenv.composeAndroidPackages {
+        cmdLineToolsVersion = androidCommandLineToolsVersion;
+        toolsVersion = "26.1.1";
+        platformToolsVersion = "35.0.2";
+        buildToolsVersions = [androidBuildToolsVersion "35.0.0" "34.0.0"];
+        platformVersions = ["35" "36"];
+        includeSources = false;
+        abiVersions = ["x86_64"];
+        includeNDK = true;
+        ndkVersions = [androidNdkVersion expoNdkVersion];
+        cmakeVersions = ["3.22.1"];
+        useGoogleAPIs = true;
+        useGoogleTVAddOns = false;
+      };
+      androidSdk = androidComposition.androidsdk;
+      androidHome = "${androidSdk}/libexec/android-sdk";
+      androidJdk = pkgs.jdk17;
+      androidShell = pkgs.mkShell {
+        packages = with pkgs; [
+          androidJdk
+          androidSdk
+          curl
+          git
+          gnumake
+          nodejs_24
+          pkg-config
+          python3
+          watchman
+          xz
+          zig_0_15
+        ];
+
+        ANDROID_HOME = androidHome;
+        ANDROID_SDK_ROOT = androidHome;
+        ANDROID_NDK_HOME = "${androidHome}/ndk/${androidNdkVersion}";
+        ANDROID_NDK_ROOT = "${androidHome}/ndk/${androidNdkVersion}";
+        GHOSTTY_ZIG = "${pkgs.zig_0_15}/bin/zig";
+        JAVA_HOME = androidJdk.home;
+        LC_ALL = "en_US.UTF-8";
+        LANG = "en_US.UTF-8";
+        GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidHome}/build-tools/${androidBuildToolsVersion}/aapt2";
+        NODE_OPTIONS = "--max-old-space-size=8192";
+
+        shellHook = ''
+          export PATH="${androidHome}/platform-tools:${androidHome}/cmdline-tools/${androidCommandLineToolsVersion}/bin:$PWD/node_modules/.bin:$PWD/apps/mobile/node_modules/.bin:$PATH"
+          echo "T3 Code Android dev shell"
+          echo "  node: $(node --version)"
+          echo "  pnpm: $(corepack pnpm --version)"
+          echo "  java: $(java -version 2>&1 | head -n 1)"
+          echo "  sdk:  $ANDROID_SDK_ROOT"
+          echo "  ndk:  $ANDROID_NDK_HOME"
+        '';
+      };
+      androidBuilder = pkgs.writeShellApplication {
+        name = "build-t3code-android";
+        runtimeInputs = with pkgs; [
+          coreutils
+          gawk
+          gnused
+          nix
+        ];
+        text =
+          ''
+            export T3CODE_SOURCE_TREE=${lib.escapeShellArg "${self}"}
+            export T3CODE_ANDROID_FLAKE=${lib.escapeShellArg "${self}"}
+            export T3CODE_SOURCE_REV=${lib.escapeShellArg (
+              if buildCommit == ""
+              then "local"
+              else builtins.substring 0 8 buildCommit
+            )}
+          ''
+          + builtins.readFile ./nix/scripts/build-android-apk.sh;
+      };
     in {
       packages = {
-        inherit t3code unwrapped;
+        inherit client t3code unwrapped;
         default = t3code;
+      };
+
+      apps = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        build-android = {
+          type = "app";
+          program = lib.getExe androidBuilder;
+          meta.description = "Build a sideloadable Android APK from this checkout";
+        };
       };
 
       # Launch the packaged app headlessly and fail on a renderer crash.
@@ -214,19 +333,44 @@
           '';
       };
 
-      devShells.default = pkgs.mkShell {
-        packages = [nodejs pnpm pkgs.git];
+      devShells =
+        {
+          default = pkgs.mkShell {
+            packages = [nodejs pnpm pkgs.git];
 
-        # Electron's postinstall download is useless in a sandbox; point the
-        # tooling at the nixpkgs build instead.
-        ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
-        ELECTRON_OVERRIDE_DIST_PATH = "${pkgs.electron}/libexec/electron";
+            # Electron's postinstall download is useless in a sandbox; point
+            # the tooling at the nixpkgs build instead.
+            ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
+            ELECTRON_OVERRIDE_DIST_PATH = "${pkgs.electron}/libexec/electron";
 
-        shellHook = ''
-          echo "T3 Code dev shell: node $(node --version), pnpm $(pnpm --version)"
-        '';
-      };
+            shellHook = ''
+              echo "T3 Code dev shell: node $(node --version), pnpm $(pnpm --version)"
+            '';
+          };
+        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          android = androidShell;
+        };
 
       formatter = pkgs.alejandra;
-    });
+    })
+    // {
+      overlays = {
+        # Build this checkout in place of nixpkgs's released source.
+        default = final: _previous: {
+          t3code = self.packages.${final.stdenv.hostPlatform.system}.t3code;
+        };
+
+        # Desktop-client installations can opt into the persistent-backend
+        # wrapper without imposing that policy on every flake consumer.
+        client = final: _previous: {
+          t3code = self.packages.${final.stdenv.hostPlatform.system}.client;
+        };
+      };
+
+      homeManagerModules = {
+        default = self.homeManagerModules.t3code-server;
+        t3code-server = import ./nix/home-manager/t3code-server.nix {inherit self;};
+      };
+    };
 }

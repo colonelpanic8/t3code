@@ -5,6 +5,16 @@
 - `nix develop` — a dev shell with the pinned Node and pnpm, plus
   `ELECTRON_OVERRIDE_DIST_PATH` so Electron does not try to download a binary.
 - `nix build` — the desktop app built from this checkout.
+- `packages.<system>.client` — the same package with a client-only desktop
+  launcher and Secret Service password storage on Linux.
+- `overlays.default` and `overlays.client` — overlays selecting the normal or
+  client package as `pkgs.t3code`.
+- `homeManagerModules.t3code-server` — a cross-platform persistent backend
+  service using systemd on Linux and launchd on macOS.
+- `nix develop .#android` — the Android SDK, NDK, JDK, Node, CMake, and Zig
+  development environment on Linux.
+- `nix run .#build-android` — a reproducible writable-copy build of a
+  sideloadable Android release APK.
 
 The source build is exposed for `x86_64-linux`, `aarch64-linux`, and
 `aarch64-darwin`. Current nixpkgs no longer supports `x86_64-darwin`; use the
@@ -21,6 +31,10 @@ This is deliberately different from
 published desktop and npm artifacts. That flake is useful for installing a
 released T3 Code version; this one builds and tests the source in the current
 checkout.
+
+The desktop file and icons come from nixpkgs's official `t3code` derivation.
+The client package wraps the executable those entries already launch, so it
+does not duplicate or patch desktop files.
 
 The build runs the desktop dependency chain directly (web → server → Electron
 shell) instead of `vp run`, because the Vite+ task runner walks every declared
