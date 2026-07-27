@@ -291,6 +291,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
+  onSelectionComplete: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -353,7 +354,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           value={props.runtimeMode}
           open={props.runtimeModePickerOpen}
           onOpenChange={props.onRuntimeModePickerOpenChange}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+          onValueChange={(value) => {
+            props.onRuntimeModeChange(value!);
+            props.onSelectionComplete();
+          }}
         >
           <TooltipTrigger
             render={
@@ -363,6 +367,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
                 size="sm"
                 className="font-medium"
                 aria-label="Runtime mode"
+                data-chat-runtime-mode-picker="true"
               />
             }
           >
@@ -1279,6 +1284,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    onSelectionComplete: scheduleComposerFocus,
   });
   // Hint badges show while the held modifiers are a subset of a composer
   // control shortcut's modifiers; computed once here and passed down.
@@ -1312,6 +1318,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    onSelectionComplete: scheduleComposerFocus,
     open: isComposerTraitsPickerOpen,
     onOpenChange: (open) => {
       applyComposerPickerOpenChange("traits", open);
@@ -2849,6 +2856,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }}
                     getModelDisabledReason={getModelDisabledReason}
                     onInstanceModelChange={onProviderModelSelect}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 )}
 
@@ -2883,6 +2891,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 ) : (
                   <>
@@ -2910,6 +2919,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
+                      onSelectionComplete={scheduleComposerFocus}
                     />
                   </>
                 )}
