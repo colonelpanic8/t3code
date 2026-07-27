@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import { EnvironmentId } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -30,6 +31,45 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings environment display names", () => {
+  const environmentId = EnvironmentId.make("environment-1");
+
+  it("defaults to no client-local overrides", () => {
+    expect(decodeClientSettings({}).environmentDisplayNames).toEqual({});
+  });
+
+  it("trims saved overrides", () => {
+    expect(
+      decodeClientSettings({
+        environmentDisplayNames: { [environmentId]: "  Workstation  " },
+      }).environmentDisplayNames,
+    ).toEqual({ [environmentId]: "Workstation" });
+  });
+
+  it("rejects empty overrides", () => {
+    expect(() =>
+      decodeClientSettingsPatch({
+        environmentDisplayNames: { [environmentId]: "   " },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ClientSettings environment badges", () => {
+  it("shows environment badges by default", () => {
+    expect(decodeClientSettings({}).showEnvironmentBadges).toBe(true);
+  });
+
+  it("allows environment badges to be hidden", () => {
+    expect(decodeClientSettings({ showEnvironmentBadges: false }).showEnvironmentBadges).toBe(
+      false,
+    );
+    expect(decodeClientSettingsPatch({ showEnvironmentBadges: false }).showEnvironmentBadges).toBe(
+      false,
+    );
   });
 });
 
