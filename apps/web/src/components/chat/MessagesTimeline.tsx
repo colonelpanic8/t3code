@@ -14,6 +14,7 @@ import {
   use,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -84,20 +85,18 @@ import {
   TIMELINE_MINIMAP_MIN_ITEMS,
   type TimelineLatestTurn,
 } from "./MessagesTimeline.logic";
+import {
+  buildThreadFindMatches,
+  clampThreadFindIndex,
+  normalizeThreadFindQuery,
+} from "./threadFind";
+import { useThreadFindHighlights } from "./threadFindHighlights";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import {
-  deriveDisplayedUserMessageState,
-  type ParsedTerminalContextEntry,
-} from "~/lib/terminalContext";
-import {
-  extractTrailingElementContexts,
-  type ParsedElementContextEntry,
-} from "~/lib/elementContext";
-import {
-  extractTrailingPreviewAnnotation,
-  type ParsedPreviewAnnotation,
-} from "~/lib/previewAnnotation";
+import { type ParsedTerminalContextEntry } from "~/lib/terminalContext";
+import { type ParsedElementContextEntry } from "~/lib/elementContext";
+import { type ParsedPreviewAnnotation } from "~/lib/previewAnnotation";
+import { deriveDisplayedUserMessageContent } from "~/lib/visibleMessageText";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
@@ -157,6 +156,10 @@ const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
 const TIMELINE_LIST_FADE_HEADER = <div className="h-10 sm:h-12" />;
 const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+/** Breathing room kept above a revealed find match, and below it. */
+const FIND_MATCH_VIEW_MARGIN = 96;
+/** Frames to wait for a navigated-to row to mount and lay out before giving up. */
+const FIND_NUDGE_MAX_FRAMES = 12;
 
 // ---------------------------------------------------------------------------
 // Props (public API)
@@ -194,6 +197,16 @@ interface MessagesTimelineProps {
   onManualNavigation: () => void;
   hideEmptyPlaceholder?: boolean;
   topFadeEnabled?: boolean;
+  /** In-thread find query; empty disables find entirely. */
+  findQuery?: string;
+  /** Index of the match to reveal, into the list this component reports back. */
+  findActiveIndex?: number;
+  /**
+   * Bumped on every explicit next/previous step so re-stepping onto the same
+   * match (a single-match wrap-around) still re-reveals it.
+   */
+  findNavigationId?: number;
+  onFindMatchCountChange?: (count: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +245,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onManualNavigation,
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
+  findQuery = "",
+  findActiveIndex = 0,
+  findNavigationId = 0,
+  onFindMatchCountChange,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -474,6 +491,140 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }),
     [activeTurnInProgress, isRevertingCheckpoint, isWorking, latestTurn?.turnId],
   );
+
+  // -------------------------------------------------------------------------
+  // In-thread find. Matches are counted against timeline entries so folded and
+  // virtualized-away content still participates; navigation unfolds and scrolls
+  // to the owning row, and painting happens over the mounted DOM.
+  // -------------------------------------------------------------------------
+  const normalizedFindQuery = normalizeThreadFindQuery(findQuery);
+  const findMatches = useMemo(
+    () => buildThreadFindMatches(timelineEntries, normalizedFindQuery),
+    [normalizedFindQuery, timelineEntries],
+  );
+  const activeFindMatch =
+    findMatches.length > 0
+      ? (findMatches[clampThreadFindIndex(findActiveIndex, findMatches.length)] ?? null)
+      : null;
+
+  // Layout effect so the parent's count state commits before paint — the find
+  // bar must never display a total the step handlers aren't already using.
+  useLayoutEffect(() => {
+    onFindMatchCountChange?.(findMatches.length);
+  }, [findMatches.length, onFindMatchCountChange]);
+
+  const { repaint: repaintFindHighlights, activeRangeRef } = useThreadFindHighlights({
+    container: timelineViewportElement,
+    query: normalizedFindQuery,
+    activeRowId: activeFindMatch?.entryId ?? null,
+    activeOccurrence: activeFindMatch?.occurrence ?? 0,
+  });
+
+  // Rows churn while a turn streams; only navigate when the target itself
+  // changes — or the user explicitly re-steps — otherwise every streamed token
+  // would yank the scroll position.
+  const navigatedFindMatchKeyRef = useRef<string | null>(null);
+  // The nudge loop lives in a ref rather than effect cleanup: this effect
+  // re-runs on every streamed token, and cleanup would cancel a loop that is
+  // still waiting for the target row to mount.
+  const findNudgeFrameRef = useRef<number | null>(null);
+  const cancelFindNudge = useCallback(() => {
+    if (findNudgeFrameRef.current !== null) {
+      cancelAnimationFrame(findNudgeFrameRef.current);
+      findNudgeFrameRef.current = null;
+    }
+  }, []);
+  useEffect(() => cancelFindNudge, [cancelFindNudge]);
+
+  useEffect(() => {
+    if (!activeFindMatch) {
+      navigatedFindMatchKeyRef.current = null;
+      cancelFindNudge();
+      return;
+    }
+
+    const rowIndex = rows.findIndex((row) => row.id === activeFindMatch.entryId);
+    if (rowIndex === -1) {
+      // The match sits inside a folded turn — unfold it and let the recomputed
+      // rows re-run this effect.
+      const turnId = activeFindMatch.turnId;
+      if (turnId !== null) {
+        setExpandedTurnIds((existing) => {
+          if (existing.has(turnId)) {
+            return existing;
+          }
+          const next = new Set(existing);
+          next.add(turnId);
+          return next;
+        });
+      }
+      return;
+    }
+
+    const matchKey = `${findNavigationId}:${normalizedFindQuery}:${activeFindMatch.entryId}:${activeFindMatch.occurrence}`;
+    if (navigatedFindMatchKeyRef.current === matchKey) {
+      return;
+    }
+    navigatedFindMatchKeyRef.current = matchKey;
+
+    // Find is user navigation: without this, live follow scrolls right back to
+    // the streaming edge on the next layout pass and the match is lost.
+    onManualNavigation();
+    void listRef.current?.scrollToIndex({
+      index: rowIndex,
+      animated: false,
+      viewOffset: FIND_MATCH_VIEW_MARGIN,
+    });
+
+    // Once the row is laid out, nudge the exact occurrence into view — a long
+    // message can scroll to its top with the match still below the fold. The
+    // row can take a few frames to mount and paint after scrollToIndex, so
+    // retry briefly instead of giving up on the first frame.
+    cancelFindNudge();
+    let attemptsLeft = FIND_NUDGE_MAX_FRAMES;
+    const nudge = () => {
+      findNudgeFrameRef.current = null;
+      repaintFindHighlights();
+      attemptsLeft -= 1;
+      const matchRect = activeRangeRef.current?.getBoundingClientRect();
+      const viewportRect = timelineViewportElement?.getBoundingClientRect();
+      if (!matchRect || !viewportRect || matchRect.height === 0) {
+        if (attemptsLeft > 0) {
+          findNudgeFrameRef.current = requestAnimationFrame(nudge);
+        }
+        return;
+      }
+      const topBoundary = viewportRect.top + FIND_MATCH_VIEW_MARGIN;
+      const bottomBoundary =
+        viewportRect.bottom - FIND_MATCH_VIEW_MARGIN - contentInsetEndAdjustment;
+      let delta = 0;
+      if (matchRect.top < topBoundary) {
+        delta = matchRect.top - topBoundary;
+      } else if (matchRect.bottom > bottomBoundary) {
+        delta = matchRect.bottom - bottomBoundary;
+      }
+      if (Math.abs(delta) < 1) {
+        return;
+      }
+      const currentScroll = listRef.current?.getState?.().scroll;
+      if (typeof currentScroll === "number") {
+        listRef.current?.scrollToOffset({ offset: currentScroll + delta, animated: false });
+      }
+    };
+    findNudgeFrameRef.current = requestAnimationFrame(nudge);
+  }, [
+    activeFindMatch,
+    activeRangeRef,
+    cancelFindNudge,
+    contentInsetEndAdjustment,
+    findNavigationId,
+    listRef,
+    normalizedFindQuery,
+    onManualNavigation,
+    repaintFindHighlights,
+    rows,
+    timelineViewportElement,
+  ]);
 
   // Stable renderItem — no closure deps. Row components read shared state
   // from TimelineRowCtx, which propagates through LegendList's memo.
@@ -893,21 +1044,10 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const userImages = row.message.attachments ?? [];
-  const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
-  const terminalContexts = displayedUserMessage.contexts;
-  const previewAnnotations: ParsedPreviewAnnotation[] = [];
-  let visibleText = displayedUserMessage.visibleText;
-  while (true) {
-    const extracted = extractTrailingPreviewAnnotation(visibleText);
-    if (!extracted.annotation) break;
-    previewAnnotations.unshift(extracted.annotation);
-    visibleText = extracted.promptText;
-  }
-  const elementContextState = extractTrailingElementContexts(visibleText);
-  const elementContexts = [
-    ...displayedUserMessage.elementContexts,
-    ...elementContextState.contexts,
-  ];
+  const displayedUserMessage = deriveDisplayedUserMessageContent(row.message.text);
+  const terminalContexts = displayedUserMessage.terminalContexts;
+  const previewAnnotations = displayedUserMessage.previewAnnotations;
+  const elementContexts = displayedUserMessage.elementContexts;
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const regularImages = userImages.filter((image) => !image.name.startsWith("preview-annotation-"));
   const canRevertAgentWork = typeof row.revertTurnCount === "number";
@@ -966,7 +1106,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </div>
         ) : null}
         <CollapsibleUserMessageBody
-          text={elementContextState.promptText}
+          text={displayedUserMessage.visibleText}
           terminalContexts={terminalContexts}
           skills={ctx.skills}
           markdownCwd={ctx.markdownCwd}
@@ -1049,16 +1189,18 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   return (
     <>
       <div className="relative min-w-0 px-1 py-0.5">
-        <ChatMarkdown
-          text={messageText}
-          cwd={ctx.markdownCwd}
-          threadRef={ctx.threadRef ?? undefined}
-          artifactTurnId={row.message.turnId ?? undefined}
-          artifactMessageId={row.message.id}
-          onImageExpand={ctx.onImageExpand}
-          isStreaming={Boolean(row.message.streaming)}
-          skills={ctx.skills}
-        />
+        <div data-thread-find-text="true">
+          <ChatMarkdown
+            text={messageText}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+            artifactTurnId={row.message.turnId ?? undefined}
+            artifactMessageId={row.message.id}
+            onImageExpand={ctx.onImageExpand}
+            isStreaming={Boolean(row.message.streaming)}
+            skills={ctx.skills}
+          />
+        </div>
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
@@ -1603,6 +1745,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
         <div
           className={cn("relative", isCollapsed && "max-h-44 overflow-hidden")}
           data-user-message-body="true"
+          data-thread-find-text="true"
           data-user-message-collapsed={isCollapsed ? "true" : "false"}
           data-user-message-collapsible={canCollapse ? "true" : "false"}
           data-user-message-fade={isCollapsed ? "true" : "false"}
