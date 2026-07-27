@@ -175,6 +175,12 @@ function AboutVersionTitle() {
       <span>Version</span>
       <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
       <BuildCommitLink />
+      <Link
+        to="/settings/build"
+        className="text-[11px] font-normal text-muted-foreground/70 underline decoration-dotted underline-offset-2 hover:text-foreground"
+      >
+        Details
+      </Link>
     </span>
   );
 }
