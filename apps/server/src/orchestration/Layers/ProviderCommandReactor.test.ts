@@ -2174,6 +2174,144 @@ describe("ProviderCommandReactor", () => {
     expect(resolvedActivity).toBeUndefined();
   });
 
+  effectIt.effect(
+    "marks user-input responses stale when no provider session is bound to the thread",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+
+        yield* harness.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make("cmd-user-input-requested-no-session"),
+          threadId: ThreadId.make("thread-1"),
+          activity: {
+            id: EventId.make("activity-user-input-requested-no-session"),
+            tone: "info",
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: {
+              requestId: "user-input-request-1",
+              questions: [
+                {
+                  id: "fix_scope",
+                  header: "Fix scope",
+                  question: "How should I handle this?",
+                  options: [{ label: "Delete now", description: "Remove the garbage" }],
+                },
+              ],
+            },
+            turnId: null,
+            createdAt: now,
+          },
+          createdAt: now,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.user-input.respond",
+          commandId: CommandId.make("cmd-user-input-respond-no-session"),
+          threadId: ThreadId.make("thread-1"),
+          requestId: asApprovalRequestId("user-input-request-1"),
+          answers: {
+            fix_scope: "Delete now",
+          },
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() =>
+          waitFor(async () => {
+            const readModel = await harness.readModel();
+            const thread = readModel.threads.find(
+              (entry) => entry.id === ThreadId.make("thread-1"),
+            );
+            return (
+              thread?.activities.some(
+                (activity) => activity.kind === "provider.user-input.respond.failed",
+              ) === true
+            );
+          }),
+        );
+
+        expect(harness.respondToUserInput).not.toHaveBeenCalled();
+
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+        const failureActivity = thread?.activities.find(
+          (activity) => activity.kind === "provider.user-input.respond.failed",
+        );
+        const detail = (failureActivity?.payload as Record<string, unknown> | undefined)?.detail;
+        expect(failureActivity?.payload).toMatchObject({ requestId: "user-input-request-1" });
+        expect(detail).toContain("No active provider session is bound to this thread.");
+        // The stale marker is what every pending-request accounting keys off, so a
+        // dead session clears the prompt instead of leaving it answerable forever.
+        // Clearing itself is covered by session-logic / threadActivity tests.
+        expect(detail).toContain("Stale pending user-input request: user-input-request-1");
+      }),
+  );
+
+  effectIt.effect(
+    "marks approval responses stale when no provider session is bound to the thread",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        const now = "2026-01-01T00:00:00.000Z";
+
+        yield* harness.engine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.make("cmd-approval-requested-no-session"),
+          threadId: ThreadId.make("thread-1"),
+          activity: {
+            id: EventId.make("activity-approval-requested-no-session"),
+            tone: "approval",
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            payload: {
+              requestId: "approval-request-1",
+              requestKind: "command",
+            },
+            turnId: null,
+            createdAt: now,
+          },
+          createdAt: now,
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.approval.respond",
+          commandId: CommandId.make("cmd-approval-respond-no-session"),
+          threadId: ThreadId.make("thread-1"),
+          requestId: asApprovalRequestId("approval-request-1"),
+          decision: "acceptForSession",
+          createdAt: now,
+        });
+
+        yield* Effect.promise(() =>
+          waitFor(async () => {
+            const readModel = await harness.readModel();
+            const thread = readModel.threads.find(
+              (entry) => entry.id === ThreadId.make("thread-1"),
+            );
+            return (
+              thread?.activities.some(
+                (activity) => activity.kind === "provider.approval.respond.failed",
+              ) === true
+            );
+          }),
+        );
+
+        expect(harness.respondToRequest).not.toHaveBeenCalled();
+
+        const readModel = yield* Effect.promise(() => harness.readModel());
+        const thread = readModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
+        const failureActivity = thread?.activities.find(
+          (activity) => activity.kind === "provider.approval.respond.failed",
+        );
+        const detail = (failureActivity?.payload as Record<string, unknown> | undefined)?.detail;
+        expect(failureActivity?.payload).toMatchObject({ requestId: "approval-request-1" });
+        expect(detail).toContain("No active provider session is bound to this thread.");
+        expect(detail).toContain("Stale pending approval request: approval-request-1");
+      }),
+  );
+
   it("reacts to thread.session.stop by stopping provider session and clearing thread session state", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
