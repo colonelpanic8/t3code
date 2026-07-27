@@ -6,9 +6,10 @@
  * closures captured over the per-instance `ClaudeSettings`.
  *
  * Unlike Codex, the Claude snapshot probe may invoke a secondary probe
- * (`probeClaudeCapabilities`) to read Anthropic account + slash-command
- * metadata. That probe is per-instance and keyed by binary + resolved HOME so
- * two concurrent Claude instances don't cross-contaminate account metadata.
+ * (`probeClaudeCapabilities`) to read Anthropic account, model, and
+ * slash-command metadata. That probe is per-instance and keyed by binary +
+ * resolved HOME so two concurrent Claude instances don't cross-contaminate
+ * account metadata.
  *
  * @module provider/Drivers/ClaudeDriver
  */

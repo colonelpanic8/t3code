@@ -83,7 +83,16 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
           "        agents: [],",
           '        output_style: "default",',
           '        available_output_styles: ["default"],',
-          "        models: [],",
+          "        models: [{",
+          '          value: "opus[1m]",',
+          '          displayName: "Opus (1M context)",',
+          '          description: "Opus 5 with 1M context",',
+          "          supportsEffort: true,",
+          '          supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],',
+          "          supportsAdaptiveThinking: true,",
+          "          supportsFastMode: true,",
+          "          supportsAutoMode: true,",
+          "        }],",
           '        account: { email: "dev@example.com", subscriptionType: "pro", tokenSource: "oauth" },',
           "      },",
           "    },",
@@ -110,6 +119,36 @@ it.layer(NodeServices.layer)("Claude capability probe SDK boundary", (it) => {
         subscriptionType: "pro",
         tokenSource: "oauth",
         apiProvider: undefined,
+        models: [
+          {
+            slug: "opus[1m]",
+            name: "Opus (1M context)",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "effort",
+                  label: "Reasoning",
+                  type: "select",
+                  options: [
+                    { id: "low", label: "Low" },
+                    { id: "medium", label: "Medium" },
+                    { id: "high", label: "High" },
+                    { id: "xhigh", label: "Extra High" },
+                    { id: "max", label: "Max" },
+                    { id: "ultrathink", label: "Ultrathink" },
+                  ],
+                  promptInjectedValues: ["ultrathink"],
+                },
+                {
+                  id: "fastMode",
+                  label: "Fast Mode",
+                  type: "boolean",
+                },
+              ],
+            },
+          },
+        ],
         slashCommands: [
           {
             name: "review",
