@@ -82,6 +82,21 @@ describe("findThreadTextOccurrences", () => {
     expect(findThreadTextOccurrences("", "a")).toEqual([]);
     expect(findThreadTextOccurrences("a", "")).toEqual([]);
   });
+
+  it("keeps offsets valid when lowercasing would change the string's length", () => {
+    // "İ".toLowerCase() is "i" + a combining dot — one code unit longer. Naive
+    // lowercased offsets would report "x" at 2 and push Range.setEnd past the
+    // end of the original text node.
+    expect(findThreadTextOccurrences("İx", "x")).toEqual([1]);
+    expect(findThreadTextOccurrences("İİİ needle", "needle")).toEqual([4]);
+    // The exotic character itself simply does not case-fold.
+    expect(findThreadTextOccurrences("İ", "İ")).toEqual([0]);
+  });
+
+  it("still case-folds surrogate-pair characters", () => {
+    // Deseret capital 𐐀 lowercases to 𐐨 — same UTF-16 length, so it folds.
+    expect(findThreadTextOccurrences("𐐀x", "𐐨")).toEqual([0]);
+  });
 });
 
 describe("searchableThreadEntryText", () => {

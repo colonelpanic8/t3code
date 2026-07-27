@@ -312,6 +312,8 @@ interface ChatFindState {
   matchCount: number;
   /** Bumped on every open request so a repeat Cmd+F re-selects the field. */
   focusRequestId: number;
+  /** Bumped on every next/previous step so Enter on a lone match still re-reveals it. */
+  navigationId: number;
 }
 const CLOSED_CHAT_FIND_STATE: ChatFindState = {
   open: false,
@@ -319,6 +321,7 @@ const CLOSED_CHAT_FIND_STATE: ChatFindState = {
   activeIndex: 0,
   matchCount: 0,
   focusRequestId: 0,
+  navigationId: 0,
 };
 
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
@@ -4267,6 +4270,7 @@ function ChatViewContent(props: ChatViewProps) {
     setFindState((state) => ({
       ...state,
       activeIndex: stepThreadFindIndex(state.activeIndex, state.matchCount, delta),
+      navigationId: state.navigationId + 1,
     }));
   }, []);
   const handleThreadFindMatchCountChange = useCallback((matchCount: number) => {
@@ -5766,6 +5770,7 @@ function ChatViewContent(props: ChatViewProps) {
                 topFadeEnabled={!hasTimelineTopBanner}
                 findQuery={findState.open ? findState.query : ""}
                 findActiveIndex={threadFindActiveIndex}
+                findNavigationId={findState.navigationId}
                 onFindMatchCountChange={handleThreadFindMatchCountChange}
               />
 
