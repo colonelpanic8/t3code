@@ -172,6 +172,7 @@ const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
 
 function buildProps() {
   return {
+    showStreamingAssistantOutput: false,
     isWorking: false,
     activeTurnInProgress: false,
     activeTurnStartedAt: null,
@@ -269,6 +270,39 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Open generated image generated.png"');
     expect(markup).toContain(">generated.png</span>");
     expect(markup).not.toContain("<img");
+  });
+
+  it("reveals in-progress assistant text only when this client enables streaming output", () => {
+    const timelineEntries = [
+      {
+        id: "entry-streaming-assistant",
+        kind: "message" as const,
+        createdAt: MESSAGE_CREATED_AT,
+        message: {
+          id: MessageId.make("message-streaming-assistant"),
+          role: "assistant" as const,
+          text: "partial assistant response",
+          turnId: TurnId.make("turn-streaming-assistant"),
+          createdAt: MESSAGE_CREATED_AT,
+          updatedAt: MESSAGE_CREATED_AT,
+          streaming: true,
+        },
+      },
+    ];
+
+    const bufferedMarkup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={timelineEntries} />,
+    );
+    const streamingMarkup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        showStreamingAssistantOutput
+        timelineEntries={timelineEntries}
+      />,
+    );
+
+    expect(bufferedMarkup).not.toContain("partial assistant response");
+    expect(streamingMarkup).toContain("partial assistant response");
   });
 
   it("uses the larger leading inset only when the top fade is enabled", () => {

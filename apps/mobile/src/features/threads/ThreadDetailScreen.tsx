@@ -1,5 +1,6 @@
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
+import { useAtomValue } from "@effect/atom-react";
 import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import type {
@@ -15,6 +16,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, View, type GestureResponderEvent } from "react-native";
 import { KeyboardController, KeyboardStickyView } from "react-native-keyboard-controller";
@@ -26,6 +28,7 @@ import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { CHAT_CONTENT_MAX_WIDTH, type LayoutVariant } from "../../lib/layout";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import type {
   PendingApproval,
   PendingUserInput,
@@ -119,7 +122,11 @@ function latestStreamingAssistantMessage(
   return null;
 }
 
-function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedEntry>) {
+function useStreamingHaptics(
+  threadId: ThreadId,
+  feed: ReadonlyArray<ThreadFeedEntry>,
+  enabled: boolean,
+) {
   const lastStreamingAssistantRef = useRef<{
     readonly id: string;
     readonly textLength: number;
@@ -129,6 +136,11 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
   const previousThreadIdRef = useRef(threadId);
 
   useEffect(() => {
+    if (!enabled) {
+      lastStreamingAssistantRef.current = null;
+      return;
+    }
+
     if (previousThreadIdRef.current !== threadId) {
       previousThreadIdRef.current = threadId;
       hydratedRef.current = false;
@@ -166,7 +178,7 @@ function useStreamingHaptics(threadId: ThreadId, feed: ReadonlyArray<ThreadFeedE
 
     lastStreamHapticAtRef.current = now;
     void Haptics.selectionAsync();
-  }, [threadId, feed]);
+  }, [enabled, threadId, feed]);
 }
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
@@ -224,7 +236,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
-  useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const showStreamingAssistantOutput = AsyncResult.isSuccess(preferencesResult)
+    ? preferencesResult.value.enableAssistantStreaming === true
+    : false;
+  useStreamingHaptics(
+    props.selectedThread.id,
+    props.selectedThreadFeed,
+    showStreamingAssistantOutput,
+  );
   const selectedProviderSkills = useMemo(
     () =>
       props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
@@ -352,6 +372,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         >
           <ThreadFeed
             key={props.selectedThread.id}
+            showStreamingAssistantOutput={showStreamingAssistantOutput}
             environmentId={props.environmentId}
             threadId={props.selectedThread.id}
             workspaceRoot={props.threadCwd}
