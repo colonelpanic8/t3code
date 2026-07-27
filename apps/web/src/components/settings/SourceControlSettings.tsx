@@ -14,7 +14,6 @@ import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 
 import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { usePrimaryEnvironment } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { Badge } from "../ui/badge";
@@ -49,7 +48,12 @@ import {
 } from "../Icons";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
-import { SettingResetButton, SettingsPageContainer, SettingsSection } from "./settingsLayout";
+import {
+  SettingResetButton,
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "./settingsLayout";
 
 const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
   versionControlSystems: [],
@@ -441,7 +445,8 @@ function EmptySourceControlDiscovery({
 }
 
 export function SourceControlSettingsPanel() {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const { environmentId, environment, isReady: environmentsReady } = useSettingsEnvironment();
+  const isConnected = environment?.connection.phase === "connected";
   const discovery = useEnvironmentQuery(
     environmentId === null
       ? null
@@ -479,7 +484,30 @@ export function SourceControlSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {isInitialScanPending ? (
+      <SettingsSection title="Environment">
+        <SettingsRow
+          title="Source control environment"
+          description="Git tooling, credentials, hosting integrations, and fetch behavior belong to a specific server."
+          status={
+            environment
+              ? [connectionStatusText(environment.connection), environment.displayUrl]
+                  .filter(Boolean)
+                  .join(" · ")
+              : environmentsReady
+                ? "Connect an environment to inspect its source-control configuration."
+                : "Loading environments."
+          }
+          control={
+            environmentId === null && environmentsReady ? (
+              <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+                Open connections
+              </Button>
+            ) : null
+          }
+        />
+      </SettingsSection>
+
+      {!isConnected || environmentId === null ? null : isInitialScanPending ? (
         <>
           <SourceControlSectionSkeleton title="Version Control" headerAction={scanButton} />
           <SourceControlSectionSkeleton title="Source Control Providers" />

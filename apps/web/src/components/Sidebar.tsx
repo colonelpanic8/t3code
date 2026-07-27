@@ -191,15 +191,17 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrom
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
-import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
+import {
+  useClientKeybindings,
+  useClientSettings,
+  useUpdateClientSettings,
+} from "~/hooks/useSettings";
 import {
   environmentAccentStyle,
   resolveSharedEnvironmentAccentColor,
   useEnvironmentAccentColor,
   useEnvironmentAccentColors,
 } from "~/environmentAccentColors";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import {
   derivePhysicalProjectKey,
   deriveProjectGroupingOverrideKey,
@@ -3022,7 +3024,7 @@ export default function Sidebar() {
       ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
       : false,
   );
-  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindings = useClientKeybindings();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],

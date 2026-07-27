@@ -1,8 +1,11 @@
 /**
  * Keybindings - Keybinding configuration service definitions.
  *
- * Owns parsing, validation, merge, and persistence of user keybinding
- * configuration consumed by the server runtime.
+ * Legacy server-side keybinding persistence.
+ *
+ * Current clients own shortcuts in client settings. This service remains in
+ * the protocol so upgraded clients can perform a one-time migration of
+ * existing keybindings.json customizations without losing them.
  *
  * @module Keybindings
  */

@@ -2,7 +2,7 @@ import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientKeybindings, useClientSettings } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -19,15 +19,13 @@ import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { useDefaultServerConfig } from "~/hooks/useDefaultServerConfig";
 
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
-  const keybindings = useDefaultServerConfig()?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindings = useClientKeybindings();
   const sidebarV2Enabled = useClientSettings((settings) => settings.sidebarV2Enabled);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();

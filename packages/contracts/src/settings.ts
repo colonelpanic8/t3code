@@ -6,6 +6,7 @@ import { EnvironmentId, TrimmedNonEmptyString, TrimmedString } from "./baseSchem
 import { DEFAULT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
 import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import { DEFAULT_KEYBINDINGS, KeybindingsConfig } from "./keybindings.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -59,14 +60,26 @@ export const GlassOpacity = Schema.Int.check(
 export type GlassOpacity = typeof GlassOpacity.Type;
 export const DEFAULT_GLASS_OPACITY: GlassOpacity = 80;
 
+export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
+export type ThreadEnvMode = typeof ThreadEnvMode.Type;
+
 export const ClientSettingsSchema = Schema.Struct({
   autoOpenPlanSidebar: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  defaultThreadEnvMode: ThreadEnvMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("local" as const satisfies ThreadEnvMode)),
+  ),
   dismissedProviderUpdateNotificationKeys: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   diffIgnoreWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Per-environment accent colors, keyed by environment id. Client-local
+  // rather than server-backed: the color identifies an environment from *this*
+  // client's point of view, so it has to be readable even while that
+  // environment is disconnected, and it should not be dictated to other
+  // clients by whichever backend happens to be primary.
   environmentAccentColors: Schema.Record(EnvironmentId, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -75,6 +88,18 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
+  ),
+  hasMigratedServerKeybindings: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  hasMigratedServerWorkflowPreferences: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
+  keybindings: KeybindingsConfig.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_KEYBINDINGS)),
+  ),
+  newWorktreesStartFromOrigin: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
   ),
   // Model favorites. Historically keyed by provider kind, now
   // widened to `ProviderInstanceId` so users can favorite a specific model
@@ -132,9 +157,6 @@ export type ClientSettings = typeof ClientSettingsSchema.Type;
 export const DEFAULT_CLIENT_SETTINGS: ClientSettings = Schema.decodeSync(ClientSettingsSchema)({});
 
 // ── Server Settings (server-authoritative) ────────────────────
-
-export const ThreadEnvMode = Schema.Literals(["local", "worktree"]);
-export type ThreadEnvMode = typeof ThreadEnvMode.Type;
 
 const makeBinaryPathSetting = (fallback: string) =>
   TrimmedString.pipe(
@@ -423,6 +445,9 @@ export type SourceControlWritingStyleSettings = typeof SourceControlWritingStyle
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 
 export const ServerSettings = Schema.Struct({
+  // Legacy copies retained temporarily so clients can migrate existing
+  // preferences. They no longer control server behavior and client settings
+  // are authoritative for all three fields.
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   automaticGitFetchInterval: Schema.DurationFromMillis.pipe(
@@ -569,11 +594,8 @@ const OpenCodeSettingsPatch = Schema.Struct({
 
 export const ServerSettingsPatch = Schema.Struct({
   // Server settings
-  enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
-  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
-  newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   sourceControlWritingStyle: Schema.optionalKey(
@@ -611,10 +633,16 @@ export const ClientSettingsPatch = Schema.Struct({
   autoOpenPlanSidebar: Schema.optionalKey(Schema.Boolean),
   confirmThreadArchive: Schema.optionalKey(Schema.Boolean),
   confirmThreadDelete: Schema.optionalKey(Schema.Boolean),
+  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   environmentAccentColors: Schema.optionalKey(Schema.Record(EnvironmentId, TrimmedNonEmptyString)),
   environmentDisplayNames: Schema.optionalKey(Schema.Record(EnvironmentId, TrimmedNonEmptyString)),
   glassOpacity: Schema.optionalKey(GlassOpacity),
+  hasMigratedServerKeybindings: Schema.optionalKey(Schema.Boolean),
+  hasMigratedServerWorkflowPreferences: Schema.optionalKey(Schema.Boolean),
+  keybindings: Schema.optionalKey(KeybindingsConfig),
+  newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   favorites: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({

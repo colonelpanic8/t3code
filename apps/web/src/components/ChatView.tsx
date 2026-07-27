@@ -165,7 +165,11 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
-import { useClientSettings, useEnvironmentSettings } from "../hooks/useSettings";
+import {
+  useClientKeybindings,
+  useClientSettings,
+  useEnvironmentSettings,
+} from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
@@ -201,7 +205,6 @@ import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/
 import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
 import { vcsEnvironment } from "../state/vcs";
@@ -2351,7 +2354,7 @@ function ChatViewContent(props: ChatViewProps) {
           input: { cwd: gitStatusCwd },
         }),
   );
-  const keybindings = serverConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindings = useClientKeybindings();
   const availableEditors = serverConfig?.availableEditors ?? [];
   // Prefer an instance-id match so a custom Codex instance (e.g.
   // `codex_personal`) surfaces its own status/message in the banner rather
@@ -5696,6 +5699,7 @@ function ChatViewContent(props: ChatViewProps) {
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
                 key={activeThread.id}
+                showStreamingAssistantOutput={settings.enableAssistantStreaming}
                 isWorking={isWorking}
                 activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
