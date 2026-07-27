@@ -5,7 +5,10 @@ import {
 
 import { highlightCodeSnippet } from "../features/review/shikiReviewHighlighter";
 
-type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode">;
+type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode"> & {
+  /** Withhold highlighting while the markdown is still streaming in. */
+  readonly deferHighlight?: boolean;
+};
 
 export type {
   NativeMarkdownTextStyle,
@@ -16,6 +19,14 @@ export function hasNativeSelectableMarkdownText(): boolean {
   return true;
 }
 
-export function SelectableMarkdownText(props: MobileSelectableMarkdownTextProps) {
-  return <T3SelectableMarkdownText {...props} highlightCode={highlightCodeSnippet} />;
+export function SelectableMarkdownText({
+  deferHighlight = false,
+  ...props
+}: MobileSelectableMarkdownTextProps) {
+  return (
+    <T3SelectableMarkdownText
+      {...props}
+      highlightCode={deferHighlight ? null : highlightCodeSnippet}
+    />
+  );
 }
