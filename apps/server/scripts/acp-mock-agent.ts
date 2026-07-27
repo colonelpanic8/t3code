@@ -40,6 +40,9 @@ const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
 const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
 const promptResponseText = process.env.T3_ACP_PROMPT_RESPONSE_TEXT;
 const promptDelayMs = Number(process.env.T3_ACP_PROMPT_DELAY_MS ?? "0");
+const promptResponseChunkCount = Number(process.env.T3_ACP_PROMPT_RESPONSE_CHUNK_COUNT ?? "0");
+const promptResponseChunkText = process.env.T3_ACP_PROMPT_RESPONSE_CHUNK_TEXT;
+const promptChunkDelayMs = Number(process.env.T3_ACP_PROMPT_CHUNK_DELAY_MS ?? "0");
 const permissionOptionIds = {
   allowOnce: process.env.T3_ACP_ALLOW_ONCE_OPTION_ID ?? "allow-once",
   allowAlways: process.env.T3_ACP_ALLOW_ALWAYS_OPTION_ID ?? "allow-always",
@@ -864,6 +867,28 @@ const program = Effect.gen(function* () {
           ],
         },
       });
+
+      if (Number.isFinite(promptResponseChunkCount) && promptResponseChunkCount > 0) {
+        // Emit the response as many small chunks to reproduce heavy streaming
+        // histories: with the `enableAssistantStreaming` server setting on,
+        // each chunk persists as its own `thread.message-sent` delta event.
+        for (let index = 0; index < promptResponseChunkCount; index += 1) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: promptResponseChunkText ?? `chunk ${index} of a long streamed response. `,
+              },
+            },
+          });
+          if (Number.isFinite(promptChunkDelayMs) && promptChunkDelayMs > 0) {
+            yield* Effect.sleep(`${promptChunkDelayMs} millis`);
+          }
+        }
+        return { stopReason: "end_turn" };
+      }
 
       yield* agent.client.sessionUpdate({
         sessionId: requestedSessionId,
