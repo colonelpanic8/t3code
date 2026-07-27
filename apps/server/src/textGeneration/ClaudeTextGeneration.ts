@@ -33,6 +33,7 @@ import {
   toJsonSchemaObject,
 } from "./TextGenerationUtils.ts";
 import {
+  getModelSelectionBooleanOptionValue,
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
@@ -133,15 +134,24 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     });
     const findDescriptor = (id: string) => descriptors.find((descriptor) => descriptor.id === id);
     const rawEffortSelection = getModelSelectionStringOptionValue(modelSelection, "effort");
-    const resolvedEffort = resolveClaudeEffort(caps, rawEffortSelection);
+    const hasCatalogCapabilities = descriptors.length > 0;
+    const resolvedEffort = hasCatalogCapabilities
+      ? resolveClaudeEffort(caps, rawEffortSelection)
+      : rawEffortSelection;
     const cliEffort = normalizeClaudeCliEffort(resolvedEffort, modelSelection.model);
     const ultracode = isClaudeUltracodeEffort(resolvedEffort);
     const thinkingDescriptor = findDescriptor("thinking");
     const fastModeDescriptor = findDescriptor("fastMode");
-    const thinking =
-      thinkingDescriptor?.type === "boolean" ? thinkingDescriptor.currentValue : undefined;
-    const fastMode =
-      fastModeDescriptor?.type === "boolean" ? fastModeDescriptor.currentValue : undefined;
+    const thinking = hasCatalogCapabilities
+      ? thinkingDescriptor?.type === "boolean"
+        ? thinkingDescriptor.currentValue
+        : undefined
+      : getModelSelectionBooleanOptionValue(modelSelection, "thinking");
+    const fastMode = hasCatalogCapabilities
+      ? fastModeDescriptor?.type === "boolean"
+        ? fastModeDescriptor.currentValue
+        : undefined
+      : getModelSelectionBooleanOptionValue(modelSelection, "fastMode");
     const settings = {
       ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
       ...(fastMode ? { fastMode: true } : {}),
