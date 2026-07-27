@@ -1,4 +1,4 @@
-import { gitHubCommitUrl, gitHubRepoUrl } from "./buildProvenance.logic";
+import { gitHubCommitUrl, gitHubRepoUrl } from "./buildProvenance.ts";
 
 /**
  * Reads `stack-build-info.json`, which the stack rebuild writes as the final

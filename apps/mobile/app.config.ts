@@ -1,11 +1,16 @@
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
+import { readBuildProvenance } from "../../scripts/lib/build-provenance.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
 type AppVariant = "development" | "preview" | "production";
 
 const repoEnv = loadRepoEnv();
+// Which commit and which assembled stack this bundle came from. Read through
+// the same helper the web build uses, so both apps answer "what am I running"
+// the same way. Absent for an ordinary checkout, which the Build screen says.
+const buildProvenance = readBuildProvenance();
 Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
@@ -343,6 +348,16 @@ const config: ExpoConfig = {
       tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? "https://api.axiom.co/v1/traces",
       tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
       tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
+    },
+    build: {
+      commit: buildProvenance.commit,
+      repoRemote: buildProvenance.repoRemote,
+      date: buildProvenance.date,
+      dirty: buildProvenance.dirty,
+      // Carried as text, not an object: the Expo manifest is fetched at launch
+      // on OTA builds, and one string keeps a large stack record out of the
+      // structured config the runtime walks eagerly.
+      stackBuildInfo: buildProvenance.stackBuildInfo,
     },
     eas: {
       projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",

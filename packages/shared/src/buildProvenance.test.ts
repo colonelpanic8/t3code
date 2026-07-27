@@ -7,7 +7,7 @@ import {
   gitHubRepoUrl,
   parseGitHubRemote,
   shortCommit,
-} from "./buildProvenance.logic";
+} from "./buildProvenance.ts";
 
 const COMMIT = "d596d17d63421081833b0fe852993a6b1fe617a0";
 

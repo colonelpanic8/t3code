@@ -3,7 +3,7 @@ import {
   gitHubCommitUrl,
   gitHubRepoUrl,
   shortCommit,
-} from "./buildProvenance.logic";
+} from "@t3tools/shared/buildProvenance";
 
 /**
  * Which commit of which repository this bundle was built from.

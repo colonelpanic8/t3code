@@ -6,7 +6,7 @@ import {
   BUILD_DIRTY,
   BUILD_REPO_LABEL,
 } from "../../buildProvenance";
-import { formatCommitDate } from "../../buildProvenance.logic";
+import { formatCommitDate } from "@t3tools/shared/buildProvenance";
 import { ExternalLink } from "../ExternalLink";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 

@@ -8,7 +8,7 @@ import {
   parseStackProvenance,
   upstreamCommitUrl,
   type StackEntry,
-} from "./stackProvenance.logic";
+} from "./stackProvenance.ts";
 
 const UPSTREAM_REMOTE = "https://github.com/pingdotgg/t3code";
 const FORK_REMOTE = "https://github.com/colonelpanic8/t3code";

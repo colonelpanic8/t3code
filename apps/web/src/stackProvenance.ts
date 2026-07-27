@@ -1,4 +1,4 @@
-import { parseStackProvenance } from "./stackProvenance.logic";
+import { parseStackProvenance } from "@t3tools/shared/stackProvenance";
 
 /**
  * What this build is assembled from, when it was assembled by the stack
