@@ -26,6 +26,16 @@ export function shouldHandleCommandPaletteShortcut(input: {
   return input.command === "project.add" && !input.editableTarget;
 }
 
+export function resolveNewThreadOnIntent(input: {
+  isActive: boolean;
+  isLoaded: boolean;
+  environmentItemCount: number;
+}): "ignore" | "defer" | "clear" | "open" {
+  if (!input.isActive) return "ignore";
+  if (!input.isLoaded) return "defer";
+  return input.environmentItemCount > 0 ? "open" : "clear";
+}
+
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
   readonly value: string;

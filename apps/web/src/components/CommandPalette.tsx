@@ -23,11 +23,13 @@ import {
   ArrowDownIcon,
   ArrowLeftIcon,
   ArrowUpIcon,
+  CloudIcon,
   CornerLeftUpIcon,
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
   MessageSquareIcon,
+  MonitorIcon,
   SettingsIcon,
   SquarePenIcon,
 } from "lucide-react";
@@ -35,6 +37,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -111,6 +114,7 @@ import {
   RECENT_THREAD_LIMIT,
   resolveBrowseTabCompletion,
   resolveCommandPaletteEmptyStateMessage,
+  resolveNewThreadOnIntent,
   shouldClearAddProjectEnvironmentOnPop,
   shouldHandleCommandPaletteShortcut,
 } from "./CommandPalette.logic";
@@ -169,6 +173,19 @@ function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
     return "Linux";
   }
   return typeof navigator === "undefined" ? "" : navigator.platform;
+}
+
+function renderProjectActionIcon(project: {
+  environmentId: EnvironmentId;
+  workspaceRoot: string;
+}): ReactNode {
+  return (
+    <ProjectFavicon
+      environmentId={project.environmentId}
+      cwd={project.workspaceRoot}
+      className={ITEM_ICON_CLASS}
+    />
+  );
 }
 
 interface AddProjectEnvironmentOption {
@@ -357,7 +374,8 @@ type CommandPaletteOpenIntent =
   | {
       readonly kind: "new-thread-in";
       readonly preferredProjectRef: ScopedProjectRef | null;
-    };
+    }
+  | { readonly kind: "new-thread-on" };
 
 interface CommandPaletteUiState {
   readonly open: boolean;
@@ -372,9 +390,10 @@ type CommandPaletteUiAction =
       readonly _tag: "OpenNewThreadIn";
       readonly preferredProjectRef: ScopedProjectRef | null;
     }
+  | { readonly _tag: "OpenNewThreadOn" }
   | { readonly _tag: "ClearOpenIntent" };
 
-function reduceCommandPaletteUiState(
+export function reduceCommandPaletteUiState(
   state: CommandPaletteUiState,
   action: CommandPaletteUiAction,
 ): CommandPaletteUiState {
@@ -396,6 +415,8 @@ function reduceCommandPaletteUiState(
           preferredProjectRef: action.preferredProjectRef,
         },
       };
+    case "OpenNewThreadOn":
+      return { open: true, openIntent: { kind: "new-thread-on" } };
     case "ClearOpenIntent":
       return state.openIntent ? { ...state, openIntent: null } : state;
   }
@@ -417,6 +438,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       }),
     [],
   );
+  const openNewThreadOn = useCallback(() => dispatch({ _tag: "OpenNewThreadOn" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
@@ -471,13 +493,15 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn(detail.preferredProjectRef);
+        } else if (detail.open === "new-thread-on") {
+          openNewThreadOn();
         } else if (detail.open === "add-project") {
           openAddProject();
         } else {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewThreadIn, openNewThreadOn, setOpen],
   );
 
   useEffect(() => onCloseCommandPalette(() => setOpen(false)), [setOpen]);
@@ -714,6 +738,13 @@ function OpenCommandPaletteDialog(props: {
 
     return options;
   }, [environments]);
+  const newThreadEnvironmentOptions = useMemo(
+    () =>
+      [...addProjectEnvironmentOptions].sort((left, right) =>
+        left.label.localeCompare(right.label),
+      ),
+    [addProjectEnvironmentOptions],
+  );
   const defaultAddProjectEnvironmentId = addProjectEnvironmentOptions[0]?.environmentId ?? null;
   const wslAddProjectEnvironmentOption = useMemo(
     () =>
@@ -887,17 +918,92 @@ function OpenCommandPaletteDialog(props: {
             group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
           );
         },
-        icon: (project) => (
-          <ProjectFavicon
-            environmentId={project.environmentId}
-            cwd={project.workspaceRoot}
-            className={ITEM_ICON_CLASS}
-          />
-        ),
+        icon: renderProjectActionIcon,
         runProject: openProjectFromSearch,
       }),
     [openProjectFromSearch, pickerProjects, projectGroupByTargetKey],
   );
+
+  const newThreadEnvironmentItems = useMemo((): CommandPaletteSubmenuItem[] => {
+    const orderedEnvironmentOptions = currentProjectEnvironmentId
+      ? [
+          ...newThreadEnvironmentOptions.filter(
+            (option) => option.environmentId === currentProjectEnvironmentId,
+          ),
+          ...newThreadEnvironmentOptions.filter(
+            (option) => option.environmentId !== currentProjectEnvironmentId,
+          ),
+        ]
+      : newThreadEnvironmentOptions;
+
+    return orderedEnvironmentOptions.flatMap((option): CommandPaletteSubmenuItem[] => {
+      const environmentEntries = buildSidebarProjectPickerEntries({
+        groups: projectGroups,
+        preferredProjectRef: contextualProjectRef,
+        targetEnvironmentId: option.environmentId,
+      });
+      if (environmentEntries.length === 0) return [];
+
+      const groupByTargetKey = new Map(
+        environmentEntries.map(({ group, targetProject }) => [
+          `${targetProject.environmentId}:${targetProject.id}`,
+          group,
+        ]),
+      );
+      const environmentProjects = environmentEntries.map(({ group, targetProject }) => ({
+        ...targetProject,
+        title: group.displayName,
+      }));
+      const projectItems = enumerateCommandPaletteItems(
+        buildProjectActionItems({
+          projects: environmentProjects,
+          valuePrefix: `new-thread-on:${option.environmentId}`,
+          searchTerms: (project) => {
+            const group = groupByTargetKey.get(`${project.environmentId}:${project.id}`);
+            return (
+              group?.memberProjects
+                .filter((member) => member.environmentId === option.environmentId)
+                .flatMap((member) => [member.title, member.workspaceRoot]) ?? []
+            );
+          },
+          icon: renderProjectActionIcon,
+          runProject: async (project) => {
+            await handleNewThread(scopeProjectRef(project.environmentId, project.id));
+          },
+        }),
+      );
+      const projectCount = projectItems.length;
+      const EnvironmentIcon = option.isPrimary ? MonitorIcon : CloudIcon;
+
+      return [
+        {
+          kind: "submenu",
+          value: `new-thread-on:${option.environmentId}`,
+          searchTerms: [
+            option.label,
+            option.isPrimary ? "local this device" : "remote environment machine",
+          ],
+          title: option.label,
+          description: `${String(projectCount)} ${projectCount === 1 ? "project" : "projects"}`,
+          icon: <EnvironmentIcon className={ITEM_ICON_CLASS} />,
+          addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+          groups: [
+            {
+              value: `new-thread-on-projects:${option.environmentId}`,
+              label: "Projects",
+              items: projectItems,
+            },
+          ],
+        },
+      ];
+    });
+  }, [
+    contextualProjectRef,
+    currentProjectEnvironmentId,
+    handleNewThread,
+    newThreadEnvironmentOptions,
+    projectGroups,
+  ]);
 
   const projectThreadItems = useMemo(
     () =>
@@ -913,13 +1019,7 @@ function OpenCommandPaletteDialog(props: {
               group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
             );
           },
-          icon: (project) => (
-            <ProjectFavicon
-              environmentId={project.environmentId}
-              cwd={project.workspaceRoot}
-              className={ITEM_ICON_CLASS}
-            />
-          ),
+          icon: renderProjectActionIcon,
           runProject: async (project) => {
             const group = newThreadProjectGroupByTargetKey.get(
               `${project.environmentId}:${project.id}`,
@@ -1288,6 +1388,44 @@ function OpenCommandPaletteDialog(props: {
     setNewThreadPickerGeneration((generation) => generation + 1);
   }, [clearOpenIntent, newThreadPickerView, openIntent]);
 
+  const openNewThreadOnFlow = useEffectEvent(() => {
+    clearOpenIntent();
+    setAddProjectCloneFlow(null);
+    setViewStack([]);
+    setQuery("");
+    pushPaletteView({
+      addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "environments",
+          label: "Run on",
+          items: newThreadEnvironmentItems,
+        },
+      ],
+    });
+  });
+
+  useLayoutEffect(() => {
+    const resolution = resolveNewThreadOnIntent({
+      isActive: openIntent?.kind === "new-thread-on",
+      isLoaded: allEnvironmentShellsBootstrapped,
+      environmentItemCount: newThreadEnvironmentItems.length,
+    });
+    if (resolution === "clear") {
+      setOpen(false);
+      return;
+    }
+    if (resolution !== "open") {
+      return;
+    }
+    openNewThreadOnFlow();
+  }, [
+    allEnvironmentShellsBootstrapped,
+    newThreadEnvironmentItems.length,
+    openIntent,
+    setOpen,
+  ]);
+
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
 
   if (projects.length > 0) {
@@ -1314,6 +1452,33 @@ function OpenCommandPaletteDialog(props: {
             handleNewThread,
           });
         },
+      });
+    }
+
+    if (newThreadEnvironmentItems.length > 0) {
+      actionItems.push({
+        kind: "submenu",
+        value: "action:new-thread-on",
+        searchTerms: [
+          "new thread",
+          "environment",
+          "remote",
+          "machine",
+          "project",
+          "pick",
+          "choose",
+        ],
+        title: "New thread on...",
+        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
+        shortcutCommand: "chat.newEnvironment",
+        groups: [
+          {
+            value: "environments",
+            label: "Run on",
+            items: newThreadEnvironmentItems,
+          },
+        ],
       });
     }
 

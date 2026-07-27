@@ -6,7 +6,7 @@ const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 const COMMAND_PALETTE_CLOSE_EVENT = "t3code:close-command-palette";
 
 export interface CommandPaletteOpenDetail {
-  readonly open?: "add-project" | "new-thread-in";
+  readonly open?: "add-project" | "new-thread-in" | "new-thread-on";
   readonly preferredProjectRef?: ScopedProjectRef | null;
 }
 
