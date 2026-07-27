@@ -307,6 +307,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
+  onSelectionComplete: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -369,7 +370,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           value={props.runtimeMode}
           open={props.runtimeModePickerOpen}
           onOpenChange={props.onRuntimeModePickerOpenChange}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+          onValueChange={(value) => {
+            props.onRuntimeModeChange(value!);
+            props.onSelectionComplete();
+          }}
         >
           <TooltipTrigger
             render={
@@ -379,6 +383,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
                 size="sm"
                 className="font-medium"
                 aria-label="Runtime mode"
+                data-chat-runtime-mode-picker="true"
               />
             }
           >
@@ -1312,6 +1317,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    onSelectionComplete: scheduleComposerFocus,
   });
   // Hint badges show while the held modifiers are a subset of a composer
   // control shortcut's modifiers; computed once here and passed down.
@@ -1345,6 +1351,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    onSelectionComplete: scheduleComposerFocus,
     open: isComposerTraitsPickerOpen,
     onOpenChange: (open) => {
       applyComposerPickerOpenChange("traits", open);
@@ -2102,8 +2109,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         // unique image into the overflow list for nothing.
         const existingDedupKeys = new Set(
           composerImagesRef.current.map(
-            (image) => `${image.mimeType} ${image.sizeBytes} ${image.name}`,
-          ),
+            (image) => `${image.mimeType}          ),
         );
         const capacity = Math.max(
           0,
@@ -2113,8 +2119,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           (attachment) =>
             !existingIds.has(attachment.id) &&
             !existingDedupKeys.has(
-              `${attachment.mimeType} ${attachment.sizeBytes} ${attachment.name}`,
-            ),
+              `${attachment.mimeType}            ),
         );
         // Anything past the attachment limit cannot be restored. The entry is
         // already out of the queue, so report the overflow by name instead of
@@ -2219,8 +2224,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // the composer has been cleared the user can type something genuinely
     // new (or switch threads) while encoding continues, and that deserves its
     // own entry.
-    const snapshotKey = `${String(composerDraftTarget)} ${prompt} ${images
-      .map((image) => image.id)
+    const snapshotKey = `${String(composerDraftTarget)}      .map((image) => image.id)
       .join(",")}`;
     if (stashInFlightRef.current.has(snapshotKey)) return;
     stashInFlightRef.current.add(snapshotKey);
@@ -3297,6 +3301,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }}
                     getModelDisabledReason={getModelDisabledReason}
                     onInstanceModelChange={onProviderModelSelect}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 )}
 
@@ -3331,6 +3336,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 ) : (
                   <>
@@ -3358,6 +3364,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
+                      onSelectionComplete={scheduleComposerFocus}
                     />
                   </>
                 )}
