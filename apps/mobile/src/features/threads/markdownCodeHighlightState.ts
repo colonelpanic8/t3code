@@ -72,6 +72,12 @@ export function useMarkdownCodeHighlight(input: {
   const normalizedLanguage = input.language?.trim() || "text";
   const enabled = input.enabled && Boolean(input.language?.trim());
   const atomLanguage = enabled ? normalizedLanguage : "text";
+  // `enabled` is the streaming gate: feeding every intermediate state into the
+  // atom family runs Shiki per delta and retains one atom per delta for the
+  // idle TTL. Debouncing here cannot help, because a growing code block's React
+  // key encodes its source offsets and the block remounts on every delta, so
+  // any per-mount timer starts over. Callers disable highlighting until the
+  // message has finished streaming instead.
   const highlightAtom = useMemo(
     () =>
       markdownCodeHighlightAtom({

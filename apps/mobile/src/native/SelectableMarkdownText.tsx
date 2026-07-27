@@ -1,6 +1,9 @@
 import type { SelectableMarkdownTextProps } from "@t3tools/mobile-markdown-text/renderer";
 
-type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode">;
+type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode"> & {
+  /** Withhold highlighting while the markdown is still streaming in. */
+  readonly deferHighlight?: boolean;
+};
 
 export type {
   NativeMarkdownTextStyle,
