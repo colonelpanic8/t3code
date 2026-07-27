@@ -28,6 +28,7 @@ const EVENING_HOUR = 18;
 const MORNING_HOUR = 9;
 const HOUR_MS = 60 * 60 * 1_000;
 const DAY_MS = 24 * HOUR_MS;
+const CUSTOM_TIME_STEP_MINUTES = 15;
 
 function atHour(base: Date, hour: number): Date {
   const next = new Date(base);
@@ -42,6 +43,48 @@ function addDays(base: Date, days: number): Date {
   const next = new Date(base);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+/**
+ * Value for a native datetime-local input. Native date inputs intentionally
+ * have no timezone component; the value represents the user's wall clock.
+ */
+export function formatSnoozeDateTimeLocal(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    "-",
+    pad(date.getMonth() + 1),
+    "-",
+    pad(date.getDate()),
+    "T",
+    pad(date.getHours()),
+    ":",
+    pad(date.getMinutes()),
+  ].join("");
+}
+
+/**
+ * Start custom snoozes one hour out, rounded up to a friendly quarter-hour.
+ */
+export function defaultCustomSnoozeDateTime(now: Date): string {
+  const next = new Date(now.getTime() + HOUR_MS);
+  next.setSeconds(0, 0);
+  next.setMinutes(
+    Math.ceil(next.getMinutes() / CUSTOM_TIME_STEP_MINUTES) * CUSTOM_TIME_STEP_MINUTES,
+  );
+  return formatSnoozeDateTimeLocal(next);
+}
+
+/**
+ * Interpret a datetime-local value in the browser's local timezone and
+ * return the ISO command payload. Invalid and non-future values are rejected.
+ */
+export function parseCustomSnoozeDateTime(value: string, now: Date): string | null {
+  if (value.trim() === "") return null;
+  const wakeAt = new Date(value);
+  if (Number.isNaN(wakeAt.getTime()) || wakeAt.getTime() <= now.getTime()) return null;
+  return wakeAt.toISOString();
 }
 
 /**
