@@ -5,7 +5,6 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -92,8 +91,11 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as PreviewManager from "./preview/Manager.ts";
-import { issueAssetUrl } from "./assets/AssetAccess.ts";
-import { findThreadArtifactPath } from "./assets/ThreadArtifactResolver.ts";
+import { issueAssetUrl, issueThreadArtifactUrl } from "./assets/AssetAccess.ts";
+import {
+  findThreadArtifactPath,
+  retryThreadArtifactLookup,
+} from "./assets/ThreadArtifactResolver.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -423,7 +425,6 @@ const makeWsRpcLayer = (
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const crypto = yield* Crypto.Crypto;
-      const path = yield* Path.Path;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
@@ -1726,41 +1727,66 @@ const makeWsRpcLayer = (
             WS_METHODS.assetsCreateUrl,
             Effect.gen(function* () {
               if (input.resource._tag === "thread-artifact") {
-                const thread = yield* projectionSnapshotQuery
-                  .getThreadDetailById(input.resource.threadId)
-                  .pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new AssetWorkspaceAssetInspectionError({
-                          resource: input.resource,
-                          cause,
-                        }),
-                    ),
-                  );
-                if (Option.isNone(thread)) {
-                  return yield* new AssetWorkspaceAssetNotFoundError({
-                    resource: input.resource,
-                  });
-                }
-                const artifactPath = findThreadArtifactPath(
-                  thread.value,
-                  input.resource.turnId,
-                  input.resource.messageId,
-                  input.resource.path,
+                const resource = input.resource;
+                return yield* retryThreadArtifactLookup(
+                  Effect.gen(function* () {
+                    const snapshot = yield* projectionSnapshotQuery
+                      .getThreadDetailSnapshot(resource.threadId)
+                      .pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new AssetWorkspaceAssetInspectionError({
+                              resource,
+                              cause,
+                            }),
+                        ),
+                      );
+                    if (Option.isNone(snapshot)) {
+                      return yield* new AssetWorkspaceAssetNotFoundError({
+                        resource,
+                      });
+                    }
+                    const thread = snapshot.value.thread;
+                    const artifact = findThreadArtifactPath(
+                      thread,
+                      resource.turnId,
+                      resource.messageId,
+                      resource.path,
+                    );
+                    if (!artifact) {
+                      return yield* new AssetWorkspaceAssetNotFoundError({
+                        resource,
+                      });
+                    }
+
+                    let workspaceRoot: string | undefined;
+                    if (artifact.scope === "workspace") {
+                      const project = yield* projectionSnapshotQuery
+                        .getProjectShellById(thread.projectId)
+                        .pipe(
+                          Effect.mapError(
+                            (cause) =>
+                              new AssetWorkspaceContextResolutionError({
+                                resource,
+                                cause,
+                              }),
+                          ),
+                        );
+                      if (Option.isNone(project)) {
+                        return yield* new AssetWorkspaceContextNotFoundError({
+                          resource,
+                        });
+                      }
+                      workspaceRoot = thread.worktreePath ?? project.value.workspaceRoot;
+                    }
+
+                    return yield* issueThreadArtifactUrl({
+                      resource,
+                      artifact,
+                      ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+                    });
+                  }),
                 );
-                if (!artifactPath) {
-                  return yield* new AssetWorkspaceAssetNotFoundError({
-                    resource: input.resource,
-                  });
-                }
-                return yield* issueAssetUrl({
-                  resource: {
-                    _tag: "workspace-file",
-                    threadId: input.resource.threadId,
-                    path: path.basename(artifactPath),
-                  },
-                  workspaceRoot: path.dirname(artifactPath),
-                });
               }
               if (input.resource._tag !== "workspace-file") {
                 return yield* issueAssetUrl({ resource: input.resource });
