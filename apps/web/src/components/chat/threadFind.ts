@@ -23,6 +23,28 @@ export function normalizeThreadFindQuery(query: string): string {
 }
 
 /**
+ * Lowercases for matching without ever changing UTF-16 length: a code point
+ * whose lowercase form is longer (e.g. "İ" → "i" + combining dot) is kept
+ * as-is. Offsets into the folded string are therefore always valid in the
+ * original — the exotic character merely doesn't case-fold, instead of every
+ * offset after it drifting and Range.setEnd throwing past the node's length.
+ */
+function foldThreadFindCase(text: string): string {
+  const lowered = text.toLowerCase();
+  // Per-code-point lowercase mappings never shrink, so equal length means
+  // every mapping was 1:1 and the fast path is exact.
+  if (lowered.length === text.length) {
+    return lowered;
+  }
+  let folded = "";
+  for (const char of text) {
+    const loweredChar = char.toLowerCase();
+    folded += loweredChar.length === char.length ? loweredChar : char;
+  }
+  return folded;
+}
+
+/**
  * Offsets of every non-overlapping occurrence, case-insensitively. Advancing by
  * the needle length (not by one) keeps the count in step with what a
  * left-to-right highlighter can actually paint: "aa" occurs once in "aaa".
@@ -31,8 +53,8 @@ export function findThreadTextOccurrences(haystack: string, needle: string): num
   if (needle.length === 0 || haystack.length === 0) {
     return [];
   }
-  const lowerHaystack = haystack.toLowerCase();
-  const lowerNeedle = needle.toLowerCase();
+  const lowerHaystack = foldThreadFindCase(haystack);
+  const lowerNeedle = foldThreadFindCase(needle);
   const offsets: number[] = [];
   let cursor = 0;
   while (cursor <= lowerHaystack.length - lowerNeedle.length) {
@@ -50,6 +72,12 @@ export function findThreadTextOccurrences(haystack: string, needle: string): num
  * The text a timeline entry puts on screen, or `null` for entries find does not
  * cover. Work-log rows (tool calls, commands, reasoning) are deliberately out of
  * scope — find targets the conversation itself.
+ *
+ * Assistant messages and plans are searched as markdown *source*, so syntax
+ * that the renderer hides (link URLs, emphasis markers) is matched too. That is
+ * intentional: extracting renderer-exact plain text would mean duplicating the
+ * markdown pipeline here and drifting from it. Such a match still navigates to
+ * the right message; it just may not paint.
  */
 export function searchableThreadEntryText(entry: TimelineEntry): string | null {
   if (entry.kind === "proposed-plan") {

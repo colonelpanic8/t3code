@@ -4,6 +4,15 @@ import { clampThreadFindIndex, findThreadTextOccurrences } from "./threadFind";
 export const THREAD_FIND_HIGHLIGHT_NAME = "t3-thread-find";
 export const THREAD_FIND_ACTIVE_HIGHLIGHT_NAME = "t3-thread-find-active";
 
+/**
+ * `data-thread-find-text` marks an element as rendering text that
+ * `searchableThreadEntryText` indexes. Only text inside these regions is
+ * painted; row chrome (timestamps, buttons, fold labels, work-log output)
+ * stays unpainted so it can neither light up for text the counter never
+ * counted nor shift the active-occurrence index within a row.
+ */
+const THREAD_FIND_TEXT_SELECTOR = "[data-thread-find-text]";
+
 export interface ThreadFindRangeGroup<T = Range> {
   rowId: string;
   ranges: T[];
@@ -75,9 +84,11 @@ function resolveHighlightApi(): {
 
 /**
  * Collects a range per visible occurrence, grouped by timeline row, in document
- * order. Occurrences split across text nodes by inline markup (`**bo**ld`) are
- * not matched — the model-level index owns the count, so a row simply paints
- * fewer highlights than it reports.
+ * order. Only text inside `data-thread-find-text` regions participates, so
+ * the painted set mirrors the searchable model rather than everything a row
+ * happens to render. Occurrences split across text nodes by inline markup
+ * (`**bo**ld`) are not matched — the model-level index owns the count, so a row
+ * simply paints fewer highlights than it reports.
  */
 export function collectThreadFindRanges(
   container: HTMLElement,
@@ -88,18 +99,24 @@ export function collectThreadFindRanges(
   }
 
   const ownerDocument = container.ownerDocument;
-  const walker = ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   const groups: ThreadFindRangeGroup[] = [];
   const groupsByRowId = new Map<string, ThreadFindRangeGroup>();
 
-  let node = walker.nextNode();
-  while (node) {
-    const text = node.nodeValue ?? "";
-    const offsets = text.length > 0 ? findThreadTextOccurrences(text, query) : [];
-    if (offsets.length > 0) {
-      const rowElement = node.parentElement?.closest("[data-timeline-row-id]");
-      const rowId = rowElement?.getAttribute("data-timeline-row-id");
-      if (rowId) {
+  for (const scope of container.querySelectorAll(THREAD_FIND_TEXT_SELECTOR)) {
+    if (scope.parentElement?.closest(THREAD_FIND_TEXT_SELECTOR)) {
+      continue; // Nested region — its text is already walked by the ancestor.
+    }
+    const rowId = scope.closest("[data-timeline-row-id]")?.getAttribute("data-timeline-row-id");
+    if (!rowId) {
+      continue;
+    }
+
+    const walker = ownerDocument.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const text = node.nodeValue ?? "";
+      const offsets = text.length > 0 ? findThreadTextOccurrences(text, query) : [];
+      if (offsets.length > 0) {
         let group = groupsByRowId.get(rowId);
         if (!group) {
           group = { rowId, ranges: [] };
@@ -113,8 +130,8 @@ export function collectThreadFindRanges(
           group.ranges.push(range);
         }
       }
+      node = walker.nextNode();
     }
-    node = walker.nextNode();
   }
 
   return groups;
