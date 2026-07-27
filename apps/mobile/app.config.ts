@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
-type AppVariant = "development" | "preview" | "production";
+type AppVariant = "assembly" | "development" | "preview" | "production";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -60,6 +60,14 @@ const RELEASE_ASSETS = {
 } as const;
 
 const VARIANT_CONFIG = {
+  assembly: {
+    appName: "T3 Code Assembly",
+    scheme: "t3code-assembly",
+    iosBundleIdentifier: "com.t3tools.t3code.assembly",
+    androidPackage: "com.t3tools.t3code.assembly",
+    relyingParty: "clerk.t3.codes",
+    assets: PREVIEW_ASSETS,
+  },
   development: {
     appName: "T3 Code Dev",
     scheme: "t3code-dev",
@@ -88,6 +96,7 @@ const VARIANT_CONFIG = {
 
 function resolveAppVariant(value: string | undefined): AppVariant {
   switch (value) {
+    case "assembly":
     case "development":
     case "preview":
     case "production":
@@ -173,7 +182,7 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: true,
+    enabled: APP_VARIANT !== "assembly",
     url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
