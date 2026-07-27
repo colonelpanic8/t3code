@@ -6,7 +6,7 @@ import {
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
 
-import { mergeEnvironmentSettings } from "./useSettings";
+import { mergeEnvironmentSettings, splitSettingsPatch } from "./useSettings";
 
 describe("mergeEnvironmentSettings", () => {
   it("combines the selected environment's server settings with client preferences", () => {
@@ -33,5 +33,21 @@ describe("mergeEnvironmentSettings", () => {
 
     expect(settings.providerInstances).toBe(serverSettings.providerInstances);
     expect(settings.favorites).toBe(clientSettings.favorites);
+  });
+
+  it("lets client ownership win for legacy overlapping workflow fields", () => {
+    const { clientPatch, serverPatch } = splitSettingsPatch({
+      enableAssistantStreaming: true,
+      defaultThreadEnvMode: "worktree",
+      newWorktreesStartFromOrigin: false,
+      addProjectBaseDirectory: "~/Projects",
+    });
+
+    expect(clientPatch).toEqual({
+      enableAssistantStreaming: true,
+      defaultThreadEnvMode: "worktree",
+      newWorktreesStartFromOrigin: false,
+    });
+    expect(serverPatch).toEqual({ addProjectBaseDirectory: "~/Projects" });
   });
 });

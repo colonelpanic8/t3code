@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -10,6 +11,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   CommandId,
+  DEFAULT_CLIENT_SETTINGS,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   MessageId,
@@ -17,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
+import { AsyncResult } from "effect/unstable/reactivity";
 
 import { useEnvironmentServerConfig, useProjects, useThreadShells } from "../../state/entities";
 import type { TurnCommandMetadata } from "../../lib/commandMetadata";
@@ -26,6 +29,7 @@ import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { groupProjectsByRepository } from "../../lib/repositoryGroups";
 import { scopedProjectKey } from "../../lib/scopedEntities";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import {
   appendComposerDraftAttachments,
   clearComposerDraft,
@@ -337,6 +341,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,
   );
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const defaultThreadEnvMode = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.defaultThreadEnvMode ?? DEFAULT_CLIENT_SETTINGS.defaultThreadEnvMode)
+    : DEFAULT_CLIENT_SETTINGS.defaultThreadEnvMode;
+  const newWorktreesStartFromOrigin = AsyncResult.isSuccess(preferencesResult)
+    ? preferencesResult.value.newWorktreesStartFromOrigin !== false
+    : DEFAULT_CLIENT_SETTINGS.newWorktreesStartFromOrigin;
   // While a queued pending task is being edited its draft lives under a key
   // scoped to the queued message, so per-project new-task drafts stay intact.
   const selectedProjectDraftKey = editingPendingTask
@@ -347,17 +358,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const selectedProjectDraft = useComposerDraft(selectedProjectDraftKey);
   const prompt = selectedProjectDraft.text;
   const attachments = selectedProjectDraft.attachments;
-  const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? "local";
+  const workspaceMode = selectedProjectDraft.workspaceSelection?.mode ?? defaultThreadEnvMode;
   const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
   const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
   // Keep the user's explicit choice separate from the resolved display value:
   // only the explicit flag is ever written back to the draft, so the resolved
-  // value keeps tracking the server setting when the config loads late.
+  // value keeps tracking this client's preference until the user overrides it.
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
-  const startFromOrigin =
-    draftStartFromOrigin ??
-    selectedEnvironmentServerConfig?.settings.newWorktreesStartFromOrigin ??
-    true;
+  const startFromOrigin = draftStartFromOrigin ?? newWorktreesStartFromOrigin;
   const runtimeMode = selectedProjectDraft.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode = selectedProjectDraft.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE;
 
@@ -680,7 +688,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         return null;
       }
       const workspaceSelection = draft.workspaceSelection;
-      const mode = workspaceSelection?.mode ?? "local";
+      const mode = workspaceSelection?.mode ?? defaultThreadEnvMode;
       // When the selection is the stand-in built from the queued snapshot,
       // persist the original (possibly absent) snapshot values — the
       // stand-in's placeholder title/workspaceRoot must never be written back
@@ -710,7 +718,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch: workspaceSelection?.branch ?? null,
           worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
           // The draft only carries the flag when the user touched it; fall
-          // back to the resolved default (server settings) so queued tasks
+          // back to this client's resolved default so queued tasks
           // drain with the same origin mode the composer displayed.
           ...((workspaceSelection?.startFromOrigin ?? startFromOrigin)
             ? { startFromOrigin: true }
@@ -722,6 +730,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     [
       editingPendingProject,
       editingPendingTask,
+      defaultThreadEnvMode,
       selectedModel,
       selectedProject,
       selectedProjectDraftKey,
