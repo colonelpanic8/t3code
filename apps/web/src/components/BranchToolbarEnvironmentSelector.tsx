@@ -3,7 +3,9 @@ import { CloudIcon, MonitorIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import type { EnvironmentOption } from "./BranchToolbar.logic";
-import { Kbd } from "./ui/kbd";
+import { cn } from "../lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { ComposerShortcutKeycap } from "./chat/ComposerControlShortcutHint";
 import {
   Select,
   SelectGroup,
@@ -49,15 +51,27 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   );
 
   if (envLocked || onEnvironmentChange === undefined) {
+    // The indicator still renders so remote projects stay identifiable, but it
+    // is inert here — say why, since it otherwise reads as a dead control.
+    const inertReason = envLocked
+      ? "This thread already started, so it cannot move to another environment"
+      : "The only environment available for this project";
     return (
-      <span className="inline-flex min-w-0 max-w-full items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
-        {activeEnvironment?.isPrimary ? (
-          <MonitorIcon className="size-3 shrink-0" />
-        ) : (
-          <CloudIcon className="size-3 shrink-0" />
-        )}
-        <span className="truncate">{activeEnvironment?.label ?? "Run on"}</span>
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex min-w-0 max-w-full items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs" />
+          }
+        >
+          {activeEnvironment?.isPrimary ? (
+            <MonitorIcon className="size-3 shrink-0" />
+          ) : (
+            <CloudIcon className="size-3 shrink-0" />
+          )}
+          <span className="truncate">{activeEnvironment?.label ?? "Run on"}</span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">{inertReason}</TooltipPopup>
+      </Tooltip>
     );
   }
 
@@ -73,7 +87,10 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       <SelectTrigger
         variant="ghost"
         size="xs"
-        className="min-w-0 max-w-full font-medium"
+        className={cn(
+          "min-w-0 max-w-full font-medium",
+          shortcutHintLabel && "[&_[data-slot=select-icon]]:hidden",
+        )}
         aria-label="Run on"
       >
         {activeEnvironment?.isPrimary ? (
@@ -82,9 +99,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           <CloudIcon className="size-3 shrink-0" />
         )}
         <SelectValue />
-        {shortcutHintLabel ? (
-          <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{shortcutHintLabel}</Kbd>
-        ) : null}
+        {shortcutHintLabel ? <ComposerShortcutKeycap label={shortcutHintLabel} /> : null}
       </SelectTrigger>
       <SelectPopup>
         <SelectGroup>

@@ -231,13 +231,18 @@ function formatShortcutKeyLabel(key: string): string {
 export function formatShortcutLabel(
   shortcut: KeybindingShortcut,
   platform = navigator.platform,
+  // Modifiers the user is already holding. They are dropped from the label so a
+  // hold-modifier hint only advertises the keys that are still left to press.
+  heldModifiers?: ShortcutModifierStateLike,
 ): string {
   const keyLabel = formatShortcutKeyLabel(shortcut.key);
   const useMetaForMod = isMacPlatform(platform);
-  const showMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
-  const showCtrl = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
-  const showAlt = shortcut.altKey;
-  const showShift = shortcut.shiftKey;
+  const showMeta =
+    (shortcut.metaKey || (shortcut.modKey && useMetaForMod)) && !heldModifiers?.metaKey;
+  const showCtrl =
+    (shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod)) && !heldModifiers?.ctrlKey;
+  const showAlt = shortcut.altKey && !heldModifiers?.altKey;
+  const showShift = shortcut.shiftKey && !heldModifiers?.shiftKey;
 
   if (useMetaForMod) {
     return `${showCtrl ? "\u2303" : ""}${showAlt ? "\u2325" : ""}${showShift ? "\u21e7" : ""}${showMeta ? "\u2318" : ""}${keyLabel}`;
@@ -264,6 +269,32 @@ export function shortcutLabelForCommand(
   const platform = resolvePlatform(resolvedOptions);
   const shortcut = findEffectiveShortcutForCommand(keybindings, command, resolvedOptions);
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
+}
+
+/**
+ * Label for a hold-modifier hint: the chord minus the platform mod key, which
+ * the user is necessarily already holding for the hint to be visible at all.
+ * `mod+shift+e` reads `Shift+E`, and it stays that way as further modifiers go
+ * down, so a cap never reflows mid-hold. Subtraction is per binding — a rebound
+ * chord that shares nothing with the others still renders what it needs.
+ */
+export function remainingShortcutLabelForCommand(
+  keybindings: ResolvedKeybindingsConfig,
+  command: KeybindingCommand,
+  heldModifiers: ShortcutModifierStateLike,
+  options?: ResolvedShortcutLabelOptions,
+): string | null {
+  const platform = resolvePlatform(options);
+  const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
+  if (!shortcut) return null;
+  if (!modifiersAreSubsetOfShortcutModifiers(heldModifiers, shortcut, platform)) return null;
+  const modKeyOnly: ShortcutModifierStateLike = {
+    metaKey: isMacPlatform(platform),
+    ctrlKey: !isMacPlatform(platform),
+    shiftKey: false,
+    altKey: false,
+  };
+  return formatShortcutLabel(shortcut, platform, modKeyOnly);
 }
 
 export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {

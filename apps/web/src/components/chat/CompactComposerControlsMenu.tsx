@@ -1,5 +1,5 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
-import { memo, type ReactNode, useRef } from "react";
+import { memo, type ReactNode } from "react";
 import { EllipsisIcon, ListTodoIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -11,7 +11,7 @@ import {
   MenuSeparator as MenuDivider,
   MenuTrigger,
 } from "../ui/menu";
-import { ComposerControlShortcutHint } from "./ComposerControlShortcutHint";
+import { ComposerShortcutKeycap } from "./ComposerControlShortcutHint";
 
 export function compactComposerShortcutHintLabel(input: {
   modelOptions: string | null;
@@ -44,7 +44,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   onTogglePlanSidebar: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <>
       <Menu
@@ -54,7 +53,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <MenuTrigger
           render={
             <Button
-              ref={triggerRef}
               size="sm"
               variant="ghost"
               className="shrink-0 px-2 text-muted-foreground/70 hover:text-foreground/80"
@@ -63,6 +61,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           }
         >
           <EllipsisIcon aria-hidden="true" className="size-4" />
+          {props.shortcutHintLabel ? (
+            <ComposerShortcutKeycap label={props.shortcutHintLabel} className="shrink-0" />
+          ) : null}
         </MenuTrigger>
         <MenuPopup align="start">
           {props.traitsMenuContent ? (
@@ -113,7 +114,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           ) : null}
         </MenuPopup>
       </Menu>
-      <ComposerControlShortcutHint anchorRef={triggerRef} label={props.shortcutHintLabel} />
     </>
   );
 });

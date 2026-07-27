@@ -16,7 +16,10 @@ import { useProject, useThread, useThreadShellsForProjectRefs } from "../state/e
 import { useLayoutScopedState } from "../hooks/useLayoutScopedOpenState";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
-import { shortcutLabelForCommand, shouldShowCommandHintForModifiers } from "../keybindings";
+import {
+  remainingShortcutLabelForCommand,
+  shouldShowCommandHintForModifiers,
+} from "../keybindings";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import {
   type BranchToolbarPicker,
@@ -412,6 +415,13 @@ export const BranchToolbar = memo(function BranchToolbar({
       },
       toggleEnvModePicker: () => {
         if (envModeShortcutTarget === null) return false;
+        // Workspace is a two-state choice, so the chord flips it directly (like
+        // planMode.toggle) instead of opening a two-item menu. On mobile the
+        // control lives in the combined run-context sheet, which still opens.
+        if (envModeShortcutTarget === "env-mode") {
+          onEnvModeChange(effectiveEnvMode === "worktree" ? "local" : "worktree");
+          return true;
+        }
         handlePickerToggle(envModeShortcutTarget);
         return true;
       },
@@ -420,7 +430,14 @@ export const BranchToolbar = memo(function BranchToolbar({
         return branchSelectorRef.current?.togglePicker() ?? false;
       },
     }),
-    [environmentShortcutTarget, envModeShortcutTarget, handlePickerToggle, isRendered],
+    [
+      effectiveEnvMode,
+      environmentShortcutTarget,
+      envModeShortcutTarget,
+      handlePickerToggle,
+      isRendered,
+      onEnvModeChange,
+    ],
   );
 
   // Hold-modifier hint badges, mirroring the composer footer controls.
@@ -433,7 +450,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "environmentPicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? shortcutLabelForCommand(keybindings, "environmentPicker.toggle", {
+    ? remainingShortcutLabelForCommand(keybindings, "environmentPicker.toggle", shortcutModifiers, {
         context: shortcutContext,
       })
     : null;
@@ -443,7 +460,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "envModePicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? shortcutLabelForCommand(keybindings, "envModePicker.toggle", {
+    ? remainingShortcutLabelForCommand(keybindings, "envModePicker.toggle", shortcutModifiers, {
         context: shortcutContext,
       })
     : null;
@@ -453,7 +470,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "branchPicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? shortcutLabelForCommand(keybindings, "branchPicker.toggle", {
+    ? remainingShortcutLabelForCommand(keybindings, "branchPicker.toggle", shortcutModifiers, {
         context: shortcutContext,
       })
     : null;

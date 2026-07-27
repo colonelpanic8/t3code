@@ -220,9 +220,12 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
-import { shortcutLabelForCommand, shouldShowCommandHintForModifiers } from "../../keybindings";
+import {
+  remainingShortcutLabelForCommand,
+  shouldShowCommandHintForModifiers,
+} from "../../keybindings";
 import { useShortcutModifierState } from "../../shortcutModifierState";
-import { ComposerControlShortcutHint } from "./ComposerControlShortcutHint";
+import { ComposerShortcutKeycap } from "./ComposerControlShortcutHint";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -310,8 +313,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const interactionModeTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const runtimeModeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const runtimeModeInlineHint = props.runtimeModeShortcutHintLabel;
   const interactionModeTooltip =
     props.interactionMode === "plan"
       ? "Plan mode — click to return to normal build mode"
@@ -327,7 +329,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         <TooltipTrigger
           render={
             <Button
-              ref={interactionModeTriggerRef}
               variant="ghost"
               className={cn(
                 "shrink-0 whitespace-nowrap px-2 sm:px-3",
@@ -350,13 +351,15 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <span className="sr-only sm:not-sr-only">
             {props.interactionMode === "plan" ? "Plan" : "Build"}
           </span>
+          {props.interactionModeShortcutHintLabel ? (
+            <ComposerShortcutKeycap
+              label={props.interactionModeShortcutHintLabel}
+              className="shrink-0"
+            />
+          ) : null}
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
       </Tooltip>
-      <ComposerControlShortcutHint
-        anchorRef={interactionModeTriggerRef}
-        label={props.interactionModeShortcutHintLabel}
-      />
     </>
   ) : null;
 
@@ -374,16 +377,21 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <TooltipTrigger
             render={
               <SelectTrigger
-                ref={runtimeModeTriggerRef}
                 variant="ghost"
                 size="sm"
-                className="font-medium"
+                className={cn(
+                  "font-medium",
+                  runtimeModeInlineHint && "[&_[data-slot=select-icon]]:hidden",
+                )}
                 aria-label="Runtime mode"
               />
             }
           >
             <RuntimeModeIcon className="size-4" />
             <SelectValue>{runtimeModeOption.label}</SelectValue>
+            {runtimeModeInlineHint ? (
+              <ComposerShortcutKeycap label={runtimeModeInlineHint} className="shrink-0" />
+            ) : null}
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false}>
             {runtimeModeOptions.map((mode) => {
@@ -409,10 +417,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         </Select>
         <TooltipPopup side="top">{runtimeModeOption.description}</TooltipPopup>
       </Tooltip>
-      <ComposerControlShortcutHint
-        anchorRef={runtimeModeTriggerRef}
-        label={props.runtimeModeShortcutHintLabel}
-      />
 
       {interactionModeToggle}
 
@@ -1315,12 +1319,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const terminalFocus = useTerminalFocus();
   const shortcutContext = useMemo(() => ({ terminalFocus }), [terminalFocus]);
   const composerControlHintLabels = useMemo(() => {
-    const hintLabel = (command: Parameters<typeof shortcutLabelForCommand>[1]) =>
+    const hintLabel = (command: Parameters<typeof remainingShortcutLabelForCommand>[1]) =>
       shouldShowCommandHintForModifiers(shortcutModifiers, keybindings, command, {
         platform: navigator.platform,
         context: shortcutContext,
       })
-        ? shortcutLabelForCommand(keybindings, command, { context: shortcutContext })
+        ? remainingShortcutLabelForCommand(keybindings, command, shortcutModifiers, {
+            context: shortcutContext,
+          })
         : null;
 
     return {

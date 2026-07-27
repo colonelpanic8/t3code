@@ -64,7 +64,7 @@ import {
   ComboboxStatus,
   ComboboxTrigger,
 } from "./ui/combobox";
-import { Kbd } from "./ui/kbd";
+import { ComposerShortcutKeycap } from "./chat/ComposerControlShortcutHint";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -799,12 +799,11 @@ export function BranchToolbarBranchSelector({
           >
             <GitBranchIcon className="size-3 shrink-0 opacity-70" />
             <span className="min-w-0 max-w-[240px] truncate">{triggerLabel}</span>
-            {showShortcutHint ? (
-              <Kbd className="h-4 min-w-0 shrink-0 rounded-sm px-1.5 text-[10px]">
-                {shortcutHintLabel}
-              </Kbd>
-            ) : null}
-            <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+            {showShortcutHint && shortcutHintLabel ? (
+              <ComposerShortcutKeycap label={shortcutHintLabel} className="shrink-0" />
+            ) : (
+              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+            )}
           </ComboboxTrigger>
         </span>
       </div>

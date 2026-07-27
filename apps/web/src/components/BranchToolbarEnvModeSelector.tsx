@@ -7,7 +7,9 @@ import {
   resolveLockedWorkspaceLabel,
   type EnvMode,
 } from "./BranchToolbar.logic";
-import { Kbd } from "./ui/kbd";
+import { cn } from "../lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { ComposerShortcutKeycap } from "./chat/ComposerControlShortcutHint";
 import {
   Select,
   SelectGroup,
@@ -57,19 +59,23 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
 
   if (envLocked) {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
-        {activeWorktreePath ? (
-          <>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex shrink-0 items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs" />
+          }
+        >
+          {activeWorktreePath ? (
             <FolderGitIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
-          </>
-        ) : (
-          <>
+          ) : (
             <FolderIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
-          </>
-        )}
-      </span>
+          )}
+          {resolveLockedWorkspaceLabel(activeWorktreePath)}
+        </TooltipTrigger>
+        <TooltipPopup side="top">
+          This thread already started, so its workspace cannot change
+        </TooltipPopup>
+      </Tooltip>
     );
   }
 
@@ -91,7 +97,10 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       <SelectTrigger
         variant="ghost"
         size="xs"
-        className="shrink-0 font-medium"
+        className={cn(
+          "shrink-0 font-medium",
+          shortcutHintLabel && "[&_[data-slot=select-icon]]:hidden",
+        )}
         aria-label="Workspace"
       >
         {effectiveEnvMode === "worktree" ? (
@@ -102,9 +111,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           <FolderIcon className="size-3" />
         )}
         <SelectValue />
-        {shortcutHintLabel ? (
-          <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{shortcutHintLabel}</Kbd>
-        ) : null}
+        {shortcutHintLabel ? <ComposerShortcutKeycap label={shortcutHintLabel} /> : null}
       </SelectTrigger>
       <SelectPopup>
         <SelectGroup>
