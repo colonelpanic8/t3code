@@ -1,3 +1,4 @@
+import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   type KeybindingCommand,
   type FilesystemBrowseEntry,
@@ -14,6 +15,27 @@ import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-muted-foreground/80";
 export const ADDON_ICON_CLASS = "size-4";
+export const NEW_THREAD_PROJECT_VIEW_GROUP = "new-thread-projects";
+
+export function shouldHandleCommandPaletteShortcut(input: {
+  command: KeybindingCommand | null;
+  editableTarget: boolean;
+}): boolean {
+  if (input.command === "commandPalette.toggle") {
+    return true;
+  }
+  return input.command === "project.add" && !input.editableTarget;
+}
+
+export function resolveNewThreadOnIntent(input: {
+  isActive: boolean;
+  isLoaded: boolean;
+  environmentItemCount: number;
+}): "ignore" | "defer" | "clear" | "open" {
+  if (!input.isActive) return "ignore";
+  if (!input.isLoaded) return "defer";
+  return input.environmentItemCount > 0 ? "open" : "clear";
+}
 
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
@@ -68,6 +90,62 @@ export function enumerateCommandPaletteItems(
   });
 }
 
+export function buildNewThreadPickerGroups(input: {
+  projectItems: ReadonlyArray<CommandPaletteActionItem>;
+  addProjectItem: CommandPaletteActionItem;
+  areProjectsLoading: boolean;
+}): CommandPaletteGroup[] {
+  if (input.areProjectsLoading && input.projectItems.length === 0) return [];
+
+  const groups: CommandPaletteGroup[] = [];
+  if (input.projectItems.length > 0) {
+    groups.push({
+      value: NEW_THREAD_PROJECT_VIEW_GROUP,
+      label: "Projects",
+      items: input.projectItems,
+    });
+  }
+  groups.push({
+    value: "new-thread-actions",
+    label: "Actions",
+    items: [input.addProjectItem],
+  });
+  return groups;
+}
+
+export function resolveCommandPaletteEmptyStateMessage(input: {
+  readonly contextualMessage?: string;
+  readonly isNewThreadProjectPickerView: boolean;
+  readonly projectCount: number;
+  readonly allEnvironmentShellsBootstrapped: boolean;
+  readonly query: string;
+}): string | undefined {
+  if (input.contextualMessage) {
+    return input.contextualMessage;
+  }
+  if (!input.isNewThreadProjectPickerView || input.projectCount > 0) {
+    return undefined;
+  }
+  if (!input.allEnvironmentShellsBootstrapped) {
+    return "Loading projects…";
+  }
+  return input.query.trim().length === 0
+    ? "No projects yet. Add a project to start a thread."
+    : undefined;
+}
+
+export function shouldClearAddProjectEnvironmentOnPop(input: {
+  viewStackDepth: number;
+  currentGroupValue: string | undefined;
+  addProjectEnvironmentId: string | null;
+}): boolean {
+  return (
+    input.viewStackDepth <= 1 ||
+    (input.addProjectEnvironmentId !== null &&
+      input.currentGroupValue === `sources:${input.addProjectEnvironmentId}`)
+  );
+}
+
 export type CommandPaletteMode = "root" | "root-browse" | "submenu" | "submenu-browse";
 
 export function filterBrowseEntries(input: {
@@ -100,6 +178,38 @@ export function filterBrowseEntries(input: {
       : null;
 
   return { filteredEntries, highlightedEntry, exactEntry };
+}
+
+export type BrowseTabCompletion =
+  | { readonly kind: "up" }
+  | { readonly kind: "entry"; readonly entry: FilesystemBrowseEntry };
+
+export function resolveBrowseTabCompletion(input: {
+  allowFirstEntryFallback?: boolean;
+  exactEntry: FilesystemBrowseEntry | null;
+  filteredEntries: ReadonlyArray<FilesystemBrowseEntry>;
+  highlightedItemValue: string | null;
+}): BrowseTabCompletion | null {
+  if (input.highlightedItemValue === "browse:up") {
+    return { kind: "up" };
+  }
+
+  if (input.highlightedItemValue?.startsWith("browse:")) {
+    const highlightedPath = input.highlightedItemValue.slice("browse:".length);
+    const highlightedEntry = input.filteredEntries.find(
+      (entry) => entry.fullPath === highlightedPath,
+    );
+    if (highlightedEntry) {
+      return { kind: "entry", entry: highlightedEntry };
+    }
+  }
+
+  if (input.exactEntry) {
+    return { kind: "entry", entry: input.exactEntry };
+  }
+
+  const firstEntry = input.allowFirstEntryFallback === false ? undefined : input.filteredEntries[0];
+  return firstEntry ? { kind: "entry", entry: firstEntry } : null;
 }
 
 export function normalizeSearchText(value: string): string {
@@ -229,6 +339,10 @@ function rankCommandPaletteItemMatch(
   return 0;
 }
 
+function isCommandPaletteActionGroup(group: CommandPaletteGroup): boolean {
+  return group.value === "actions" || group.value === "new-thread-actions";
+}
+
 export function filterCommandPaletteGroups(input: {
   activeGroups: ReadonlyArray<CommandPaletteGroup>;
   query: string;
@@ -242,14 +356,14 @@ export function filterCommandPaletteGroups(input: {
 
   if (normalizedQuery.length === 0) {
     if (isActionsFilter) {
-      return input.activeGroups.filter((group) => group.value === "actions");
+      return input.activeGroups.filter(isCommandPaletteActionGroup);
     }
     return [...input.activeGroups];
   }
 
   let baseGroups = [...input.activeGroups];
   if (isActionsFilter) {
-    baseGroups = baseGroups.filter((group) => group.value === "actions");
+    baseGroups = baseGroups.filter(isCommandPaletteActionGroup);
   } else if (!input.isInSubmenu) {
     baseGroups = baseGroups.filter((group) => group.value !== "recent-threads");
   }
@@ -294,6 +408,57 @@ export function filterCommandPaletteGroups(input: {
 
     return [{ value: group.value, label: group.label, items }];
   });
+}
+
+/**
+ * Whether the *selected environment* can be reached right now. Browsing
+ * resolves paths on that environment's filesystem, so an unreachable one must
+ * fail loudly: otherwise the browse query returns nothing and the empty
+ * directory list is indistinguishable from a real empty directory.
+ *
+ * Deliberately keyed on reachability ONLY, never on a browse failure. Browse
+ * legitimately fails on a reachable host when the path does not exist yet --
+ * the server surfaces `read_directory_failed` for a missing parent, which is
+ * exactly the "type a new folder name and press Enter to create it" case. If
+ * that blocked submission, Create & Add could never create anything.
+ */
+export type BrowseAvailability =
+  | { readonly _tag: "Available" }
+  | { readonly _tag: "Unavailable"; readonly message: string };
+
+const AVAILABLE_BROWSE: BrowseAvailability = { _tag: "Available" };
+
+function unavailable(message: string): BrowseAvailability {
+  return { _tag: "Unavailable", message };
+}
+
+export function resolveBrowseAvailability(input: {
+  readonly environmentLabel: string | null;
+  readonly connectionPhase: EnvironmentConnectionPhase | null;
+  readonly connectionError: string | null;
+}): BrowseAvailability {
+  const label = input.environmentLabel ?? "this environment";
+  const withReason = (text: string) =>
+    input.connectionError ? `${text} Reason: ${input.connectionError}` : text;
+
+  if (input.connectionPhase === null) {
+    return unavailable("Select an environment first.");
+  }
+
+  switch (input.connectionPhase) {
+    case "connected":
+      return AVAILABLE_BROWSE;
+    case "connecting":
+      return unavailable(`Connecting to ${label}...`);
+    case "reconnecting":
+      return unavailable(withReason(`Reconnecting to ${label}.`));
+    case "offline":
+      return unavailable(`${label} is offline.`);
+    case "available":
+      return unavailable(`${label} isn't connected.`);
+    case "error":
+      return unavailable(withReason(`Can't reach ${label}.`));
+  }
 }
 
 export function buildBrowseGroups(input: {
