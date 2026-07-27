@@ -29,6 +29,10 @@ export interface SidebarProjectSnapshot extends Project {
   memberProjects: readonly SidebarProjectGroupMember[];
   memberProjectRefs: readonly ScopedProjectRef[];
   remoteEnvironmentLabels: readonly string[];
+  // Environments backing `remoteEnvironmentLabels`, in the same order. The
+  // header badge stands for all of them at once, so it can only take on an
+  // accent color when they agree on one.
+  remoteEnvironmentIds: readonly EnvironmentId[];
 }
 
 export interface SidebarProjectPickerEntry {
@@ -177,20 +181,20 @@ export function buildSidebarProjectSnapshots(input: {
       continue;
     }
 
-    const hasLocal =
-      input.primaryEnvironmentId !== null &&
-      members.some((member) => member.environmentId === input.primaryEnvironmentId);
-    const hasRemote =
-      input.primaryEnvironmentId !== null
-        ? members.some((member) => member.environmentId !== input.primaryEnvironmentId)
-        : false;
-    const remoteMembers = members.filter(
-      (member) =>
-        input.primaryEnvironmentId !== null && member.environmentId !== input.primaryEnvironmentId,
-    );
+    const remoteMembers =
+      input.primaryEnvironmentId === null
+        ? members
+        : members.filter((member) => member.environmentId !== input.primaryEnvironmentId);
+    const hasRemote = remoteMembers.length > 0;
+    const hasLocal = remoteMembers.length < members.length;
     const remoteEnvironmentLabels = remoteMembers
       .flatMap((member) => (member.environmentLabel ? [member.environmentLabel] : []))
       .filter((label, index, labels) => labels.indexOf(label) === index);
+    const remoteEnvironmentIds = remoteMembers
+      .map((member) => member.environmentId)
+      .filter(
+        (environmentId, index, environmentIds) => environmentIds.indexOf(environmentId) === index,
+      );
     const isDesktopLocal = input.isDesktopLocalEnvironment ?? (() => false);
     const allRemoteMembersAreDesktopLocal =
       remoteMembers.length > 0 &&
@@ -213,6 +217,7 @@ export function buildSidebarProjectSnapshots(input: {
       memberProjects: members,
       memberProjectRefs: projectRefsByLogicalKey.get(logicalKey) ?? [],
       remoteEnvironmentLabels,
+      remoteEnvironmentIds,
     });
   }
 
