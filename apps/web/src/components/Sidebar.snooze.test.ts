@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveSnoozePresets, snoozeWakeDescription, snoozeWakeLabel } from "./Sidebar.snooze";
+import {
+  defaultCustomSnoozeDateTime,
+  formatSnoozeDateTimeLocal,
+  parseCustomSnoozeDateTime,
+  resolveSnoozePresets,
+  snoozeWakeDescription,
+  snoozeWakeLabel,
+} from "./Sidebar.snooze";
 
 // Local-time constructor so preset math is timezone-stable in tests.
 function localDate(year: number, month: number, day: number, hour: number, minute = 0): Date {
@@ -61,6 +68,29 @@ describe("resolveSnoozePresets", () => {
     const nextWeek = new Date(presets.find((preset) => preset.id === "next-week")!.snoozedUntil);
     expect(nextWeek.getDay()).toBe(1);
     expect(nextWeek.getDate()).toBe(13);
+  });
+});
+
+describe("custom snooze time", () => {
+  it("formats a local wall-clock value without adding a timezone suffix", () => {
+    expect(formatSnoozeDateTimeLocal(localDate(2026, 4, 8, 9, 5))).toBe("2026-04-08T09:05");
+  });
+
+  it("defaults to at least an hour ahead on a quarter-hour boundary", () => {
+    const now = localDate(2026, 4, 8, 10, 7);
+    const value = defaultCustomSnoozeDateTime(now);
+    const wakeAt = new Date(value);
+    expect(wakeAt.getTime()).toBeGreaterThanOrEqual(now.getTime() + 60 * 60_000);
+    expect(wakeAt.getMinutes() % 15).toBe(0);
+  });
+
+  it("converts a future local value to ISO and rejects invalid or past values", () => {
+    const now = localDate(2026, 4, 8, 10);
+    const future = "2026-04-08T12:30";
+    expect(parseCustomSnoozeDateTime(future, now)).toBe(new Date(future).toISOString());
+    expect(parseCustomSnoozeDateTime("", now)).toBeNull();
+    expect(parseCustomSnoozeDateTime("not-a-date", now)).toBeNull();
+    expect(parseCustomSnoozeDateTime("2026-04-08T09:59", now)).toBeNull();
   });
 });
 
