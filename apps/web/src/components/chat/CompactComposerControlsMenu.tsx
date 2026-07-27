@@ -43,6 +43,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   onToggleInteractionMode: () => void;
   onTogglePlanSidebar: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onSelectionComplete: () => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   return (
@@ -79,6 +80,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
                 onValueChange={(value) => {
                   if (!value || value === props.interactionMode) return;
                   props.onToggleInteractionMode();
+                  props.onSelectionComplete();
                 }}
               >
                 <MenuRadioItem value="default">Chat</MenuRadioItem>
@@ -93,6 +95,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             onValueChange={(value) => {
               if (!value || value === props.runtimeMode) return;
               props.onRuntimeModeChange(value as RuntimeMode);
+              props.onSelectionComplete();
             }}
           >
             <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
@@ -103,7 +106,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           {props.activePlan ? (
             <>
               <MenuDivider />
-              <MenuItem onClick={props.onTogglePlanSidebar}>
+              <MenuItem
+                onClick={() => {
+                  props.onTogglePlanSidebar();
+                  props.onSelectionComplete();
+                }}
+              >
                 <ListTodoIcon className="size-4 shrink-0" />
                 {props.planSidebarOpen
                   ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
