@@ -8,6 +8,8 @@ import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/te
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
 import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import pkg from "./package.json" with { type: "json" };
 
@@ -71,13 +73,45 @@ function readGit(...args: readonly string[]): string {
   return result.status === 0 ? result.stdout : "";
 }
 
+// The stack rebuild writes this as the integration branch's final commit; a
+// plain checkout has no such file and the Build page says so. Re-serialized to
+// drop formatting, which also fails the build loudly on malformed JSON rather
+// than shipping a bundle whose provenance silently refuses to parse.
+const configuredStackBuildInfo = (() => {
+  let raw: string;
+  try {
+    raw = NodeFS.readFileSync(NodePath.join(repoRoot, "stack-build-info.json"), "utf8");
+  } catch {
+    return "";
+  }
+  return JSON.stringify(JSON.parse(raw));
+})();
+
+/**
+ * The fork an assembled build was published from. A sandboxed builder has no
+ * git remote to read, and no reason to be told this twice — the stack record it
+ * is building from already names the fork.
+ */
+function stackForkRemote(): string {
+  if (configuredStackBuildInfo === "") return "";
+  try {
+    const { fork } = JSON.parse(configuredStackBuildInfo) as { fork?: { remote?: unknown } };
+    return typeof fork?.remote === "string" ? fork.remote.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 // Which commit of which repository this bundle is built from. Read from git so
 // a plain `pnpm build` is self-describing, overridable so a sandboxed builder
 // can supply what it already knows.
 const configuredBuildCommit =
   process.env.T3CODE_BUILD_COMMIT?.trim() || readGit("rev-parse", "HEAD");
 const configuredBuildRepoRemote =
-  process.env.T3CODE_BUILD_REPO_REMOTE?.trim() || readGit("remote", "get-url", "origin");
+  process.env.T3CODE_BUILD_REPO_REMOTE?.trim() ||
+  readGit("remote", "get-url", "origin") ||
+  stackForkRemote();
+
 const configuredBuildDate =
   process.env.T3CODE_BUILD_DATE?.trim() || readGit("log", "-1", "--format=%cI");
 const configuredBuildDirty = (() => {
@@ -229,6 +263,7 @@ export default defineConfig(() => {
       "import.meta.env.BUILD_REPO_REMOTE": JSON.stringify(configuredBuildRepoRemote),
       "import.meta.env.BUILD_DATE": JSON.stringify(configuredBuildDate),
       "import.meta.env.BUILD_DIRTY": JSON.stringify(configuredBuildDirty),
+      "import.meta.env.STACK_BUILD_INFO": JSON.stringify(configuredStackBuildInfo),
     },
     resolve: {
       tsconfigPaths: true,

@@ -18,6 +18,7 @@ interface ImportMetaEnv {
   readonly BUILD_REPO_REMOTE: string;
   readonly BUILD_DATE: string;
   readonly BUILD_DIRTY: boolean;
+  readonly STACK_BUILD_INFO: string;
 }
 
 interface ImportMeta {

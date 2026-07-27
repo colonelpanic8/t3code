@@ -20,6 +20,7 @@ import { Route as SettingsKeybindingsRouteImport } from './routes/settings.keybi
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
+import { Route as SettingsBuildRouteImport } from './routes/settings.build'
 import { Route as SettingsBetaRouteImport } from './routes/settings.beta'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as ConnectCallbackRouteImport } from './routes/connect_.callback'
@@ -80,6 +81,11 @@ const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   path: '/connections',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsBuildRoute = SettingsBuildRouteImport.update({
+  id: '/build',
+  path: '/build',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsBetaRoute = SettingsBetaRouteImport.update({
   id: '/beta',
   path: '/beta',
@@ -115,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/beta': typeof SettingsBetaRoute
+  '/settings/build': typeof SettingsBuildRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
@@ -131,6 +138,7 @@ export interface FileRoutesByTo {
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/beta': typeof SettingsBetaRoute
+  '/settings/build': typeof SettingsBuildRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
@@ -150,6 +158,7 @@ export interface FileRoutesById {
   '/connect_/callback': typeof ConnectCallbackRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/beta': typeof SettingsBetaRoute
+  '/settings/build': typeof SettingsBuildRoute
   '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/connect/callback'
     | '/settings/archived'
     | '/settings/beta'
+    | '/settings/build'
     | '/settings/connections'
     | '/settings/diagnostics'
     | '/settings/general'
@@ -186,6 +196,7 @@ export interface FileRouteTypes {
     | '/connect/callback'
     | '/settings/archived'
     | '/settings/beta'
+    | '/settings/build'
     | '/settings/connections'
     | '/settings/diagnostics'
     | '/settings/general'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/connect_/callback'
     | '/settings/archived'
     | '/settings/beta'
+    | '/settings/build'
     | '/settings/connections'
     | '/settings/diagnostics'
     | '/settings/general'
@@ -302,6 +314,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsConnectionsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/build': {
+      id: '/settings/build'
+      path: '/build'
+      fullPath: '/settings/build'
+      preLoaderRoute: typeof SettingsBuildRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/beta': {
       id: '/settings/beta'
       path: '/beta'
@@ -357,6 +376,7 @@ const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsBetaRoute: typeof SettingsBetaRoute
+  SettingsBuildRoute: typeof SettingsBuildRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
@@ -368,6 +388,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsArchivedRoute: SettingsArchivedRoute,
   SettingsBetaRoute: SettingsBetaRoute,
+  SettingsBuildRoute: SettingsBuildRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
