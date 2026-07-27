@@ -45,18 +45,6 @@ function EnvironmentIcon({
   return <Icon className="size-3" style={environmentAccentStyle(accentColor)} />;
 }
 
-function EnvironmentIcon({
-  accentColors,
-  environment,
-}: {
-  readonly accentColors: EnvironmentAccentColors;
-  readonly environment: EnvironmentOption | null;
-}) {
-  const accentColor = resolveEnvironmentAccentColor(accentColors, environment?.environmentId);
-  const Icon = environment?.isPrimary ? MonitorIcon : CloudIcon;
-  return <Icon className="size-3" style={environmentAccentStyle(accentColor)} />;
-}
-
 export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvironmentSelector({
   envLocked,
   environmentId,
