@@ -2,11 +2,175 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Thread } from "../types";
 import {
+  buildNewThreadPickerGroups,
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
+  resolveBrowseAvailability,
+  resolveBrowseTabCompletion,
+  resolveCommandPaletteEmptyStateMessage,
+  resolveNewThreadOnIntent,
+  shouldClearAddProjectEnvironmentOnPop,
+  shouldHandleCommandPaletteShortcut,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
+import { reduceCommandPaletteUiState } from "./CommandPalette";
+
+describe("resolveNewThreadOnIntent", () => {
+  it("distinguishes loading from a loaded-empty environment list", () => {
+    expect(
+      resolveNewThreadOnIntent({ isActive: false, isLoaded: false, environmentItemCount: 0 }),
+    ).toBe("ignore");
+    expect(
+      resolveNewThreadOnIntent({ isActive: true, isLoaded: false, environmentItemCount: 0 }),
+    ).toBe("defer");
+    expect(
+      resolveNewThreadOnIntent({ isActive: true, isLoaded: true, environmentItemCount: 0 }),
+    ).toBe("clear");
+    expect(
+      resolveNewThreadOnIntent({ isActive: true, isLoaded: true, environmentItemCount: 1 }),
+    ).toBe("open");
+  });
+});
+
+describe("reduceCommandPaletteUiState", () => {
+  it("closes and clears a deferred open intent when no targets are available", () => {
+    expect(
+      reduceCommandPaletteUiState(
+        { open: true, openIntent: { kind: "new-thread-on" } },
+        { _tag: "SetOpen", open: false },
+      ),
+    ).toEqual({ open: false, openIntent: null });
+  });
+});
+
+describe("shouldHandleCommandPaletteShortcut", () => {
+  it("does not capture the add-project shortcut from an editable target", () => {
+    expect(
+      shouldHandleCommandPaletteShortcut({
+        command: "project.add",
+        editableTarget: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("still handles add-project outside editors and the palette toggle everywhere", () => {
+    expect(
+      shouldHandleCommandPaletteShortcut({
+        command: "project.add",
+        editableTarget: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldHandleCommandPaletteShortcut({
+        command: "commandPalette.toggle",
+        editableTarget: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("resolveBrowseAvailability", () => {
+  it("allows browsing a connected environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "connected",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("stays available on a connected environment even when browse fails", () => {
+    // A browse failure on a reachable host is not an availability problem. The
+    // server returns read_directory_failed for a missing parent, which is the
+    // "type a new folder name and press Enter to create it" case -- gating on
+    // it would make Create & Add unable to ever create anything.
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "connected",
+        connectionError: "read_directory_failed",
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("blocks browsing an environment that is not connected", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "available",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "workstation isn't connected." });
+  });
+
+  it("blocks browsing an offline environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "offline",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "workstation is offline." });
+  });
+
+  it("surfaces the connection failure reason when the environment is unreachable", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "error",
+        connectionError: "ssh: connect: host unreachable",
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Can't reach remote-box. Reason: ssh: connect: host unreachable",
+    });
+  });
+
+  it("reports a bare unreachable message when no reason is available", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "error",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Can't reach remote-box." });
+  });
+
+  it("reports transient reconnects without claiming the host is gone", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "reconnecting",
+        connectionError: "socket closed",
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Reconnecting to remote-box. Reason: socket closed",
+    });
+  });
+
+  it("falls back to a generic label when the environment has no label", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: "offline",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "this environment is offline." });
+  });
+
+  it("blocks browsing when no environment is selected", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: null,
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Select an environment first." });
+  });
+});
 
 describe("enumerateCommandPaletteItems", () => {
   it("assigns positional jump shortcuts to the first nine displayed items", () => {
@@ -35,8 +199,257 @@ describe("enumerateCommandPaletteItems", () => {
   });
 });
 
+const makeActionItem = (value: string) => ({
+  kind: "action" as const,
+  value,
+  searchTerms: [],
+  title: value,
+  icon: null,
+  run: async () => undefined,
+});
+
+describe("buildNewThreadPickerGroups", () => {
+  const addProjectItem = makeActionItem("action:add-project");
+
+  it("waits for projects before showing an empty picker", () => {
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [],
+        addProjectItem,
+        areProjectsLoading: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps Add project keyboard-addressable after project choices", () => {
+    const projectItem = makeActionItem("new-thread-in:environment-local:project-1");
+
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [projectItem],
+        addProjectItem,
+        areProjectsLoading: false,
+      }).map((group) => ({
+        value: group.value,
+        items: group.items.map((item) => item.value),
+      })),
+    ).toEqual([
+      {
+        value: "new-thread-projects",
+        items: ["new-thread-in:environment-local:project-1"],
+      },
+      { value: "new-thread-actions", items: ["action:add-project"] },
+    ]);
+  });
+
+  it("offers Add project when loading completes without projects", () => {
+    expect(
+      buildNewThreadPickerGroups({
+        projectItems: [],
+        addProjectItem,
+        areProjectsLoading: false,
+      }),
+    ).toEqual([
+      {
+        value: "new-thread-actions",
+        label: "Actions",
+        items: [addProjectItem],
+      },
+    ]);
+  });
+});
+
+describe("resolveCommandPaletteEmptyStateMessage", () => {
+  it("keeps browse/create guidance when the new-thread picker has no projects", () => {
+    expect(
+      resolveCommandPaletteEmptyStateMessage({
+        contextualMessage: "Press Enter to create this folder and add it as a project.",
+        isNewThreadProjectPickerView: true,
+        projectCount: 0,
+        allEnvironmentShellsBootstrapped: true,
+        query: "/work/new-project",
+      }),
+    ).toBe("Press Enter to create this folder and add it as a project.");
+  });
+
+  it("uses zero-project guidance only when no more specific state applies", () => {
+    expect(
+      resolveCommandPaletteEmptyStateMessage({
+        isNewThreadProjectPickerView: true,
+        projectCount: 0,
+        allEnvironmentShellsBootstrapped: true,
+        query: "",
+      }),
+    ).toBe("No projects yet. Add a project to start a thread.");
+    expect(
+      resolveCommandPaletteEmptyStateMessage({
+        isNewThreadProjectPickerView: true,
+        projectCount: 0,
+        allEnvironmentShellsBootstrapped: false,
+        query: "",
+      }),
+    ).toBe("Loading projects…");
+  });
+});
+
+describe("shouldClearAddProjectEnvironmentOnPop", () => {
+  it("clears the selected environment when returning from source selection", () => {
+    expect(
+      shouldClearAddProjectEnvironmentOnPop({
+        viewStackDepth: 2,
+        currentGroupValue: "sources:environment-local",
+        addProjectEnvironmentId: "environment-local",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the selected environment while returning to source selection", () => {
+    expect(
+      shouldClearAddProjectEnvironmentOnPop({
+        viewStackDepth: 3,
+        currentGroupValue: undefined,
+        addProjectEnvironmentId: "environment-local",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("filterCommandPaletteGroups", () => {
+  it("keeps dedicated picker actions visible for the actions-only filter", () => {
+    const addProjectItem = {
+      ...makeActionItem("action:add-project"),
+      searchTerms: ["add project"],
+    };
+
+    expect(
+      filterCommandPaletteGroups({
+        activeGroups: [
+          {
+            value: "new-thread-actions",
+            label: "Actions",
+            items: [addProjectItem],
+          },
+        ],
+        query: ">",
+        isInSubmenu: true,
+        projectSearchItems: [],
+        threadSearchItems: [],
+      }),
+    ).toEqual([
+      {
+        value: "new-thread-actions",
+        label: "Actions",
+        items: [addProjectItem],
+      },
+    ]);
+  });
+});
+
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
+
+describe("resolveBrowseTabCompletion", () => {
+  const entries = [
+    { name: "alpha", fullPath: "/workspace/alpha" },
+    { name: "alpine", fullPath: "/workspace/alpine" },
+  ];
+
+  it("uses the highlighted directory", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: "browse:/workspace/alpine",
+      }),
+    ).toEqual({ kind: "entry", entry: entries[1] });
+  });
+
+  it("uses the first directory when none is highlighted", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: null,
+      }),
+    ).toEqual({ kind: "entry", entry: entries[0] });
+  });
+
+  it("preserves the highlighted parent-directory action", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: "browse:up",
+      }),
+    ).toEqual({ kind: "up" });
+  });
+
+  it("returns null when there are no matching directories", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: [],
+        highlightedItemValue: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not enter the first child when the completed path has no leaf filter", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        allowFirstEntryFallback: false,
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("uses the case-sensitive exact entry before the first prefix match", () => {
+    const caseVariants = [
+      { name: "Docs", fullPath: "/workspace/Docs" },
+      { name: "docs", fullPath: "/workspace/docs" },
+    ];
+
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: null,
+      }),
+    ).toEqual({ kind: "entry", entry: caseVariants[1] });
+  });
+
+  it("keeps a highlighted row ahead of a different exact entry", () => {
+    const caseVariants = [
+      { name: "Docs", fullPath: "/workspace/Docs" },
+      { name: "docs", fullPath: "/workspace/docs" },
+    ];
+
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: "browse:/workspace/Docs",
+      }),
+    ).toEqual({ kind: "entry", entry: caseVariants[0] });
+  });
+
+  it("uses an exact entry when a stored highlight no longer resolves", () => {
+    const caseVariants = [
+      { name: "Docs", fullPath: "/workspace/Docs" },
+      { name: "docs", fullPath: "/workspace/docs" },
+    ];
+
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: "browse:/workspace/removed",
+      }),
+    ).toEqual({ kind: "entry", entry: caseVariants[1] });
+  });
+});
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
