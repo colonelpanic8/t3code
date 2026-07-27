@@ -491,6 +491,14 @@ const buildAppUnderTest = (options?: {
     const gitManagerLayer = Layer.mock(GitManager.GitManager)({
       ...options?.layers?.gitManager,
     });
+    const serverSettingsLayer = Layer.mock(ServerSettings.ServerSettingsService)({
+      start: Effect.void,
+      ready: Effect.void,
+      getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+      updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+      streamChanges: Stream.empty,
+      ...options?.layers?.serverSettings,
+    });
     const workspaceEntriesLayer = WorkspaceEntries.layer.pipe(
       Layer.provide(WorkspacePaths.layer),
       Layer.provideMerge(vcsDriverRegistryLayer),
@@ -522,6 +530,7 @@ const buildAppUnderTest = (options?: {
       : ReviewService.layer.pipe(
           Layer.provideMerge(gitVcsDriverLayer),
           Layer.provide(vcsDriverRegistryLayer),
+          Layer.provide(serverSettingsLayer),
         );
     const vcsStatusBroadcasterLayer = options?.layers?.vcsStatusBroadcaster
       ? Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
@@ -557,16 +566,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.providerRegistry,
         }),
       ),
-      Layer.provide(
-        Layer.mock(ServerSettings.ServerSettingsService)({
-          start: Effect.void,
-          ready: Effect.void,
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          streamChanges: Stream.empty,
-          ...options?.layers?.serverSettings,
-        }),
-      ),
+      Layer.provide(serverSettingsLayer),
       Layer.provide(
         Layer.mock(ExternalLauncher.ExternalLauncher)({
           resolveAvailableEditors: () => Effect.succeed([]),
@@ -714,6 +714,7 @@ const buildAppUnderTest = (options?: {
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
+          getActiveProjectWorkspaceRoots: () => Effect.succeed([]),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
@@ -5192,6 +5193,92 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("loads review project roots without hydrating the shell snapshot", () =>
+    Effect.gen(function* () {
+      const repositoryRoots = ["/tmp/project-a", "/tmp/project-b"];
+      let receivedRepositoryRoots: ReadonlyArray<string> | undefined;
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getShellSnapshot: () => Effect.die("review preview must not hydrate shell snapshots"),
+            getActiveProjectWorkspaceRoots: () => Effect.succeed(repositoryRoots),
+          },
+          reviewService: {
+            getDiffPreview: (input) =>
+              Effect.sync(() => {
+                receivedRepositoryRoots = input.repositoryRoots;
+                return {
+                  cwd: input.cwd,
+                  generatedAt: TEST_EPOCH,
+                  sources: [],
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.reviewGetDiffPreview]({
+            cwd: "/tmp/project-a/.worktrees/feature",
+          }),
+        ),
+      );
+
+      assert.deepEqual(receivedRepositoryRoots, repositoryRoots);
+      assert.equal(result.cwd, "/tmp/project-a/.worktrees/feature");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("surfaces project root query failures before review workspace validation", () =>
+    Effect.gen(function* () {
+      const projectionError = new PersistenceSqlError({
+        operation: "ProjectionSnapshotQuery.getActiveProjectWorkspaceRoots:test-review",
+        detail: "failed to read review project roots",
+      });
+      let reviewCalls = 0;
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getActiveProjectWorkspaceRoots: () => Effect.fail(projectionError),
+          },
+          reviewService: {
+            getDiffPreview: () =>
+              Effect.sync(() => {
+                reviewCalls += 1;
+                return {
+                  cwd: "/tmp/repo",
+                  generatedAt: TEST_EPOCH,
+                  sources: [],
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.reviewGetDiffPreview]({
+            cwd: "/tmp/repository-worktrees/feature",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      if (result._tag !== "Failure" || result.failure._tag !== "VcsRepositoryDetectionError") {
+        assert.fail("Expected a VcsRepositoryDetectionError");
+      }
+      const detectionError = result.failure;
+      assert.equal(detectionError.operation, "review.getDiffPreview");
+      assert.equal(detectionError.cwd, "/tmp/repository-worktrees/feature");
+      assert.include(detectionError.detail, "Failed to load project roots");
+      assert.instanceOf(detectionError.cause, Error);
+      assert.include(detectionError.cause.message, projectionError.message);
+      assert.equal(reviewCalls, 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc git.runStackedAction errors after refreshing git status", () =>
     Effect.gen(function* () {
       const gitError = new GitCommandError({
@@ -6809,6 +6896,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
+            serverSettings: {
+              getSettings: Effect.succeed({
+                ...DEFAULT_SERVER_SETTINGS,
+                worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+              }),
+            },
             gitVcsDriver: {
               fetchRemote,
               resolveRemoteTrackingCommit,
@@ -6889,6 +6982,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           newRefName: "t3code/bootstrap-refName",
           baseRefName: "main",
           path: null,
+          pathTemplate: "{repoRoot}/.worktrees/{branch}",
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
