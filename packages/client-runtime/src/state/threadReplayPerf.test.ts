@@ -198,13 +198,11 @@ describe("thread replay performance", () => {
         `[threadReplayPerf] resume replay: ${deltas} deltas -> ${emissions} state emissions in ${ms.toFixed(1)}ms`,
       );
 
-      // Today every delta event becomes its own state publication (plus the
-      // synchronized transition). This assertion documents the current
-      // behavior; a batching fix should slash `emissions` far below `deltas`
-      // and this expectation should be updated to enforce the improvement,
-      // e.g. `expect(emissions).toBeLessThan(deltas / 10)`.
+      // Drain-based batching in threads.ts must fold a replay backlog into
+      // far fewer state publications than events; one publication per event
+      // is the quadratic-reopen regression this test guards against.
       expect(emissions).toBeGreaterThanOrEqual(2);
-      expect(emissions).toBeLessThanOrEqual(deltas + 2);
+      expect(emissions).toBeLessThan(deltas / 10);
     }),
   );
 });
