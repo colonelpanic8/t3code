@@ -39,7 +39,7 @@ import {
   COMPOSER_EXPANDED_CHROME,
   ThreadComposer,
 } from "./ThreadComposer";
-import { isLiveThreadEventTimestamp, ThreadFeed } from "./ThreadFeed";
+import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 
 export interface ThreadDetailScreenProps {
@@ -49,8 +49,8 @@ export interface ThreadDetailScreenProps {
   readonly connectionError: string | null;
   readonly environmentLabel: string | null;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
-  /** occurredAt of the latest applied detail event; stale ⇒ backlog replay. */
-  readonly lastDetailEventAt?: string | null;
+  /** The feed is growing from a replayed backlog rather than live output. */
+  readonly replayCatchUp?: boolean;
   readonly activeWorkStartedAt: string | null;
   readonly activePendingApproval: PendingApproval | null;
   readonly respondingApprovalId: ApprovalRequestId | null;
@@ -124,7 +124,7 @@ function latestStreamingAssistantMessage(
 function useStreamingHaptics(
   threadId: ThreadId,
   feed: ReadonlyArray<ThreadFeedEntry>,
-  lastEventAt: string | null | undefined,
+  replayCatchUp: boolean,
 ) {
   const lastStreamingAssistantRef = useRef<{
     readonly id: string;
@@ -167,7 +167,7 @@ function useStreamingHaptics(
 
     // Replayed backlog growth is not live typing — buzzing through a
     // catch-up burst would fire haptics for output the user already missed.
-    if (!isLiveThreadEventTimestamp(lastEventAt)) {
+    if (replayCatchUp) {
       return;
     }
 
@@ -178,7 +178,7 @@ function useStreamingHaptics(
 
     lastStreamHapticAtRef.current = now;
     void Haptics.selectionAsync();
-  }, [threadId, feed, lastEventAt]);
+  }, [threadId, feed, replayCatchUp]);
 }
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
@@ -236,7 +236,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
-  useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed, props.lastDetailEventAt);
+  useStreamingHaptics(
+    props.selectedThread.id,
+    props.selectedThreadFeed,
+    props.replayCatchUp ?? false,
+  );
   const selectedProviderSkills = useMemo(
     () =>
       props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
@@ -372,7 +376,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             agentLabel={agentLabel}
             latestTurn={props.selectedThread.latestTurn}
             activeWorkStartedAt={props.activeWorkStartedAt}
-            lastEventAt={props.lastDetailEventAt}
+            replayCatchUp={props.replayCatchUp}
             listRef={listRef}
             freeze={freeze}
             anchorMessageId={anchorMessageId}

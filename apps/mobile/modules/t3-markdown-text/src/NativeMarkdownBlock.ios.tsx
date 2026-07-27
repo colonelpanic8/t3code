@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Image, ScrollView, Text, useColorScheme, View } from "react-native";
 import type { MarkdownNode } from "react-native-nitro-markdown/headless";
 
@@ -21,11 +21,6 @@ type HighlightedCode = ReadonlyArray<ReadonlyArray<MarkdownHighlightedToken>>;
 const highlightedCodeCache = new Map<string, HighlightedCode>();
 const highlightedCodePromiseCache = new Map<string, Promise<HighlightedCode>>();
 const HIGHLIGHTED_CODE_CACHE_LIMIT = 64;
-// A code change on a mounted block means the text is still streaming (or a
-// backlog replay is appending to it). Highlighting every intermediate state
-// runs Shiki once per delta and evicts settled entries from the cache, so wait
-// for the text to hold still before spending a highlight pass.
-const HIGHLIGHT_STREAMING_DEBOUNCE_MS = 200;
 
 function nodeKey(node: MarkdownNode, index: number): string {
   return `${node.type}:${node.beg ?? index}:${node.end ?? index}`;
@@ -121,7 +116,7 @@ function useHighlightedCode(
   code: string,
   language: string | undefined,
   theme: "light" | "dark",
-  highlightCode: MarkdownCodeHighlighter,
+  highlightCode: MarkdownCodeHighlighter | null,
 ): HighlightedCode | null {
   const key = codeHighlightCacheKey(code, language, theme);
   const [highlighted, setHighlighted] = useState<{
@@ -132,11 +127,8 @@ function useHighlightedCode(
     tokens: highlightedCodeCache.get(key) ?? null,
   }));
 
-  const hasRunRef = useRef(false);
   useEffect(() => {
     let active = true;
-    const isFirstRun = !hasRunRef.current;
-    hasRunRef.current = true;
     const cached = highlightedCodeCache.get(key);
     if (cached) {
       cacheHighlightedCode(key, cached);
@@ -146,31 +138,32 @@ function useHighlightedCode(
       };
     }
 
-    const load = () => {
-      void loadHighlightedCode(code, language, theme, highlightCode)
-        .then((tokens) => {
-          if (active) {
-            setHighlighted({ key, tokens });
-          }
-        })
-        .catch(() => {
-          if (active) {
-            setHighlighted({ key, tokens: null });
-          }
-        });
-    };
-
-    if (isFirstRun) {
-      load();
+    // A withheld highlighter means the text is still growing (streaming, or a
+    // backlog replay appending to it). Highlighting every intermediate state
+    // runs Shiki once per delta and evicts settled entries from the cache.
+    // Debouncing here cannot help: a growing code block's React key encodes its
+    // source offsets, so the block remounts on every delta and any per-mount
+    // timer starts over. The caller withholds the highlighter until the text
+    // settles instead, and plain monospace renders in the interim.
+    if (highlightCode === null) {
       return () => {
         active = false;
       };
     }
 
-    const timer = setTimeout(load, HIGHLIGHT_STREAMING_DEBOUNCE_MS);
+    void loadHighlightedCode(code, language, theme, highlightCode)
+      .then((tokens) => {
+        if (active) {
+          setHighlighted({ key, tokens });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setHighlighted({ key, tokens: null });
+        }
+      });
     return () => {
       active = false;
-      clearTimeout(timer);
     };
   }, [code, highlightCode, key, language, theme]);
 
@@ -255,7 +248,7 @@ function HighlightedCodeText(props: {
 function NativeCodeBlock(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly compact?: boolean;
 }) {
   const content = nodeText(props.node).replace(/\n$/, "");
@@ -494,7 +487,7 @@ function NativeMixedParagraph(props: {
 function NativeList(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly onLinkPress?: (href: string) => void;
   readonly depth: number;
 }) {
@@ -572,7 +565,7 @@ function NativeList(props: {
 export function NativeMarkdownBlock(props: {
   readonly node: MarkdownNode;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly onLinkPress?: (href: string) => void;
   readonly depth?: number;
   readonly compact?: boolean;

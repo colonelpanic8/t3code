@@ -126,8 +126,13 @@ function isFreshTimestamp(input: string): boolean {
 // replaying a backlog (thread reopen, resume after backgrounding) rather than
 // receiving live output. Replay bursts should not pay for per-commit layout
 // animations, animated end scrolls, or haptics.
-export function isLiveThreadEventTimestamp(input: string | null | undefined): boolean {
-  return input == null || isFreshTimestamp(input);
+//
+// Resolved to a boolean by the owner of the thread detail rather than passed
+// down as a timestamp: updatedAt moves on every publication, so a timestamp
+// prop would break the memo on ThreadDetailScreen and ThreadFeed for exactly
+// the publications whose feed array is unchanged.
+export function isThreadReplayCatchUp(lastEventAt: string | null | undefined): boolean {
+  return lastEventAt != null && !isFreshTimestamp(lastEventAt);
 }
 
 export interface ThreadFeedProps {
@@ -139,8 +144,8 @@ export interface ThreadFeedProps {
   readonly agentLabel: string;
   readonly latestTurn: ThreadFeedLatestTurn | null;
   readonly activeWorkStartedAt: string | null;
-  /** occurredAt of the latest applied detail event; stale ⇒ backlog replay. */
-  readonly lastEventAt?: string | null;
+  /** The feed is growing from a replayed backlog rather than live output. */
+  readonly replayCatchUp?: boolean;
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly anchorMessageId: MessageId | null;
@@ -232,6 +237,12 @@ interface MarkdownStyleSet {
   readonly theme: PartialMarkdownTheme;
   readonly styles: NodeStyleOverrides;
   readonly renderers: CustomRenderers;
+  /**
+   * Identical to `renderers` except that code highlighting is off. Used while a
+   * message is still streaming: its code blocks grow on every delta, and each
+   * intermediate state would otherwise cost a full Shiki pass.
+   */
+  readonly streamingRenderers: CustomRenderers;
   readonly nativeTextStyle: NativeMarkdownTextStyle;
 }
 
@@ -723,19 +734,23 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
       ...baseStyles,
     };
 
+    const userRenderers = createMarkdownRenderers(
+      markdownUserCodeText,
+      markdownUserInlineCodeText,
+      markdownUserFenceBg,
+      markdownUserFenceText,
+      userBubbleForegroundMuted,
+      true,
+      false,
+    );
+
     return {
       user: {
         theme: userTheme,
         styles: userStyles,
-        renderers: createMarkdownRenderers(
-          markdownUserCodeText,
-          markdownUserInlineCodeText,
-          markdownUserFenceBg,
-          markdownUserFenceText,
-          userBubbleForegroundMuted,
-          true,
-          false,
-        ),
+        renderers: userRenderers,
+        // User messages never highlight, so there is nothing to withhold.
+        streamingRenderers: userRenderers,
         nativeTextStyle: {
           color: markdownUserBodyColor,
           strongColor: markdownUserBodyColor,
@@ -768,6 +783,15 @@ function useMarkdownStyles(onLinkPress: (href: string) => void): MarkdownStyleSe
           iconSubtleColor,
           false,
           true,
+        ),
+        streamingRenderers: createMarkdownRenderers(
+          markdownCodeText,
+          markdownInlineCodeText,
+          markdownCodeBg,
+          markdownCodeText,
+          iconSubtleColor,
+          false,
+          false,
         ),
         nativeTextStyle: {
           color: markdownBodyColor,
@@ -956,12 +980,13 @@ function renderFeedEntry(
               markdown={message.text}
               skills={props.skills}
               textStyle={styles.nativeTextStyle}
+              deferHighlight={message.streaming}
               onLinkPress={props.onMarkdownLinkPress}
             />
           ) : (
             <Markdown
               options={{ gfm: true }}
-              renderers={styles.renderers}
+              renderers={message.streaming ? styles.streamingRenderers : styles.renderers}
               styles={styles.styles}
               theme={styles.theme}
             >
@@ -1451,7 +1476,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
     return ids;
   }, [expandedWorkGroups]);
-  const replayCatchUp = !isLiveThreadEventTimestamp(props.lastEventAt);
+  const replayCatchUp = props.replayCatchUp ?? false;
   const presentedFeed = useMemo(
     () =>
       deriveThreadFeedPresentation(
