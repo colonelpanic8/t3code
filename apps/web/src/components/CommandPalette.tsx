@@ -112,6 +112,7 @@ import {
   resolveBrowseTabCompletion,
   resolveCommandPaletteEmptyStateMessage,
   shouldClearAddProjectEnvironmentOnPop,
+  shouldHandleCommandPaletteShortcut,
 } from "./CommandPalette.logic";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -439,16 +440,31 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           terminalOpen,
         },
       });
-      if (command !== "commandPalette.toggle") {
+      const target =
+        event.target instanceof Element
+          ? event.target.closest(
+              'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+            )
+          : null;
+      if (
+        !shouldHandleCommandPaletteShortcut({
+          command,
+          editableTarget: target !== null,
+        })
+      ) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
-      toggleOpen();
+      if (command === "project.add") {
+        openAddProject();
+      } else {
+        toggleOpen();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keybindings, terminalOpen, toggleOpen]);
+  }, [keybindings, openAddProject, terminalOpen, toggleOpen]);
 
   useEffect(
     () =>
@@ -1200,7 +1216,7 @@ function OpenCommandPaletteDialog(props: {
     startAddProjectSourceSelection,
   ]);
 
-  const addProjectActionItem: CommandPaletteActionItem = {
+  const addProjectAction: CommandPaletteActionItem = {
     kind: "action",
     value: "action:add-project",
     searchTerms: [
@@ -1223,6 +1239,7 @@ function OpenCommandPaletteDialog(props: {
     ],
     title: "Add project",
     icon: <FolderPlusIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "project.add",
     keepOpen: true,
     run: async () => {
       openAddProjectFlow();
@@ -1230,7 +1247,7 @@ function OpenCommandPaletteDialog(props: {
   };
   const newThreadPickerGroups = buildNewThreadPickerGroups({
     projectItems: projectThreadItems,
-    addProjectItem: addProjectActionItem,
+    addProjectItem: addProjectAction,
     areProjectsLoading: !allEnvironmentShellsBootstrapped,
   });
   const newThreadPickerView = useMemo<CommandPaletteView>(
@@ -1311,7 +1328,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  actionItems.push(addProjectActionItem);
+  actionItems.push(addProjectAction);
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({
