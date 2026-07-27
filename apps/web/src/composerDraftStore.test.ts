@@ -767,6 +767,87 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
+  it("renews a failed bootstrap identity without losing draft content or project mapping", () => {
+    const store = useComposerDraftStore.getState();
+    const nextThreadId = ThreadId.make("thread-renewed");
+    const nextCreatedAt = "2026-01-02T00:00:00.000Z";
+    const previousThreadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "preserve me");
+
+    expect(store.renewDraftThreadId(draftId, threadId, nextThreadId, nextCreatedAt)).toBe(true);
+
+    const next = useComposerDraftStore.getState();
+    expect(next.getDraftThread(draftId)).toMatchObject({
+      threadId: nextThreadId,
+      createdAt: nextCreatedAt,
+      promotedTo: null,
+    });
+    expect(next.getDraftThreadByProjectRef(projectRef)?.threadId).toBe(nextThreadId);
+    expect(next.getDraftThreadByRef(previousThreadRef)).toBeNull();
+    expect(next.getComposerDraft(draftId)?.prompt).toBe("preserve me");
+  });
+
+  it("renews a draft marked promoting by a bootstrap thread deleted during cleanup", () => {
+    const store = useComposerDraftStore.getState();
+    const nextThreadId = ThreadId.make("thread-reminted");
+    const renewedAt = "2026-01-03T00:00:00.000Z";
+    const bootstrapThreadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
+
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setPrompt(draftId, "retry me");
+    // Bootstrap creates the server thread before preparing the worktree, so
+    // the client marks the draft as promoting just before the bootstrap fails
+    // and deletes that thread again.
+    markPromotedDraftThreadByRef(bootstrapThreadRef);
+    expect(store.getDraftThread(draftId)?.promotedTo).toEqual(bootstrapThreadRef);
+
+    expect(store.renewDraftThreadId(draftId, threadId, nextThreadId, renewedAt)).toBe(true);
+
+    const next = useComposerDraftStore.getState();
+    expect(next.getDraftThread(draftId)).toMatchObject({
+      threadId: nextThreadId,
+      createdAt: renewedAt,
+      promotedTo: null,
+    });
+    // Clearing the stale promotion marker makes the draft the project's active
+    // draft session again, so the retry reuses it instead of stranding it.
+    expect(next.getDraftThreadByProjectRef(projectRef)?.draftId).toBe(draftId);
+    expect(next.getComposerDraft(draftId)?.prompt).toBe("retry me");
+  });
+
+  it("does not renew a draft that was promoted to a different server thread", () => {
+    const store = useComposerDraftStore.getState();
+    const nextThreadId = ThreadId.make("thread-should-not-win");
+    const promotedRef = scopeThreadRef(OTHER_TEST_ENVIRONMENT_ID, otherThreadId);
+
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.markDraftThreadPromoting(draftId, promotedRef);
+
+    expect(
+      store.renewDraftThreadId(draftId, threadId, nextThreadId, "2026-01-03T00:00:00.000Z"),
+    ).toBe(false);
+    const next = useComposerDraftStore.getState();
+    expect(next.getDraftThread(draftId)?.threadId).toBe(threadId);
+    expect(next.getDraftThread(draftId)?.promotedTo).toEqual(promotedRef);
+  });
+
+  it("does not renew a draft whose reserved identity changed concurrently", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+
+    expect(
+      store.renewDraftThreadId(
+        draftId,
+        otherThreadId,
+        ThreadId.make("thread-should-not-win"),
+        "2026-01-02T00:00:00.000Z",
+      ),
+    ).toBe(false);
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.threadId).toBe(threadId);
+  });
+
   it("clears only matching project draft mapping entries", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });
