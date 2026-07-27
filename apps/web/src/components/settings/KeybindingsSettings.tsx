@@ -2,7 +2,6 @@ import {
   ChevronDownIcon,
   CircleXIcon,
   EllipsisIcon,
-  FileJsonIcon,
   InfoIcon,
   MinusIcon,
   PlusIcon,
@@ -23,27 +22,18 @@ import {
 } from "react";
 import {
   type KeybindingCommand,
+  type KeybindingRule,
   type KeybindingWhenNode,
+  MAX_KEYBINDINGS_COUNT,
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
 } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 
 import { isElectron } from "../../env";
-import { useOpenInPreferredEditor } from "../../editorPreferences";
+import { useClientSettings, useUpdateClientSettingsWith } from "../../hooks/useSettings";
 import { formatShortcutLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
-import {
-  primaryServerAvailableEditorsAtom,
-  primaryServerKeybindingsAtom,
-  primaryServerKeybindingsConfigPathAtom,
-  serverEnvironment,
-} from "../../state/server";
-import { usePrimaryEnvironment } from "../../state/environments";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd, KbdGroup } from "../ui/kbd";
@@ -52,7 +42,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle } from "../ui/toggle";
-import { toastManager } from "../ui/toast";
 import {
   buildKeybindingRows,
   buildKeybindingCommandOptions,
@@ -71,7 +60,6 @@ import {
 } from "./KeybindingsSettings.logic";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { useAtomCommand } from "../../state/use-atom-command";
 
 function KeybindingPill({ value }: { value: string }) {
   const parts = value.split("+");
@@ -1082,24 +1070,15 @@ function NewKeybindingTableRow({
 }
 
 export function KeybindingsSettingsPanel() {
-  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const keybindingsConfigPath = useAtomValue(primaryServerKeybindingsConfigPathAtom);
-  const availableEditors = useAtomValue(primaryServerAvailableEditorsAtom);
-  const primaryEnvironment = usePrimaryEnvironment();
-  const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
-    reportFailure: false,
-  });
-  const removeKeybindingMutation = useAtomCommand(serverEnvironment.removeKeybinding, {
-    reportFailure: false,
-  });
-  const openInPreferredEditor = useOpenInPreferredEditor(
-    primaryEnvironment?.environmentId ?? null,
-    availableEditors,
+  const keybindingRules = useClientSettings((settings) => settings.keybindings);
+  const updateClientSettingsWith = useUpdateClientSettingsWith();
+  const keybindings = useMemo(
+    () => compileResolvedKeybindingsConfig(keybindingRules),
+    [keybindingRules],
   );
   const [query, setQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [savingCommand, setSavingCommand] = useState<KeybindingCommand | null>(null);
   const [isAddingBinding, setIsAddingBinding] = useState(false);
   const rows = useMemo(() => buildKeybindingRows(keybindings, query), [keybindings, query]);
   const commandOptions = useMemo(() => buildKeybindingCommandOptions(keybindings), [keybindings]);
@@ -1130,77 +1109,50 @@ export function KeybindingsSettingsPanel() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    void (async () => {
-      const result = await openInPreferredEditor(keybindingsConfigPath);
-      if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
-        return;
-      }
-      const error = squashAtomCommandFailure(result);
-      toastManager.add({
-        title: "Unable to open keybindings file",
-        description:
-          error instanceof Error ? error.message : "The keybindings file was not opened.",
-        type: "error",
-      });
-    })();
-  }, [keybindingsConfigPath, openInPreferredEditor]);
-
   const saveKeybinding = useCallback(
     (input: ServerUpsertKeybindingInput) => {
-      if (!primaryEnvironment) return;
-      setSavingCommand(input.command);
-      const payload: ServerUpsertKeybindingInput = {
+      const nextRule: KeybindingRule = {
         command: input.command,
         key: input.key.trim(),
         ...(input.when?.trim() ? { when: input.when.trim() } : {}),
-        ...(input.replace ? { replace: input.replace } : {}),
       };
-      void (async () => {
-        const result = await upsertKeybinding({
-          environmentId: primaryEnvironment.environmentId,
-          input: payload,
-        });
-        setSavingCommand(null);
-        if (result._tag === "Success") {
-          setIsAddingBinding(false);
-          return;
-        }
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add({
-            title: "Unable to save keybinding",
-            description: error instanceof Error ? error.message : "The keybinding was not saved.",
-            type: "error",
-          });
-        }
-      })();
+      const replaceTarget = input.replace
+        ? ({
+            command: input.replace.command,
+            key: input.replace.key,
+            ...(input.replace.when ? { when: input.replace.when } : {}),
+          } satisfies KeybindingRule)
+        : null;
+      updateClientSettingsWith((settings) => ({
+        keybindings: [
+          ...settings.keybindings.filter(
+            (rule) =>
+              !isSameKeybindingRule(rule, nextRule) &&
+              (replaceTarget === null || !isSameKeybindingRule(rule, replaceTarget)),
+          ),
+          nextRule,
+        ].slice(-MAX_KEYBINDINGS_COUNT),
+      }));
+      setIsAddingBinding(false);
     },
-    [primaryEnvironment, upsertKeybinding],
+    [updateClientSettingsWith],
   );
 
   const removeKeybinding = useCallback(
     (row: KeybindingRow) => {
-      if (!primaryEnvironment) return;
-      setSavingCommand(row.command);
-      void (async () => {
-        const result = await removeKeybindingMutation({
-          environmentId: primaryEnvironment.environmentId,
-          input: rowKeybindingTarget(row),
-        });
-        setSavingCommand(null);
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add({
-            title: "Unable to remove keybinding",
-            description: error instanceof Error ? error.message : "The keybinding was not removed.",
-            type: "error",
-          });
-        }
-      })();
+      const target = rowKeybindingTarget(row);
+      updateClientSettingsWith((settings) => ({
+        keybindings: settings.keybindings.filter(
+          (rule) =>
+            !isSameKeybindingRule(rule, {
+              command: target.command,
+              key: target.key,
+              ...(target.when ? { when: target.when } : {}),
+            }),
+        ),
+      }));
     },
-    [primaryEnvironment, removeKeybindingMutation],
+    [updateClientSettingsWith],
   );
 
   const resetKeybinding = useCallback(
@@ -1258,24 +1210,6 @@ export function KeybindingsSettingsPanel() {
               />
               <TooltipPopup side="top">Add keybinding</TooltipPopup>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    variant="ghost"
-                    className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-                    disabled={!keybindingsConfigPath}
-                    onClick={openKeybindingsFile}
-                    aria-label="Open keybindings.json"
-                  >
-                    <FileJsonIcon className="size-3" />
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">Open keybindings.json</TooltipPopup>
-            </Tooltip>
           </div>
         }
       >
@@ -1307,7 +1241,7 @@ export function KeybindingsSettingsPanel() {
                 commandOptions={commandOptions}
                 allRows={rows}
                 variables={whenVariables}
-                isSaving={savingCommand !== null}
+                isSaving={false}
                 onSave={saveKeybinding}
                 onCancel={() => setIsAddingBinding(false)}
               />
@@ -1318,7 +1252,7 @@ export function KeybindingsSettingsPanel() {
                 row={row}
                 allRows={rows}
                 variables={whenVariables}
-                isSaving={savingCommand === row.command}
+                isSaving={false}
                 onSave={saveKeybinding}
                 onReset={resetKeybinding}
                 onRemove={removeKeybinding}
@@ -1333,5 +1267,13 @@ export function KeybindingsSettingsPanel() {
         </ScrollArea>
       </SettingsSection>
     </SettingsPageContainer>
+  );
+}
+
+function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): boolean {
+  return (
+    left.command === right.command &&
+    left.key === right.key &&
+    (left.when ?? undefined) === (right.when ?? undefined)
   );
 }

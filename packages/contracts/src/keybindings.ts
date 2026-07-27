@@ -106,6 +106,48 @@ export const KeybindingsConfig = Schema.Array(KeybindingRule).check(
 );
 export type KeybindingsConfig = typeof KeybindingsConfig.Type;
 
+/**
+ * Client-wide default shortcuts.
+ *
+ * Defaults live with the keybinding contract so both client persistence and
+ * the legacy server-side keybindings service can initialize from the same
+ * source without introducing a contracts -> shared dependency.
+ */
+export const DEFAULT_KEYBINDINGS: KeybindingsConfig = [
+  { key: "mod+b", command: "sidebar.toggle" },
+  { key: "mod+j", command: "terminal.toggle" },
+  { key: "mod+alt+b", command: "rightPanel.toggle" },
+  { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+  { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+  { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+  { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+  { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
+  { key: "mod+shift+j", command: "preview.toggle" },
+  { key: "mod+r", command: "preview.refresh", when: "previewFocus" },
+  { key: "mod+l", command: "preview.focusUrl", when: "previewFocus" },
+  { key: "mod+=", command: "preview.zoomIn", when: "previewFocus" },
+  { key: "mod++", command: "preview.zoomIn", when: "previewFocus" },
+  { key: "mod+-", command: "preview.zoomOut", when: "previewFocus" },
+  { key: "mod+0", command: "preview.resetZoom", when: "previewFocus" },
+  { key: "mod+k", command: "commandPalette.toggle", when: "!terminalFocus" },
+  { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
+  { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+  { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+  { key: "mod+o", command: "editor.openFavorite" },
+  { key: "mod+shift+[", command: "thread.previous" },
+  { key: "mod+shift+]", command: "thread.next" },
+  ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index + 1}`,
+    command,
+  })),
+  ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `mod+${index + 1}`,
+    command,
+    when: "modelPickerOpen",
+  })),
+];
+
 export const KeybindingShortcut = Schema.Struct({
   key: KeybindingValue,
   metaKey: Schema.Boolean,

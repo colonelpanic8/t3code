@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import { EnvironmentId } from "./baseSchemas.ts";
+import { DEFAULT_KEYBINDINGS } from "./keybindings.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -30,6 +32,90 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ClientSettings keybindings", () => {
+  it("defaults new and legacy clients to the shared client shortcuts", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.keybindings).toEqual(DEFAULT_KEYBINDINGS);
+    expect(settings.hasMigratedServerKeybindings).toBe(false);
+  });
+
+  it("accepts client-local shortcut updates and their migration marker", () => {
+    const patch = decodeClientSettingsPatch({
+      hasMigratedServerKeybindings: true,
+      keybindings: [{ key: "mod+shift+p", command: "commandPalette.toggle" }],
+    });
+    expect(patch).toEqual({
+      hasMigratedServerKeybindings: true,
+      keybindings: [{ key: "mod+shift+p", command: "commandPalette.toggle" }],
+    });
+  });
+});
+
+describe("ClientSettings workflow preferences", () => {
+  it("owns assistant presentation and new-thread defaults", () => {
+    const settings = decodeClientSettings({});
+    expect(settings.enableAssistantStreaming).toBe(false);
+    expect(settings.defaultThreadEnvMode).toBe("local");
+    expect(settings.newWorktreesStartFromOrigin).toBe(true);
+    expect(settings.hasMigratedServerWorkflowPreferences).toBe(false);
+  });
+
+  it("accepts client-local updates and their migration marker", () => {
+    expect(
+      decodeClientSettingsPatch({
+        enableAssistantStreaming: true,
+        defaultThreadEnvMode: "worktree",
+        newWorktreesStartFromOrigin: false,
+        hasMigratedServerWorkflowPreferences: true,
+      }),
+    ).toEqual({
+      enableAssistantStreaming: true,
+      defaultThreadEnvMode: "worktree",
+      newWorktreesStartFromOrigin: false,
+      hasMigratedServerWorkflowPreferences: true,
+    });
+  });
+});
+
+describe("ClientSettings environment display names", () => {
+  const environmentId = EnvironmentId.make("environment-1");
+
+  it("defaults to no client-local overrides", () => {
+    expect(decodeClientSettings({}).environmentDisplayNames).toEqual({});
+  });
+
+  it("trims saved overrides", () => {
+    expect(
+      decodeClientSettings({
+        environmentDisplayNames: { [environmentId]: "  Workstation  " },
+      }).environmentDisplayNames,
+    ).toEqual({ [environmentId]: "Workstation" });
+  });
+
+  it("rejects empty overrides", () => {
+    expect(() =>
+      decodeClientSettingsPatch({
+        environmentDisplayNames: { [environmentId]: "   " },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("ClientSettings environment badges", () => {
+  it("shows environment badges by default", () => {
+    expect(decodeClientSettings({}).showEnvironmentBadges).toBe(true);
+  });
+
+  it("allows environment badges to be hidden", () => {
+    expect(decodeClientSettings({ showEnvironmentBadges: false }).showEnvironmentBadges).toBe(
+      false,
+    );
+    expect(decodeClientSettingsPatch({ showEnvironmentBadges: false }).showEnvironmentBadges).toBe(
+      false,
+    );
   });
 });
 
@@ -124,15 +210,20 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   });
 });
 
-describe("ServerSettings worktree defaults", () => {
-  it("defaults start-from-origin on for legacy configs", () => {
+describe("ServerSettings legacy workflow preferences", () => {
+  it("keeps old values readable for one-time client migration", () => {
     expect(decodeServerSettings({}).newWorktreesStartFromOrigin).toBe(true);
   });
 
-  it("accepts start-from-origin updates", () => {
-    expect(
-      decodeServerSettingsPatch({ newWorktreesStartFromOrigin: false }).newWorktreesStartFromOrigin,
-    ).toBe(false);
+  it("does not accept new environment-scoped updates", () => {
+    const patch = decodeServerSettingsPatch({
+      enableAssistantStreaming: true,
+      defaultThreadEnvMode: "worktree",
+      newWorktreesStartFromOrigin: false,
+    });
+    expect(patch).not.toHaveProperty("enableAssistantStreaming");
+    expect(patch).not.toHaveProperty("defaultThreadEnvMode");
+    expect(patch).not.toHaveProperty("newWorktreesStartFromOrigin");
   });
 });
 

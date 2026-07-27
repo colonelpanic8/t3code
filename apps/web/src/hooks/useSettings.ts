@@ -5,9 +5,9 @@
  * `settings.json` on the server, fetched via `server.getConfig`) and
  * client-only settings (persisted in localStorage).
  *
- * Live server settings always require an environment id. Primary-environment
- * access is intentionally named as such so environment-sensitive consumers
- * cannot silently read the wrong server's settings.
+ * Live server settings require an environment id. Callers without a selected
+ * environment receive schema defaults for server fields while client fields
+ * remain fully functional.
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useAtomValue } from "@effect/atom-react";
@@ -20,14 +20,16 @@ import {
 import {
   type ClientSettingsPatch,
   type ClientSettings,
+  ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import { ensureLocalApi } from "~/localApi";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
-import { usePrimaryEnvironment } from "~/state/environments";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
@@ -143,18 +145,21 @@ function persistClientSettings(settings: ClientSettings): void {
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
+const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
 
-function splitPatch(patch: Partial<UnifiedSettings>): {
+export function splitSettingsPatch(patch: Partial<UnifiedSettings>): {
   serverPatch: ServerSettingsPatch;
   clientPatch: ClientSettingsPatch;
 } {
   const serverPatch: Record<string, unknown> = {};
   const clientPatch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
-    if (SERVER_SETTINGS_KEYS.has(key)) {
-      serverPatch[key] = value;
-    } else {
+    // During the legacy migration window a few preferences are present in
+    // both schemas. Client ownership wins whenever a key overlaps.
+    if (CLIENT_SETTINGS_KEYS.has(key)) {
       clientPatch[key] = value;
+    } else if (SERVER_SETTINGS_KEYS.has(key)) {
+      serverPatch[key] = value;
     }
   }
   return {
@@ -218,12 +223,18 @@ export function useClientSettings<T = ClientSettings>(
   return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
 }
 
+/** Resolve the shortcuts owned and persisted by this client. */
+export function useClientKeybindings() {
+  const keybindings = useClientSettings((settings) => settings.keybindings);
+  return useMemo(() => compileResolvedKeybindingsConfig(keybindings), [keybindings]);
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const serverSettings = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings;
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -247,7 +258,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   );
   const updateSettings = useCallback(
     (patch: Partial<UnifiedSettings>) => {
-      const { serverPatch, clientPatch } = splitPatch(patch);
+      const { serverPatch, clientPatch } = splitSettingsPatch(patch);
 
       if (Object.keys(serverPatch).length > 0) {
         if (environmentId) {
@@ -271,12 +282,12 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   return updateSettings;
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
+export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null) {
   return useUpdateSettingsTarget(environmentId);
 }
 
 export function useUpdatePrimarySettings() {
-  return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
+  return useUpdateSettingsTarget(useAtomValue(primaryEnvironmentIdAtom));
 }
 
 export function useUpdateClientSettings() {
@@ -284,6 +295,25 @@ export function useUpdateClientSettings() {
     persistClientSettings({
       ...getClientSettingsSnapshot(),
       ...patch,
+    });
+  }, []);
+}
+
+/**
+ * Client-settings updater whose patch is derived from the settings in effect at
+ * call time rather than at render time.
+ *
+ * Use it whenever the new value is computed from the old one — merging one key
+ * into a record, toggling a flag. Deriving from a render-time snapshot loses
+ * writes when two updates run before React re-renders, because both start from
+ * the same stale value and the second overwrites the first.
+ */
+export function useUpdateClientSettingsWith() {
+  return useCallback((derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
+    const settings = getClientSettingsSnapshot();
+    persistClientSettings({
+      ...settings,
+      ...derivePatch(settings),
     });
   }, []);
 }

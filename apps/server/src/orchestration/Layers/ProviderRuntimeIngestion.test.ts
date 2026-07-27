@@ -1805,8 +1805,8 @@ describe("ProviderRuntimeIngestion", () => {
     expect(proposedPlan?.planMarkdown).toBe("## Buffered plan\n\n- first\n- second");
   });
 
-  it("buffers assistant deltas by default until completion", async () => {
-    const harness = await createHarness();
+  it("retains live assistant deltas even when the legacy server preference is disabled", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: false } });
     const now = "2026-01-01T00:00:00.000Z";
 
     harness.emit({
@@ -1840,11 +1840,11 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
     const midReadModel = await harness.readModel();
     const midThread = midReadModel.threads.find((entry) => entry.id === ThreadId.make("thread-1"));
-    expect(
-      midThread?.messages.some(
-        (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-buffered",
-      ),
-    ).toBe(false);
+    const midMessage = midThread?.messages.find(
+      (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-buffered",
+    );
+    expect(midMessage?.text).toBe("buffer me");
+    expect(midMessage?.streaming).toBe(true);
 
     harness.emit({
       type: "item.completed",
@@ -1873,7 +1873,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
-  it("flushes and completes buffered assistant text when an approval request opens", async () => {
+  it("completes live assistant text when an approval request opens", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -1933,7 +1933,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
-  it("flushes and completes buffered assistant text when user input is requested", async () => {
+  it("completes live assistant text when user input is requested", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -2000,7 +2000,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
-  it("does not create assistant segments for whitespace-only buffered text at approval boundaries", async () => {
+  it("completes whitespace-only live assistant segments at approval boundaries", async () => {
     const harness = await createHarness();
     const startedAt = "2026-03-28T06:28:00.000Z";
     const pausedAt = "2026-03-28T06:28:01.000Z";
@@ -2052,15 +2052,15 @@ describe("ProviderRuntimeIngestion", () => {
         (activity: ProviderRuntimeTestActivity) => activity.kind === "approval.requested",
       ),
     );
-    expect(
-      thread.messages.some(
-        (message: ProviderRuntimeTestMessage) =>
-          message.id === "assistant:item-buffered-whitespace-request",
-      ),
-    ).toBe(false);
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:item-buffered-whitespace-request",
+    );
+    expect(message?.text).toBe("\n\n\n");
+    expect(message?.streaming).toBe(false);
   });
 
-  it("starts a new buffered assistant message segment after approval and completes without duplication", async () => {
+  it("starts a new live assistant message segment after approval without duplication", async () => {
     const harness = await createHarness();
     const startedAt = "2026-03-28T06:07:00.000Z";
     const pausedAt = "2026-03-28T06:07:01.000Z";
@@ -2391,7 +2391,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(finalMessage?.streaming).toBe(false);
   });
 
-  it("spills oversized buffered deltas and still finalizes full assistant text", async () => {
+  it("streams oversized deltas and still finalizes full assistant text", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
     const oversizedText = "x".repeat(40_000);
