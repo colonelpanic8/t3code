@@ -13,6 +13,8 @@ import {
 
 import {
   buildThreadFeed,
+  derivePendingApprovals,
+  derivePendingUserInputs,
   deriveThreadFeedPresentation,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
@@ -530,5 +532,140 @@ describe("buildThreadFeed", () => {
       type: "work-toggle",
       expanded: true,
     });
+  });
+});
+
+describe("thread derivation caching", () => {
+  const makeCachedThread = () =>
+    makeThread({
+      id: ThreadId.make("thread-cache"),
+      projectId: ProjectId.make("project-1"),
+      title: "Cache checks",
+      messages: [
+        {
+          id: MessageId.make("assistant-1"),
+          role: "assistant",
+          text: "Working on it.",
+          turnId: TurnId.make("turn-1"),
+          streaming: true,
+          createdAt: "2026-04-01T00:00:01.000Z",
+          updatedAt: "2026-04-01T00:00:01.000Z",
+        },
+      ],
+      activities: [
+        makeActivity({
+          id: EventId.make("tool-completed"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Run tests",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: {
+            title: "Run tests",
+            itemType: "command_execution",
+            detail: "bun run test",
+            status: "completed",
+          },
+        }),
+        makeActivity({
+          id: EventId.make("approval-open"),
+          kind: "approval.requested",
+          tone: "approval",
+          summary: "Approve command",
+          createdAt: "2026-04-01T00:00:03.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: {
+            requestId: "approval-1",
+            requestKind: "command",
+            detail: "rm -rf dist",
+          },
+        }),
+      ],
+    });
+
+  it("returns the identical feed for unchanged messages and activities arrays", () => {
+    const thread = makeCachedThread();
+    const first = buildThreadFeed(thread);
+    // A publication that changes unrelated thread fields keeps both arrays.
+    const republished = { ...thread, updatedAt: "2026-04-01T00:00:09.000Z" };
+    expect(buildThreadFeed(republished)).toBe(first);
+  });
+
+  it("reuses derived activity rows when only messages change", () => {
+    const thread = makeCachedThread();
+    const first = buildThreadFeed(thread);
+    const streamed = {
+      ...thread,
+      messages: thread.messages.map((message) => ({
+        ...message,
+        text: `${message.text} More text.`,
+      })),
+    };
+    const second = buildThreadFeed(streamed);
+
+    expect(second).not.toBe(first);
+    const firstGroup = first.find((entry) => entry.type === "activity-group");
+    const secondGroup = second.find((entry) => entry.type === "activity-group");
+    expect(firstGroup?.type).toBe("activity-group");
+    if (firstGroup?.type !== "activity-group" || secondGroup?.type !== "activity-group") {
+      return;
+    }
+    expect(secondGroup.activities[0]).toBe(firstGroup.activities[0]);
+  });
+
+  it("recomputes when the activities array changes", () => {
+    const thread = makeCachedThread();
+    const first = buildThreadFeed(thread);
+    const appended = {
+      ...thread,
+      activities: [
+        ...thread.activities,
+        makeActivity({
+          id: EventId.make("tool-completed-2"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Read files",
+          createdAt: "2026-04-01T00:00:04.000Z",
+          turnId: TurnId.make("turn-1"),
+          payload: {
+            title: "Read files",
+            itemType: "file_read",
+            status: "completed",
+          },
+        }),
+      ],
+    };
+    const second = buildThreadFeed(appended);
+    expect(second).not.toBe(first);
+    const secondGroup = second.find((entry) => entry.type === "activity-group");
+    expect(secondGroup?.type).toBe("activity-group");
+    if (secondGroup?.type !== "activity-group") {
+      return;
+    }
+    expect(secondGroup.activities.map((activity) => activity.id)).toContain("tool-completed-2");
+  });
+
+  it("keeps pending approval and user-input results identity-stable per activities array", () => {
+    const thread = makeCachedThread();
+    const approvals = derivePendingApprovals(thread.activities);
+    expect(approvals).toMatchObject([{ requestId: "approval-1", requestKind: "command" }]);
+    expect(derivePendingApprovals(thread.activities)).toBe(approvals);
+
+    const userInputs = derivePendingUserInputs(thread.activities);
+    expect(derivePendingUserInputs(thread.activities)).toBe(userInputs);
+
+    const resolved = [
+      ...thread.activities,
+      makeActivity({
+        id: EventId.make("approval-resolved"),
+        kind: "approval.resolved",
+        tone: "approval",
+        summary: "Approved",
+        createdAt: "2026-04-01T00:00:05.000Z",
+        turnId: TurnId.make("turn-1"),
+        payload: { requestId: "approval-1" },
+      }),
+    ];
+    expect(derivePendingApprovals(resolved)).toEqual([]);
   });
 });
