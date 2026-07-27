@@ -241,6 +241,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* In-thread find paints through the CSS Custom Highlight API, so matches never
+   mutate rendered markdown, code blocks or copyable text. */
+::highlight(t3-thread-find) {
+  background-color: var(--thread-find-match);
+  color: var(--thread-find-match-foreground);
+}
+
+::highlight(t3-thread-find-active) {
+  background-color: var(--thread-find-match-active);
+  color: var(--thread-find-match-active-foreground);
+}
+
 @layer components {
   .sidebar-brand {
     display: none;
@@ -861,6 +873,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --sidebar-row-selected: var(--color-white);
   --sidebar-border: var(--border);
   --sidebar-stage-fade: var(--sidebar);
+  --thread-find-match: var(--color-amber-200);
+  --thread-find-match-foreground: var(--color-zinc-900);
+  --thread-find-match-active: var(--color-amber-400);
+  --thread-find-match-active-foreground: var(--color-zinc-900);
 
   @variant dark {
     color-scheme: dark;
@@ -896,6 +912,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     --sidebar: var(--card);
     --sidebar-foreground: var(--foreground);
     --sidebar-muted-foreground: var(--muted-foreground);
+    --thread-find-match: color-mix(in srgb, var(--color-amber-400) 45%, transparent);
+    --thread-find-match-foreground: var(--color-neutral-100);
+    --thread-find-match-active: var(--color-amber-500);
+    --thread-find-match-active-foreground: var(--color-neutral-950);
     --sidebar-control-surface: var(--muted);
     --sidebar-row-hover: var(--accent);
     --sidebar-row-active: var(--accent);
