@@ -81,6 +81,23 @@ describe("environment grouping", () => {
     expect(projectGroupCount).toBe(1);
   });
 
+  it("marks every project remote while there is no primary environment", () => {
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+    });
+
+    const [withoutPrimary] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      resolveEnvironmentLabel: () => "remote",
+    });
+
+    expect(withoutPrimary?.environmentPresence).toBe("remote-only");
+    expect(withoutPrimary?.remoteEnvironmentLabels).toEqual(["remote"]);
+  });
+
   it("keeps projects without repository identity physically scoped", () => {
     const primary = makeProject();
     const remote = makeProject({
@@ -279,6 +296,25 @@ describe("environment grouping", () => {
     expect(physicalToLogicalKey.get(derivePhysicalProjectKey(staleWithoutRepositoryIdentity))).toBe(
       repositoryIdentity.canonicalKey,
     );
+  });
+
+  it("reports the remote environments backing a group's remote labels", () => {
+    const primary = makeProject({ repositoryIdentity });
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const [group] = buildSidebarProjectSnapshots({
+      projects: [primary, remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: (environmentId) =>
+        environmentId === remoteEnvironmentId ? "ryzen-shine" : null,
+    });
+
+    expect(group?.remoteEnvironmentIds).toEqual([remoteEnvironmentId]);
+    expect(group?.remoteEnvironmentLabels).toEqual(["ryzen-shine"]);
   });
 
   it("builds one picker entry per logical project and targets the preferred environment", () => {
