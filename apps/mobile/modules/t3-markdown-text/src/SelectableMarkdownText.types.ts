@@ -39,7 +39,11 @@ export interface SelectableMarkdownSkill {
 export interface SelectableMarkdownTextProps {
   readonly markdown: string;
   readonly textStyle: NativeMarkdownTextStyle;
-  readonly highlightCode: MarkdownCodeHighlighter;
+  /**
+   * `null` withholds highlighting: cached passes still render, but no new one
+   * is launched. Callers pass `null` while the markdown is still growing.
+   */
+  readonly highlightCode: MarkdownCodeHighlighter | null;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   readonly preserveSoftBreaks?: boolean;
   readonly onLinkPress?: (href: string) => void;
