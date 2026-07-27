@@ -6,6 +6,7 @@ import {
   buildThreadActionItems,
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
+  resolveBrowseAvailability,
   resolveBrowseTabCompletion,
   resolveCommandPaletteEmptyStateMessage,
   resolveNewThreadOnIntent,
@@ -66,6 +67,108 @@ describe("shouldHandleCommandPaletteShortcut", () => {
         editableTarget: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveBrowseAvailability", () => {
+  it("allows browsing a connected environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "connected",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("stays available on a connected environment even when browse fails", () => {
+    // A browse failure on a reachable host is not an availability problem. The
+    // server returns read_directory_failed for a missing parent, which is the
+    // "type a new folder name and press Enter to create it" case -- gating on
+    // it would make Create & Add unable to ever create anything.
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "connected",
+        connectionError: "read_directory_failed",
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("blocks browsing an environment that is not connected", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "available",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "workstation isn't connected." });
+  });
+
+  it("blocks browsing an offline environment", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "workstation",
+        connectionPhase: "offline",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "workstation is offline." });
+  });
+
+  it("surfaces the connection failure reason when the environment is unreachable", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "error",
+        connectionError: "ssh: connect: host unreachable",
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Can't reach remote-box. Reason: ssh: connect: host unreachable",
+    });
+  });
+
+  it("reports a bare unreachable message when no reason is available", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "error",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Can't reach remote-box." });
+  });
+
+  it("reports transient reconnects without claiming the host is gone", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: "remote-box",
+        connectionPhase: "reconnecting",
+        connectionError: "socket closed",
+      }),
+    ).toEqual({
+      _tag: "Unavailable",
+      message: "Reconnecting to remote-box. Reason: socket closed",
+    });
+  });
+
+  it("falls back to a generic label when the environment has no label", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: "offline",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "this environment is offline." });
+  });
+
+  it("blocks browsing when no environment is selected", () => {
+    expect(
+      resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: null,
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Select an environment first." });
   });
 });
 
