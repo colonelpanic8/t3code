@@ -22,6 +22,29 @@
       pnpm = pkgs.pnpm_11;
       nodejs = pkgs.nodejs_22;
 
+      # The app shows which commit it was built from, but `src = self` carries
+      # no .git and the sandbox has no network, so nothing in the build can
+      # work that out on its own -- it has to be handed down from evaluation.
+      # `rev` is absent for a dirty or path-based source; the app renders an
+      # empty value as "no provenance" rather than inventing one.
+      # `dirtyRev` appends "-dirty", which would make the commit unlinkable.
+      # Strip it: T3CODE_BUILD_DIRTY already carries that, and the base commit
+      # is still the useful thing to point at.
+      buildCommit =
+        if self ? rev
+        then self.rev
+        else if self ? dirtyRev
+        then pkgs.lib.removeSuffix "-dirty" self.dirtyRev
+        else "";
+      lastModifiedDate = self.lastModifiedDate or "";
+      # lastModifiedDate is a UTC "YYYYMMDDHHMMSS" stamp. The app wants ISO 8601.
+      buildDate =
+        if lastModifiedDate == ""
+        then ""
+        else let
+          part = start: length: builtins.substring start length lastModifiedDate;
+        in "${part 0 4}-${part 4 2}-${part 6 2}T${part 8 2}:${part 10 2}:${part 12 2}Z";
+
       # nixpkgs already carries a working t3code derivation. Rather than
       # re-deriving the whole Electron/pnpm build here, build THIS checkout
       # through it. That keeps the flake small and keeps it working when the
@@ -30,6 +53,17 @@
         finalAttrs: previousAttrs: {
           version = "${previousAttrs.version}-flake";
           src = self;
+
+          # Read by apps/web/vite.config.ts. The repository remote is left
+          # unset on purpose: an assembled build already names its fork in
+          # stack-build-info.json, and a plain flake build of an arbitrary
+          # checkout has no business claiming one.
+          T3CODE_BUILD_COMMIT = buildCommit;
+          T3CODE_BUILD_DATE = buildDate;
+          T3CODE_BUILD_DIRTY =
+            if self ? dirtyRev
+            then "1"
+            else "0";
 
           postPatch =
             (previousAttrs.postPatch or "")
