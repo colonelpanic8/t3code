@@ -93,8 +93,8 @@ export const migrationEntries = [
   [31, "AuthAuthorizationScopes", Migration0031],
   [32, "AuthPairingProofKeyThumbprint", Migration0032],
   [33, "ProjectionThreadsSettled", Migration0033],
-  [34, "ProjectionThreadsSnoozed", Migration0034],
   [35, "ProjectionThreadForkLineage", Migration0035],
+  [36, "ProjectionThreadsSnoozed", Migration0034],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
