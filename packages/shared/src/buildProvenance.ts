@@ -1,3 +1,5 @@
+// @effect-diagnostics globalDate:off - parses a fixed ISO string from the
+// build record for display; it never reads the clock, so it is deterministic.
 /**
  * Pure helpers for describing where a build came from.
  *

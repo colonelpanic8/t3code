@@ -7,14 +7,12 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
-import * as NodeChildProcess from "node:child_process";
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import pkg from "./package.json" with { type: "json" };
 
 import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 
+import { readBuildProvenance } from "../../scripts/lib/build-provenance";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 
 const repoEnv = loadRepoEnv();
@@ -46,82 +44,12 @@ const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 
 const repoRoot = NodeURL.fileURLToPath(new URL("../../", import.meta.url));
 
-/**
- * Runs git in the repository. A null status covers every way git can be
- * unavailable rather than merely unsuccessful -- not on PATH, no `.git`
- * directory, timed out -- which callers must distinguish from a real non-zero
- * exit. Builds that happen away from a checkout (a Nix sandbox, an unpacked
- * source tarball) are expected, and pass provenance through T3CODE_BUILD_*.
- */
-function runGit(...args: readonly string[]): { status: number | null; stdout: string } {
-  try {
-    const result = NodeChildProcess.spawnSync("git", args, {
-      cwd: repoRoot,
-      encoding: "utf8",
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    if (result.error) return { status: null, stdout: "" };
-    return { status: result.status, stdout: result.stdout?.trim() ?? "" };
-  } catch {
-    return { status: null, stdout: "" };
-  }
-}
-
-function readGit(...args: readonly string[]): string {
-  const result = runGit(...args);
-  return result.status === 0 ? result.stdout : "";
-}
-
-// The stack rebuild writes this as the integration branch's final commit; a
-// plain checkout has no such file and the Build page says so. Re-serialized to
-// drop formatting, which also fails the build loudly on malformed JSON rather
-// than shipping a bundle whose provenance silently refuses to parse.
-const configuredStackBuildInfo = (() => {
-  let raw: string;
-  try {
-    raw = NodeFS.readFileSync(NodePath.join(repoRoot, "stack-build-info.json"), "utf8");
-  } catch {
-    return "";
-  }
-  return JSON.stringify(JSON.parse(raw));
-})();
-
-/**
- * The fork an assembled build was published from. A sandboxed builder has no
- * git remote to read, and no reason to be told this twice — the stack record it
- * is building from already names the fork.
- */
-function stackForkRemote(): string {
-  if (configuredStackBuildInfo === "") return "";
-  try {
-    const { fork } = JSON.parse(configuredStackBuildInfo) as { fork?: { remote?: unknown } };
-    return typeof fork?.remote === "string" ? fork.remote.trim() : "";
-  } catch {
-    return "";
-  }
-}
-
-// Which commit of which repository this bundle is built from. Read from git so
-// a plain `pnpm build` is self-describing, overridable so a sandboxed builder
-// can supply what it already knows.
-const configuredBuildCommit =
-  process.env.T3CODE_BUILD_COMMIT?.trim() || readGit("rev-parse", "HEAD");
-const configuredBuildRepoRemote =
-  process.env.T3CODE_BUILD_REPO_REMOTE?.trim() ||
-  readGit("remote", "get-url", "origin") ||
-  stackForkRemote();
-
-const configuredBuildDate =
-  process.env.T3CODE_BUILD_DATE?.trim() || readGit("log", "-1", "--format=%cI");
-const configuredBuildDirty = (() => {
-  const override = process.env.T3CODE_BUILD_DIRTY?.trim().toLowerCase();
-  if (override) return override === "1" || override === "true";
-  // `git diff --quiet` exits 1 for tracked-file changes. Untracked files are
-  // deliberately ignored: they are mostly build output and scratch, and finding
-  // them costs a stat of the whole worktree.
-  return runGit("diff", "--quiet", "HEAD").status === 1;
-})();
+const buildProvenance = readBuildProvenance(repoRoot);
+const configuredStackBuildInfo = buildProvenance.stackBuildInfo;
+const configuredBuildCommit = buildProvenance.commit;
+const configuredBuildRepoRemote = buildProvenance.repoRemote;
+const configuredBuildDate = buildProvenance.date;
+const configuredBuildDirty = buildProvenance.dirty;
 
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();

@@ -10,7 +10,7 @@ import {
   BUILD_DIRTY,
   BUILD_REPO_LABEL,
 } from "../../buildProvenance";
-import { formatCommitDate, formatRepoLabel, shortCommit } from "../../buildProvenance.logic";
+import { formatCommitDate, formatRepoLabel, shortCommit } from "@t3tools/shared/buildProvenance";
 import {
   countStack,
   entryBranchUrl,
@@ -21,7 +21,7 @@ import {
   type StackEntryKind,
   type StackEntryStatus,
   type StackProvenance,
-} from "../../stackProvenance.logic";
+} from "@t3tools/shared/stackProvenance";
 import { STACK_PROVENANCE } from "../../stackProvenance";
 import { cn } from "../../lib/utils";
 import { ExternalLink } from "../ExternalLink";
