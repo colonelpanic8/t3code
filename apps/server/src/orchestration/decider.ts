@@ -1024,7 +1024,35 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      return {
+      // A non-streaming message-sent replaces the projected message text, so
+      // undispatched text must never ride along on the completion itself: it
+      // would drop every already-projected delta. Append it as one more
+      // streaming delta first, then settle with an empty text — projectors
+      // keep the existing text when a completion carries none.
+      const appendText = command.appendText ?? "";
+      const appendEvents: Array<Omit<OrchestrationEvent, "sequence">> = [];
+      if (appendText.length > 0) {
+        appendEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.message-sent",
+          payload: {
+            threadId: command.threadId,
+            messageId: command.messageId,
+            role: "assistant",
+            text: appendText,
+            turnId: command.turnId ?? null,
+            streaming: true,
+            createdAt: command.createdAt,
+            updatedAt: command.createdAt,
+          },
+        });
+      }
+      const completeEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...(yield* withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -1043,6 +1071,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: command.createdAt,
         },
       };
+      return appendEvents.length > 0 ? [...appendEvents, completeEvent] : completeEvent;
     }
 
     case "thread.proposed-plan.upsert": {
