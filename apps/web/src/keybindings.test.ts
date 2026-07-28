@@ -20,7 +20,6 @@ import {
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
   isTerminalToggleShortcut,
-  remainingShortcutLabelForCommand,
   resolveShortcutCommand,
   shouldShowComposerControlHintsForModifiers,
   shouldShowCommandHintForModifiers,
@@ -691,110 +690,6 @@ describe("formatShortcutLabel", () => {
     assert.strictEqual(formatShortcutLabel(modShortcut("arrowup"), "Linux"), "⌃↑");
     // No established glyph, so the word survives.
     assert.strictEqual(formatShortcutLabel(modShortcut("f1"), "Linux"), "⌃F1");
-  });
-});
-
-describe("remainingShortcutLabelForCommand", () => {
-  function held(
-    overrides: Partial<{
-      metaKey: boolean;
-      ctrlKey: boolean;
-      shiftKey: boolean;
-      altKey: boolean;
-    }> = {},
-  ) {
-    return { metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...overrides };
-  }
-
-  it("drops the platform mod key, which is necessarily already held", () => {
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "modelOptionsPicker.toggle",
-        held({ ctrlKey: true }),
-        { platform: "Linux" },
-      ),
-      "⇧E",
-    );
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "runtimeModePicker.toggle",
-        held({ metaKey: true }),
-        { platform: "MacIntel" },
-      ),
-      "⇧A",
-    );
-  });
-
-  it("keeps the label stable as further modifiers go down", () => {
-    // The cap must not reflow mid-hold, so adding shift changes nothing.
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "modelOptionsPicker.toggle",
-        held({ ctrlKey: true, shiftKey: true }),
-        { platform: "Linux" },
-      ),
-      "⇧E",
-    );
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "runtimeModePicker.toggle",
-        held({ metaKey: true, shiftKey: true }),
-        { platform: "MacIntel" },
-      ),
-      "⇧A",
-    );
-  });
-
-  it("keeps whatever a rebound chord still needs, without assuming a shared prefix", () => {
-    const custom = compile([
-      { shortcut: modShortcut("e", { altKey: true }), command: "modelOptionsPicker.toggle" },
-      { shortcut: modShortcut("p", { shiftKey: true }), command: "planMode.toggle" },
-    ]);
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        custom,
-        "modelOptionsPicker.toggle",
-        held({ ctrlKey: true }),
-        {
-          platform: "Linux",
-        },
-      ),
-      "⌥E",
-    );
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(custom, "planMode.toggle", held({ ctrlKey: true }), {
-        platform: "Linux",
-      }),
-      "⇧P",
-    );
-  });
-
-  it("returns null when the held modifiers are not a subset of the chord", () => {
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "planMode.toggle",
-        held({ ctrlKey: true, altKey: true }),
-        { platform: "Linux" },
-      ),
-      null,
-    );
-  });
-
-  it("returns null when the command has no effective binding in context", () => {
-    assert.strictEqual(
-      remainingShortcutLabelForCommand(
-        DEFAULT_BINDINGS,
-        "modelPicker.toggle",
-        held({ ctrlKey: true }),
-        { platform: "Linux", context: { terminalFocus: true } },
-      ),
-      null,
-    );
   });
 });
 

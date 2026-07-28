@@ -280,16 +280,13 @@ interface ShortcutLabelParts {
 function resolveShortcutLabelParts(
   shortcut: KeybindingShortcut,
   platform: string,
-  // Modifiers the user is already holding. They are dropped from the label so a
-  // hold-modifier hint only advertises the keys that are still left to press.
-  heldModifiers?: ShortcutModifierStateLike,
 ): ShortcutLabelParts {
   const useMetaForMod = isMacPlatform(platform);
   return {
-    showMeta: (shortcut.metaKey || (shortcut.modKey && useMetaForMod)) && !heldModifiers?.metaKey,
-    showCtrl: (shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod)) && !heldModifiers?.ctrlKey,
-    showAlt: shortcut.altKey && !heldModifiers?.altKey,
-    showShift: shortcut.shiftKey && !heldModifiers?.shiftKey,
+    showMeta: shortcut.metaKey || (shortcut.modKey && useMetaForMod),
+    showCtrl: shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod),
+    showAlt: shortcut.altKey,
+    showShift: shortcut.shiftKey,
     keyLabel: formatShortcutKeyLabel(shortcut.key),
   };
 }
@@ -318,12 +315,8 @@ function formatSymbolicShortcutLabel(parts: ShortcutLabelParts, platform: string
 export function formatShortcutLabel(
   shortcut: KeybindingShortcut,
   platform = navigator.platform,
-  heldModifiers?: ShortcutModifierStateLike,
 ): string {
-  return formatSymbolicShortcutLabel(
-    resolveShortcutLabelParts(shortcut, platform, heldModifiers),
-    platform,
-  );
+  return formatSymbolicShortcutLabel(resolveShortcutLabelParts(shortcut, platform), platform);
 }
 
 export function shortcutLabelForCommand(
@@ -338,32 +331,6 @@ export function shortcutLabelForCommand(
   const platform = resolvePlatform(resolvedOptions);
   const shortcut = findEffectiveShortcutForCommand(keybindings, command, resolvedOptions);
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
-}
-
-/**
- * Label for a hold-modifier hint: the chord minus the platform mod key, which
- * the user is necessarily already holding for the hint to be visible at all.
- * `mod+shift+e` reads `⇧E`, and it stays that way as further modifiers go down,
- * so a cap never reflows mid-hold. Subtraction is per binding — a rebound chord
- * that shares nothing with the others still renders what it needs.
- */
-export function remainingShortcutLabelForCommand(
-  keybindings: ResolvedKeybindingsConfig,
-  command: KeybindingCommand,
-  heldModifiers: ShortcutModifierStateLike,
-  options?: ResolvedShortcutLabelOptions,
-): string | null {
-  const platform = resolvePlatform(options);
-  const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
-  if (!shortcut) return null;
-  if (!modifiersAreSubsetOfShortcutModifiers(heldModifiers, shortcut, platform)) return null;
-  const modKeyOnly: ShortcutModifierStateLike = {
-    metaKey: isMacPlatform(platform),
-    ctrlKey: !isMacPlatform(platform),
-    shiftKey: false,
-    altKey: false,
-  };
-  return formatShortcutLabel(shortcut, platform, modKeyOnly);
 }
 
 export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {

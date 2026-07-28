@@ -220,10 +220,7 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
-import {
-  remainingShortcutLabelForCommand,
-  shouldShowCommandHintForModifiers,
-} from "../../keybindings";
+import { shortcutLabelForCommand, shouldShowCommandHintForModifiers } from "../../keybindings";
 import { useShortcutModifierState } from "../../shortcutModifierState";
 import { ComposerShortcutKeycap } from "./ComposerControlShortcutHint";
 
@@ -1319,14 +1316,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const terminalFocus = useTerminalFocus();
   const shortcutContext = useMemo(() => ({ terminalFocus }), [terminalFocus]);
   const composerControlHintLabels = useMemo(() => {
-    const hintLabel = (command: Parameters<typeof remainingShortcutLabelForCommand>[1]) =>
+    const hintLabel = (command: Parameters<typeof shortcutLabelForCommand>[1]) =>
       shouldShowCommandHintForModifiers(shortcutModifiers, keybindings, command, {
         platform: navigator.platform,
         context: shortcutContext,
       })
-        ? remainingShortcutLabelForCommand(keybindings, command, shortcutModifiers, {
-            context: shortcutContext,
-          })
+        ? shortcutLabelForCommand(keybindings, command, { context: shortcutContext })
         : null;
 
     return {

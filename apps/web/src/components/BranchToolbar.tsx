@@ -16,10 +16,7 @@ import { useProject, useThread, useThreadShellsForProjectRefs } from "../state/e
 import { useLayoutScopedState } from "../hooks/useLayoutScopedOpenState";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
-import {
-  remainingShortcutLabelForCommand,
-  shouldShowCommandHintForModifiers,
-} from "../keybindings";
+import { shortcutLabelForCommand, shouldShowCommandHintForModifiers } from "../keybindings";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import {
   type BranchToolbarPicker,
@@ -450,7 +447,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "environmentPicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? remainingShortcutLabelForCommand(keybindings, "environmentPicker.toggle", shortcutModifiers, {
+    ? shortcutLabelForCommand(keybindings, "environmentPicker.toggle", {
         context: shortcutContext,
       })
     : null;
@@ -460,7 +457,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "envModePicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? remainingShortcutLabelForCommand(keybindings, "envModePicker.toggle", shortcutModifiers, {
+    ? shortcutLabelForCommand(keybindings, "envModePicker.toggle", {
         context: shortcutContext,
       })
     : null;
@@ -470,7 +467,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "branchPicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? remainingShortcutLabelForCommand(keybindings, "branchPicker.toggle", shortcutModifiers, {
+    ? shortcutLabelForCommand(keybindings, "branchPicker.toggle", {
         context: shortcutContext,
       })
     : null;
