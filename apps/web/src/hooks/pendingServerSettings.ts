@@ -53,35 +53,57 @@ function structurallyEqual(left: unknown, right: unknown): boolean {
   );
 }
 
+function rebaseChangedValue(original: unknown, intended: unknown, current: unknown): unknown {
+  if (structurallyEqual(original, intended)) return current;
+  if (
+    typeof original !== "object" ||
+    original === null ||
+    typeof intended !== "object" ||
+    intended === null ||
+    typeof current !== "object" ||
+    current === null ||
+    Array.isArray(original) ||
+    Array.isArray(intended) ||
+    Array.isArray(current)
+  ) {
+    return intended;
+  }
+
+  const originalRecord = original as Readonly<Record<string, unknown>>;
+  const intendedRecord = intended as Readonly<Record<string, unknown>>;
+  const rebased = { ...(current as Readonly<Record<string, unknown>>) };
+  const keys = new Set([...Object.keys(originalRecord), ...Object.keys(intendedRecord)]);
+  for (const key of keys) {
+    if (structurallyEqual(originalRecord[key], intendedRecord[key])) continue;
+    const value = rebaseChangedValue(originalRecord[key], intendedRecord[key], rebased[key]);
+    if (value === undefined) {
+      delete rebased[key];
+    } else {
+      rebased[key] = value;
+    }
+  }
+  return rebased;
+}
+
 /**
- * Preserve only the provider-instance edits made by this operation when its
- * original optimistic base no longer matches the server after an earlier
- * write failed.
+ * Preserve only the edits made by this operation when its original optimistic
+ * base no longer matches the latest authoritative server settings.
  */
 export function rebaseServerSettingsPatch(
   patch: ServerSettingsPatch,
   originalBase: ServerSettings,
   currentBase: ServerSettings,
 ): ServerSettingsPatch {
-  if (patch.providerInstances === undefined) return patch;
-
-  const rebasedProviderInstances = { ...currentBase.providerInstances };
-  const keys = new Set([
-    ...Object.keys(originalBase.providerInstances),
-    ...Object.keys(patch.providerInstances),
-  ]);
-  for (const key of keys) {
-    const instanceId = key as keyof typeof patch.providerInstances;
-    const previous = originalBase.providerInstances[instanceId];
-    const next = patch.providerInstances[instanceId];
-    if (structurallyEqual(previous, next)) continue;
-    if (next === undefined) {
-      delete rebasedProviderInstances[instanceId];
-    } else {
-      rebasedProviderInstances[instanceId] = next;
-    }
+  const intended = applyServerSettingsPatch(originalBase, patch);
+  const rebased: Record<string, unknown> = {};
+  for (const key of Object.keys(patch)) {
+    rebased[key] = rebaseChangedValue(
+      originalBase[key as keyof ServerSettings],
+      intended[key as keyof ServerSettings],
+      currentBase[key as keyof ServerSettings],
+    );
   }
-  return { ...patch, providerInstances: rebasedProviderInstances };
+  return rebased as ServerSettingsPatch;
 }
 
 export function subscribePendingServerPatches(listener: () => void): () => void {

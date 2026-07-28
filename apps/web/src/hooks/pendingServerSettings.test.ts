@@ -75,6 +75,51 @@ describe("pendingServerSettings", () => {
     expect(both.providerInstances[claudeId]?.enabled).toBe(false);
   });
 
+  it("preserves a server model fallback that a queued patch did not change", () => {
+    const serverFallback = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: {
+        instanceId: claudeId,
+        model: "claude-sonnet",
+      },
+    };
+    const patch = {
+      enableProviderUpdateChecks: false,
+      textGenerationModelSelection: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+    };
+    const settings = applyPendingServerPatches(serverFallback, [
+      { id: 1, patch, baseSettings: DEFAULT_SERVER_SETTINGS },
+    ]);
+
+    expect(settings.enableProviderUpdateChecks).toBe(false);
+    expect(settings.textGenerationModelSelection).toEqual(
+      serverFallback.textGenerationModelSelection,
+    );
+  });
+
+  it("drops stale legacy provider edits inherited from a failed optimistic base", () => {
+    const failedBase = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      providers: { codex: { binaryPath: "/failed/codex" } },
+    });
+    const patch = {
+      providers: {
+        codex: failedBase.providers.codex,
+        claudeAgent: {
+          ...failedBase.providers.claudeAgent,
+          binaryPath: "/selected/claude",
+        },
+      },
+    };
+    const settings = applyPendingServerPatches(DEFAULT_SERVER_SETTINGS, [
+      { id: 1, patch, baseSettings: failedBase },
+    ]);
+
+    expect(settings.providers.codex.binaryPath).toBe(
+      DEFAULT_SERVER_SETTINGS.providers.codex.binaryPath,
+    );
+    expect(settings.providers.claudeAgent.binaryPath).toBe("/selected/claude");
+  });
+
   it("retains a successful overlay until its settings echo arrives", () => {
     const patch = { providerInstances: { [codexId]: providerInstance("codex", false) } };
     const id = retain(patch);
