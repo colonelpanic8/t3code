@@ -53,16 +53,14 @@ function structurallyEqual(left: unknown, right: unknown): boolean {
   );
 }
 
-function stableArrayElementId(value: unknown): string | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    typeof (value as { readonly id?: unknown }).id !== "string"
-  ) {
+function stableArrayElementKey(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
-  return (value as { readonly id: string }).id;
+  const record = value as { readonly id?: unknown; readonly name?: unknown };
+  if (typeof record.id === "string") return `id:${record.id}`;
+  if (typeof record.name === "string") return `name:${record.name}`;
+  return null;
 }
 
 function removeFirstStructurallyEqual(values: Array<unknown>, target: unknown): boolean {
@@ -102,19 +100,19 @@ function rebaseArrayById(
   intended: ReadonlyArray<unknown>,
   current: ReadonlyArray<unknown>,
 ): ReadonlyArray<unknown> {
-  const originalById = new Map(original.map((value) => [stableArrayElementId(value), value]));
-  const intendedById = new Map(intended.map((value) => [stableArrayElementId(value), value]));
+  const originalById = new Map(original.map((value) => [stableArrayElementKey(value), value]));
+  const intendedById = new Map(intended.map((value) => [stableArrayElementKey(value), value]));
   const rebased = [...current];
 
   for (const id of originalById.keys()) {
     if (intendedById.has(id)) continue;
-    const index = rebased.findIndex((value) => stableArrayElementId(value) === id);
+    const index = rebased.findIndex((value) => stableArrayElementKey(value) === id);
     if (index >= 0) rebased.splice(index, 1);
   }
   for (const [id, intendedValue] of intendedById) {
     const originalValue = originalById.get(id);
     if (originalValue !== undefined && structurallyEqual(originalValue, intendedValue)) continue;
-    const currentIndex = rebased.findIndex((value) => stableArrayElementId(value) === id);
+    const currentIndex = rebased.findIndex((value) => stableArrayElementKey(value) === id);
     const rebasedValue =
       originalValue === undefined
         ? intendedValue
@@ -134,15 +132,19 @@ function rebaseArray(
   current: ReadonlyArray<unknown>,
 ): ReadonlyArray<unknown> {
   const allValues = [...original, ...intended, ...current];
-  return allValues.length > 0 && allValues.every((value) => stableArrayElementId(value) !== null)
+  return allValues.length > 0 && allValues.every((value) => stableArrayElementKey(value) !== null)
     ? rebaseArrayById(original, intended, current)
     : rebaseArrayByValue(original, intended, current);
 }
 
 function rebaseChangedValue(original: unknown, intended: unknown, current: unknown): unknown {
   if (structurallyEqual(original, intended)) return current;
-  if (Array.isArray(original) && Array.isArray(intended) && Array.isArray(current)) {
-    return rebaseArray(original, intended, current);
+  if (
+    Array.isArray(original) &&
+    Array.isArray(intended) &&
+    (Array.isArray(current) || current === undefined)
+  ) {
+    return rebaseArray(original, intended, current ?? []);
   }
   if (
     typeof original !== "object" ||

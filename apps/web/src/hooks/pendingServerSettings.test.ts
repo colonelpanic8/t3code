@@ -153,6 +153,57 @@ describe("pendingServerSettings", () => {
     ]);
   });
 
+  it("rebases provider environment rows by name without duplicating them", () => {
+    const environmentConfig = (value: string) => ({
+      driver: ProviderDriverKind.make("codex"),
+      enabled: true,
+      environment: [{ name: "OPENAI_API_KEY", value, sensitive: false }],
+    });
+    const currentSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: { [codexId]: environmentConfig("current") },
+    };
+    const failedBase = {
+      ...currentSettings,
+      providerInstances: { [codexId]: environmentConfig("failed") },
+    };
+    const patch = {
+      providerInstances: { [codexId]: environmentConfig("intended") },
+    };
+    const settings = applyPendingServerPatches(currentSettings, [
+      { id: 1, patch, baseSettings: failedBase },
+    ]);
+
+    expect(settings.providerInstances[codexId]?.environment).toEqual([
+      { name: "OPENAI_API_KEY", value: "intended", sensitive: false },
+    ]);
+  });
+
+  it("rebases array deltas onto a missing authoritative array", () => {
+    const failedOptionsBase = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: {
+        ...DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+        options: [{ id: "failed", value: true }],
+      },
+    };
+    const patch = {
+      textGenerationModelSelection: {
+        options: [
+          { id: "failed", value: true },
+          { id: "intended", value: true },
+        ],
+      },
+    };
+    const settings = applyPendingServerPatches(DEFAULT_SERVER_SETTINGS, [
+      { id: 1, patch, baseSettings: failedOptionsBase },
+    ]);
+
+    expect(settings.textGenerationModelSelection.options).toEqual([
+      { id: "intended", value: true },
+    ]);
+  });
+
   it("rebases array insertions and removals without restoring failed elements", () => {
     const currentSettings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       providers: { codex: { customModels: ["A"] } },
