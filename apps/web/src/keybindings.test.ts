@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 import {
   formatShortcutLabel,
+  formatShortcutTokenLabel,
   isChatNewShortcut,
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
@@ -308,7 +309,7 @@ describe("shortcutLabelForCommand", () => {
         platform: "Linux",
         context: { terminalFocus: false },
       }),
-      "Ctrl+Shift+\\",
+      "⌃⇧\\",
     );
   });
 
@@ -318,7 +319,7 @@ describe("shortcutLabelForCommand", () => {
       "⌘B",
     );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
-    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
+    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "⌃D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.toggle", "MacIntel"),
       "⌥⌘B",
@@ -329,11 +330,11 @@ describe("shortcutLabelForCommand", () => {
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelPicker.toggle", "Linux"),
-      "Ctrl+Shift+M",
+      "⌃⇧M",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
-      "Ctrl+O",
+      "⌃O",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", "MacIntel"),
@@ -341,7 +342,7 @@ describe("shortcutLabelForCommand", () => {
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.previous", "Linux"),
-      "Ctrl+Shift+[",
+      "⌃⇧[",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelPicker.jump.3", {
@@ -377,7 +378,7 @@ describe("shortcutLabelForCommand", () => {
         platform: "Linux",
         context: { terminalFocus: false },
       }),
-      "Ctrl+D",
+      "⌃D",
     );
     assert.isNull(
       shortcutLabelForCommand(bindings, "diff.toggle", {
@@ -390,7 +391,7 @@ describe("shortcutLabelForCommand", () => {
         platform: "Linux",
         context: { terminalFocus: true },
       }),
-      "Ctrl+D",
+      "⌃D",
     );
   });
 });
@@ -647,16 +648,39 @@ describe("formatShortcutLabel", () => {
     );
   });
 
-  it("formats labels for non-macOS", () => {
-    assert.strictEqual(
-      formatShortcutLabel(modShortcut("d", { shiftKey: true }), "Linux"),
-      "Ctrl+Shift+D",
-    );
+  it("formats labels for non-macOS with the same glyphs", () => {
+    assert.strictEqual(formatShortcutLabel(modShortcut("d", { shiftKey: true }), "Linux"), "⌃⇧D");
+  });
+
+  it("uses Apple's key glyphs, not words", () => {
+    assert.strictEqual(formatShortcutLabel(modShortcut("escape"), "Linux"), "⌃⎋");
+    assert.strictEqual(formatShortcutLabel(modShortcut("backspace"), "Linux"), "⌃⌫");
+    assert.strictEqual(formatShortcutLabel(modShortcut("tab"), "MacIntel"), "⌘⇥");
+    assert.strictEqual(formatShortcutLabel(modShortcut("arrowup"), "Linux"), "⌃↑");
+    // No established glyph, so the word survives.
+    assert.strictEqual(formatShortcutLabel(modShortcut("f1"), "Linux"), "⌃F1");
   });
 
   it("formats labels for plus key", () => {
     assert.strictEqual(formatShortcutLabel(modShortcut("+"), "MacIntel"), "⌘+");
-    assert.strictEqual(formatShortcutLabel(modShortcut("+"), "Linux"), "Ctrl++");
+    assert.strictEqual(formatShortcutLabel(modShortcut("+"), "Linux"), "⌃+");
+  });
+});
+
+describe("formatShortcutTokenLabel", () => {
+  it("maps binding tokens to Apple glyphs", () => {
+    assert.strictEqual(formatShortcutTokenLabel("mod", "Linux"), "⌃");
+    assert.strictEqual(formatShortcutTokenLabel("mod", "MacIntel"), "⌘");
+    assert.strictEqual(formatShortcutTokenLabel("ctrl", "Linux"), "⌃");
+    assert.strictEqual(formatShortcutTokenLabel("alt", "Linux"), "⌥");
+    assert.strictEqual(formatShortcutTokenLabel("shift", "Linux"), "⇧");
+    assert.strictEqual(formatShortcutTokenLabel("b", "Linux"), "B");
+    assert.strictEqual(formatShortcutTokenLabel("escape", "Linux"), "⎋");
+  });
+
+  it("keeps a word for a non-mac meta key, which has no Apple glyph", () => {
+    assert.strictEqual(formatShortcutTokenLabel("meta", "Linux"), "Super");
+    assert.strictEqual(formatShortcutTokenLabel("meta", "MacIntel"), "⌘");
   });
 });
 
