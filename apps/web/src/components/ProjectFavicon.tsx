@@ -34,6 +34,7 @@ export function ProjectFavicon(input: {
 
   return (
     <ProjectFaviconImage
+      key={`${input.environmentId}:${input.cwd}`}
       src={src}
       className={input.className}
       fallbackIcon={FallbackIcon}
@@ -65,9 +66,9 @@ function ProjectFaviconFallback({
   );
 }
 
-// Not keyed on `src`: a refresh mints a new URL for the same icon, and
-// remounting would drop back to the placeholder for a frame. Reusing the
-// element lets the browser hold the current image until the new bytes decode.
+// Keyed by environment and cwd rather than `src`: switching projects resets
+// stale image state, while refreshing one project's URL keeps its current
+// image visible until the new bytes decode.
 function ProjectFaviconImage({
   src,
   className,
