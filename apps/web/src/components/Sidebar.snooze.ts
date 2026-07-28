@@ -83,12 +83,17 @@ export function defaultCustomSnoozeDateTime(now: Date): string {
   // end of DST, formatting the later occurrence and parsing it again can pick
   // the earlier occurrence. Advance by friendly quarter-hours until the value
   // the form will actually submit remains at least one elapsed hour away.
-  for (;;) {
+  for (let attempts = 0; attempts < 24 * (60 / CUSTOM_TIME_STEP_MINUTES); attempts += 1) {
     const value = formatSnoozeDateTimeLocal(next);
     const parsed = parseCustomSnoozeDateTime(value, now);
     if (parsed !== null && new Date(parsed).getTime() >= minimumWakeTime) return value;
     next.setTime(next.getTime() + CUSTOM_TIME_STEP_MS);
   }
+
+  // Valid current dates should always find a representable wall-clock value
+  // within a day. Fail closed instead of looping forever for an invalid Date
+  // or an unexpected timezone implementation.
+  return "";
 }
 
 /**

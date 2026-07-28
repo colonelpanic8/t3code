@@ -98,7 +98,7 @@ describe("custom snooze time", () => {
   });
 
   it("defaults to at least an hour ahead on a quarter-hour boundary", () => {
-    const now = localDate(2026, 4, 8, 10, 7, 30);
+    const now = new Date(2026, 3, 8, 10, 7, 59, 999);
     const value = defaultCustomSnoozeDateTime(now);
     const wakeAt = new Date(value);
     expect(wakeAt.getTime()).toBeGreaterThanOrEqual(now.getTime() + 60 * 60_000);
