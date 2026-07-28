@@ -652,6 +652,17 @@ describe("formatShortcutLabel", () => {
     assert.strictEqual(formatShortcutLabel(modShortcut("d", { shiftKey: true }), "Linux"), "⌃⇧D");
   });
 
+  it("separates a word-form non-mac meta key without splitting glyph runs", () => {
+    assert.strictEqual(
+      formatShortcutLabel({ ...modShortcut("b"), modKey: false, metaKey: true }, "Linux"),
+      "Super+B",
+    );
+    assert.strictEqual(
+      formatShortcutLabel(modShortcut("k", { shiftKey: true, metaKey: true }), "Linux"),
+      "⌃⇧+Super+K",
+    );
+  });
+
   it("uses Apple's key glyphs, not words", () => {
     assert.strictEqual(formatShortcutLabel(modShortcut("escape"), "Linux"), "⌃⎋");
     assert.strictEqual(formatShortcutLabel(modShortcut("backspace"), "Linux"), "⌃⌫");
@@ -675,6 +686,7 @@ describe("formatShortcutTokenLabel", () => {
     assert.strictEqual(formatShortcutTokenLabel("alt", "Linux"), "⌥");
     assert.strictEqual(formatShortcutTokenLabel("shift", "Linux"), "⇧");
     assert.strictEqual(formatShortcutTokenLabel("b", "Linux"), "B");
+    assert.strictEqual(formatShortcutTokenLabel("esc", "Linux"), "⎋");
     assert.strictEqual(formatShortcutTokenLabel("escape", "Linux"), "⎋");
     assert.strictEqual(formatShortcutTokenLabel("space", "Linux"), "␣");
   });

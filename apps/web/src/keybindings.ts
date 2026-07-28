@@ -232,6 +232,7 @@ const SHORTCUT_KEY_SYMBOLS: Readonly<Record<string, string>> = {
   delete: "⌦",
   end: "↘",
   enter: "⏎",
+  esc: "⎋",
   escape: "⎋",
   home: "↖",
   pagedown: "⇟",
@@ -273,20 +274,26 @@ export function formatShortcutTokenLabel(token: string, platform = navigator.pla
  * Shortcuts render Apple-style everywhere: modifier and key glyphs in Apple's
  * canonical order with no separators, on every platform. `mod+shift+e` is
  * `⌃⇧E` on Linux/Windows and `⇧⌘E` on macOS. A non-mac meta/super key has no
- * Apple glyph, so it stays a word rather than borrowing `⌘`.
+ * Apple glyph, so it stays a `+`-delimited word rather than borrowing `⌘`.
  */
 export function formatShortcutLabel(
   shortcut: KeybindingShortcut,
   platform = navigator.platform,
 ): string {
   const useMetaForMod = isMacPlatform(platform);
-  return [
+  const glyphModifiers = [
     shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod) ? "⌃" : "",
     shortcut.altKey ? "⌥" : "",
     shortcut.shiftKey ? "⇧" : "",
-    shortcut.metaKey || (shortcut.modKey && useMetaForMod) ? (useMetaForMod ? "⌘" : "Super") : "",
-    formatShortcutKeyLabel(shortcut.key),
+    useMetaForMod && (shortcut.metaKey || shortcut.modKey) ? "⌘" : "",
   ].join("");
+  const keyLabel = formatShortcutKeyLabel(shortcut.key);
+
+  if (!useMetaForMod && shortcut.metaKey) {
+    return [glyphModifiers, "Super", keyLabel].filter(Boolean).join("+");
+  }
+
+  return `${glyphModifiers}${keyLabel}`;
 }
 
 export function shortcutLabelForCommand(
