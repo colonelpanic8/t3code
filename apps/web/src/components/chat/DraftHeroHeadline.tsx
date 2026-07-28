@@ -1,7 +1,7 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { FolderPlusIcon, SearchIcon } from "lucide-react";
-import { useCallback, useMemo, useReducer } from "react";
+import { useCallback, useMemo, useReducer, useRef } from "react";
 
 import { openCommandPalette } from "~/commandPaletteBus";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
@@ -16,7 +16,6 @@ import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
 import {
   Combobox,
-  ComboboxEmpty,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
@@ -35,6 +34,8 @@ interface DraftHeroHeadlineProps {
   readonly activeProjectTitle: string | null;
 }
 
+const NEW_PROJECT_ITEM_KEY_BASE = "__draft-hero-new-project__";
+
 export function DraftHeroHeadline({
   activeProjectRef,
   activeProjectTitle,
@@ -52,6 +53,7 @@ export function DraftHeroHeadline({
     { open: false, query: "" },
   );
   const { open: isProjectPickerOpen, query: projectQuery } = projectPickerState;
+  const newProjectSelectionIntentRef = useRef(false);
 
   const environmentLabelById = useMemo(
     () =>
@@ -110,6 +112,30 @@ export function DraftHeroHeadline({
       ).map(({ entry }) => entry),
     [projectPickerEntries, projectQuery],
   );
+  const projectPickerItemKeys = useMemo(
+    () => projectPickerEntries.map(({ group }) => group.projectKey),
+    [projectPickerEntries],
+  );
+  const filteredProjectItemKeys = useMemo(
+    () => filteredProjectEntries.map(({ group }) => group.projectKey),
+    [filteredProjectEntries],
+  );
+  const newProjectItemKey = useMemo(() => {
+    const projectKeys = new Set(projectPickerItemKeys);
+    let key = NEW_PROJECT_ITEM_KEY_BASE;
+    while (projectKeys.has(key)) {
+      key += "_";
+    }
+    return key;
+  }, [projectPickerItemKeys]);
+  const projectPickerComboboxItems = useMemo(
+    () => [...projectPickerItemKeys, newProjectItemKey],
+    [newProjectItemKey, projectPickerItemKeys],
+  );
+  const filteredProjectComboboxItems = useMemo(
+    () => [...filteredProjectItemKeys, newProjectItemKey],
+    [filteredProjectItemKeys, newProjectItemKey],
+  );
   const activeProjectGroup =
     activeProjectRef === null
       ? null
@@ -126,25 +152,31 @@ export function DraftHeroHeadline({
 
   const projectSelector = shouldShowProjectMenu ? (
     <Combobox
-      autoHighlight
-      items={projectPickerEntries.map(({ group }) => group.projectKey)}
-      filteredItems={filteredProjectEntries.map(({ group }) => group.projectKey)}
+      autoHighlight={filteredProjectEntries.length > 0}
+      filter={null}
+      items={projectPickerComboboxItems}
+      filteredItems={filteredProjectComboboxItems}
       open={isProjectPickerOpen}
       value={activeProjectKey}
       onOpenChange={(open) => {
+        newProjectSelectionIntentRef.current = false;
         dispatchProjectPicker({ type: "set-open", open });
       }}
       onValueChange={(value) => {
+        if (value === newProjectItemKey) {
+          if (!newProjectSelectionIntentRef.current) {
+            return;
+          }
+          newProjectSelectionIntentRef.current = false;
+          dispatchProjectPicker({ type: "set-open", open: false });
+          openAddProject();
+          return;
+        }
         if (!value || value === activeProjectKey) {
           dispatchProjectPicker({ type: "set-open", open: false });
           return;
         }
-        if (
-          !isVisibleDraftHeroProjectSelection(
-            value,
-            filteredProjectEntries.map(({ group }) => group.projectKey),
-          )
-        ) {
+        if (!isVisibleDraftHeroProjectSelection(value, filteredProjectItemKeys)) {
           return;
         }
         const entry = projectEntryByKey.get(value);
@@ -180,27 +212,39 @@ export function DraftHeroHeadline({
               size="sm"
               unstyled
               value={projectQuery}
-              onChange={(event) =>
-                dispatchProjectPicker({ type: "set-query", query: event.target.value })
-              }
+              onChange={(event) => {
+                newProjectSelectionIntentRef.current = false;
+                dispatchProjectPicker({ type: "set-query", query: event.target.value });
+              }}
               onKeyDownCapture={(event) => {
-                if (
-                  isImeCommitKey({
-                    key: event.key,
-                    isComposing: event.nativeEvent.isComposing,
-                    keyCode: event.nativeEvent.keyCode,
-                  })
-                ) {
+                const keyboardEvent = {
+                  key: event.key,
+                  isComposing: event.nativeEvent.isComposing,
+                  keyCode: event.nativeEvent.keyCode,
+                };
+                if (isImeCommitKey(keyboardEvent)) {
                   // Keep the browser's default so Enter can commit the IME
                   // text; stopping propagation only blocks Combobox selection.
                   event.stopPropagation();
+                  return;
+                }
+                if (
+                  !keyboardEvent.isComposing &&
+                  keyboardEvent.keyCode !== 229 &&
+                  (event.key === "ArrowDown" || event.key === "ArrowUp")
+                ) {
+                  newProjectSelectionIntentRef.current = true;
                 }
               }}
             />
           </div>
         </div>
-        <ComboboxEmpty>No matching projects.</ComboboxEmpty>
         <ComboboxList className="max-h-64">
+          {filteredProjectEntries.length === 0 && (
+            <div className="p-2 text-center text-base text-muted-foreground sm:text-sm">
+              No matching projects.
+            </div>
+          )}
           {filteredProjectEntries.map(({ group }) => {
             return (
               <ComboboxItem key={group.projectKey} value={group.projectKey}>
@@ -208,20 +252,17 @@ export function DraftHeroHeadline({
               </ComboboxItem>
             );
           })}
-        </ComboboxList>
-        <div className="border-t border-border/70 p-1">
-          <button
-            type="button"
-            className="flex min-h-8 w-full cursor-default items-center gap-2 rounded-sm px-2 py-1 text-left text-base text-foreground outline-none hover:bg-accent focus-visible:bg-accent sm:min-h-7 sm:text-sm"
-            onClick={() => {
-              dispatchProjectPicker({ type: "set-open", open: false });
-              openAddProject();
+          <ComboboxItem
+            className="sticky bottom-0 z-10 mt-1 gap-2 border-t border-border/70 bg-popover"
+            value={newProjectItemKey}
+            onPointerDown={() => {
+              newProjectSelectionIntentRef.current = true;
             }}
           >
             <FolderPlusIcon />
             New project
-          </button>
-        </div>
+          </ComboboxItem>
+        </ComboboxList>
       </ComboboxPopup>
     </Combobox>
   ) : (
