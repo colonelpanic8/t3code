@@ -268,8 +268,9 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
-  resolveThreadMetadataUpdateForNextTurn,
+  recoverDraftThreadAfterBootstrap,
   resolveSendEnvMode,
+  resolveThreadMetadataUpdateForNextTurn,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   startNewThreadForProject,
@@ -4853,6 +4854,11 @@ function ChatViewContent(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        if (isLocalDraftThread) {
+          void recoverDraftThreadAfterBootstrap(
+            scopeThreadRef(activeThread.environmentId, threadIdForSend),
+          );
+        }
       }
     }
 
