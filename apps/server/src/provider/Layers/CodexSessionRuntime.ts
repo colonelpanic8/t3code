@@ -133,7 +133,7 @@ export interface CodexThreadSnapshot {
   readonly turns: ReadonlyArray<CodexThreadTurnSnapshot>;
 }
 
-export type CodexTurnCompletionReconciliation = "active" | "settled" | "obsolete";
+export type CodexTurnCompletionReconciliation = "active" | "missing" | "settled" | "obsolete";
 
 export interface CodexSessionRuntimeShape {
   readonly start: () => Effect.Effect<ProviderSession, CodexSessionRuntimeError>;
@@ -1304,7 +1304,10 @@ export const makeCodexSessionRuntime = (
         includeTurns: true,
       });
       const turn = response.thread.turns.find((candidate) => candidate.id === turnId);
-      if (!turn || turn.status === "inProgress") {
+      if (!turn) {
+        return "missing";
+      }
+      if (turn.status === "inProgress") {
         return "active";
       }
 

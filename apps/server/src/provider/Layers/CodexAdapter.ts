@@ -1623,6 +1623,26 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           yield* Effect.sleep(Duration.millis(pollDelayMs));
           return yield* pollTurnCompletion(failureCount, pollDelayMs);
         }
+        if (outcome.value === "missing") {
+          const missingCount = consecutiveFailures + 1;
+          yield* Effect.logWarning("codex.turn-completion.turn-missing", {
+            threadId: input.threadId,
+            turnId: turn.turnId,
+            missingCount,
+            maxMissing: MAX_TURN_COMPLETION_RECONCILIATION_FAILURES,
+          });
+          if (missingCount >= MAX_TURN_COMPLETION_RECONCILIATION_FAILURES) {
+            yield* Effect.logWarning("codex.turn-completion.reconciliation-abandoned", {
+              threadId: input.threadId,
+              turnId: turn.turnId,
+              missingCount,
+              reason: "turn-missing",
+            });
+            return;
+          }
+          yield* Effect.sleep(Duration.millis(pollDelayMs));
+          return yield* pollTurnCompletion(missingCount, pollDelayMs);
+        }
         if (outcome.value !== "active") {
           return;
         }
