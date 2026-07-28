@@ -2411,7 +2411,11 @@ const make = Effect.gen(function* () {
           }
         }
 
-        if (turnId && assistantFinalized) {
+        if (!assistantFinalized) {
+          yield* scheduleRuntimeEventRetry(event);
+          return;
+        }
+        if (turnId) {
           yield* clearAssistantSegmentStateForTurn(thread.id, turnId);
         }
       }
@@ -2467,8 +2471,9 @@ const make = Effect.gen(function* () {
               turnId,
               updatedAt: now,
             });
-          } else if (event.type === "turn.aborted") {
+          } else {
             yield* scheduleRuntimeEventRetry(event);
+            return;
           }
         }
       }
