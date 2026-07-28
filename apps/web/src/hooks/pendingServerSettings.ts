@@ -196,7 +196,10 @@ export function acknowledgePendingServerSettings(
     } else {
       pendingByEnvironment.set(environmentId, {
         patches,
-        authoritativeSettings: settings,
+        authoritativeSettings: patches.reduce(
+          (latest, entry) => entry.settledSettings ?? latest,
+          settings,
+        ),
         observedSettings: settings,
       });
     }
