@@ -142,6 +142,7 @@ import {
 } from "../sidebarProjectGrouping";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
+const NEW_THREAD_ON_ENVIRONMENTS_VIEW_VALUE = "new-thread-on-environments";
 
 function getLocalFileManagerName(platform: string): string {
   if (isMacPlatform(platform)) {
@@ -914,6 +915,16 @@ function OpenCommandPaletteDialog(props: {
     newThreadEnvironmentOptions,
     projectGroups,
   ]);
+  const newThreadEnvironmentGroups = useMemo<CommandPaletteView["groups"]>(
+    () => [
+      {
+        value: NEW_THREAD_ON_ENVIRONMENTS_VIEW_VALUE,
+        label: "Run on",
+        items: newThreadEnvironmentItems,
+      },
+    ],
+    [newThreadEnvironmentItems],
+  );
 
   const projectThreadItems = useMemo(
     () =>
@@ -1256,19 +1267,20 @@ function OpenCommandPaletteDialog(props: {
     setQuery("");
     pushPaletteView({
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
-      groups: [
-        {
-          value: "environments",
-          label: "Run on",
-          items: newThreadEnvironmentItems,
-        },
-      ],
+      groups: newThreadEnvironmentGroups,
     });
   });
 
   useLayoutEffect(() => {
+    if (openIntent?.kind !== "new-thread-on") {
+      return;
+    }
+    if (viewStack.length > 0 || query !== "") {
+      clearOpenIntent();
+      return;
+    }
     const resolution = resolveNewThreadOnIntent({
-      isActive: openIntent?.kind === "new-thread-on",
+      isActive: true,
       isLoaded: environmentShellsLoaded,
       environmentItemCount: newThreadEnvironmentItems.length,
     });
@@ -1280,7 +1292,15 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
     openNewThreadOnFlow();
-  }, [environmentShellsLoaded, newThreadEnvironmentItems.length, openIntent, setOpen]);
+  }, [
+    clearOpenIntent,
+    environmentShellsLoaded,
+    newThreadEnvironmentItems.length,
+    openIntent,
+    query,
+    setOpen,
+    viewStack.length,
+  ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
 
@@ -1329,13 +1349,7 @@ function OpenCommandPaletteDialog(props: {
         icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
         addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
         shortcutCommand: "chat.newEnvironment",
-        groups: [
-          {
-            value: "environments",
-            label: "Run on",
-            items: newThreadEnvironmentItems,
-          },
-        ],
+        groups: newThreadEnvironmentGroups,
       });
     }
 
@@ -1408,6 +1422,14 @@ function OpenCommandPaletteDialog(props: {
   const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
   const sourceSelectionViewValue =
     addProjectEnvironmentId === null ? null : `sources:${addProjectEnvironmentId}`;
+  const currentViewValue = currentView?.groups[0]?.value;
+  const refreshedNewThreadOnGroups =
+    currentViewValue === NEW_THREAD_ON_ENVIRONMENTS_VIEW_VALUE
+      ? newThreadEnvironmentGroups
+      : currentViewValue?.startsWith("new-thread-on-projects:")
+        ? (newThreadEnvironmentItems.find((item) => item.groups[0]?.value === currentViewValue)
+            ?.groups ?? [])
+        : null;
   const activeGroups =
     addProjectEnvironmentId !== null &&
     currentView !== null &&
@@ -1416,7 +1438,9 @@ function OpenCommandPaletteDialog(props: {
           addProjectEnvironmentId,
           buildAddProjectRemoteSourceReadiness(sourceControlDiscovery.data),
         )
-      : (currentView?.groups ?? rootGroups);
+      : refreshedNewThreadOnGroups !== null
+        ? refreshedNewThreadOnGroups
+        : (currentView?.groups ?? rootGroups);
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
