@@ -45,15 +45,25 @@ export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string
   }
 }
 
-function isLoopbackPairingUrl(value: string): boolean {
-  const pairingUrl = new URL(value);
-  if (isLoopbackHost(pairingUrl.hostname)) return true;
+function isShareablePairingUrl(value: string): boolean {
+  let pairingUrl: URL;
+  try {
+    pairingUrl = new URL(value);
+  } catch {
+    return false;
+  }
+  if (isLoopbackHost(pairingUrl.hostname)) return false;
 
   // Hosted app links wrap the administered server's address in `host`, so the
   // outer URL can be public even when the target still resolves to the scanning
   // device itself.
   const targetUrl = pairingUrl.searchParams.get("host");
-  return targetUrl !== null && isLoopbackHost(new URL(targetUrl).hostname);
+  if (targetUrl === null) return true;
+  try {
+    return !isLoopbackHost(new URL(targetUrl).hostname);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -85,7 +95,7 @@ export function resolveShareablePairingUrl(input: {
     input.servesCurrentOrigin ? input.currentOriginPairingUrl : null,
   ];
   return (
-    candidates.find((candidate) => candidate !== null && !isLoopbackPairingUrl(candidate)) ?? null
+    candidates.find((candidate) => candidate !== null && isShareablePairingUrl(candidate)) ?? null
   );
 }
 

@@ -316,4 +316,18 @@ describe("resolveShareablePairingUrl", () => {
       }),
     ).toBeNull();
   });
+
+  it.each(["", "not-a-url", "/relative"])(
+    "skips a hosted app link whose wrapped backend URL is malformed: %s",
+    (host) => {
+      expect(
+        resolveShareablePairingUrl({
+          endpointPairingUrl: `https://t3.chat/pair?host=${encodeURIComponent(host)}&token=secret`,
+          basePairingUrl: null,
+          currentOriginPairingUrl,
+          servesCurrentOrigin: false,
+        }),
+      ).toBeNull();
+    },
+  );
 });
