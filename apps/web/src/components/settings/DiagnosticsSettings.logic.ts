@@ -1,6 +1,10 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 
+export function connectedDiagnosticsData<A>(isConnected: boolean, data: A | null): A | null {
+  return isConnected ? data : null;
+}
+
 export function resolveDiagnosticsEnvironmentId(input: {
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly primaryEnvironmentId: EnvironmentId | null;

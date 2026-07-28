@@ -3,6 +3,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 
 import {
   addPendingProcessSignal,
+  connectedDiagnosticsData,
   diagnosticsConnectionNotice,
   pendingProcessSignalPids,
   removePendingProcessSignal,
@@ -131,6 +132,15 @@ describe("diagnosticsConnectionNotice", () => {
       diagnosticsConnectionNotice({ phase: "connecting", label: "Laptop", error: null }),
       "Connecting to Laptop...",
     );
+  });
+});
+
+describe("connectedDiagnosticsData", () => {
+  it("hides cached results after the selected environment disconnects", () => {
+    const cached = { processCount: 3 };
+
+    assert.strictEqual(connectedDiagnosticsData(true, cached), cached);
+    assert.isNull(connectedDiagnosticsData(false, cached));
   });
 });
 

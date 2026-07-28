@@ -43,6 +43,7 @@ import {
 } from "./settingsLayout";
 import {
   addPendingProcessSignal,
+  connectedDiagnosticsData,
   diagnosticsConnectionNotice,
   pendingProcessSignalPids,
   removePendingProcessSignal,
@@ -846,14 +847,19 @@ export function DiagnosticsSettingsPanel() {
   const selectedResourceWindow =
     RESOURCE_HISTORY_WINDOWS.find((option) => option.windowMs === resourceWindowMs) ??
     RESOURCE_HISTORY_WINDOWS[1];
-  const { data, error, isPending, refresh } = useEnvironmentQuery(
+  const {
+    data: cachedTraceData,
+    error: cachedTraceError,
+    isPending,
+    refresh,
+  } = useEnvironmentQuery(
     environmentId === null
       ? null
       : serverEnvironment.traceDiagnostics({ environmentId, input: {} }),
   );
   const {
-    data: processData,
-    error: processError,
+    data: cachedProcessData,
+    error: cachedProcessError,
     isPending: isProcessPending,
     refresh: refreshProcesses,
   } = useEnvironmentQuery(
@@ -862,8 +868,8 @@ export function DiagnosticsSettingsPanel() {
       : serverEnvironment.processDiagnostics({ environmentId, input: {} }),
   );
   const {
-    data: resourceData,
-    error: resourceError,
+    data: cachedResourceData,
+    error: cachedResourceError,
     isPending: isResourcePending,
     refresh: refreshResources,
   } = useEnvironmentQuery(
@@ -942,17 +948,15 @@ export function DiagnosticsSettingsPanel() {
     })();
   }, [availableEditors, environmentId, observability?.logsDirectoryPath, openInEditor]);
 
-  const isInitialLoading = isPending && data === null;
-  const isProcessInitialLoading = isProcessPending && processData === null;
   const signalProcess = useCallback(
     (pid: number, signal: ServerProcessSignal) => {
+      if (environmentId === null || diagnosticsEnvironment?.connection.phase !== "connected") {
+        return;
+      }
       if (
         signal === "SIGKILL" &&
         !window.confirm(`Send SIGKILL to process ${pid}? This cannot be handled by the process.`)
       ) {
-        return;
-      }
-      if (environmentId === null) {
         return;
       }
 
@@ -998,7 +1002,12 @@ export function DiagnosticsSettingsPanel() {
         refreshProcesses();
       })();
     },
-    [environmentId, refreshProcesses, signalServerProcess],
+    [
+      diagnosticsEnvironment?.connection.phase,
+      environmentId,
+      refreshProcesses,
+      signalServerProcess,
+    ],
   );
 
   // Diagnostics RPCs only run while the environment's supervisor is connected,
@@ -1010,6 +1019,14 @@ export function DiagnosticsSettingsPanel() {
   });
   const isConnected = connectionNotice === null;
   const statPlaceholder = isConnected ? "..." : "—";
+  const data = connectedDiagnosticsData(isConnected, cachedTraceData);
+  const processData = connectedDiagnosticsData(isConnected, cachedProcessData);
+  const resourceData = connectedDiagnosticsData(isConnected, cachedResourceData);
+  const error = isConnected ? cachedTraceError : null;
+  const processError = isConnected ? cachedProcessError : null;
+  const resourceError = isConnected ? cachedResourceError : null;
+  const isInitialLoading = isPending && data === null;
+  const isProcessInitialLoading = isProcessPending && processData === null;
 
   const processDiagnosticsError = processData ? Option.getOrNull(processData.error) : null;
   const processResourceError = resourceData ? Option.getOrNull(resourceData.error) : null;
