@@ -20,5 +20,14 @@ export function useDefaultEnvironmentId() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeEnvironmentId = useActiveEnvironmentId();
   const { environments } = useEnvironments();
-  return primaryEnvironmentId ?? activeEnvironmentId ?? environments[0]?.environmentId ?? null;
+  const activeEnvironment =
+    activeEnvironmentId === null
+      ? null
+      : environments.find((environment) => environment.environmentId === activeEnvironmentId);
+  return (
+    primaryEnvironmentId ??
+    activeEnvironment?.environmentId ??
+    environments[0]?.environmentId ??
+    null
+  );
 }

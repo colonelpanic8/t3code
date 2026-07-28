@@ -307,6 +307,7 @@ export function EnvironmentProviderSettings({
   const [updatingProviderDrivers, setUpdatingProviderDrivers] = useState<
     ReadonlySet<ProviderDriverKind>
   >(() => new Set());
+  const updatingProviderDriversRef = useRef(new Set<ProviderDriverKind>());
   const [openInstanceDetails, setOpenInstanceDetails] = useState<Record<string, boolean>>({});
   const refreshingRef = useRef(false);
 
@@ -359,48 +360,47 @@ export function EnvironmentProviderSettings({
 
   const runProviderUpdate = useCallback(
     async (candidate: ProviderUpdateCandidate) => {
-      let started = false;
+      if (updatingProviderDriversRef.current.has(candidate.driver)) {
+        return;
+      }
+      updatingProviderDriversRef.current.add(candidate.driver);
       setUpdatingProviderDrivers((previous) => {
-        if (previous.has(candidate.driver)) {
-          return previous;
-        }
-        started = true;
         const next = new Set(previous);
         next.add(candidate.driver);
         return next;
       });
-      if (!started) {
-        return;
-      }
-
-      const result = await updateProvider({
-        environmentId,
-        input: {
-          provider: candidate.driver,
-          instanceId: candidate.instanceId,
-        },
-      });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: `Could not update ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
-            description:
-              error instanceof Error
-                ? error.message
-                : "The provider update command could not be started.",
-          }),
-        );
-      }
-      setUpdatingProviderDrivers((previous) => {
-        if (!previous.has(candidate.driver)) {
-          return previous;
+      try {
+        const result = await updateProvider({
+          environmentId,
+          input: {
+            provider: candidate.driver,
+            instanceId: candidate.instanceId,
+          },
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: `Could not update ${PROVIDER_DISPLAY_NAMES[candidate.driver] ?? candidate.driver}`,
+              description:
+                error instanceof Error
+                  ? error.message
+                  : "The provider update command could not be started.",
+            }),
+          );
         }
-        const next = new Set(previous);
-        next.delete(candidate.driver);
-        return next;
-      });
+      } finally {
+        updatingProviderDriversRef.current.delete(candidate.driver);
+        setUpdatingProviderDrivers((previous) => {
+          if (!previous.has(candidate.driver)) {
+            return previous;
+          }
+          const next = new Set(previous);
+          next.delete(candidate.driver);
+          return next;
+        });
+      }
     },
     [environmentId, updateProvider],
   );

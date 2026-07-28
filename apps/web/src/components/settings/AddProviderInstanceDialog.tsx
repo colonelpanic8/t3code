@@ -1,6 +1,7 @@
 "use client";
 
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { CheckIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -10,7 +11,10 @@ import {
   type ProviderInstanceConfig,
 } from "@t3tools/contracts";
 
-import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import {
+  useEnvironmentSettings,
+  usePersistEnvironmentSettings,
+} from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { normalizeProviderAccentColor } from "../../providerInstances";
 import { Button } from "../ui/button";
@@ -129,7 +133,7 @@ export function AddProviderInstanceDialog({
   onOpenChange,
 }: AddProviderInstanceDialogProps) {
   const settings = useEnvironmentSettings(environmentId);
-  const updateSettings = useUpdateEnvironmentSettings(environmentId);
+  const persistSettings = usePersistEnvironmentSettings(environmentId);
 
   const [wizardStep, setWizardStep] = useState(0);
   const [driver, setDriver] = useState<ProviderDriverKind>(DEFAULT_DRIVER_KIND);
@@ -142,6 +146,7 @@ export function AddProviderInstanceDialog({
   // Errors are suppressed until the user has tried to submit once. After that
   // they update live so fixing the problem clears the message in place.
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const existingIds = useMemo(
     () => new Set(Object.keys(settings.providerInstances ?? {})),
@@ -187,9 +192,11 @@ export function AddProviderInstanceDialog({
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSaving) return;
     setHasAttemptedSubmit(true);
     if (instanceIdError !== null) return;
+    setIsSaving(true);
 
     const config = configByDriver[driver] ?? {};
     const hasConfig = Object.keys(config).length > 0;
@@ -212,7 +219,10 @@ export function AddProviderInstanceDialog({
       [brandedId]: nextInstance,
     };
     try {
-      updateSettings({ providerInstances: nextMap });
+      const result = await persistSettings({ providerInstances: nextMap });
+      if (result._tag === "Failure") {
+        throw squashAtomCommandFailure(result);
+      }
       toastManager.add({
         type: "success",
         title: "Provider instance added",
@@ -225,6 +235,8 @@ export function AddProviderInstanceDialog({
         title: "Could not add provider instance",
         description: error instanceof Error ? error.message : "Update failed.",
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -433,8 +445,8 @@ export function AddProviderInstanceDialog({
                 Next
               </Button>
             ) : (
-              <Button size="sm" onClick={handleSave}>
-                Add instance
+              <Button size="sm" disabled={isSaving} onClick={handleSave}>
+                {isSaving ? "Adding…" : "Add instance"}
               </Button>
             )}
           </DialogFooter>

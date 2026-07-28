@@ -277,6 +277,20 @@ export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null
   return useUpdateSettingsTarget(environmentId);
 }
 
+export function usePersistEnvironmentSettings(environmentId: EnvironmentId) {
+  const persistServerSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    reportFailure: false,
+  });
+  return useCallback(
+    (patch: ServerSettingsPatch) =>
+      persistServerSettings({
+        environmentId,
+        input: { patch },
+      }),
+    [environmentId, persistServerSettings],
+  );
+}
+
 export function useUpdatePrimarySettings() {
   return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
 }
