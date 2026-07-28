@@ -95,7 +95,11 @@ import {
 } from "../commandPaletteBus";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { resolveChatNewShortcutBehavior } from "../lib/chatRouteShortcuts";
-import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import {
+  useClientKeybindings,
+  useClientSettings,
+  useUpdateClientSettings,
+} from "../hooks/useSettings";
 import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -171,7 +175,6 @@ import { EnvironmentBadge } from "./EnvironmentBadge";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { useDefaultServerConfig } from "../hooks/useDefaultServerConfig";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { CommandDialogTrigger } from "./ui/command";
@@ -1147,7 +1150,7 @@ export default function SidebarV2() {
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const defaultServerConfig = useDefaultServerConfig();
-  const keybindings = defaultServerConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
+  const keybindings = useClientKeybindings();
   const autoSettleAfterDays = useClientSettings((s) => s.sidebarAutoSettleAfterDays);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const showEnvironmentBadges = useClientSettings((s) => s.showEnvironmentBadges);

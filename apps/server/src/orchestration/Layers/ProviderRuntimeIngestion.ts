@@ -1,6 +1,5 @@
 import {
   ApprovalRequestId,
-  type AssistantDeliveryMode,
   CommandId,
   MessageId,
   type OrchestrationEvent,
@@ -40,7 +39,8 @@ import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+
+type AssistantDeliveryMode = "buffered" | "streaming";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerTaskKey = (threadId: ThreadId, taskId: string) => `${threadId}:${taskId}`;
@@ -753,7 +753,6 @@ const make = Effect.gen(function* () {
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
-  const serverSettingsService = yield* ServerSettingsService;
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1393,68 +1392,6 @@ const make = Effect.gen(function* () {
       Effect.forkIn(streamingFlushTimerScope),
       Effect.asVoid,
     );
-
-  const flushBufferedAssistantMessage = (input: {
-    event: ProviderRuntimeEvent;
-    threadId: ThreadId;
-    messageId: MessageId;
-    turnId?: TurnId;
-    createdAt: string;
-    commandTag: string;
-  }) =>
-    Effect.gen(function* () {
-      const bufferedText = yield* peekBufferedAssistantText(input.messageId);
-      if (!hasRenderableAssistantText(bufferedText)) {
-        return false;
-      }
-
-      yield* dispatchRetainedAssistantDelta(
-        {
-          type: "thread.message.assistant.delta",
-          commandId: yield* providerCommandId(input.event, input.commandTag),
-          threadId: input.threadId,
-          messageId: input.messageId,
-          delta: bufferedText,
-          ...(input.turnId ? { turnId: input.turnId } : {}),
-          createdAt: input.createdAt,
-        },
-        clearBufferedAssistantText(input.messageId),
-      );
-      return true;
-    });
-
-  const flushBufferedAssistantMessagesForTurn = (input: {
-    event: ProviderRuntimeEvent;
-    threadId: ThreadId;
-    turnId: TurnId;
-    createdAt: string;
-    commandTag: string;
-  }) =>
-    Effect.gen(function* () {
-      const assistantMessageIds = yield* getAssistantMessageIdsForTurn(
-        input.threadId,
-        input.turnId,
-      );
-      const flushedMessageIds = new Set<MessageId>();
-      yield* Effect.forEach(
-        assistantMessageIds,
-        (messageId) =>
-          flushBufferedAssistantMessage({
-            event: input.event,
-            threadId: input.threadId,
-            messageId,
-            turnId: input.turnId,
-            createdAt: input.createdAt,
-            commandTag: input.commandTag,
-          }).pipe(
-            Effect.tap((flushed) =>
-              flushed ? Effect.sync(() => flushedMessageIds.add(messageId)) : Effect.void,
-            ),
-          ),
-        { concurrency: 1 },
-      ).pipe(Effect.asVoid);
-      return flushedMessageIds;
-    });
 
   const finalizeAssistantMessage = (input: {
     event: ProviderRuntimeEvent;
@@ -2261,17 +2198,15 @@ const make = Effect.gen(function* () {
           yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
         }
 
-        const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
-          serverSettingsService.getSettings,
-          (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
-        );
         const assistantDeltaInput = {
           source: "assistant-delta",
           event,
           threadId: thread.id,
           messageId: assistantMessageId,
           ...(turnId ? { turnId } : {}),
-          deliveryMode: assistantDeliveryMode,
+          // Canonical orchestration state always retains live deltas. Whether
+          // a client reveals them token-by-token is a presentation preference.
+          deliveryMode: "streaming",
           delta: assistantDelta,
         } as const;
         if (yield* hasDeferredAssistantDelta(assistantMessageId)) {
@@ -2295,23 +2230,6 @@ const make = Effect.gen(function* () {
           : undefined;
       if (pauseForUserTurnId) {
         const detailedThread = yield* getLoadedThreadDetail();
-        const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
-          serverSettingsService.getSettings,
-          (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
-        );
-        const flushedMessageIds =
-          assistantDeliveryMode === "buffered"
-            ? yield* flushBufferedAssistantMessagesForTurn({
-                event,
-                threadId: thread.id,
-                turnId: pauseForUserTurnId,
-                createdAt: now,
-                commandTag:
-                  event.type === "request.opened"
-                    ? "assistant-delta-flush-on-request-opened"
-                    : "assistant-delta-flush-on-user-input-requested",
-              })
-            : new Set<MessageId>();
         yield* finalizeActiveAssistantSegmentForTurn({
           event,
           threadId: thread.id,
@@ -2330,7 +2248,6 @@ const make = Effect.gen(function* () {
             hasAssistantMessageForTurn(detailedThread.messages, pauseForUserTurnId, {
               streamingOnly: true,
             }),
-          flushedMessageIds,
         });
         // Finalization above can itself enter deferred retry state. Keep the
         // request boundary behind that retry just like turn/session boundaries
