@@ -51,7 +51,8 @@ export function NewTaskEnvironmentRouteScreen({
   );
   const emptyState = deriveNewTaskPickerEmptyState(workspace.state);
   const emptyStateAction = deriveNewTaskProjectPickerAction({
-    hasSelectedEnvironment: workspace.state.hasConnections,
+    // This is the environment picker: saved connections are choices, not a selection.
+    hasSelectedEnvironment: false,
     canAddProject: workspace.state.hasReadyEnvironment && workspace.state.hasLoadedShellSnapshot,
     loading: emptyState.loading,
   });
