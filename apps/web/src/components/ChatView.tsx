@@ -226,7 +226,11 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { FindInThreadBar } from "./chat/FindInThreadBar";
-import { clampThreadFindIndex, stepThreadFindIndex } from "./chat/threadFind";
+import {
+  clampThreadFindIndex,
+  isThreadFindActiveForThread,
+  stepThreadFindIndex,
+} from "./chat/threadFind";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -314,6 +318,7 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 
 interface ChatFindState {
   open: boolean;
+  threadKey: string | null;
   query: string;
   activeIndex: number;
   matchCount: number;
@@ -324,6 +329,7 @@ interface ChatFindState {
 }
 const CLOSED_CHAT_FIND_STATE: ChatFindState = {
   open: false,
+  threadKey: null,
   query: "",
   activeIndex: 0,
   matchCount: 0,
@@ -4288,9 +4294,10 @@ function ChatViewContent(props: ChatViewProps) {
     setFindState((state) => ({
       ...state,
       open: true,
+      threadKey: activeThreadKey,
       focusRequestId: state.focusRequestId + 1,
     }));
-  }, []);
+  }, [activeThreadKey]);
   const closeThreadFind = useCallback(() => {
     setFindState(CLOSED_CHAT_FIND_STATE);
   }, []);
@@ -4312,6 +4319,7 @@ function ChatViewContent(props: ChatViewProps) {
   useEffect(() => {
     setFindState(CLOSED_CHAT_FIND_STATE);
   }, [activeThreadKey]);
+  const isThreadFindActive = isThreadFindActiveForThread(findState, activeThreadKey);
   const threadFindActiveIndex = clampThreadFindIndex(findState.activeIndex, findState.matchCount);
 
   useEffect(() => {
@@ -5800,13 +5808,13 @@ function ChatViewContent(props: ChatViewProps) {
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
-                findQuery={findState.open ? findState.query : ""}
+                findQuery={isThreadFindActive ? findState.query : ""}
                 findActiveIndex={threadFindActiveIndex}
                 findNavigationId={findState.navigationId}
                 onFindMatchCountChange={handleThreadFindMatchCountChange}
               />
 
-              {findState.open && (
+              {isThreadFindActive && (
                 <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-end px-3 sm:px-5">
                   <FindInThreadBar
                     query={findState.query}

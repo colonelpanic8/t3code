@@ -6,6 +6,7 @@ import {
   clampThreadFindIndex,
   findThreadTextOccurrences,
   formatThreadFindCount,
+  isThreadFindActiveForThread,
   searchableThreadEntryText,
   stepThreadFindIndex,
 } from "./threadFind";
@@ -121,9 +122,9 @@ describe("searchableThreadEntryText", () => {
   });
 
   it("covers proposed plans", () => {
-    expect(searchableThreadEntryText(proposedPlanEntry("p1", "## Plan\nship it"))).toBe(
-      "## Plan\nship it",
-    );
+    expect(
+      searchableThreadEntryText(proposedPlanEntry("p1", "## Plan\n\n## Summary\n\nship it")),
+    ).toBe("ship it");
   });
 });
 
@@ -137,10 +138,33 @@ describe("buildThreadFindMatches", () => {
 
   it("emits one match per occurrence, in timeline order, carrying the owning turn", () => {
     expect(buildThreadFindMatches(entries, "deploy")).toEqual([
-      { entryId: "m1", turnId: "turn-1", occurrence: 0 },
-      { entryId: "m2", turnId: "turn-1", occurrence: 0 },
-      { entryId: "m2", turnId: "turn-1", occurrence: 1 },
-      { entryId: "p1", turnId: null, occurrence: 0 },
+      { entryId: "m1", turnId: "turn-1", occurrence: 0, offset: 0 },
+      { entryId: "m2", turnId: "turn-1", occurrence: 0, offset: 0 },
+      { entryId: "m2", turnId: "turn-1", occurrence: 1, offset: 15 },
+      { entryId: "p1", turnId: null, occurrence: 0, offset: 0 },
+    ]);
+  });
+
+  it("tracks a match's text offset as streaming edits reassign its ordinal", () => {
+    expect(buildThreadFindMatches([assistantEntry("m1", "one x then x")], "x")).toEqual([
+      { entryId: "m1", turnId: null, occurrence: 0, offset: 4 },
+      { entryId: "m1", turnId: null, occurrence: 1, offset: 11 },
+    ]);
+    expect(buildThreadFindMatches([assistantEntry("m1", "one then x")], "x")).toEqual([
+      { entryId: "m1", turnId: null, occurrence: 0, offset: 9 },
+    ]);
+  });
+
+  it("does not count proposed-plan text that the card strips before rendering", () => {
+    const plan = proposedPlanEntry(
+      "p1",
+      "# Hidden title sentinel\n\n## Summary\n\nVisible body sentinel",
+    );
+
+    expect(buildThreadFindMatches([plan], "hidden")).toEqual([]);
+    expect(buildThreadFindMatches([plan], "summary")).toEqual([]);
+    expect(buildThreadFindMatches([plan], "sentinel")).toEqual([
+      { entryId: "p1", turnId: null, occurrence: 0, offset: 13 },
     ]);
   });
 
@@ -151,6 +175,32 @@ describe("buildThreadFindMatches", () => {
 
   it("trims the query rather than searching for the untrimmed string", () => {
     expect(buildThreadFindMatches(entries, "  deploy  ")).toHaveLength(4);
+  });
+});
+
+describe("isThreadFindActiveForThread", () => {
+  it("rejects open state that belongs to the previously active thread", () => {
+    expect(
+      isThreadFindActiveForThread(
+        { open: true, threadKey: "environment:thread-a" },
+        "environment:thread-b",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts open state only for its owning active thread", () => {
+    expect(
+      isThreadFindActiveForThread(
+        { open: true, threadKey: "environment:thread-a" },
+        "environment:thread-a",
+      ),
+    ).toBe(true);
+    expect(
+      isThreadFindActiveForThread(
+        { open: false, threadKey: "environment:thread-a" },
+        "environment:thread-a",
+      ),
+    ).toBe(false);
   });
 });
 

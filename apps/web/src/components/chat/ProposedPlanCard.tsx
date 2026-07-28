@@ -39,12 +39,14 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   threadRef,
   cwd,
   workspaceRoot,
+  expandForFind = false,
 }: {
   planMarkdown: string;
   environmentId: EnvironmentId;
   threadRef?: ScopedThreadRef | undefined;
   cwd: string | undefined;
   workspaceRoot: string | undefined;
+  expandForFind?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
@@ -73,6 +75,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   const collapsedPreview = canCollapse
     ? buildCollapsedProposedPlanPreviewMarkdown(planMarkdown, { maxLines: 10 })
     : null;
+  const isCollapsed = canCollapse && !expanded && !expandForFind;
   const downloadFilename = buildProposedPlanMarkdownFilename(planMarkdown);
   const saveContents = normalizePlanMarkdownForExport(planMarkdown);
 
@@ -171,10 +174,10 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
       </div>
       <div className="mt-4">
         <div
-          className={cn("relative", canCollapse && !expanded && "max-h-104 overflow-hidden")}
+          className={cn("relative", isCollapsed && "max-h-104 overflow-hidden")}
           data-thread-find-text="true"
         >
-          {canCollapse && !expanded ? (
+          {isCollapsed ? (
             <ChatMarkdown
               text={collapsedPreview ?? ""}
               cwd={cwd}
@@ -189,11 +192,11 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               isStreaming={false}
             />
           )}
-          {canCollapse && !expanded ? (
+          {isCollapsed ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-card/95 via-card/80 to-transparent" />
           ) : null}
         </div>
-        {canCollapse ? (
+        {canCollapse && !expandForFind ? (
           <div className="mt-4 flex justify-center">
             <Button
               size="sm"

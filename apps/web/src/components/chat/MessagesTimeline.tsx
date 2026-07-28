@@ -129,6 +129,7 @@ interface TimelineRowSharedState {
   workspaceRoot: string | undefined;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   activeThreadEnvironmentId: EnvironmentId;
+  findActive: boolean;
   onRevertUserMessage: (messageId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -240,6 +241,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
+  const normalizedFindQuery = normalizeThreadFindQuery(findQuery);
 
   const onToggleTurnFold = useCallback((turnId: TurnId) => {
     setExpandedTurnIds((existing) => {
@@ -442,6 +444,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       skills,
       activeThreadEnvironmentId,
+      findActive: normalizedFindQuery.length > 0,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -456,6 +459,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       skills,
       activeThreadEnvironmentId,
+      normalizedFindQuery,
       onRevertUserMessage,
       onImageExpand,
       onOpenTurnDiff,
@@ -478,7 +482,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // virtualized-away content still participates; navigation unfolds and scrolls
   // to the owning row, and painting happens over the mounted DOM.
   // -------------------------------------------------------------------------
-  const normalizedFindQuery = normalizeThreadFindQuery(findQuery);
   const findMatches = useMemo(
     () => buildThreadFindMatches(timelineEntries, normalizedFindQuery),
     [normalizedFindQuery, timelineEntries],
@@ -542,7 +545,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
 
-    const matchKey = `${findNavigationId}:${normalizedFindQuery}:${activeFindMatch.entryId}:${activeFindMatch.occurrence}`;
+    const matchKey = `${findNavigationId}:${normalizedFindQuery}:${activeFindMatch.entryId}:${activeFindMatch.occurrence}:${activeFindMatch.offset}`;
     if (navigatedFindMatchKeyRef.current === matchKey) {
       return;
     }
@@ -1228,6 +1231,7 @@ function ProposedPlanTimelineRow({
         threadRef={ctx.threadRef ?? undefined}
         cwd={ctx.markdownCwd}
         workspaceRoot={ctx.workspaceRoot}
+        expandForFind={ctx.findActive}
       />
     </div>
   );

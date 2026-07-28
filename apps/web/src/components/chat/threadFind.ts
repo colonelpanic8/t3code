@@ -1,5 +1,6 @@
 import { type TurnId } from "@t3tools/contracts";
 import { type TimelineEntry } from "../../session-logic";
+import { stripDisplayedPlanMarkdown } from "../../proposedPlan";
 import { deriveDisplayedUserMessageContent } from "~/lib/visibleMessageText";
 
 /**
@@ -16,6 +17,11 @@ export interface ThreadFindMatch {
   turnId: TurnId | null;
   /** 0-based index of this occurrence within its own entry. */
   occurrence: number;
+  /**
+   * UTF-16 offset inside the entry's searchable text. Unlike `occurrence`,
+   * this changes when a streaming edit removes or inserts an earlier match.
+   */
+  offset: number;
 }
 
 export function normalizeThreadFindQuery(query: string): string {
@@ -73,15 +79,15 @@ export function findThreadTextOccurrences(haystack: string, needle: string): num
  * cover. Work-log rows (tool calls, commands, reasoning) are deliberately out of
  * scope — find targets the conversation itself.
  *
- * Assistant messages and plans are searched as markdown *source*, so syntax
- * that the renderer hides (link URLs, emphasis markers) is matched too. That is
- * intentional: extracting renderer-exact plain text would mean duplicating the
- * markdown pipeline here and drifting from it. Such a match still navigates to
- * the right message; it just may not paint.
+ * Assistant messages and the displayed plan body are searched as markdown
+ * *source*, so syntax that the renderer hides (link URLs, emphasis markers) is
+ * matched too. That is intentional: extracting renderer-exact plain text would
+ * mean duplicating the markdown pipeline here and drifting from it. Such a
+ * match still navigates to the right message; it just may not paint.
  */
 export function searchableThreadEntryText(entry: TimelineEntry): string | null {
   if (entry.kind === "proposed-plan") {
-    return entry.proposedPlan.planMarkdown;
+    return stripDisplayedPlanMarkdown(entry.proposedPlan.planMarkdown);
   }
   if (entry.kind !== "message") {
     return null;
@@ -119,10 +125,27 @@ export function buildThreadFindMatches(
     }
     const occurrences = findThreadTextOccurrences(text, normalized);
     for (let occurrence = 0; occurrence < occurrences.length; occurrence += 1) {
-      matches.push({ entryId: entry.id, turnId: threadEntryTurnId(entry), occurrence });
+      matches.push({
+        entryId: entry.id,
+        turnId: threadEntryTurnId(entry),
+        occurrence,
+        offset: occurrences[occurrence] ?? 0,
+      });
     }
   }
   return matches;
+}
+
+/**
+ * Find state is owned by the thread on which it was opened. Checking that
+ * ownership during render prevents one stale paint with the previous thread's
+ * query before the thread-change cleanup effect runs.
+ */
+export function isThreadFindActiveForThread(
+  state: { open: boolean; threadKey: string | null },
+  activeThreadKey: string | null,
+): boolean {
+  return state.open && state.threadKey !== null && state.threadKey === activeThreadKey;
 }
 
 /**
