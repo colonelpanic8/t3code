@@ -48,6 +48,7 @@ import {
   GitForkIcon,
   GlobeIcon,
   HammerIcon,
+  ImageIcon,
   MessageCircleIcon,
   MousePointerClickIcon,
   PaintbrushIcon,
@@ -101,6 +102,7 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatShortTimestamp } from "../../timestampFormat";
+import { useRightPanelStore } from "~/rightPanelStore";
 
 import {
   buildInlineTerminalContextText,
@@ -1973,11 +1975,37 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
+const GeneratedImageWorkEntryLink = memo(function GeneratedImageWorkEntryLink({
+  threadRef,
+  image,
+}: {
+  threadRef: ScopedThreadRef;
+  image: NonNullable<TimelineWorkEntry["generatedImage"]>;
+}) {
+  return (
+    <button
+      type="button"
+      className="mt-1 ms-7 flex max-w-[calc(100%-1.75rem)] items-center gap-1.5 text-left text-xs text-info-foreground underline-offset-2 hover:underline"
+      aria-label={`Open generated image ${image.name}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        useRightPanelStore.getState().openGeneratedImage(threadRef, image.activityId, image.name);
+      }}
+      onKeyDown={stopRowToggle}
+      onPointerDown={stopRowToggle}
+    >
+      <ImageIcon className="size-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{image.name}</span>
+    </button>
+  );
+});
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
 }) {
   const { workEntry, workspaceRoot } = props;
+  const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
   const [expanded, setExpanded] = useState(false);
   const iconConfig = workToneIcon(workEntry.tone);
@@ -2023,6 +2051,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         role: "button" as const,
         tabIndex: 0 as const,
         "aria-label": displayText,
+        "aria-expanded": expanded,
         onClick: () => setExpanded((v) => !v),
         onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -2034,15 +2063,15 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     : {};
 
   return (
-    <div
-      className={cn(
-        "flex flex-col rounded-md px-0.5 py-0.5 transition-colors",
-        canExpand &&
-          "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
-      )}
-      {...rowToggleProps}
-    >
-      <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
+    <div className="flex flex-col rounded-md px-0.5 py-0.5">
+      <div
+        className={cn(
+          "flex select-none items-center gap-1.5 rounded-md transition-[background-color,opacity,translate] duration-200",
+          canExpand &&
+            "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+        )}
+        {...rowToggleProps}
+      >
         <span className={iconWrapperClass}>
           <WorkEntryIconSvg
             name={entryIconName}
@@ -2127,6 +2156,9 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             {expandedBody}
           </pre>
         </div>
+      ) : null}
+      {workEntry.generatedImage && ctx.threadRef ? (
+        <GeneratedImageWorkEntryLink threadRef={ctx.threadRef} image={workEntry.generatedImage} />
       ) : null}
     </div>
   );
