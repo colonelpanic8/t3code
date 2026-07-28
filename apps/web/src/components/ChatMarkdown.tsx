@@ -1581,15 +1581,35 @@ function ChatMarkdown({
         const fileLinkMeta =
           markdownFileLinkMetaByHref.get(normalizedSrc) ??
           resolveMarkdownFileLinkMeta(normalizedSrc, cwd);
-        // Remote sources load fine on their own; only local paths need an asset URL,
-        // and the environment only signs URLs for previewable image types.
-        if (!fileLinkMeta || !isWorkspaceImagePreviewPath(fileLinkMeta.filePath)) {
+        // Remote sources load fine on their own; only local paths need an asset URL.
+        if (!fileLinkMeta) {
           return plainImage;
         }
 
         const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
         const label = markdownFileLinkLabel(fileLinkMeta, parentSuffix);
         const workspaceRelativePath = fileLinkMeta.workspaceRelativePath;
+        const fallback = (
+          <MarkdownFileLink
+            href={fileLinkMeta.targetPath}
+            targetPath={fileLinkMeta.targetPath}
+            iconPath={fileLinkMeta.filePath}
+            displayPath={fileLinkMeta.displayPath}
+            workspaceRelativePath={workspaceRelativePath}
+            label={label}
+            copyMarkdown={`![${altText}](${normalizedSrc})`}
+            theme={resolvedTheme}
+            threadRef={threadRef}
+            onOpen={openInPreferredEditor}
+          />
+        );
+        // The environment signs only previewable image types. Keep other local
+        // image destinations useful as file chips instead of emitting a raw
+        // filesystem URL that the browser cannot load.
+        if (!isWorkspaceImagePreviewPath(fileLinkMeta.filePath)) {
+          return fallback;
+        }
+
         return (
           <MarkdownWorkspaceImage
             threadRef={threadRef}
@@ -1601,20 +1621,7 @@ function ChatMarkdown({
                 ? () => useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath)
                 : undefined
             }
-            fallback={
-              <MarkdownFileLink
-                href={fileLinkMeta.targetPath}
-                targetPath={fileLinkMeta.targetPath}
-                iconPath={fileLinkMeta.filePath}
-                displayPath={fileLinkMeta.displayPath}
-                workspaceRelativePath={workspaceRelativePath}
-                label={label}
-                copyMarkdown={`![${altText}](${normalizedSrc})`}
-                theme={resolvedTheme}
-                threadRef={threadRef}
-                onOpen={openInPreferredEditor}
-              />
-            }
+            fallback={fallback}
           />
         );
       },
