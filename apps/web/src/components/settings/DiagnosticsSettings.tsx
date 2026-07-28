@@ -851,6 +851,15 @@ export function DiagnosticsSettingsPanel() {
   });
   const diagnosticsEnvironment =
     environments.find((environment) => environment.environmentId === environmentId) ?? null;
+  // Query atoms retain their last successful value while an environment is
+  // disconnected. Derive connectivity before subscribing so cached diagnostics
+  // can never render as current data or leave process actions available.
+  const connectionNotice = diagnosticsConnectionNotice({
+    phase: diagnosticsEnvironment?.connection.phase ?? "available",
+    label: diagnosticsEnvironment?.label ?? "This environment",
+    error: diagnosticsEnvironment?.connection.error ?? null,
+  });
+  const isConnected = connectionNotice === null;
   const observability = diagnosticsEnvironment?.serverConfig?.observability ?? null;
   const availableEditors = diagnosticsEnvironment?.serverConfig?.availableEditors ?? [];
   const environmentItems = useMemo(
@@ -871,28 +880,33 @@ export function DiagnosticsSettingsPanel() {
   const selectedResourceWindow =
     RESOURCE_HISTORY_WINDOWS.find((option) => option.windowMs === resourceWindowMs) ??
     RESOURCE_HISTORY_WINDOWS[1];
-  const { data, error, isPending, refresh } = useEnvironmentQuery(
-    environmentId === null
+  const {
+    data: cachedData,
+    error: cachedError,
+    isPending: isTracePending,
+    refresh,
+  } = useEnvironmentQuery(
+    environmentId === null || !isConnected
       ? null
       : serverEnvironment.traceDiagnostics({ environmentId, input: {} }),
   );
   const {
-    data: processData,
-    error: processError,
-    isPending: isProcessPending,
+    data: cachedProcessData,
+    error: cachedProcessError,
+    isPending: isProcessQueryPending,
     refresh: refreshProcesses,
   } = useEnvironmentQuery(
-    environmentId === null
+    environmentId === null || !isConnected
       ? null
       : serverEnvironment.processDiagnostics({ environmentId, input: {} }),
   );
   const {
-    data: resourceData,
-    error: resourceError,
-    isPending: isResourcePending,
+    data: cachedResourceData,
+    error: cachedResourceError,
+    isPending: isResourceQueryPending,
     refresh: refreshResources,
   } = useEnvironmentQuery(
-    environmentId === null
+    environmentId === null || !isConnected
       ? null
       : serverEnvironment.processResourceHistory({
           environmentId,
@@ -902,6 +916,15 @@ export function DiagnosticsSettingsPanel() {
           },
         }),
   );
+  const data = isConnected ? cachedData : null;
+  const error = isConnected ? cachedError : null;
+  const isPending = isConnected && isTracePending;
+  const processData = isConnected ? cachedProcessData : null;
+  const processError = isConnected ? cachedProcessError : null;
+  const isProcessPending = isConnected && isProcessQueryPending;
+  const resourceData = isConnected ? cachedResourceData : null;
+  const resourceError = isConnected ? cachedResourceError : null;
+  const isResourcePending = isConnected && isResourceQueryPending;
   // Panel-local state is keyed by environment so that a result produced for one
   // environment is never shown for (or applied to) another one.
   const [logsDirectoryState, setLogsDirectoryState] = useState<LogsDirectoryState | null>(null);
@@ -977,7 +1000,7 @@ export function DiagnosticsSettingsPanel() {
       ) {
         return;
       }
-      if (environmentId === null) {
+      if (environmentId === null || !isConnected) {
         return;
       }
 
@@ -1023,17 +1046,9 @@ export function DiagnosticsSettingsPanel() {
         refreshProcesses();
       })();
     },
-    [environmentId, refreshProcesses, signalServerProcess],
+    [environmentId, isConnected, refreshProcesses, signalServerProcess],
   );
 
-  // Diagnostics RPCs only run while the environment's supervisor is connected,
-  // so anything else has to surface as a state instead of an endless spinner.
-  const connectionNotice = diagnosticsConnectionNotice({
-    phase: diagnosticsEnvironment?.connection.phase ?? "available",
-    label: diagnosticsEnvironment?.label ?? "This environment",
-    error: diagnosticsEnvironment?.connection.error ?? null,
-  });
-  const isConnected = connectionNotice === null;
   const statPlaceholder = isConnected ? "..." : "—";
 
   const processDiagnosticsError = processData ? Option.getOrNull(processData.error) : null;
@@ -1173,6 +1188,7 @@ export function DiagnosticsSettingsPanel() {
           </div>
         ) : null}
         <ProcessDiagnosticsTable
+          key={environmentId}
           processes={processData?.processes ?? []}
           signalingPids={signalingPids}
           onSignal={signalProcess}
