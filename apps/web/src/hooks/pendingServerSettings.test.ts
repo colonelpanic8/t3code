@@ -87,6 +87,33 @@ describe("pendingServerSettings", () => {
     expect(getPendingServerPatches(environmentId)).toEqual([]);
   });
 
+  it("retires a successful overlay when its settings echo arrives before the RPC settles", () => {
+    const patch = { providerInstances: { [codexId]: providerInstance("codex", false) } };
+    const id = retain(patch);
+    const settledSettings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, patch);
+
+    acknowledgePendingServerSettings(environmentId, settledSettings);
+    expect(getPendingServerPatches(environmentId)).toHaveLength(1);
+
+    settlePendingServerPatch(environmentId, id, settledSettings);
+    expect(getPendingServerPatches(environmentId)).toEqual([]);
+  });
+
+  it("records an early echo while an older successful patch is still awaiting its echo", () => {
+    const firstPatch = { enableAssistantStreaming: false };
+    const firstId = retain(firstPatch);
+    const secondPatch = { enableProviderUpdateChecks: false };
+    const secondId = retain(secondPatch);
+    const firstSettings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, firstPatch);
+    const secondSettings = applyServerSettingsPatch(firstSettings, secondPatch);
+
+    settlePendingServerPatch(environmentId, firstId, firstSettings);
+    acknowledgePendingServerSettings(environmentId, secondSettings);
+    settlePendingServerPatch(environmentId, secondId, secondSettings);
+
+    expect(getPendingServerPatches(environmentId)).toEqual([]);
+  });
+
   it("drops the overlay for a failed write so the server value wins again", () => {
     const id = retain({
       providerInstances: { [codexId]: providerInstance("codex", false) },

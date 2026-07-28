@@ -10,7 +10,10 @@ export interface PendingServerPatch {
 
 interface PendingServerState {
   readonly patches: ReadonlyArray<PendingServerPatch>;
+  /** Latest successful RPC result, used to rebase the next queued write. */
   readonly authoritativeSettings: ServerSettings;
+  /** Latest settings snapshot published to React, which may precede its RPC result. */
+  readonly observedSettings: ServerSettings;
 }
 
 export const NO_PENDING_SERVER_PATCHES: ReadonlyArray<PendingServerPatch> = [];
@@ -120,6 +123,7 @@ export function retainPendingServerPatch(
   pendingByEnvironment.set(environmentId, {
     patches: [...(existing?.patches ?? NO_PENDING_SERVER_PATCHES), { id, patch, baseSettings }],
     authoritativeSettings: existing?.authoritativeSettings ?? authoritativeSettings,
+    observedSettings: existing?.observedSettings ?? authoritativeSettings,
   });
   emitChange();
   return id;
@@ -146,18 +150,26 @@ export function settlePendingServerPatch(
 ): void {
   const state = pendingByEnvironment.get(environmentId);
   if (!state) return;
+  const settledIndex = state.patches.findIndex((entry) => entry.id === id);
+  const settingsWereAlreadyObserved =
+    settings !== null &&
+    settledIndex >= 0 &&
+    structurallyEqual(state.observedSettings, settings);
   const patches =
     settings === null
       ? state.patches.filter((entry) => entry.id !== id)
-      : state.patches.map((entry) =>
-          entry.id === id ? { ...entry, settledSettings: settings } : entry,
-        );
-  if (patches.length === 0 && settings === null) {
+      : settingsWereAlreadyObserved
+        ? state.patches.slice(settledIndex + 1)
+        : state.patches.map((entry) =>
+            entry.id === id ? { ...entry, settledSettings: settings } : entry,
+          );
+  if (patches.length === 0) {
     pendingByEnvironment.delete(environmentId);
   } else {
     pendingByEnvironment.set(environmentId, {
       patches,
       authoritativeSettings: settings ?? state.authoritativeSettings,
+      observedSettings: state.observedSettings,
     });
   }
   emitChange();
@@ -185,17 +197,19 @@ export function acknowledgePendingServerSettings(
       pendingByEnvironment.set(environmentId, {
         patches,
         authoritativeSettings: settings,
+        observedSettings: settings,
       });
     }
     emitChange();
     return;
   }
-  if (!state.patches.some((entry) => entry.settledSettings !== undefined)) {
-    pendingByEnvironment.set(environmentId, {
-      ...state,
-      authoritativeSettings: settings,
-    });
-  }
+  pendingByEnvironment.set(environmentId, {
+    ...state,
+    ...(state.patches.some((entry) => entry.settledSettings !== undefined)
+      ? {}
+      : { authoritativeSettings: settings }),
+    observedSettings: settings,
+  });
 }
 
 export function __resetPendingServerPatchesForTests(): void {
