@@ -749,7 +749,9 @@ function OpenCommandPaletteDialog(props: {
   const isRemoteProjectCloneFlow = addProjectCloneFlow !== null;
   const isRemoteProjectRepositoryStep = addProjectCloneFlow?.step === "repository";
   const isBrowsing =
-    !isRemoteProjectRepositoryStep && isFilesystemBrowseQuery(query, browseEnvironmentPlatform);
+    !isNewThreadProjectPickerView &&
+    !isRemoteProjectRepositoryStep &&
+    isFilesystemBrowseQuery(query, browseEnvironmentPlatform);
   const paletteMode = getCommandPaletteMode({ currentView, isBrowsing });
   const getAddProjectInitialQueryForEnvironment = useCallback(
     (environmentId: EnvironmentId | null): string => {
