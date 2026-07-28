@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import ChatView from "../components/ChatView";
 import { resolveStartedThreadRef } from "../components/ChatView.logic";
 import {
@@ -17,7 +17,10 @@ function DraftChatThreadRouteView() {
   const { draftId: rawDraftId } = Route.useParams();
   const draftId = DraftId.make(rawDraftId);
   const draftSession = useComposerDraftStore((store) => store.getDraftSession(draftId));
-  const serverThreadRef = resolveDraftThreadSubscriptionRef(draftSession);
+  const serverThreadRef = useMemo(
+    () => resolveDraftThreadSubscriptionRef(draftSession),
+    [draftSession],
+  );
   // Promotion is driven by the authoritative detail stream. The composed
   // `useThread` view intentionally overlays shell metadata, whose independent
   // subscription can briefly lag and erase a started session/latest turn.

@@ -485,6 +485,17 @@ export async function recoverDraftThreadAfterBootstrap(
     return true;
   }
 
+  // Hydration can land after the timeout callback unsubscribes but before this
+  // continuation runs. Re-read the authoritative detail before tearing down a
+  // stream that has already recovered.
+  if (
+    threadHasStarted(
+      appAtomRegistry.get(environmentThreadDetails.detailAtom(threadRef)),
+    )
+  ) {
+    return true;
+  }
+
   appAtomRegistry.refresh(
     environmentThreads.stateAtom(threadRef.environmentId, threadRef.threadId),
   );
