@@ -1,4 +1,5 @@
 import {
+  COMPOSER_KEYBINDING_COMMANDS,
   type KeybindingCommand,
   type KeybindingShortcut,
   type KeybindingWhenNode,
@@ -216,39 +217,113 @@ export function resolveShortcutCommand(
   return null;
 }
 
+/**
+ * Apple's glyphs for the non-letter keys, from Apple's Human Interface
+ * Guidelines. Keys with no established glyph (function keys, punctuation) keep
+ * their word form.
+ */
+const SHORTCUT_KEY_SYMBOLS: Readonly<Record<string, string>> = {
+  " ": "␣",
+  arrowdown: "↓",
+  arrowleft: "←",
+  arrowright: "→",
+  arrowup: "↑",
+  backspace: "⌫",
+  delete: "⌦",
+  end: "↘",
+  enter: "⏎",
+  escape: "⎋",
+  home: "↖",
+  pagedown: "⇟",
+  pageup: "⇞",
+  return: "⏎",
+  tab: "⇥",
+};
+
 function formatShortcutKeyLabel(key: string): string {
-  if (key === " ") return "Space";
+  const symbol = SHORTCUT_KEY_SYMBOLS[key];
+  if (symbol) return symbol;
   if (key.length === 1) return key.toUpperCase();
-  if (key === "escape") return "Esc";
-  if (key === "arrowup") return "Up";
-  if (key === "arrowdown") return "Down";
-  if (key === "arrowleft") return "Left";
-  if (key === "arrowright") return "Right";
   return key.slice(0, 1).toUpperCase() + key.slice(1);
 }
 
+/**
+ * Apple-style glyph for one token of a raw binding string ("mod+shift+b"), for
+ * surfaces that render a chord as separate chips rather than one label.
+ */
+export function formatShortcutTokenLabel(token: string, platform = navigator.platform): string {
+  const useMetaForMod = isMacPlatform(platform);
+  switch (token) {
+    case "mod":
+      return useMetaForMod ? "⌘" : "⌃";
+    case "meta":
+      return useMetaForMod ? "⌘" : "Super";
+    case "ctrl":
+      return "⌃";
+    case "alt":
+      return "⌥";
+    case "shift":
+      return "⇧";
+    default:
+      return formatShortcutKeyLabel(token);
+  }
+}
+
+interface ShortcutLabelParts {
+  showMeta: boolean;
+  showCtrl: boolean;
+  showAlt: boolean;
+  showShift: boolean;
+  keyLabel: string;
+}
+
+function resolveShortcutLabelParts(
+  shortcut: KeybindingShortcut,
+  platform: string,
+  // Modifiers the user is already holding. They are dropped from the label so a
+  // hold-modifier hint only advertises the keys that are still left to press.
+  heldModifiers?: ShortcutModifierStateLike,
+): ShortcutLabelParts {
+  const useMetaForMod = isMacPlatform(platform);
+  return {
+    showMeta: (shortcut.metaKey || (shortcut.modKey && useMetaForMod)) && !heldModifiers?.metaKey,
+    showCtrl: (shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod)) && !heldModifiers?.ctrlKey,
+    showAlt: shortcut.altKey && !heldModifiers?.altKey,
+    showShift: shortcut.shiftKey && !heldModifiers?.shiftKey,
+    keyLabel: formatShortcutKeyLabel(shortcut.key),
+  };
+}
+
+/**
+ * Apple's modifier glyphs, in Apple's canonical order. `\u2303` is the real
+ * control glyph (an up arrowhead) rather than an ASCII caret. There is no Apple
+ * glyph for a non-mac meta/super key, so that one stays a word.
+ */
+function formatSymbolicShortcutLabel(parts: ShortcutLabelParts, platform: string): string {
+  const metaSymbol = isMacPlatform(platform) ? "\u2318" : "Super";
+  return [
+    parts.showCtrl ? "\u2303" : "",
+    parts.showAlt ? "\u2325" : "",
+    parts.showShift ? "\u21e7" : "",
+    parts.showMeta ? metaSymbol : "",
+    parts.keyLabel,
+  ].join("");
+}
+
+/**
+ * Shortcuts render Apple-style everywhere: modifier and key glyphs in Apple's
+ * canonical order with no separators, on every platform. `mod+shift+e` is
+ * `⌃⇧E` on Linux/Windows and `⇧⌘E` on macOS.
+ */
 export function formatShortcutLabel(
   shortcut: KeybindingShortcut,
   platform = navigator.platform,
+  heldModifiers?: ShortcutModifierStateLike,
 ): string {
-  const keyLabel = formatShortcutKeyLabel(shortcut.key);
-  const useMetaForMod = isMacPlatform(platform);
-  const showMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
-  const showCtrl = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
-  const showAlt = shortcut.altKey;
-  const showShift = shortcut.shiftKey;
-
-  if (useMetaForMod) {
-    return `${showCtrl ? "\u2303" : ""}${showAlt ? "\u2325" : ""}${showShift ? "\u21e7" : ""}${showMeta ? "\u2318" : ""}${keyLabel}`;
-  }
-
-  const parts: string[] = [];
-  if (showCtrl) parts.push("Ctrl");
-  if (showAlt) parts.push("Alt");
-  if (showShift) parts.push("Shift");
-  if (showMeta) parts.push("Meta");
-  parts.push(keyLabel);
-  return parts.join("+");
+  return formatSymbolicShortcutLabel(
+    resolveShortcutLabelParts(shortcut, platform, heldModifiers),
+    platform,
+  );
 }
 
 export function shortcutLabelForCommand(
@@ -263,6 +338,32 @@ export function shortcutLabelForCommand(
   const platform = resolvePlatform(resolvedOptions);
   const shortcut = findEffectiveShortcutForCommand(keybindings, command, resolvedOptions);
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
+}
+
+/**
+ * Label for a hold-modifier hint: the chord minus the platform mod key, which
+ * the user is necessarily already holding for the hint to be visible at all.
+ * `mod+shift+e` reads `⇧E`, and it stays that way as further modifiers go down,
+ * so a cap never reflows mid-hold. Subtraction is per binding — a rebound chord
+ * that shares nothing with the others still renders what it needs.
+ */
+export function remainingShortcutLabelForCommand(
+  keybindings: ResolvedKeybindingsConfig,
+  command: KeybindingCommand,
+  heldModifiers: ShortcutModifierStateLike,
+  options?: ResolvedShortcutLabelOptions,
+): string | null {
+  const platform = resolvePlatform(options);
+  const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
+  if (!shortcut) return null;
+  if (!modifiersAreSubsetOfShortcutModifiers(heldModifiers, shortcut, platform)) return null;
+  const modKeyOnly: ShortcutModifierStateLike = {
+    metaKey: isMacPlatform(platform),
+    ctrlKey: !isMacPlatform(platform),
+    shiftKey: false,
+    altKey: false,
+  };
+  return formatShortcutLabel(shortcut, platform, modKeyOnly);
 }
 
 export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {
@@ -345,6 +446,54 @@ export function shouldShowModelPickerJumpHintsForModifiers(
   }
 
   return false;
+}
+
+const COMPOSER_CONTROL_HINT_COMMANDS = [
+  "modelPicker.toggle",
+  ...COMPOSER_KEYBINDING_COMMANDS,
+] as const;
+
+// Subset (not exact) modifier matching: holding just the mod key must reveal
+// hints for chords like mod+shift+e, but holding a modifier the shortcut does
+// not use must hide them.
+function modifiersAreSubsetOfShortcutModifiers(
+  modifiers: ShortcutModifierStateLike,
+  shortcut: KeybindingShortcut,
+  platform = navigator.platform,
+): boolean {
+  const useMetaForMod = isMacPlatform(platform);
+  const expectedMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
+  const expectedCtrl = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
+  return (
+    (!modifiers.metaKey || expectedMeta) &&
+    (!modifiers.ctrlKey || expectedCtrl) &&
+    (!modifiers.shiftKey || shortcut.shiftKey) &&
+    (!modifiers.altKey || shortcut.altKey)
+  );
+}
+
+export function shouldShowComposerControlHintsForModifiers(
+  modifiers: ShortcutModifierStateLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return COMPOSER_CONTROL_HINT_COMMANDS.some((command) =>
+    shouldShowCommandHintForModifiers(modifiers, keybindings, command, options),
+  );
+}
+
+export function shouldShowCommandHintForModifiers(
+  modifiers: ShortcutModifierStateLike,
+  keybindings: ResolvedKeybindingsConfig,
+  command: KeybindingCommand,
+  options?: ShortcutMatchOptions,
+): boolean {
+  const platform = resolvePlatform(options);
+  const modKeyHeld = isMacPlatform(platform) ? modifiers.metaKey : modifiers.ctrlKey;
+  if (!modKeyHeld) return false;
+
+  const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
+  return shortcut ? modifiersAreSubsetOfShortcutModifiers(modifiers, shortcut, platform) : false;
 }
 
 export function isTerminalToggleShortcut(
