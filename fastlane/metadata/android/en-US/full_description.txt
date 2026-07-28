@@ -1,0 +1,12 @@
+T3 Code is a client for coding agents: it connects to a T3 Code server running on
+your own machine or tailnet and lets you drive agent sessions, review diffs, and
+work with a terminal from your phone.
+
+These are unofficial builds of the "preview" variant, produced from a personal
+assembly that carries pull requests not yet merged upstream. They are
+not affiliated with or endorsed by T3 Tools Inc.
+
+The package identifier is com.t3tools.t3code.preview, so this installs alongside
+an official T3 Code app rather than replacing it.
+
+Builds are arm64-v8a only and will not install on an x86_64 Android emulator.
