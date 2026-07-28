@@ -865,7 +865,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'full-access',
             'default',
             NULL,
-            NULL,
+            '/tmp/worktree-first',
             NULL,
             '2026-03-01T00:00:05.000Z',
             '2026-03-01T00:00:06.000Z',
@@ -895,7 +895,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'full-access',
             'default',
             NULL,
-            NULL,
+            '/tmp/worktree-deleted',
             NULL,
             '2026-03-01T00:00:09.000Z',
             '2026-03-01T00:00:10.000Z',
@@ -909,6 +909,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           projectCount: 2,
           threadCount: 3,
         });
+
+        assert.deepEqual(yield* snapshotQuery.getActiveProjectWorkspaceRoots(), ["/tmp/workspace"]);
+        assert.deepEqual(yield* snapshotQuery.getActiveThreadWorktreePaths(), [
+          "/tmp/worktree-first",
+        ]);
 
         const project = yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/workspace");
         assert.equal(project._tag, "Some");

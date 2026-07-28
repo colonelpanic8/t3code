@@ -415,6 +415,7 @@ export const SourceControlWritingStyleSettings = Schema.Struct({
 export type SourceControlWritingStyleSettings = typeof SourceControlWritingStyleSettings.Type;
 
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
+export const DEFAULT_WORKTREE_PATH_TEMPLATE = "{worktreesDir}/{repoName}/{branch}";
 
 const ProjectIconPath = TrimmedNonEmptyString.check(Schema.isMaxLength(1024));
 const ProjectIconWorkspaceRoot = TrimmedNonEmptyString.check(Schema.isMaxLength(1024));
@@ -434,6 +435,9 @@ export const ServerSettings = Schema.Struct({
   ),
   newWorktreesStartFromOrigin: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  worktreePathTemplate: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_WORKTREE_PATH_TEMPLATE)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   projectIcons: Schema.Record(ProjectIconWorkspaceRoot, ProjectIconPath).pipe(
@@ -595,6 +599,7 @@ export const ServerSettingsPatch = Schema.Struct({
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
+  worktreePathTemplate: Schema.optionalKey(TrimmedNonEmptyString),
   addProjectBaseDirectory: Schema.optionalKey(TrimmedString),
   // Whole-map replacement. Omitting a key removes that project's override.
   projectIcons: Schema.optionalKey(Schema.Record(ProjectIconWorkspaceRoot, ProjectIconPath)),
