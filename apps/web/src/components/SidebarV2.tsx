@@ -2439,7 +2439,7 @@ export default function SidebarV2() {
             ?.providers.find((provider) => provider.instanceId === providerInstanceId)?.driver ??
           null;
         const forkSupported = supportsThreadFork(providerDriver);
-        const sourceTurnId = resolveLatestForkableTurnId(thread.latestTurn);
+        const sourceTurnId = resolveLatestForkableTurnId(thread);
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         // Presets resolve at menu-open time (same as the popover).
