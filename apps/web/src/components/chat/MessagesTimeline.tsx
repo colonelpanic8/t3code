@@ -1999,6 +1999,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         role: "button" as const,
         tabIndex: 0 as const,
         "aria-label": displayText,
+        "aria-expanded": expanded,
         onClick: () => setExpanded((v) => !v),
         onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -2010,15 +2011,15 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     : {};
 
   return (
-    <div
-      className={cn(
-        "flex flex-col rounded-md px-0.5 py-0.5 transition-colors",
-        canExpand &&
-          "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
-      )}
-      {...rowToggleProps}
-    >
-      <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
+    <div className="flex flex-col rounded-md px-0.5 py-0.5">
+      <div
+        className={cn(
+          "flex select-none items-center gap-1.5 rounded-md transition-[background-color,opacity,translate] duration-200",
+          canExpand &&
+            "cursor-pointer hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+        )}
+        {...rowToggleProps}
+      >
         <span className={iconWrapperClass}>
           <WorkEntryIconSvg
             name={entryIconName}
