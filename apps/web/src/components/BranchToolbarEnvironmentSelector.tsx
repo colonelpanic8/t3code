@@ -3,9 +3,7 @@ import { CloudIcon, MonitorIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import type { EnvironmentOption } from "./BranchToolbar.logic";
-import { cn } from "../lib/utils";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ComposerShortcutKeycap } from "./chat/ComposerControlShortcutHint";
+import { Kbd } from "./ui/kbd";
 import {
   Select,
   SelectGroup,
@@ -26,6 +24,7 @@ interface BranchToolbarEnvironmentSelectorProps {
   // Absent when there is only one environment to show: the indicator still
   // renders (as a static label) so remote projects are always identifiable.
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
+  onSelectionComplete?: () => void;
 }
 
 export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvironmentSelector({
@@ -36,6 +35,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   onOpenChange,
   shortcutHintLabel,
   onEnvironmentChange,
+  onSelectionComplete,
 }: BranchToolbarEnvironmentSelectorProps) {
   const activeEnvironment = useMemo(() => {
     return availableEnvironments.find((env) => env.environmentId === environmentId) ?? null;
@@ -51,27 +51,15 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   );
 
   if (envLocked || onEnvironmentChange === undefined) {
-    // The indicator still renders so remote projects stay identifiable, but it
-    // is inert here — say why, since it otherwise reads as a dead control.
-    const inertReason = envLocked
-      ? "This thread already started, so it cannot move to another environment"
-      : "The only environment available for this project";
     return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <span className="inline-flex min-w-0 max-w-full items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs" />
-          }
-        >
-          {activeEnvironment?.isPrimary ? (
-            <MonitorIcon className="size-3 shrink-0" />
-          ) : (
-            <CloudIcon className="size-3 shrink-0" />
-          )}
-          <span className="truncate">{activeEnvironment?.label ?? "Run on"}</span>
-        </TooltipTrigger>
-        <TooltipPopup side="top">{inertReason}</TooltipPopup>
-      </Tooltip>
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
+        {activeEnvironment?.isPrimary ? (
+          <MonitorIcon className="size-3 shrink-0" />
+        ) : (
+          <CloudIcon className="size-3 shrink-0" />
+        )}
+        <span className="truncate">{activeEnvironment?.label ?? "Run on"}</span>
+      </span>
     );
   }
 
@@ -81,16 +69,16 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       value={environmentId}
       {...(open !== undefined ? { open } : {})}
       {...(onOpenChange ? { onOpenChange } : {})}
-      onValueChange={(value) => onEnvironmentChange(value as EnvironmentId)}
+      onValueChange={(value) => {
+        onEnvironmentChange(value as EnvironmentId);
+        onSelectionComplete?.();
+      }}
       items={environmentItems}
     >
       <SelectTrigger
         variant="ghost"
         size="xs"
-        className={cn(
-          "min-w-0 max-w-full font-medium",
-          shortcutHintLabel && "[&_[data-slot=select-icon]]:hidden",
-        )}
+        className="min-w-0 max-w-full font-medium"
         aria-label="Run on"
       >
         {activeEnvironment?.isPrimary ? (
@@ -99,7 +87,9 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           <CloudIcon className="size-3 shrink-0" />
         )}
         <SelectValue />
-        {shortcutHintLabel ? <ComposerShortcutKeycap label={shortcutHintLabel} /> : null}
+        {shortcutHintLabel ? (
+          <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">{shortcutHintLabel}</Kbd>
+        ) : null}
       </SelectTrigger>
       <SelectPopup>
         <SelectGroup>
