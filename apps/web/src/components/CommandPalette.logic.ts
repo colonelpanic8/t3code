@@ -334,6 +334,10 @@ export function filterCommandPaletteGroups(input: {
   }
 
   return searchableGroups.flatMap((group) => {
+    if (!isActionsFilter && group.value === "new-thread-actions") {
+      return [{ value: group.value, label: group.label, items: [...group.items] }];
+    }
+
     const items = Arr.filterMap(group.items, (item, index) => {
       const haystack = normalizeSearchText(item.searchTerms.join(" "));
       if (!haystack.includes(normalizedQuery)) {

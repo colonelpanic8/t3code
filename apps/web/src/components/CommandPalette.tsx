@@ -538,6 +538,7 @@ function OpenCommandPaletteDialog(props: {
     currentView?.groups[0]?.value === NEW_THREAD_PROJECT_VIEW_GROUP;
   const [newThreadPreferredProjectRef, setNewThreadPreferredProjectRef] =
     useState<ScopedProjectRef | null>(null);
+  const newThreadPreferredProjectScopeKeyRef = useRef<string | null>(null);
   const [newThreadPickerGeneration, setNewThreadPickerGeneration] = useState(0);
   const [browseGeneration, setBrowseGeneration] = useState(0);
   const [addProjectEnvironmentId, setAddProjectEnvironmentId] = useState<EnvironmentId | null>(
@@ -1260,6 +1261,7 @@ function OpenCommandPaletteDialog(props: {
     if (openIntent?.kind !== "new-thread-in") {
       return;
     }
+    newThreadPreferredProjectScopeKeyRef.current = projectScopeKey;
     setNewThreadPreferredProjectRef(openIntent.preferredProjectRef);
     clearOpenIntent();
     setAddProjectEnvironmentId(null);
@@ -1270,7 +1272,18 @@ function OpenCommandPaletteDialog(props: {
     setHighlightedItemValue(null);
     setQuery("");
     setNewThreadPickerGeneration((generation) => generation + 1);
-  }, [clearOpenIntent, newThreadPickerView, openIntent]);
+  }, [clearOpenIntent, newThreadPickerView, openIntent, projectScopeKey]);
+
+  useLayoutEffect(() => {
+    if (
+      newThreadPreferredProjectRef === null ||
+      newThreadPreferredProjectScopeKeyRef.current === projectScopeKey
+    ) {
+      return;
+    }
+    newThreadPreferredProjectScopeKeyRef.current = projectScopeKey;
+    setNewThreadPreferredProjectRef(null);
+  }, [newThreadPreferredProjectRef, projectScopeKey]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
 
