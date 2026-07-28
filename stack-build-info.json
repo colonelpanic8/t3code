@@ -1,0 +1,433 @@
+{
+  "entries": [
+    {
+      "commit": "690d45fdd7a903911b5ea47c5dbce6469def10c6",
+      "kind": "pr",
+      "label": "pr-3984",
+      "note": "External (jakeleventhal).",
+      "pr": 3984,
+      "status": "merged",
+      "summary": "Render generated images inline in chat"
+    },
+    {
+      "branch": "t3code/local/artifact-safety",
+      "commit": "7893bfa9f9f9e8cad9dcd046e8b6bc3038a8c976",
+      "kind": "branch",
+      "label": "t3code/local/artifact-safety",
+      "note": "Must follow #3984, whose artifact paths it constrains.",
+      "status": "merged",
+      "summary": "Constrain #3984's generic artifact paths to the real thread workspace"
+    },
+    {
+      "branch": "t3code/searchable-new-thread-projects",
+      "commit": "b3408bb2266fe1021d5e97fb984a402728c024fa",
+      "kind": "branch",
+      "label": "t3code/searchable-new-thread-projects",
+      "pr": 4259,
+      "status": "merged",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "branch": "t3code/group/thread-picker",
+      "commit": "b13f2894eab7eb7ede25b68aa7ea422de3add584",
+      "kind": "branch",
+      "label": "t3code/group/thread-picker",
+      "note": "GROUP entry, built from thread-picker.toml; the add-project glue helpers\nlive on the group branch. Rebuild the group first, then pin its new head here.",
+      "status": "merged",
+      "summary": "Thread-picker group: #4263 + #4257 + #4258 + #4426 + #4590 + glue"
+    },
+    {
+      "branch": "t3code/composer-keyboard-shortcuts",
+      "commit": "441c87d80253d5ce887d0886ba44d5d874007286",
+      "kind": "branch",
+      "label": "t3code/composer-keyboard-shortcuts",
+      "pr": 4271,
+      "status": "merged",
+      "summary": "Keyboard-select composer controls + hold-modifier hints"
+    },
+    {
+      "branch": "t3code/fix-dropdown-keyboard-navigation",
+      "commit": "8f8310181b0a3dcd4f4f4b2a7a9f4e50266bd059",
+      "kind": "branch",
+      "label": "t3code/fix-dropdown-keyboard-navigation",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N/Ctrl-P"
+    },
+    {
+      "branch": "feat/settle-thread-keybinding",
+      "commit": "0b2132142edf7b5e2ce992c0d239f5098d5cbc2c",
+      "kind": "branch",
+      "label": "feat/settle-thread-keybinding",
+      "pr": 4277,
+      "status": "merged",
+      "summary": "Settle the open thread with Mod+Shift+X"
+    },
+    {
+      "branch": "fix/draft-thread-promotion-recovery",
+      "commit": "e42331268c5fae90090d0a9f14a97a0eddf11bf0",
+      "kind": "branch",
+      "label": "fix/draft-thread-promotion-recovery",
+      "pr": 4318,
+      "status": "merged",
+      "summary": "Recover stalled draft-thread promotion"
+    },
+    {
+      "branch": "fix/coalesce-assistant-streaming",
+      "commit": "8638e03b83b6936f0cfa7a6fa324dffe66565f17",
+      "kind": "branch",
+      "label": "fix/coalesce-assistant-streaming",
+      "pr": 4323,
+      "status": "merged",
+      "summary": "Coalesce high-frequency assistant streaming deltas"
+    },
+    {
+      "branch": "feat/sidebar-v2-large-icons",
+      "commit": "923db8ca6a3ace6365cd9539a714e93837cc88cb",
+      "kind": "branch",
+      "label": "feat/sidebar-v2-large-icons",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar v2 project icons"
+    },
+    {
+      "commit": "d95abc106cdd4283bfc8ccc64525e795312b8c76",
+      "kind": "pr",
+      "label": "pr-4181",
+      "note": "External (dmstoykov).",
+      "pr": 4181,
+      "status": "merged",
+      "summary": "Trigger the slash-command menu mid-prompt, not just at line start"
+    },
+    {
+      "branch": "fix/android-adaptive-icon",
+      "commit": "97ac5cef13c647637766834c1bf3b78f7e13ec5f",
+      "kind": "branch",
+      "label": "fix/android-adaptive-icon",
+      "pr": 4332,
+      "status": "merged",
+      "summary": "Properly sized flat foreground for Android adaptive icons"
+    },
+    {
+      "branch": "feat/favicon-reload-on-click",
+      "commit": "37604c99b46f990e333033ec143f391719d05093",
+      "kind": "branch",
+      "label": "feat/favicon-reload-on-click",
+      "pr": 4337,
+      "status": "merged",
+      "summary": "Refresh a project favicon when its icon is clicked"
+    },
+    {
+      "branch": "fix/stuck-turn-recovery",
+      "commit": "c14c025db47501c7c2f56294091b92e993dda048",
+      "kind": "branch",
+      "label": "fix/stuck-turn-recovery",
+      "pr": 4386,
+      "status": "merged",
+      "summary": "Recover stranded provider turns after lost completion events"
+    },
+    {
+      "branch": "fix/android-composer-keyboard-positioning",
+      "commit": "f5846bf0146be27ff54d451a1f085f9d5963aaa9",
+      "kind": "branch",
+      "label": "fix/android-composer-keyboard-positioning",
+      "pr": 4388,
+      "status": "merged",
+      "summary": "Keep the Android new-task composer above the keyboard while it expands"
+    },
+    {
+      "branch": "t3code/add-thread-forking",
+      "commit": "3fa50cc62fdddd1f5c0b2a846ef4d3fdc8b3ed51",
+      "kind": "branch",
+      "label": "t3code/add-thread-forking",
+      "pr": 4390,
+      "status": "merged",
+      "summary": "Clone a thread through its latest completed response from the sidebar"
+    },
+    {
+      "branch": "feat/project-icons",
+      "commit": "6f052c818ab1e59ca5e1af48bbbd69db27af425a",
+      "kind": "branch",
+      "label": "feat/project-icons",
+      "pr": 4401,
+      "status": "merged",
+      "summary": "User-local project icons"
+    },
+    {
+      "branch": "fix/thread-detail-load-hardening",
+      "commit": "e17b96ec7ef389cdcc351113e83514612b49dc72",
+      "kind": "branch",
+      "label": "fix/thread-detail-load-hardening",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Self-heal empty thread details and back off failed thread subscriptions"
+    },
+    {
+      "branch": "t3code/subscription-transport-recovery",
+      "commit": "b5836f14b7815f0277d04ebfa8142162647d9195",
+      "kind": "branch",
+      "label": "t3code/subscription-transport-recovery",
+      "note": "Adjacent to #4405: both edit packages/client-runtime/src/rpc/client.ts and its\ntest, the only two topics touching subscription lifecycle. Complementary to\n#4593, which recovers only the settle path of the same issue (#4589).",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "feat/mobile-environment-first-new-thread",
+      "commit": "49d2d83992221e083528cdf9d54eb950a0d819b7",
+      "kind": "branch",
+      "label": "feat/mobile-environment-first-new-thread",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task on mobile"
+    },
+    {
+      "branch": "t3code/inline-image-support",
+      "commit": "2944f46c085204fb42d7f049d45b6636103298a2",
+      "kind": "branch",
+      "label": "t3code/inline-image-support",
+      "pr": 4427,
+      "status": "merged",
+      "summary": "Show completed image-generation activity as compact evidence links"
+    },
+    {
+      "branch": "t3code/user-input-qna-timeline",
+      "commit": "cf61aeb38823ab88ad4160ef5aefb232fee34d12",
+      "kind": "branch",
+      "label": "t3code/user-input-qna-timeline",
+      "note": "Overlaps #4427's generated-image handling, so it must follow #4427.",
+      "pr": 4506,
+      "status": "merged",
+      "summary": "Show answered questions in the thread timeline"
+    },
+    {
+      "branch": "fix/model-picker-shortcuts",
+      "commit": "c7ac18dd530bac6858bc0ba1be0b4f16e2e25b0a",
+      "kind": "branch",
+      "label": "fix/model-picker-shortcuts",
+      "pr": 4433,
+      "status": "merged",
+      "summary": "Refresh positional model-picker shortcuts when virtualized rows are reordered"
+    },
+    {
+      "branch": "t3code/configurable-workspace-placement",
+      "commit": "b8aa507bc229db74761453f71d01920fd4d9f6f0",
+      "kind": "branch",
+      "label": "t3code/configurable-workspace-placement",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configure centralized or repository-local worktree placement"
+    },
+    {
+      "branch": "t3code/xdg-storage-layout",
+      "commit": "8d7270e82ccb610903290cafbfd0ccd177af5a0b",
+      "kind": "branch",
+      "label": "t3code/xdg-storage-layout",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "Separate config, data, state, cache, and runtime storage with XDG/legacy override"
+    },
+    {
+      "branch": "fix/discover-claude-models",
+      "commit": "50cdd15219ab2d41823846a1f5a728449d5c7a05",
+      "kind": "branch",
+      "label": "fix/discover-claude-models",
+      "pr": 4477,
+      "status": "merged",
+      "summary": "Discover Claude models from SDK initialization rather than the fallback catalog"
+    },
+    {
+      "branch": "fix/sidebar-resize-after-window-growth",
+      "commit": "81bd69e9f8abeb9037136635c4e02464ac60c63a",
+      "kind": "branch",
+      "label": "fix/sidebar-resize-after-window-growth",
+      "pr": 4482,
+      "status": "merged",
+      "summary": "Refresh the sidebar resize cap when the window grows"
+    },
+    {
+      "branch": "t3code/filter-hidden-codex-models",
+      "commit": "c75d35701081c09d2308fb0da96f2a13eca9faf8",
+      "kind": "branch",
+      "label": "t3code/filter-hidden-codex-models",
+      "pr": 4487,
+      "status": "merged",
+      "summary": "Drop non-interactive Codex models from the model picker"
+    },
+    {
+      "branch": "t3code/fix-provider-settings-toggle",
+      "commit": "05e12e767e1206b4d115cc8ccf65306641fa251b",
+      "kind": "branch",
+      "label": "t3code/fix-provider-settings-toggle",
+      "pr": 4494,
+      "status": "merged",
+      "summary": "Keep rapid settings edits from reverting each other"
+    },
+    {
+      "branch": "fix/recover-bootstrap-thread-id",
+      "commit": "2385d73e0bfae205b090ef44cfdbde35f5ed655e",
+      "kind": "branch",
+      "label": "fix/recover-bootstrap-thread-id",
+      "pr": 4484,
+      "status": "merged",
+      "summary": "Recover draft thread IDs after failed bootstrap cleanup"
+    },
+    {
+      "branch": "t3code/local/nix-flake",
+      "commit": "f58759e6f6be5e8e351831fe967d549c1e866110",
+      "kind": "branch",
+      "label": "t3code/local/nix-flake",
+      "status": "merged",
+      "summary": "Nix flake: dev shell and desktop package"
+    },
+    {
+      "branch": "t3code/unify-environment-selection",
+      "commit": "74fd875c4d13773cedd1b9c1b6dea56863733f0a",
+      "kind": "branch",
+      "label": "t3code/unify-environment-selection",
+      "note": "Canonical cumulative client topic. Carries #4444, #4474, #4496, #4505,\n#4538, and t3code/show-remote-host-name. #4444 consolidates the closed #4479,\n#4486, #4548, #4559, and #4567 topics.",
+      "status": "merged",
+      "summary": "Complete client-only, pairing, environment presentation, and unified settings suite"
+    },
+    {
+      "branch": "t3code/add-custom-snooze-time",
+      "commit": "9b728aed7d53f1c21fd1422977e4c160803baf72",
+      "kind": "branch",
+      "label": "t3code/add-custom-snooze-time",
+      "note": "Follows t3code/unify-environment-selection, which reshapes SidebarV2.tsx.",
+      "pr": 4677,
+      "status": "merged",
+      "summary": "Snooze threads until a custom local date and time"
+    },
+    {
+      "branch": "t3code/settle-state-reconcile",
+      "commit": "5fc3aefd627cc5417544dc99c0ead5399ac6115a",
+      "kind": "branch",
+      "label": "t3code/settle-state-reconcile",
+      "note": "Last of the client-runtime subscription topics: it touches\napps/web/src/connection/platform.ts after t3code/unify-environment-selection\nhas restructured it. Its state/threads.ts change sits in a different region\nthan #4405's backoff.",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state when a settle does not land"
+    },
+    {
+      "branch": "t3code/local/build-provenance",
+      "commit": "482ab626122dd63dfe28fbbd83f4fa60186b6b0f",
+      "kind": "branch",
+      "label": "t3code/local/build-provenance",
+      "note": "Reads stack-build-info.json, which the rebuild writes as this branch's final\ncommit. Placed near last so its SettingsPanels.tsx and SettingsSidebarNav.tsx\nedits land after t3code/unify-environment-selection.",
+      "status": "merged",
+      "summary": "Show the build's commit, and a Settings page describing the assembled tree"
+    },
+    {
+      "branch": "t3code/clear-unanswerable-provider-requests",
+      "commit": "495be4153ec9f9402140224e4ca2f9289a9d974a",
+      "kind": "branch",
+      "label": "t3code/clear-unanswerable-provider-requests",
+      "note": "Appended so it merges once against the assembled state of the four topics that\ntouch its files: #4386 and #4390 (ProviderCommandReactor.ts), #4427 and #4506\n(session-logic.test.ts).",
+      "pr": 4598,
+      "status": "merged",
+      "summary": "Clear pending approval and user-input requests when no provider session is bound"
+    },
+    {
+      "branch": "t3code/investigate-large-thread-rendering",
+      "commit": "5eaec3ebefd170d8f7b4e6b5187b2fbb54187127",
+      "kind": "branch",
+      "label": "t3code/investigate-large-thread-rendering",
+      "note": "Before #4599: this restructures ChatView.tsx (extracting\nthreadTimelineModel.ts) and #4599 builds on that final shape. Touches ws.ts\nand client-runtime state/threads.ts, so it merges after #4405, #4593, and\n#4602.",
+      "pr": 4605,
+      "status": "merged",
+      "summary": "Fix quadratic thread-reopen replay: batch client apply + cap server resume gap"
+    },
+    {
+      "branch": "t3code/find-in-thread",
+      "commit": "ba5a3b3ea57c94a2887cdae1a5b9608eda5adc75",
+      "kind": "branch",
+      "label": "t3code/find-in-thread",
+      "note": "Mostly new modules; its MessagesTimeline.tsx and ChatView.tsx edits want the\nfinal shape after #4605's timeline extraction. Its keybindings.ts entries are\nadditive one-line registry rows, the same shape as #4271 and #4277.",
+      "pr": 4599,
+      "status": "merged",
+      "summary": "Cmd+F find in thread"
+    },
+    {
+      "branch": "t3code/mobile-thread-replay-render-fixes",
+      "commit": "8399d436a6bd53c3284bdb03ecca919a435e689c",
+      "kind": "branch",
+      "label": "t3code/mobile-thread-replay-render-fixes",
+      "note": "Mobile-only (apps/mobile plus its t3-markdown-text module), so no overlap with\nthe web/client-runtime topics above it. Branch-linked, not PR-linked: #4624\nwas closed upstream without merging, so the BRANCH is authoritative and this\nentry must not be dropped just because the PR is closed. Its head carries a\nfollow-up commit past the PR.",
+      "status": "merged",
+      "summary": "Cut mobile thread-reopen replay churn in the feed pipeline"
+    },
+    {
+      "branch": "t3code/fix-broken-image-previews",
+      "commit": "929653023ea083b947da7d2817bbad7b7df3f3fd",
+      "kind": "branch",
+      "label": "t3code/fix-broken-image-previews",
+      "note": "Overlaps t3code/local/artifact-safety and #3984 in ChatMarkdown, but on the\n`img` renderer where they own `code`; all import from ../assets/assetUrls, so\nexpect a small import-region conflict and nothing semantic. Appended via\nextend rather than placed beside them; if ChatMarkdown gains a third\nimage-adjacent topic, cluster the three into a group.",
+      "pr": 4631,
+      "status": "merged",
+      "summary": "Render markdown images from workspace files"
+    },
+    {
+      "branch": "t3code/add-mobile-build-action",
+      "commit": "3b82cbbac20f7cb4c6d11c0db6a0310e848079f4",
+      "kind": "branch",
+      "label": "t3code/add-mobile-build-action",
+      "note": "CI and release tooling only; kept last because it does not overlap application code.",
+      "status": "merged",
+      "summary": "Build and publish sideloadable Android APKs from the assembled branch"
+    },
+    {
+      "commit": "98abc5da3772e0754612fd80e82c6afeba651070",
+      "kind": "patch",
+      "label": "t3code-sidebar-v2-large-icons-fixture",
+      "note": "#4324 adds sidebarV2LargeIcons as a required ClientSettings field but does not\nupdate apps/desktop's fixture, which must list every field. Assembly-emergent, so\nit cannot live on #4324's branch.",
+      "status": "applied",
+      "summary": "Add sidebarV2LargeIcons to the desktop ClientSettings test fixture"
+    },
+    {
+      "commit": "f6e3c5a5fe3bbcf29f48444b8e7ad06681ee003d",
+      "kind": "patch",
+      "label": "t3code-projection-threads-snoozed-migration-compat",
+      "note": "The snooze feature arrived upstream with migration ID 34 after that ID had\nalready been recorded locally for ProjectionThreadGoals. A function of the\nassembled tree, so it cannot be a normal entry.",
+      "status": "applied",
+      "summary": "Re-run the snooze schema update as migration 36"
+    },
+    {
+      "commit": "084f54bc2a98d8c94d39283fa9f18d53c9b8f1ed",
+      "kind": "patch",
+      "label": "t3code-assembled-runtime-imports",
+      "note": "Assembly-emergent glue: project icons and primary settings reference hooks supplied\nby other carried topics. Also widens the project-icon renderer's structural type\nto the exact optional-property shape used by the assembled project model.",
+      "status": "applied",
+      "summary": "Restore assembled runtime imports and project icon types"
+    },
+    {
+      "commit": "32fccc63f34559ddf4dc1f218897ebe067510180",
+      "kind": "patch",
+      "label": "t3code-chat-composer-stash-merge",
+      "note": "#4271 and #4394 both reshape ChatComposer around the prompt-stash implementation.\nTheir assembled replay mangles the NUL-delimited template strings used for image\ndeduplication and in-flight snapshot identity. Neither topic is broken alone;\nthis patch restores those three assembly-emergent expressions.",
+      "status": "applied",
+      "summary": "Restore prompt-stash dedupe and snapshot keys after composer merges"
+    },
+    {
+      "commit": "fa07ec0c76a108e2e74c9808dfab076cd50d2d9d",
+      "kind": "patch",
+      "label": "t3code-refreshed-client-overlap",
+      "note": "Assembly-emergent overlap: the cumulative client topic moves settings ownership\nand keybindings after #4271, #4277, #4390, #4494, and upstream prompt stash.\nKeep the refreshed settings write queue, shortcut defaults, and thread-forking\ncall sites against that final structure.",
+      "status": "applied",
+      "summary": "Reconcile refreshed client topics after the cumulative settings merge"
+    }
+  ],
+  "fork": {
+    "branch": "t3code/assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "476d69cd1d5d89b4aad77df8fc01c71e34af930c",
+    "date": "2026-07-27T19:24:44-07:00",
+    "ref": "main",
+    "remote": "https://github.com/pingdotgg/t3code",
+    "subject": "fix(mobile): threads load snapped to bottom on iOS (#4689)"
+  }
+}
