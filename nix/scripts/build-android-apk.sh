@@ -15,8 +15,11 @@ log() {
   printf '\n\033[1;34m==> %s\033[0m\n' "$*"
 }
 
+home_dir="$(realpath -m -- "$HOME")"
+workdir="$(realpath -m -- "$workdir")"
+
 case "$workdir" in
-  "" | "/" | "$HOME")
+  "" | "/" | "$home_dir")
     echo "Refusing unsafe T3CODE_APK_WORKDIR: $workdir" >&2
     exit 64
     ;;
