@@ -25,12 +25,14 @@ export function projectFaviconSettingsRevision(
   cwd: string,
   repositoryKey?: string | null,
 ): string | undefined {
-  const pathIcon = settings.projectIcons[cwd];
+  const pathEntries = Object.entries(settings.projectIcons);
   const remoteEntries = Object.entries(settings.projectIconsByGitRemote);
-  if (!pathIcon && remoteEntries.length === 0 && !repositoryKey) return undefined;
+  if (pathEntries.length === 0 && remoteEntries.length === 0 && !repositoryKey) return undefined;
   const revisionSource = JSON.stringify([
-    "path",
-    pathIcon ?? null,
+    "workspace",
+    cwd,
+    "paths",
+    pathEntries.sort(([left], [right]) => left.localeCompare(right)),
     "repository",
     repositoryKey ?? null,
     "remotes",
