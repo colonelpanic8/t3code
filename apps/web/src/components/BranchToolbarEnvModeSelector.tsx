@@ -7,6 +7,9 @@ import {
   resolveLockedWorkspaceLabel,
   type EnvMode,
 } from "./BranchToolbar.logic";
+import { cn } from "../lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { ComposerShortcutKeycap } from "./chat/ComposerControlShortcutHint";
 import {
   Select,
   SelectGroup,
@@ -23,6 +26,9 @@ interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  shortcutHintLabel?: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel?: string | null;
   onUsePreviousWorktree?: () => void;
@@ -32,6 +38,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   envLocked,
   effectiveEnvMode,
   activeWorktreePath,
+  open,
+  onOpenChange,
+  shortcutHintLabel,
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
@@ -50,19 +59,23 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
 
   if (envLocked) {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
-        {activeWorktreePath ? (
-          <>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex shrink-0 items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs" />
+          }
+        >
+          {activeWorktreePath ? (
             <FolderGitIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
-          </>
-        ) : (
-          <>
+          ) : (
             <FolderIcon className="size-3" />
-            {resolveLockedWorkspaceLabel(activeWorktreePath)}
-          </>
-        )}
-      </span>
+          )}
+          {resolveLockedWorkspaceLabel(activeWorktreePath)}
+        </TooltipTrigger>
+        <TooltipPopup side="top">
+          This thread already started, so its workspace cannot change
+        </TooltipPopup>
+      </Tooltip>
     );
   }
 
@@ -70,6 +83,8 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
     <Select
       modal={false}
       value={effectiveEnvMode}
+      {...(open !== undefined ? { open } : {})}
+      {...(onOpenChange ? { onOpenChange } : {})}
       onValueChange={(value: string | null) => {
         if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
           onUsePreviousWorktree?.();
@@ -82,7 +97,10 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       <SelectTrigger
         variant="ghost"
         size="xs"
-        className="shrink-0 font-medium"
+        className={cn(
+          "shrink-0 font-medium",
+          shortcutHintLabel && "[&_[data-slot=select-icon]]:hidden",
+        )}
         aria-label="Workspace"
       >
         {effectiveEnvMode === "worktree" ? (
@@ -93,6 +111,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
           <FolderIcon className="size-3" />
         )}
         <SelectValue />
+        {shortcutHintLabel ? <ComposerShortcutKeycap label={shortcutHintLabel} /> : null}
       </SelectTrigger>
       <SelectPopup>
         <SelectGroup>
