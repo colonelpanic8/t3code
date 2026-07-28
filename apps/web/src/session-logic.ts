@@ -894,6 +894,7 @@ export function deriveWorkLogEntries(
             label: userInputWorkLogLabel(questions),
             userInput: { ...asked.userInput, answered: true, questions },
           };
+          removableUserInputEntryIds.delete(asked.id);
           continue;
         }
         if (asked && requestId && answers) {
@@ -905,6 +906,7 @@ export function deriveWorkLogEntries(
               tone: "info",
               userInput: { requestId, answered: true, questions },
             };
+            removableUserInputEntryIds.delete(asked.id);
           }
         }
         // The matching request already represents this lifecycle. Keep one
