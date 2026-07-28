@@ -15,15 +15,18 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
 import { T3ConnectSidebarAvatar, T3ConnectSidebarSignIn } from "../clerk/T3ConnectSidebarSignIn";
+import { SettingsEnvironmentSidebarControl } from "./SettingsEnvironmentSelector";
 
 export type SettingsSectionPath =
   | "/settings/general"
+  | "/settings/environment"
   | "/settings/keybindings"
   | "/settings/providers"
   | "/settings/source-control"
@@ -31,18 +34,37 @@ export type SettingsSectionPath =
   | "/settings/beta"
   | "/settings/archived";
 
-export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
+export type SettingsNavItem = {
   label: string;
   to: SettingsSectionPath;
   icon: ComponentType<{ className?: string }>;
+};
+
+export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
+  label: "Client" | "Environment";
+  environmentSelector: boolean;
+  items: ReadonlyArray<SettingsNavItem>;
 }> = [
-  { label: "General", to: "/settings/general", icon: Settings2Icon },
-  { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
-  { label: "Providers", to: "/settings/providers", icon: BotIcon },
-  { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
-  { label: "Connections", to: "/settings/connections", icon: Link2Icon },
-  { label: "Beta", to: "/settings/beta", icon: FlaskConicalIcon },
-  { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
+  {
+    label: "Client",
+    environmentSelector: false,
+    items: [
+      { label: "General", to: "/settings/general", icon: Settings2Icon },
+      { label: "Keybindings", to: "/settings/keybindings", icon: KeyboardIcon },
+      { label: "Connections", to: "/settings/connections", icon: Link2Icon },
+      { label: "Beta", to: "/settings/beta", icon: FlaskConicalIcon },
+      { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
+    ],
+  },
+  {
+    label: "Environment",
+    environmentSelector: true,
+    items: [
+      { label: "General", to: "/settings/environment", icon: Settings2Icon },
+      { label: "Providers", to: "/settings/providers", icon: BotIcon },
+      { label: "Source Control", to: "/settings/source-control", icon: GitBranchIcon },
+    ],
+  },
 ];
 
 export function SettingsSidebarNav({ pathname }: { pathname: string }) {
@@ -72,37 +94,43 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   return (
     <>
       <SidebarContent className="overflow-x-hidden">
-        <SidebarGroup className="px-2 py-3">
-          <SidebarMenu>
-            {SETTINGS_NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.to;
-              return (
-                <SidebarMenuItem key={item.to}>
-                  <SidebarMenuButton
-                    size="sm"
-                    isActive={isActive}
-                    className={
-                      isActive
-                        ? "h-8 items-center gap-2 rounded-md bg-sidebar-row-active px-2 py-1.5 text-left text-sm font-medium text-sidebar-foreground"
-                        : "h-8 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                    }
-                    onClick={() => handleSectionClick(item.to)}
-                  >
-                    <Icon
+        {SETTINGS_NAV_GROUPS.map((group) => (
+          <SidebarGroup className="px-2 py-2 first:pt-3" key={group.label}>
+            <SidebarGroupLabel className="h-6 px-2 text-[10px] font-semibold tracking-[0.08em] text-sidebar-muted-foreground/55 uppercase">
+              {group.label}
+            </SidebarGroupLabel>
+            {group.environmentSelector ? <SettingsEnvironmentSidebarControl /> : null}
+            <SidebarMenu>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.to;
+                return (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarMenuButton
+                      size="sm"
+                      isActive={isActive}
                       className={
                         isActive
-                          ? "size-4 shrink-0 text-sidebar-foreground"
-                          : "size-4 shrink-0 text-sidebar-muted-foreground/60"
+                          ? "h-8 items-center gap-2 rounded-md bg-sidebar-row-active px-2 py-1.5 text-left text-sm font-medium text-sidebar-foreground"
+                          : "h-8 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                       }
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarGroup>
+                      onClick={() => handleSectionClick(item.to)}
+                    >
+                      <Icon
+                        className={
+                          isActive
+                            ? "size-4 shrink-0 text-sidebar-foreground"
+                            : "size-4 shrink-0 text-sidebar-muted-foreground/60"
+                        }
+                      />
+                      <span className="truncate">{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter className="p-2">
         <T3ConnectSidebarSignIn />

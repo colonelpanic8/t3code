@@ -1,10 +1,12 @@
 import {
   COMPOSER_KEYBINDING_COMMANDS,
   type KeybindingCommand,
+  type KeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
+  type ResolvedKeybindingRule,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ModelPickerJumpKeybindingCommand,
   type ThreadJumpKeybindingCommand,
@@ -64,6 +66,39 @@ const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   Digit8: ["8"],
   Digit9: ["9"],
 };
+
+function shortcutToConfigValue(shortcut: KeybindingShortcut): string {
+  const modifiers: string[] = [];
+  if (shortcut.modKey) modifiers.push("mod");
+  if (shortcut.metaKey) modifiers.push("meta");
+  if (shortcut.ctrlKey) modifiers.push("ctrl");
+  if (shortcut.altKey) modifiers.push("alt");
+  if (shortcut.shiftKey) modifiers.push("shift");
+  const key = shortcut.key === " " ? "space" : shortcut.key;
+  return [...modifiers, key].join("+");
+}
+
+function whenNodeToConfigValue(node: KeybindingWhenNode): string {
+  switch (node.type) {
+    case "identifier":
+      return node.name;
+    case "not":
+      return `!(${whenNodeToConfigValue(node.node)})`;
+    case "and":
+      return `(${whenNodeToConfigValue(node.left)} && ${whenNodeToConfigValue(node.right)})`;
+    case "or":
+      return `(${whenNodeToConfigValue(node.left)} || ${whenNodeToConfigValue(node.right)})`;
+  }
+}
+
+/** Convert the legacy server-resolved representation into client persistence. */
+export function resolvedKeybindingToClientRule(binding: ResolvedKeybindingRule): KeybindingRule {
+  return {
+    command: binding.command,
+    key: shortcutToConfigValue(binding.shortcut),
+    ...(binding.whenAst ? { when: whenNodeToConfigValue(binding.whenAst) } : {}),
+  };
+}
 
 function normalizeEventKey(key: string): string {
   const normalized = key.toLowerCase();
