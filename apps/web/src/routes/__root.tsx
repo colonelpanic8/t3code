@@ -173,10 +173,13 @@ function DocumentTitleSync() {
 }
 
 function HostedStaticEnvironmentBootstrap() {
-  const { environments } = useEnvironments();
+  const { environments, isReady } = useEnvironments();
   const activeEnvironmentId = useActiveEnvironmentId();
 
   useEffect(() => {
+    if (!isReady) {
+      return;
+    }
     if (
       environments.some(
         (environment) => environment.entry.target._tag === "PrimaryConnectionTarget",
@@ -185,17 +188,15 @@ function HostedStaticEnvironmentBootstrap() {
       return;
     }
 
-    if (activeEnvironmentId) {
+    if (
+      activeEnvironmentId !== null &&
+      environments.some((environment) => environment.environmentId === activeEnvironmentId)
+    ) {
       return;
     }
 
-    const firstSavedEnvironment = environments[0];
-    if (!firstSavedEnvironment) {
-      return;
-    }
-
-    setActiveEnvironmentId(firstSavedEnvironment.environmentId);
-  }, [activeEnvironmentId, environments]);
+    setActiveEnvironmentId(environments[0]?.environmentId ?? null);
+  }, [activeEnvironmentId, environments, isReady]);
 
   return null;
 }

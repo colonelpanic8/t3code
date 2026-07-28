@@ -116,6 +116,29 @@ export function useServerConfigs(): ReadonlyMap<EnvironmentId, ServerConfig> {
   return useAtomValue(environmentServerConfigsAtom);
 }
 
+export async function waitForServerConfig(environmentId: EnvironmentId): Promise<ServerConfig> {
+  const readConfig = () => appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId);
+  const current = readConfig();
+  if (current !== undefined) {
+    return current;
+  }
+
+  return await new Promise<ServerConfig>((resolve) => {
+    const unsubscribe = appAtomRegistry.subscribe(environmentServerConfigsAtom, (configs) => {
+      const config = configs.get(environmentId);
+      if (config === undefined) return;
+      unsubscribe();
+      resolve(config);
+    });
+
+    const config = readConfig();
+    if (config !== undefined) {
+      unsubscribe();
+      resolve(config);
+    }
+  });
+}
+
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return useAtomValue(environmentThreadShells.threadShellsAtom);
 }

@@ -5,7 +5,6 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   DEFAULT_RUNTIME_MODE,
-  DEFAULT_SERVER_SETTINGS,
   type ScopedProjectRef,
 } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
@@ -23,7 +22,13 @@ import {
   getProjectOrderKey,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { readThreadShell, useProjects, useServerConfigs, useThread } from "../state/entities";
+import {
+  readThreadShell,
+  useProjects,
+  useServerConfigs,
+  useThread,
+  waitForServerConfig,
+} from "../state/entities";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -40,7 +45,7 @@ export function useNewThreadHandler() {
   }, [router]);
 
   return useCallback(
-    (
+    async (
       projectRef: ScopedProjectRef,
       options?: {
         branch?: string | null;
@@ -102,8 +107,10 @@ export function useNewThreadHandler() {
           candidate.id === projectRef.projectId &&
           candidate.environmentId === projectRef.environmentId,
       );
-      const targetServerSettings =
-        serverConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
+      const targetServerSettings = (
+        serverConfigs.get(projectRef.environmentId) ??
+        (await waitForServerConfig(projectRef.environmentId))
+      ).settings;
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);

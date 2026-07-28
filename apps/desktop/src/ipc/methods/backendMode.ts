@@ -56,7 +56,17 @@ export const setBackendMode = DesktopIpc.makeIpcMethod({
     ) {
       yield* lifecycle
         .relaunch(`backendMode=${mode}`)
-        .pipe(Effect.tapError(() => settings.setBackendMode(previousMode)));
+        .pipe(
+          Effect.tapError(() =>
+            settings.get.pipe(
+              Effect.flatMap((currentSettings) =>
+                currentSettings.backendMode === mode
+                  ? settings.setBackendMode(previousMode)
+                  : Effect.void,
+              ),
+            ),
+          ),
+        );
     }
     return state;
   }),

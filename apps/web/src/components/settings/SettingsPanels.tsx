@@ -400,8 +400,8 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
   const hasChangedServerSettings = hasChangedGeneralServerSettings(settings);
-  const canRestoreDefaults =
-    !hasChangedServerSettings || environment?.connection.phase === "connected";
+  const includeServerSettings =
+    hasChangedServerSettings && environment?.connection.phase === "connected";
 
   const changedSettingLabels = useMemo(
     () => [
@@ -424,25 +424,31 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
         ? ["Auto-open task panel"]
         : []),
-      ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
+      ...(includeServerSettings &&
+      settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
-      ...(settings.enableProviderUpdateChecks !==
+      ...(includeServerSettings &&
+      settings.enableProviderUpdateChecks !==
       DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
         ? ["Provider update checks"]
         : []),
-      ...(Duration.toMillis(settings.automaticGitFetchInterval) !==
+      ...(includeServerSettings &&
+      Duration.toMillis(settings.automaticGitFetchInterval) !==
       Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval)
         ? ["Automatic Git fetch interval"]
         : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ...(includeServerSettings &&
+      settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
-      ...(settings.newWorktreesStartFromOrigin !==
+      ...(includeServerSettings &&
+      settings.newWorktreesStartFromOrigin !==
       DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
         ? ["New worktrees start from origin"]
         : []),
-      ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
+      ...(includeServerSettings &&
+      settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
@@ -451,9 +457,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
-      ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
+      ...(includeServerSettings && isTextGenerationModelDirty ? ["Text generation model"] : []),
     ],
     [
+      includeServerSettings,
       isTextGenerationModelDirty,
       settings.autoOpenPlanSidebar,
       settings.confirmThreadArchive,
@@ -473,6 +480,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       theme,
     ],
   );
+  const canRestoreDefaults = changedSettingLabels.length > 0;
 
   const restoreDefaults = useCallback(async () => {
     if (changedSettingLabels.length === 0 || !canRestoreDefaults) return;
@@ -487,14 +495,14 @@ export function useSettingsRestore(onRestored?: () => void) {
     setTheme("system");
     updateSettings(
       buildGeneralSettingsRestorePatch({
-        includeServerSettings: hasChangedServerSettings,
+        includeServerSettings,
       }),
     );
     onRestored?.();
   }, [
     canRestoreDefaults,
     changedSettingLabels,
-    hasChangedServerSettings,
+    includeServerSettings,
     onRestored,
     setTheme,
     updateSettings,
