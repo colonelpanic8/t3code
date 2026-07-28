@@ -277,6 +277,7 @@ import {
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   startNewThreadForProject,
+  shouldRenewDraftThreadIdAfterFailure,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -4910,6 +4911,16 @@ function ChatViewContent(props: ChatViewProps) {
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
+        if (isLocalDraftThread && shouldRenewDraftThreadIdAfterFailure(error)) {
+          useComposerDraftStore
+            .getState()
+            .renewDraftThreadId(
+              composerDraftTarget,
+              threadIdForSend,
+              newThreadId(),
+              new Date().toISOString(),
+            );
+        }
         setThreadError(
           threadIdForSend,
           error instanceof Error ? error.message : "Failed to send message.",
