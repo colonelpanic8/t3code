@@ -345,7 +345,12 @@ function maxClaudeContextWindowFromModelUsage(
 function selectedClaudeContextWindow(
   modelSelection: ModelSelection | undefined,
 ): number | undefined {
+  if (modelSelection?.model.endsWith("[1m]")) {
+    return 1_000_000;
+  }
+
   switch (modelSelection?.model) {
+    case "default":
     case "claude-opus-4-8":
     case "claude-opus-4-7":
       // Always 1M at the API; these models expose no contextWindow option.
@@ -951,7 +956,9 @@ function buildPromptText(
     input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection.model : undefined;
   const caps = getClaudeModelCapabilities(claudeModel);
 
-  const promptEffort = resolvePromptInjectedEffort(caps, rawEffort);
+  const promptEffort =
+    resolvePromptInjectedEffort(caps, rawEffort) ??
+    (caps.optionDescriptors?.length === 0 && rawEffort === "ultrathink" ? rawEffort : null);
   return applyClaudePromptEffortPrefix(input.input?.trim() ?? "", promptEffort);
 }
 
@@ -3584,13 +3591,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const apiModelId = modelSelection ? resolveClaudeApiModelId(modelSelection) : undefined;
       const initialContextWindow = selectedClaudeContextWindow(modelSelection);
       const rawEffort = getModelSelectionStringOptionValue(modelSelection, "effort");
-      const effort = resolveClaudeEffort(caps, rawEffort) ?? null;
-      const fastModeSupported = descriptors.some(
-        (descriptor) => descriptor.type === "boolean" && descriptor.id === "fastMode",
-      );
-      const thinkingSupported = descriptors.some(
-        (descriptor) => descriptor.type === "boolean" && descriptor.id === "thinking",
-      );
+      const hasCatalogCapabilities = descriptors.length > 0;
+      const effort =
+        (hasCatalogCapabilities ? resolveClaudeEffort(caps, rawEffort) : rawEffort) ?? null;
+      const fastModeSupported =
+        !hasCatalogCapabilities ||
+        descriptors.some(
+          (descriptor) => descriptor.type === "boolean" && descriptor.id === "fastMode",
+        );
+      const thinkingSupported =
+        !hasCatalogCapabilities ||
+        descriptors.some(
+          (descriptor) => descriptor.type === "boolean" && descriptor.id === "thinking",
+        );
       const fastMode =
         getModelSelectionBooleanOptionValue(modelSelection, "fastMode") === true &&
         fastModeSupported;
