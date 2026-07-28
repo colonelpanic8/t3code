@@ -206,6 +206,10 @@
     "./devProxy": {
       "types": "./src/devProxy.ts",
       "import": "./src/devProxy.ts"
+    },
+    "./localServerDiscovery": {
+      "types": "./src/localServerDiscovery.ts",
+      "import": "./src/localServerDiscovery.ts"
     }
   },
   "scripts": {
