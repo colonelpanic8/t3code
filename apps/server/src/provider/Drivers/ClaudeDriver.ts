@@ -6,19 +6,26 @@
  * closures captured over the per-instance `ClaudeSettings`.
  *
  * Unlike Codex, the Claude snapshot probe may invoke a secondary probe
- * (`probeClaudeCapabilities`) to read Anthropic account + slash-command
- * metadata. That probe is per-instance and keyed by binary + resolved HOME so
- * two concurrent Claude instances don't cross-contaminate account metadata.
+ * (`probeClaudeCapabilities`) to read Anthropic account, model, and
+ * slash-command metadata. That probe is per-instance and keyed by binary +
+ * resolved HOME so two concurrent Claude instances don't cross-contaminate
+ * account metadata.
  *
  * @module provider/Drivers/ClaudeDriver
  */
-import { ClaudeSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import {
+  ClaudeSettings,
+  type ModelCapabilities,
+  ProviderDriverKind,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -30,6 +37,7 @@ import { ProviderDriverError } from "../Errors.ts";
 import { makeClaudeAdapter } from "../Layers/ClaudeAdapter.ts";
 import {
   checkClaudeProviderStatus,
+  findFallbackClaudeModelCapabilities,
   makePendingClaudeProvider,
   probeClaudeCapabilities,
 } from "../Layers/ClaudeProvider.ts";
@@ -148,7 +156,22 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       };
       const adapter = yield* makeClaudeAdapter(effectiveConfig, adapterOptions);
-      const textGeneration = yield* makeClaudeTextGeneration(effectiveConfig, processEnv);
+      const modelCapabilitiesRef = yield* Ref.make<ReadonlyMap<string, ModelCapabilities> | null>(
+        null,
+      );
+      const resolveModelCapabilities = (model: string) =>
+        Ref.get(modelCapabilitiesRef).pipe(
+          Effect.map((modelCapabilities) =>
+            modelCapabilities === null
+              ? findFallbackClaudeModelCapabilities(model)
+              : modelCapabilities.get(model),
+          ),
+        );
+      const textGeneration = yield* makeClaudeTextGeneration(
+        effectiveConfig,
+        processEnv,
+        resolveModelCapabilities,
+      );
 
       // Per-instance capabilities cache: keyed on binary + resolved HOME so
       // account-specific probes never share auth metadata across instances.
@@ -168,6 +191,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         processEnv,
         cwd,
       ).pipe(
+        Effect.tap((snapshot) =>
+          Ref.set(
+            modelCapabilitiesRef,
+            new Map(
+              snapshot.models.flatMap((model) =>
+                model.capabilities ? [[model.slug, model.capabilities] as const] : [],
+              ),
+            ),
+          ),
+        ),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(FileSystem.FileSystem, fileSystem),
