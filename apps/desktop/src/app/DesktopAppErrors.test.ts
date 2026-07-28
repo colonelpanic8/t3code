@@ -41,15 +41,12 @@ describe("DesktopApp errors", () => {
     assert.equal(error.message, "T3CODE_PORT is required in desktop development.");
   });
 
-  it.effect("propagates client-only window creation failures", () =>
+  it.effect("swallows client-only window creation failures after logging", () =>
     Effect.gen(function* () {
       const error = new Error("window creation failed");
 
       const exit = yield* Effect.exit(handleClientOnlyRendererReady(Effect.fail(error)));
-      assert(Exit.isFailure(exit));
-      const failure = Cause.findErrorOption(exit.cause);
-      assert(Option.isSome(failure));
-      assert.strictEqual(failure.value, error);
+      assert(Exit.isSuccess(exit));
     }),
   );
 

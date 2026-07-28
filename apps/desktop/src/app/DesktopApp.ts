@@ -162,9 +162,9 @@ export const latchDesktopBackendModeForStartup = Effect.fn(
 
 export const handleClientOnlyRendererReady = <E extends { readonly message: string }>(
   rendererReady: Effect.Effect<void, E>,
-): Effect.Effect<void, E> =>
+): Effect.Effect<void> =>
   rendererReady.pipe(
-    Effect.tapError((error) =>
+    Effect.catch((error) =>
       logBootstrapWarning("failed to open main window after renderer readiness", {
         error: error.message,
       }),
