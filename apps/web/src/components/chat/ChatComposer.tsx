@@ -220,12 +220,9 @@ import { formatProviderSkillDisplayName } from "../../providerSkillPresentation"
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
-import {
-  remainingShortcutLabelForCommand,
-  shouldShowCommandHintForModifiers,
-} from "../../keybindings";
+import { shortcutLabelForCommand, shouldShowCommandHintForModifiers } from "../../keybindings";
 import { useShortcutModifierState } from "../../shortcutModifierState";
-import { ComposerShortcutKeycap } from "./ComposerControlShortcutHint";
+import { ComposerControlShortcutHint } from "./ComposerControlShortcutHint";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
@@ -310,10 +307,12 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
+  onSelectionComplete: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
-  const runtimeModeInlineHint = props.runtimeModeShortcutHintLabel;
+  const interactionModeTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const runtimeModeTriggerRef = useRef<HTMLButtonElement | null>(null);
   const interactionModeTooltip =
     props.interactionMode === "plan"
       ? "Plan mode — click to return to normal build mode"
@@ -329,6 +328,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         <TooltipTrigger
           render={
             <Button
+              ref={interactionModeTriggerRef}
               variant="ghost"
               className={cn(
                 "shrink-0 whitespace-nowrap px-2 sm:px-3",
@@ -351,15 +351,13 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           <span className="sr-only sm:not-sr-only">
             {props.interactionMode === "plan" ? "Plan" : "Build"}
           </span>
-          {props.interactionModeShortcutHintLabel ? (
-            <ComposerShortcutKeycap
-              label={props.interactionModeShortcutHintLabel}
-              className="shrink-0"
-            />
-          ) : null}
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
       </Tooltip>
+      <ComposerControlShortcutHint
+        anchorRef={interactionModeTriggerRef}
+        label={props.interactionModeShortcutHintLabel}
+      />
     </>
   ) : null;
 
@@ -372,26 +370,25 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           value={props.runtimeMode}
           open={props.runtimeModePickerOpen}
           onOpenChange={props.onRuntimeModePickerOpenChange}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+          onValueChange={(value) => {
+            props.onRuntimeModeChange(value!);
+            props.onSelectionComplete();
+          }}
         >
           <TooltipTrigger
             render={
               <SelectTrigger
+                ref={runtimeModeTriggerRef}
                 variant="ghost"
                 size="sm"
-                className={cn(
-                  "font-medium",
-                  runtimeModeInlineHint && "[&_[data-slot=select-icon]]:hidden",
-                )}
+                className="font-medium"
                 aria-label="Runtime mode"
+                data-chat-runtime-mode-picker="true"
               />
             }
           >
             <RuntimeModeIcon className="size-4" />
             <SelectValue>{runtimeModeOption.label}</SelectValue>
-            {runtimeModeInlineHint ? (
-              <ComposerShortcutKeycap label={runtimeModeInlineHint} className="shrink-0" />
-            ) : null}
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false}>
             {runtimeModeOptions.map((mode) => {
@@ -417,6 +414,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         </Select>
         <TooltipPopup side="top">{runtimeModeOption.description}</TooltipPopup>
       </Tooltip>
+      <ComposerControlShortcutHint
+        anchorRef={runtimeModeTriggerRef}
+        label={props.runtimeModeShortcutHintLabel}
+      />
 
       {interactionModeToggle}
 
@@ -1316,6 +1317,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    onSelectionComplete: scheduleComposerFocus,
   });
   // Hint badges show while the held modifiers are a subset of a composer
   // control shortcut's modifiers; computed once here and passed down.
@@ -1323,14 +1325,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const terminalFocus = useTerminalFocus();
   const shortcutContext = useMemo(() => ({ terminalFocus }), [terminalFocus]);
   const composerControlHintLabels = useMemo(() => {
-    const hintLabel = (command: Parameters<typeof remainingShortcutLabelForCommand>[1]) =>
+    const hintLabel = (command: Parameters<typeof shortcutLabelForCommand>[1]) =>
       shouldShowCommandHintForModifiers(shortcutModifiers, keybindings, command, {
         platform: navigator.platform,
         context: shortcutContext,
       })
-        ? remainingShortcutLabelForCommand(keybindings, command, shortcutModifiers, {
-            context: shortcutContext,
-          })
+        ? shortcutLabelForCommand(keybindings, command, { context: shortcutContext })
         : null;
 
     return {
@@ -1351,6 +1351,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     prompt,
     onPromptChange: setPromptFromTraits,
+    onSelectionComplete: scheduleComposerFocus,
     open: isComposerTraitsPickerOpen,
     onOpenChange: (open) => {
       applyComposerPickerOpenChange("traits", open);
@@ -2108,8 +2109,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         // unique image into the overflow list for nothing.
         const existingDedupKeys = new Set(
           composerImagesRef.current.map(
-            (image) => `${image.mimeType} ${image.sizeBytes} ${image.name}`,
-          ),
+            (image) => `${image.mimeType}          ),
         );
         const capacity = Math.max(
           0,
@@ -2119,8 +2119,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           (attachment) =>
             !existingIds.has(attachment.id) &&
             !existingDedupKeys.has(
-              `${attachment.mimeType} ${attachment.sizeBytes} ${attachment.name}`,
-            ),
+              `${attachment.mimeType}            ),
         );
         // Anything past the attachment limit cannot be restored. The entry is
         // already out of the queue, so report the overflow by name instead of
@@ -2225,8 +2224,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // the composer has been cleared the user can type something genuinely
     // new (or switch threads) while encoding continues, and that deserves its
     // own entry.
-    const snapshotKey = `${String(composerDraftTarget)} ${prompt} ${images
-      .map((image) => image.id)
+    const snapshotKey = `${String(composerDraftTarget)}      .map((image) => image.id)
       .join(",")}`;
     if (stashInFlightRef.current.has(snapshotKey)) return;
     stashInFlightRef.current.add(snapshotKey);
@@ -3303,6 +3301,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }}
                     getModelDisabledReason={getModelDisabledReason}
                     onInstanceModelChange={onProviderModelSelect}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 )}
 
@@ -3337,6 +3336,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleInteractionMode={toggleInteractionMode}
                     onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
+                    onSelectionComplete={scheduleComposerFocus}
                   />
                 ) : (
                   <>
@@ -3364,6 +3364,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
+                      onSelectionComplete={scheduleComposerFocus}
                     />
                   </>
                 )}

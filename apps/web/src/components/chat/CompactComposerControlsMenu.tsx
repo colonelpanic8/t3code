@@ -1,5 +1,5 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, useRef } from "react";
 import { EllipsisIcon, ListTodoIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -11,7 +11,7 @@ import {
   MenuSeparator as MenuDivider,
   MenuTrigger,
 } from "../ui/menu";
-import { ComposerShortcutKeycap } from "./ComposerControlShortcutHint";
+import { ComposerControlShortcutHint } from "./ComposerControlShortcutHint";
 
 export function compactComposerShortcutHintLabel(input: {
   modelOptions: string | null;
@@ -43,7 +43,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   onToggleInteractionMode: () => void;
   onTogglePlanSidebar: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onSelectionComplete: () => void;
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <>
       <Menu
@@ -53,6 +55,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <MenuTrigger
           render={
             <Button
+              ref={triggerRef}
               size="sm"
               variant="ghost"
               className="shrink-0 px-2 text-muted-foreground/70 hover:text-foreground/80"
@@ -61,9 +64,6 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           }
         >
           <EllipsisIcon aria-hidden="true" className="size-4" />
-          {props.shortcutHintLabel ? (
-            <ComposerShortcutKeycap label={props.shortcutHintLabel} className="shrink-0" />
-          ) : null}
         </MenuTrigger>
         <MenuPopup align="start">
           {props.traitsMenuContent ? (
@@ -80,6 +80,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
                 onValueChange={(value) => {
                   if (!value || value === props.interactionMode) return;
                   props.onToggleInteractionMode();
+                  props.onSelectionComplete();
                 }}
               >
                 <MenuRadioItem value="default">Chat</MenuRadioItem>
@@ -94,6 +95,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             onValueChange={(value) => {
               if (!value || value === props.runtimeMode) return;
               props.onRuntimeModeChange(value as RuntimeMode);
+              props.onSelectionComplete();
             }}
           >
             <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
@@ -104,7 +106,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           {props.activePlan ? (
             <>
               <MenuDivider />
-              <MenuItem onClick={props.onTogglePlanSidebar}>
+              <MenuItem
+                onClick={() => {
+                  props.onTogglePlanSidebar();
+                  props.onSelectionComplete();
+                }}
+              >
                 <ListTodoIcon className="size-4 shrink-0" />
                 {props.planSidebarOpen
                   ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
@@ -114,6 +121,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           ) : null}
         </MenuPopup>
       </Menu>
+      <ComposerControlShortcutHint anchorRef={triggerRef} label={props.shortcutHintLabel} />
     </>
   );
 });
