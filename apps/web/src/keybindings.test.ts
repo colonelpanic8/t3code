@@ -341,7 +341,7 @@ describe("shortcutLabelForCommand", () => {
         platform: "Linux",
         context: { terminalFocus: false },
       }),
-      "Ctrl+Shift+\\",
+      "⌃⇧\\",
     );
   });
 
@@ -351,7 +351,7 @@ describe("shortcutLabelForCommand", () => {
       "⌘B",
     );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
-    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
+    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "⌃D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "rightPanel.toggle", "MacIntel"),
       "⌥⌘B",
@@ -362,11 +362,11 @@ describe("shortcutLabelForCommand", () => {
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelPicker.toggle", "Linux"),
-      "Ctrl+Shift+M",
+      "⌃⇧M",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
-      "Ctrl+O",
+      "⌃O",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", "MacIntel"),
@@ -374,7 +374,7 @@ describe("shortcutLabelForCommand", () => {
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.previous", "Linux"),
-      "Ctrl+Shift+[",
+      "⌃⇧[",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelPicker.jump.3", {
@@ -410,7 +410,7 @@ describe("shortcutLabelForCommand", () => {
         platform: "Linux",
         context: { terminalFocus: false },
       }),
-      "Ctrl+D",
+      "⌃D",
     );
     assert.isNull(
       shortcutLabelForCommand(bindings, "diff.toggle", {
@@ -423,7 +423,7 @@ describe("shortcutLabelForCommand", () => {
         platform: "Linux",
         context: { terminalFocus: true },
       }),
-      "Ctrl+D",
+      "⌃D",
     );
   });
 });
@@ -649,7 +649,7 @@ describe("shouldShowComposerControlHintsForModifiers", () => {
   it("resolves labels for composer control commands", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelOptionsPicker.toggle", "Linux"),
-      "Ctrl+Shift+E",
+      "⌃⇧E",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "runtimeModePicker.toggle", "MacIntel"),
@@ -657,20 +657,40 @@ describe("shouldShowComposerControlHintsForModifiers", () => {
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "planMode.toggle", "Linux"),
-      "Ctrl+Shift+P",
+      "⌃⇧P",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "environmentPicker.toggle", "Linux"),
-      "Ctrl+Shift+V",
+      "⌃⇧V",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "envModePicker.toggle", "Linux"),
-      "Ctrl+Shift+L",
+      "⌃⇧L",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "branchPicker.toggle", "MacIntel"),
       "⇧⌘B",
     );
+  });
+});
+
+describe("formatShortcutLabel", () => {
+  it("uses Apple's glyphs on every platform", () => {
+    assert.strictEqual(formatShortcutLabel(modShortcut("e", { shiftKey: true }), "Linux"), "⌃⇧E");
+    assert.strictEqual(
+      formatShortcutLabel(modShortcut("e", { shiftKey: true }), "MacIntel"),
+      "⇧⌘E",
+    );
+    assert.strictEqual(formatShortcutLabel(modShortcut("k", { altKey: true }), "Linux"), "⌃⌥K");
+  });
+
+  it("uses Apple's key glyphs, not words", () => {
+    assert.strictEqual(formatShortcutLabel(modShortcut("escape"), "Linux"), "⌃⎋");
+    assert.strictEqual(formatShortcutLabel(modShortcut("backspace"), "Linux"), "⌃⌫");
+    assert.strictEqual(formatShortcutLabel(modShortcut("tab"), "MacIntel"), "⌘⇥");
+    assert.strictEqual(formatShortcutLabel(modShortcut("arrowup"), "Linux"), "⌃↑");
+    // No established glyph, so the word survives.
+    assert.strictEqual(formatShortcutLabel(modShortcut("f1"), "Linux"), "⌃F1");
   });
 });
 
@@ -694,7 +714,7 @@ describe("remainingShortcutLabelForCommand", () => {
         held({ ctrlKey: true }),
         { platform: "Linux" },
       ),
-      "Shift+E",
+      "⇧E",
     );
     assert.strictEqual(
       remainingShortcutLabelForCommand(
@@ -716,7 +736,7 @@ describe("remainingShortcutLabelForCommand", () => {
         held({ ctrlKey: true, shiftKey: true }),
         { platform: "Linux" },
       ),
-      "Shift+E",
+      "⇧E",
     );
     assert.strictEqual(
       remainingShortcutLabelForCommand(
@@ -743,13 +763,13 @@ describe("remainingShortcutLabelForCommand", () => {
           platform: "Linux",
         },
       ),
-      "Alt+E",
+      "⌥E",
     );
     assert.strictEqual(
       remainingShortcutLabelForCommand(custom, "planMode.toggle", held({ ctrlKey: true }), {
         platform: "Linux",
       }),
-      "Shift+P",
+      "⇧P",
     );
   });
 
@@ -968,16 +988,13 @@ describe("formatShortcutLabel", () => {
     );
   });
 
-  it("formats labels for non-macOS", () => {
-    assert.strictEqual(
-      formatShortcutLabel(modShortcut("d", { shiftKey: true }), "Linux"),
-      "Ctrl+Shift+D",
-    );
+  it("formats labels for non-macOS with the same glyphs", () => {
+    assert.strictEqual(formatShortcutLabel(modShortcut("d", { shiftKey: true }), "Linux"), "⌃⇧D");
   });
 
   it("formats labels for plus key", () => {
     assert.strictEqual(formatShortcutLabel(modShortcut("+"), "MacIntel"), "⌘+");
-    assert.strictEqual(formatShortcutLabel(modShortcut("+"), "Linux"), "Ctrl++");
+    assert.strictEqual(formatShortcutLabel(modShortcut("+"), "Linux"), "⌃+");
   });
 });
 
