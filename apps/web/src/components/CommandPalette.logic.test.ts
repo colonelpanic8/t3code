@@ -6,6 +6,7 @@ import {
   enumerateCommandPaletteItems,
   filterCommandPaletteGroups,
   resolveBrowseAvailability,
+  resolveProjectPathActionAvailability,
   type CommandPaletteGroup,
 } from "./CommandPalette.logic";
 
@@ -103,6 +104,30 @@ describe("resolveBrowseAvailability", () => {
   it("blocks browsing when no environment is selected", () => {
     expect(
       resolveBrowseAvailability({
+        environmentLabel: null,
+        connectionPhase: null,
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Unavailable", message: "Select an environment first." });
+  });
+});
+
+describe("resolveProjectPathActionAvailability", () => {
+  it("allows opening an existing project while its environment is unreachable", () => {
+    expect(
+      resolveProjectPathActionAvailability({
+        projectAlreadyExists: true,
+        environmentLabel: "remote-box",
+        connectionPhase: "offline",
+        connectionError: null,
+      }),
+    ).toEqual({ _tag: "Available" });
+  });
+
+  it("fails closed when adding a new project for a missing environment", () => {
+    expect(
+      resolveProjectPathActionAvailability({
+        projectAlreadyExists: false,
         environmentLabel: null,
         connectionPhase: null,
         connectionError: null,

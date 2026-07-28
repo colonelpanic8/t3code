@@ -103,6 +103,7 @@ import {
   ITEM_ICON_CLASS,
   RECENT_THREAD_LIMIT,
   resolveBrowseAvailability,
+  resolveProjectPathActionAvailability,
 } from "./CommandPalette.logic";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -1285,32 +1286,6 @@ function OpenCommandPaletteDialog(props: {
     }) => {
       const rawCwd = input.rawCwd;
 
-      // The path is resolved on the target environment, so refuse outright when
-      // that environment is unreachable rather than dispatching an add that can
-      // only fail. Reuse the browse verdict so the toast states the reason
-      // ("<env> isn't connected.") rather than a bare status word.
-      const targetEnvironment =
-        environments.find((environment) => environment.environmentId === input.environmentId) ??
-        null;
-      const targetAvailability =
-        targetEnvironment === null
-          ? null
-          : resolveBrowseAvailability({
-              environmentLabel: targetEnvironment.label,
-              connectionPhase: targetEnvironment.connection.phase,
-              connectionError: targetEnvironment.connection.error,
-            });
-      if (targetAvailability?._tag === "Unavailable") {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to add project",
-            description: targetAvailability.message,
-          }),
-        );
-        return;
-      }
-
       if (isUnsupportedWindowsProjectPath(rawCwd.trim(), input.platform)) {
         toastManager.add(
           stackedThreadToast({
@@ -1340,6 +1315,26 @@ function OpenCommandPaletteDialog(props: {
         projects.filter((project) => project.environmentId === input.environmentId),
         cwd,
       );
+      const targetEnvironment =
+        environments.find((environment) => environment.environmentId === input.environmentId) ??
+        null;
+      const targetAvailability = resolveProjectPathActionAvailability({
+        projectAlreadyExists: existing !== undefined,
+        environmentLabel: targetEnvironment?.label ?? null,
+        connectionPhase: targetEnvironment?.connection.phase ?? null,
+        connectionError: targetEnvironment?.connection.error ?? null,
+      });
+      if (targetAvailability._tag === "Unavailable") {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to add project",
+            description: targetAvailability.message,
+          }),
+        );
+        return;
+      }
+
       if (existing) {
         const latestThread = getLatestThreadForProject(
           threads.filter((thread) => thread.environmentId === existing.environmentId),
@@ -1375,8 +1370,7 @@ function OpenCommandPaletteDialog(props: {
 
       const projectId = newProjectId();
       const targetEnvironmentProviders =
-        environments.find((environment) => environment.environmentId === input.environmentId)
-          ?.serverConfig?.providers ??
+        targetEnvironment?.serverConfig?.providers ??
         (input.environmentId === primaryEnvironmentId ? providers : []);
       const createResult = await createProject({
         environmentId: input.environmentId,

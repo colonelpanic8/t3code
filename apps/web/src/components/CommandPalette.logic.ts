@@ -348,6 +348,23 @@ export function resolveBrowseAvailability(input: {
   }
 }
 
+/**
+ * Opening a project already present in local state does not need a filesystem
+ * round trip. Adding a new path does, so it must use the same fail-closed
+ * reachability verdict as browsing.
+ */
+export function resolveProjectPathActionAvailability(input: {
+  readonly projectAlreadyExists: boolean;
+  readonly environmentLabel: string | null;
+  readonly connectionPhase: EnvironmentConnectionPhase | null;
+  readonly connectionError: string | null;
+}): BrowseAvailability {
+  if (input.projectAlreadyExists) {
+    return AVAILABLE_BROWSE;
+  }
+  return resolveBrowseAvailability(input);
+}
+
 export function buildBrowseGroups(input: {
   browseEntries: ReadonlyArray<FilesystemBrowseEntry>;
   browseQuery: string;
