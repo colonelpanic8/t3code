@@ -92,11 +92,11 @@ export function deriveNewTaskProjectPickerAction(input: {
   readonly canAddProject: boolean;
   readonly loading: boolean;
 }): NewTaskProjectPickerAction {
-  if (input.canAddProject) {
-    return "add-project";
-  }
   if (input.loading) {
     return "none";
+  }
+  if (input.canAddProject) {
+    return "add-project";
   }
   // Adding another connection is only useful when no environment was chosen.
   // Once one is selected the offer contradicts the screen the user is on, and
@@ -135,18 +135,30 @@ export function deriveNewTaskPickerEmptyState(catalogState: WorkspaceState): {
       title: "Environment unavailable",
       detail:
         catalogState.connectionError ??
+        catalogState.shellSnapshotError ??
         "The saved environment is offline. Check the URL or start the environment, then retry.",
       loading: false,
     };
   }
 
+  if (catalogState.shellSnapshotError !== null && !catalogState.hasLoadedShellSnapshot) {
+    return {
+      title: "Could not load projects",
+      detail: catalogState.shellSnapshotError,
+      loading: false,
+    };
+  }
+
   if (
-    catalogState.hasConnectingEnvironment &&
     !catalogState.hasLoadedShellSnapshot &&
-    catalogState.connectionError === null
+    (catalogState.hasConnectingEnvironment ||
+      catalogState.hasPendingShellSnapshot ||
+      catalogState.hasReadyEnvironment)
   ) {
     return {
-      title: "Connecting to environment",
+      title: catalogState.hasPendingShellSnapshot
+        ? "Loading projects"
+        : "Connecting to environment",
       detail: "Loading projects from the saved environment.",
       loading: true,
     };

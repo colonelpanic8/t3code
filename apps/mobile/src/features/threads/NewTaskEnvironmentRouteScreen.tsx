@@ -13,7 +13,11 @@ import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
-import { buildNewTaskEnvironmentItems, deriveNewTaskPickerEmptyState } from "./newTaskPicker";
+import {
+  buildNewTaskEnvironmentItems,
+  deriveNewTaskPickerEmptyState,
+  deriveNewTaskProjectPickerAction,
+} from "./newTaskPicker";
 
 type NewTaskEnvironmentRouteParams = {
   readonly incomingShareId?: string | string[];
@@ -46,6 +50,11 @@ export function NewTaskEnvironmentRouteScreen({
     [projects, threads, workspace.environments],
   );
   const emptyState = deriveNewTaskPickerEmptyState(workspace.state);
+  const emptyStateAction = deriveNewTaskProjectPickerAction({
+    hasSelectedEnvironment: workspace.state.hasConnections,
+    canAddProject: workspace.state.hasReadyEnvironment && workspace.state.hasLoadedShellSnapshot,
+    loading: emptyState.loading,
+  });
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
     ? (projects.find(
@@ -154,7 +163,7 @@ export function NewTaskEnvironmentRouteScreen({
             <Text className="text-center text-sm leading-normal text-foreground-muted">
               {emptyState.detail}
             </Text>
-            {!workspace.state.hasReadyEnvironment ? (
+            {emptyStateAction === "add-environment" ? (
               <Pressable
                 className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
                 onPress={() => navigation.navigate("ConnectionsNew")}
@@ -163,7 +172,7 @@ export function NewTaskEnvironmentRouteScreen({
                   Add environment
                 </Text>
               </Pressable>
-            ) : (
+            ) : emptyStateAction === "add-project" ? (
               <Pressable
                 className="mt-1 rounded-full bg-primary px-4 py-2.5 active:opacity-70"
                 onPress={addProject}
@@ -172,7 +181,7 @@ export function NewTaskEnvironmentRouteScreen({
                   Add new project
                 </Text>
               </Pressable>
-            )}
+            ) : null}
           </View>
         ) : (
           <View collapsable={false} className="overflow-hidden rounded-[24px] bg-card">

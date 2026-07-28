@@ -168,11 +168,11 @@ export function NewTaskDraftScreen(props: {
       const environmentId = props.initialProjectRef?.environmentId;
       navigation.dispatch(
         environmentId
-          ? StackActions.replace("NewTaskProject", {
+          ? StackActions.popTo("NewTaskProject", {
               environmentId,
               incomingShareId: props.incomingShareId,
             })
-          : StackActions.replace("NewTask", { incomingShareId: props.incomingShareId }),
+          : StackActions.popTo("NewTask", { incomingShareId: props.incomingShareId }),
       );
     });
     return () => cancelAnimationFrame(frame);
