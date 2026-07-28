@@ -223,6 +223,7 @@ export function resolveShortcutCommand(
  */
 const SHORTCUT_KEY_SYMBOLS: Readonly<Record<string, string>> = {
   " ": "␣",
+  space: "␣",
   arrowdown: "↓",
   arrowleft: "←",
   arrowright: "→",

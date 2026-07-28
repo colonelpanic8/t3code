@@ -676,6 +676,7 @@ describe("formatShortcutTokenLabel", () => {
     assert.strictEqual(formatShortcutTokenLabel("shift", "Linux"), "⇧");
     assert.strictEqual(formatShortcutTokenLabel("b", "Linux"), "B");
     assert.strictEqual(formatShortcutTokenLabel("escape", "Linux"), "⎋");
+    assert.strictEqual(formatShortcutTokenLabel("space", "Linux"), "␣");
   });
 
   it("keeps a word for a non-mac meta key, which has no Apple glyph", () => {
