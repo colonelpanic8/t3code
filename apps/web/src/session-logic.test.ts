@@ -1668,6 +1668,17 @@ describe("deriveWorkLogEntries clarifying questions", () => {
         payload: { itemType: "dynamic_tool_call", detail: "AskUserQuestion: {}" },
       }),
       makeActivity({
+        id: "tool-updated",
+        createdAt: "2026-02-23T00:00:00.750Z",
+        kind: "tool.updated",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          detail: 'AskUserQuestion: {"questions":[{"question":"How should we proceed?"}]}',
+          data: { toolName: "AskUserQuestion" },
+        },
+      }),
+      makeActivity({
         id: "tool-completed",
         createdAt: "2026-02-23T00:00:10.000Z",
         kind: "tool.completed",
@@ -1683,6 +1694,78 @@ describe("deriveWorkLogEntries clarifying questions", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.userInput?.answered).toBe(true);
+  });
+
+  it("keeps the AskUserQuestion tool fallback when structured questions cannot be parsed", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "tool-started",
+        createdAt: "2026-02-23T00:00:00.500Z",
+        kind: "tool.started",
+        summary: "Tool call started",
+        payload: { itemType: "dynamic_tool_call", detail: "AskUserQuestion: {}" },
+      }),
+      makeActivity({
+        id: "ask-broken",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: { requestId: "req-1", questions: [{ header: "Approach" }] },
+      }),
+      makeActivity({
+        id: "tool-completed",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          detail: 'AskUserQuestion: {"questions":[{"question":"How should we proceed?"}]}',
+          data: { toolName: "AskUserQuestion" },
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      id: "ask-broken",
+      label: "User input requested",
+    });
+    expect(entries[1]).toMatchObject({
+      id: "tool-completed",
+      sourceActivityKind: "tool.completed",
+      detail: 'AskUserQuestion: {"questions":[{"question":"How should we proceed?"}]}',
+    });
+  });
+
+  it("marks a stale unanswered request as no longer awaiting an answer", () => {
+    const entries = deriveWorkLogEntries([
+      ...makeQuestionActivities({}),
+      makeActivity({
+        id: "user-input-failed-stale",
+        createdAt: "2026-02-23T00:00:09.000Z",
+        kind: "provider.user-input.respond.failed",
+        summary: "Provider user input response failed",
+        tone: "error",
+        payload: {
+          requestId: "req-1",
+          detail:
+            "Provider adapter request failed (codex) for item/tool/requestUserInput: Unknown pending Codex user input request: req-1",
+        },
+      }),
+    ]);
+
+    expect(entries[0]?.userInput).toMatchObject({
+      requestId: "req-1",
+      answered: true,
+    });
+    expect(entries[0]?.userInput?.questions[0]).toMatchObject({
+      selectedLabels: [],
+    });
+    expect(entries[1]).toMatchObject({
+      id: "user-input-failed-stale",
+      tone: "error",
+    });
   });
 
   it("still shows the answer when the request activity is out of view", () => {

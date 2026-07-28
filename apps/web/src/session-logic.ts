@@ -803,30 +803,58 @@ export function deriveWorkLogEntries(
   // Answers arrive in a separate activity from the questions; fold them back
   // into the entry that asked, so one round trip renders as one Q&A card.
   const userInputEntryIndexByRequestId = new Map<string, number>();
+  // Claude emits an AskUserQuestion tool lifecycle alongside the structured
+  // user-input lifecycle. Suppress the former only after the latter has
+  // successfully produced a Q&A card; malformed structured payloads still
+  // need the tool row's raw question JSON as a fallback.
+  const removableUserInputToolEntryIds = new Set<string>();
+  let suppressUserInputToolEntries = false;
   for (const activity of ordered) {
+    if (isUserInputToolActivity(activity)) {
+      if (activity.kind === "tool.started") {
+        removableUserInputToolEntryIds.clear();
+        suppressUserInputToolEntries = false;
+        continue;
+      }
+      if (suppressUserInputToolEntries) {
+        continue;
+      }
+      entries.push(toDerivedWorkLogEntry(activity));
+      removableUserInputToolEntryIds.add(activity.id);
+      continue;
+    }
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
     if (activity.kind === "context-window.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
-    if (isUserInputToolActivity(activity)) continue;
 
     if (activity.kind === "user-input.requested") {
       const payload = asRecord(activity.payload);
       const requestId = asTrimmedString(payload?.requestId);
       const questions = parseUserInputQuestions(payload);
       if (requestId) {
-        userInputEntryIndexByRequestId.set(requestId, entries.length);
         if (questions) {
           const derived = toWorkLogUserInputEntry(activity, {
             requestId,
             answered: false,
             questions: questions.map((question) => toWorkLogUserInputQuestion(question, null)),
           });
+          for (let index = entries.length - 1; index >= 0; index -= 1) {
+            if (removableUserInputToolEntryIds.has(entries[index]!.id)) {
+              entries.splice(index, 1);
+            }
+          }
+          removableUserInputToolEntryIds.clear();
+          suppressUserInputToolEntries = true;
+          userInputEntryIndexByRequestId.set(requestId, entries.length);
           entries.push(derived);
           continue;
         }
+        userInputEntryIndexByRequestId.set(requestId, entries.length);
       }
+      removableUserInputToolEntryIds.clear();
+      suppressUserInputToolEntries = false;
     }
 
     if (activity.kind === "user-input.resolved") {
@@ -867,6 +895,22 @@ export function deriveWorkLogEntries(
         if (questions.length > 0) {
           entries.push(toWorkLogUserInputEntry(activity, { requestId, answered: true, questions }));
           continue;
+        }
+      }
+    }
+
+    if (activity.kind === "provider.user-input.respond.failed") {
+      const payload = asRecord(activity.payload);
+      const requestId = asTrimmedString(payload?.requestId);
+      const detail = asTrimmedString(payload?.detail);
+      const askedIndex = requestId ? userInputEntryIndexByRequestId.get(requestId) : undefined;
+      if (askedIndex !== undefined && isStalePendingRequestFailureDetail(detail ?? undefined)) {
+        const asked = entries[askedIndex];
+        if (asked?.userInput && !asked.userInput.answered) {
+          entries[askedIndex] = {
+            ...asked,
+            userInput: { ...asked.userInput, answered: true },
+          };
         }
       }
     }
