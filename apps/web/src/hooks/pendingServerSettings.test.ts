@@ -120,6 +120,71 @@ describe("pendingServerSettings", () => {
     );
   });
 
+  it("rebases model option deltas without restoring failed option values", () => {
+    const currentSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: {
+        ...DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+        options: [{ id: "reasoning_effort", value: "low" }],
+      },
+    };
+    const failedOptionsBase = {
+      ...currentSettings,
+      textGenerationModelSelection: {
+        ...currentSettings.textGenerationModelSelection,
+        options: [{ id: "reasoning_effort", value: "medium" }],
+      },
+    };
+    const patch = {
+      textGenerationModelSelection: {
+        options: [
+          { id: "reasoning_effort", value: "medium" },
+          { id: "verbosity", value: "high" },
+        ],
+      },
+    };
+    const settings = applyPendingServerPatches(currentSettings, [
+      { id: 1, patch, baseSettings: failedOptionsBase },
+    ]);
+
+    expect(settings.textGenerationModelSelection.options).toEqual([
+      { id: "reasoning_effort", value: "low" },
+      { id: "verbosity", value: "high" },
+    ]);
+  });
+
+  it("rebases array insertions and removals without restoring failed elements", () => {
+    const currentSettings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      providers: { codex: { customModels: ["A"] } },
+    });
+    const failedInsertionBase = applyServerSettingsPatch(currentSettings, {
+      providers: { codex: { customModels: ["A", "B"] } },
+    });
+    const afterInsertion = applyPendingServerPatches(currentSettings, [
+      {
+        id: 1,
+        patch: { providers: { codex: { customModels: ["A", "B", "C"] } } },
+        baseSettings: failedInsertionBase,
+      },
+    ]);
+    expect(afterInsertion.providers.codex.customModels).toEqual(["A", "C"]);
+
+    const currentAfterFailedRemoval = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      providers: { codex: { customModels: ["A", "B"] } },
+    });
+    const failedRemovalBase = applyServerSettingsPatch(currentAfterFailedRemoval, {
+      providers: { codex: { customModels: ["A"] } },
+    });
+    const afterRemoval = applyPendingServerPatches(currentAfterFailedRemoval, [
+      {
+        id: 2,
+        patch: { providers: { codex: { customModels: ["A", "C"] } } },
+        baseSettings: failedRemovalBase,
+      },
+    ]);
+    expect(afterRemoval.providers.codex.customModels).toEqual(["A", "B", "C"]);
+  });
+
   it("drops stale legacy provider edits inherited from a failed optimistic base", () => {
     const failedBase = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       providers: { codex: { binaryPath: "/failed/codex" } },

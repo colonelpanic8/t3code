@@ -53,8 +53,97 @@ function structurallyEqual(left: unknown, right: unknown): boolean {
   );
 }
 
+function stableArrayElementId(value: unknown): string | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    typeof (value as { readonly id?: unknown }).id !== "string"
+  ) {
+    return null;
+  }
+  return (value as { readonly id: string }).id;
+}
+
+function removeFirstStructurallyEqual(values: Array<unknown>, target: unknown): boolean {
+  const index = values.findIndex((value) => structurallyEqual(value, target));
+  if (index < 0) return false;
+  values.splice(index, 1);
+  return true;
+}
+
+function rebaseArrayByValue(
+  original: ReadonlyArray<unknown>,
+  intended: ReadonlyArray<unknown>,
+  current: ReadonlyArray<unknown>,
+): ReadonlyArray<unknown> {
+  const unmatchedIntended = [...intended];
+  const removed: Array<unknown> = [];
+  for (const value of original) {
+    if (!removeFirstStructurallyEqual(unmatchedIntended, value)) {
+      removed.push(value);
+    }
+  }
+
+  const unmatchedOriginal = [...original];
+  const added = intended.filter(
+    (value) => !removeFirstStructurallyEqual(unmatchedOriginal, value),
+  );
+  const rebased = [...current];
+  for (const value of removed) {
+    removeFirstStructurallyEqual(rebased, value);
+  }
+  rebased.push(...added);
+  return rebased;
+}
+
+function rebaseArrayById(
+  original: ReadonlyArray<unknown>,
+  intended: ReadonlyArray<unknown>,
+  current: ReadonlyArray<unknown>,
+): ReadonlyArray<unknown> {
+  const originalById = new Map(original.map((value) => [stableArrayElementId(value), value]));
+  const intendedById = new Map(intended.map((value) => [stableArrayElementId(value), value]));
+  const rebased = [...current];
+
+  for (const id of originalById.keys()) {
+    if (intendedById.has(id)) continue;
+    const index = rebased.findIndex((value) => stableArrayElementId(value) === id);
+    if (index >= 0) rebased.splice(index, 1);
+  }
+  for (const [id, intendedValue] of intendedById) {
+    const originalValue = originalById.get(id);
+    if (originalValue !== undefined && structurallyEqual(originalValue, intendedValue)) continue;
+    const currentIndex = rebased.findIndex((value) => stableArrayElementId(value) === id);
+    const rebasedValue =
+      originalValue === undefined
+        ? intendedValue
+        : rebaseChangedValue(originalValue, intendedValue, rebased[currentIndex]);
+    if (currentIndex < 0) {
+      rebased.push(rebasedValue);
+    } else {
+      rebased[currentIndex] = rebasedValue;
+    }
+  }
+  return rebased;
+}
+
+function rebaseArray(
+  original: ReadonlyArray<unknown>,
+  intended: ReadonlyArray<unknown>,
+  current: ReadonlyArray<unknown>,
+): ReadonlyArray<unknown> {
+  const allValues = [...original, ...intended, ...current];
+  return allValues.length > 0 && allValues.every((value) => stableArrayElementId(value) !== null)
+    ? rebaseArrayById(original, intended, current)
+    : rebaseArrayByValue(original, intended, current);
+}
+
 function rebaseChangedValue(original: unknown, intended: unknown, current: unknown): unknown {
   if (structurallyEqual(original, intended)) return current;
+  if (Array.isArray(original) && Array.isArray(intended) && Array.isArray(current)) {
+    return rebaseArray(original, intended, current);
+  }
   if (
     typeof original !== "object" ||
     original === null ||
