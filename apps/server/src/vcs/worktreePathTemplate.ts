@@ -43,7 +43,17 @@ export function matchesWorktreePathTemplate(
   path: Path.Path,
   input: Omit<WorktreePathTemplateInput, "branch"> & { readonly candidate: string },
 ): boolean {
-  const branchMarker = "__t3_worktree_branch__";
+  let branchMarker = "__t3_worktree_branch__";
+  const markerInputs = [
+    input.cwd,
+    input.resolvedRepoRoot ?? "",
+    input.worktreesDir,
+    input.template,
+    input.candidate,
+  ];
+  while (markerInputs.some((value) => value.includes(branchMarker))) {
+    branchMarker += "_";
+  }
   const resolvedTemplate = resolveWorktreePathTemplate(path, {
     ...input,
     branch: branchMarker,

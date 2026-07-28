@@ -117,6 +117,14 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
+   * Read persisted worktree paths for non-deleted threads in active projects.
+   */
+  readonly getActiveThreadWorktreePaths: () => Effect.Effect<
+    ReadonlyArray<string>,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read the active project for an exact workspace root match.
    */
   readonly getActiveProjectByWorkspaceRoot: (

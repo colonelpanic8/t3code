@@ -111,6 +111,9 @@ const ProjectionCountsRowSchema = Schema.Struct({
 const ProjectionWorkspaceRootRowSchema = Schema.Struct({
   workspaceRoot: Schema.String,
 });
+const ProjectionWorktreePathRowSchema = Schema.Struct({
+  worktreePath: Schema.String,
+});
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
 });
@@ -328,6 +331,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_projects
         WHERE deleted_at IS NULL
         ORDER BY created_at ASC, project_id ASC
+      `,
+  });
+
+  const listActiveThreadWorktreePathRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionWorktreePathRowSchema,
+    execute: () =>
+      sql`
+        SELECT DISTINCT threads.worktree_path AS "worktreePath"
+        FROM projection_threads AS threads
+        INNER JOIN projection_projects AS projects
+          ON projects.project_id = threads.project_id
+        WHERE threads.worktree_path IS NOT NULL
+          AND threads.deleted_at IS NULL
+          AND projects.deleted_at IS NULL
+        ORDER BY threads.worktree_path ASC
       `,
   });
 
@@ -1764,6 +1783,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.map((rows) => rows.map((row) => row.workspaceRoot)),
       );
 
+  const getActiveThreadWorktreePaths: ProjectionSnapshotQueryShape["getActiveThreadWorktreePaths"] =
+    () =>
+      listActiveThreadWorktreePathRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getActiveThreadWorktreePaths:query",
+            "ProjectionSnapshotQuery.getActiveThreadWorktreePaths:decodeRows",
+          ),
+        ),
+        Effect.map((rows) => rows.map((row) => row.worktreePath)),
+      );
+
   const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
     (workspaceRoot) =>
       getActiveProjectRowByWorkspaceRoot({ workspaceRoot }).pipe(
@@ -2138,6 +2169,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getSnapshotSequence,
     getCounts,
     getActiveProjectWorkspaceRoots,
+    getActiveThreadWorktreePaths,
     getActiveProjectByWorkspaceRoot,
     getProjectShellById,
     getFirstActiveThreadIdByProjectId,

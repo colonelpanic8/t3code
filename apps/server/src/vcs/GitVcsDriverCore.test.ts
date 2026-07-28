@@ -134,6 +134,31 @@ it.effect("expands path template placeholders in a single pass", () =>
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("treats branch marker text in path segments literally", () =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const cwd = path.resolve("repos", "example");
+    const worktreesDir = path.resolve("central-worktrees", "__t3_worktree_branch__");
+
+    assert.isTrue(
+      matchesWorktreePathTemplate(path, {
+        candidate: path.join(worktreesDir, "feature"),
+        cwd,
+        worktreesDir,
+        template: "{worktreesDir}/{branch}",
+      }),
+    );
+    assert.isFalse(
+      matchesWorktreePathTemplate(path, {
+        candidate: path.resolve("central-worktrees", "different", "feature"),
+        cwd,
+        worktreesDir,
+        template: "{worktreesDir}/{branch}",
+      }),
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("uses stable diagnostics for every parsed non-repository command", () => {
   const commands: Array<{ readonly args: ReadonlyArray<string>; readonly lcAll?: string }> = [];
   const spawner = ChildProcessSpawner.make((command) =>

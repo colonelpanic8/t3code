@@ -122,6 +122,42 @@ describe("ReviewService", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("allows an active worktree created with a previous path template", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const repositoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-repo-" });
+      const legacyWorktreeRoot = path.join(baseDir, "legacy-layout", "feature-local");
+      const nestedCwd = path.join(legacyWorktreeRoot, "packages", "app");
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+      yield* fs.makeDirectory(nestedCwd, { recursive: true });
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({
+          cwd: nestedCwd,
+          repositoryRoots: [repositoryRoot],
+          knownWorktreePaths: [legacyWorktreeRoot],
+        });
+      }).pipe(
+        Effect.provide(
+          makeLayer({
+            workspaceRoot,
+            baseDir,
+            detectCalls,
+            worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+          }),
+        ),
+      );
+
+      assert.strictEqual(result.cwd, nestedCwd);
+      assert.deepStrictEqual(result.sources, []);
+      assert.deepStrictEqual(detectCalls, [{ cwd: nestedCwd }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("preserves lexical repo names when matching canonical worktree paths", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

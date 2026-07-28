@@ -24,7 +24,10 @@ export class ReviewService extends Context.Service<
   ReviewService,
   {
     readonly getDiffPreview: (
-      input: ReviewDiffPreviewInput & { readonly repositoryRoots?: ReadonlyArray<string> },
+      input: ReviewDiffPreviewInput & {
+        readonly repositoryRoots?: ReadonlyArray<string>;
+        readonly knownWorktreePaths?: ReadonlyArray<string>;
+      },
     ) => Effect.Effect<ReviewDiffPreviewResult, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
@@ -62,7 +65,10 @@ export const make = Effect.gen(function* () {
   };
 
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
-    input: ReviewDiffPreviewInput & { readonly repositoryRoots?: ReadonlyArray<string> },
+    input: ReviewDiffPreviewInput & {
+      readonly repositoryRoots?: ReadonlyArray<string>;
+      readonly knownWorktreePaths?: ReadonlyArray<string>;
+    },
   ) {
     const { cwd } = input;
     const [candidate, workspaceRoot, worktreesRoot] = yield* Effect.all([
@@ -93,6 +99,22 @@ export const make = Effect.gen(function* () {
         ),
       { concurrency: "unbounded" },
     );
+    const knownWorktreePaths = yield* Effect.forEach(
+      input.knownWorktreePaths ?? [],
+      (worktreePath) =>
+        canonicalizePath(worktreePath).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Skipping worktree path that could not be resolved", {
+              cause,
+              worktreePath,
+            }).pipe(Effect.as(null)),
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+    const matchesKnownWorktreePath = knownWorktreePaths.some(
+      (worktreePath) => worktreePath !== null && isWithinRoot(candidate, worktreePath),
+    );
     const matchesConfiguredWorktreePath = repositoryRoots.some((repositoryRoot) =>
       repositoryRoot === null
         ? false
@@ -108,6 +130,7 @@ export const make = Effect.gen(function* () {
     if (
       isWithinRoot(candidate, workspaceRoot) ||
       isWithinRoot(candidate, worktreesRoot) ||
+      matchesKnownWorktreePath ||
       matchesConfiguredWorktreePath
     ) {
       return;

@@ -1887,21 +1887,26 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.reviewGetDiffPreview,
             Effect.gen(function* () {
-              const repositoryRoots = yield* projectionSnapshotQuery
-                .getActiveProjectWorkspaceRoots()
-                .pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new VcsRepositoryDetectionError({
-                        operation: "review.getDiffPreview",
-                        cwd: input.cwd,
-                        detail:
-                          "Failed to load project roots required to validate the review workspace.",
-                        cause,
-                      }),
-                  ),
-                );
-              return yield* review.getDiffPreview({ ...input, repositoryRoots });
+              const [repositoryRoots, knownWorktreePaths] = yield* Effect.all([
+                projectionSnapshotQuery.getActiveProjectWorkspaceRoots(),
+                projectionSnapshotQuery.getActiveThreadWorktreePaths(),
+              ]).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new VcsRepositoryDetectionError({
+                      operation: "review.getDiffPreview",
+                      cwd: input.cwd,
+                      detail:
+                        "Failed to load project paths required to validate the review workspace.",
+                      cause,
+                    }),
+                ),
+              );
+              return yield* review.getDiffPreview({
+                ...input,
+                repositoryRoots,
+                knownWorktreePaths,
+              });
             }),
             {
               "rpc.aggregate": "review",

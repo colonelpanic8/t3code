@@ -717,6 +717,7 @@ const buildAppUnderTest = (options?: {
           getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
           getActiveProjectWorkspaceRoots: () => Effect.succeed([]),
+          getActiveThreadWorktreePaths: () => Effect.succeed([]),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
@@ -5242,20 +5243,24 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("loads review project roots without hydrating the shell snapshot", () =>
+  it.effect("loads review project paths without hydrating the shell snapshot", () =>
     Effect.gen(function* () {
       const repositoryRoots = ["/tmp/project-a", "/tmp/project-b"];
+      const knownWorktreePaths = ["/tmp/legacy-layout/feature"];
       let receivedRepositoryRoots: ReadonlyArray<string> | undefined;
+      let receivedKnownWorktreePaths: ReadonlyArray<string> | undefined;
       yield* buildAppUnderTest({
         layers: {
           projectionSnapshotQuery: {
             getShellSnapshot: () => Effect.die("review preview must not hydrate shell snapshots"),
             getActiveProjectWorkspaceRoots: () => Effect.succeed(repositoryRoots),
+            getActiveThreadWorktreePaths: () => Effect.succeed(knownWorktreePaths),
           },
           reviewService: {
             getDiffPreview: (input) =>
               Effect.sync(() => {
                 receivedRepositoryRoots = input.repositoryRoots;
+                receivedKnownWorktreePaths = input.knownWorktreePaths;
                 return {
                   cwd: input.cwd,
                   generatedAt: TEST_EPOCH,
@@ -5276,6 +5281,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assert.deepEqual(receivedRepositoryRoots, repositoryRoots);
+      assert.deepEqual(receivedKnownWorktreePaths, knownWorktreePaths);
       assert.equal(result.cwd, "/tmp/project-a/.worktrees/feature");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
