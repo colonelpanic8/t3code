@@ -1762,7 +1762,9 @@ export function ConnectionsSettings() {
     [environments, localServerAdvertisements],
   );
   const hasLocalServerDiscoveryContent =
-    localServerPairingCandidates.length > 0 || localServerDiscoveryError !== null;
+    isDiscoveringLocalServers ||
+    localServerPairingCandidates.length > 0 ||
+    localServerDiscoveryError !== null;
   const refreshLocalServerAdvertisements = useCallback(async () => {
     const discoverLocalServers = desktopBridge?.discoverLocalServers;
     if (!discoverLocalServers) {
@@ -1770,10 +1772,10 @@ export function ConnectionsSettings() {
       return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
     }
     setIsDiscoveringLocalServers(true);
-    setLocalServerDiscoveryError(null);
     try {
       const discovered = await discoverLocalServers();
       setLocalServerAdvertisements(discovered);
+      setLocalServerDiscoveryError(null);
       setIsDiscoveringLocalServers(false);
       return discovered;
     } catch (error) {
@@ -2538,6 +2540,12 @@ export function ConnectionsSettings() {
   );
   const renderLocalServerPairingCandidates = () => (
     <div className="space-y-2">
+      {isDiscoveringLocalServers && localServerPairingCandidates.length === 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Spinner className="size-3" />
+          Scanning for local T3 Code servers…
+        </p>
+      ) : null}
       {localServerPairingCandidates.map(({ advertisement, pairAgain }) => (
         <div
           key={advertisement.instanceId}
@@ -3613,7 +3621,9 @@ export function ConnectionsSettings() {
                         "space-y-2 rounded-lg border p-3",
                         localServerPairingCandidates.length > 0
                           ? "border-primary/20 bg-primary/5"
-                          : "border-destructive/30 bg-destructive/5",
+                          : localServerDiscoveryError
+                            ? "border-destructive/30 bg-destructive/5"
+                            : "border-border/70 bg-muted/20",
                       )}
                     >
                       {localServerPairingCandidates.length > 0 ? (
