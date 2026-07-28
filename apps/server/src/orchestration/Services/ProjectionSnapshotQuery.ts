@@ -153,10 +153,15 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
 
   /**
-   * Read a single active thread detail snapshot by id.
+   * Read a single thread detail snapshot by id. Archived and deleted threads
+   * are excluded unless explicitly requested for internal lineage resolution.
    */
   readonly getThreadDetailById: (
     threadId: ThreadId,
+    options?: {
+      readonly includeArchived?: boolean;
+      readonly includeDeleted?: boolean;
+    },
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
