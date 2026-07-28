@@ -5327,7 +5327,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const detectionError = result.failure;
       assert.equal(detectionError.operation, "review.getDiffPreview");
       assert.equal(detectionError.cwd, "/tmp/repository-worktrees/feature");
-      assert.include(detectionError.detail, "Failed to load project roots");
+      assert.include(detectionError.detail, "Failed to load project paths");
       assert.instanceOf(detectionError.cause, Error);
       assert.include(detectionError.cause.message, projectionError.message);
       assert.equal(reviewCalls, 0);
