@@ -9,6 +9,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import { HttpServer } from "effect/unstable/http";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -52,7 +53,11 @@ const runAdvertisement = Effect.fn(function* (input: {
 }) {
   const discoveryState = yield* LocalServerDiscoveryState.LocalServerDiscoveryState;
   let advertisement = startLocalServerAdvertisement({
-    connectionString: "http://127.0.0.1:3773",
+    listeningAddress: {
+      _tag: "TcpAddress",
+      hostname: "127.0.0.1",
+      port: 3773,
+    } satisfies HttpServer.Address,
     platform: input.platform ?? "linux",
     xdgRuntimeDirectory: input.runtimeDirectory,
   }).pipe(

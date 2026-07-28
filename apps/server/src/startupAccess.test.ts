@@ -62,6 +62,12 @@ it("builds a pairing URL that embeds the token in the hash", () => {
 it("resolves canonical loopback advertisement URLs only for loopback listeners", () => {
   expect(resolveLocalAdvertisementHttpBaseUrl(undefined, 3773)).toBe("http://127.0.0.1:3773/");
   expect(resolveLocalAdvertisementHttpBaseUrl("localhost", 3773)).toBe("http://127.0.0.1:3773/");
+  expect(resolveLocalAdvertisementHttpBaseUrl("localhost", 3773, "::1")).toBe(
+    "http://[::1]:3773/",
+  );
+  expect(resolveLocalAdvertisementHttpBaseUrl("localhost", 3773, "127.0.0.1")).toBe(
+    "http://127.0.0.1:3773/",
+  );
   expect(resolveLocalAdvertisementHttpBaseUrl("::1", 3773)).toBe("http://[::1]:3773/");
   expect(resolveLocalAdvertisementHttpBaseUrl("0.0.0.0", 3773)).toBeNull();
   expect(resolveLocalAdvertisementHttpBaseUrl("192.168.1.42", 3773)).toBeNull();

@@ -21,6 +21,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import { HttpServer } from "effect/unstable/http";
 
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -451,8 +452,9 @@ export const make = Effect.gen(function* () {
       if (serverConfig.startupPresentation === "headless") {
         yield* Effect.logDebug("startup phase: headless access info");
         const accessInfo = yield* issueHeadlessServeAccessInfo();
+        const httpServer = yield* HttpServer.HttpServer;
         yield* startLocalServerAdvertisement({
-          connectionString: accessInfo.connectionString,
+          listeningAddress: httpServer.address,
         });
         yield* runStartupPhase(
           "headless.output",

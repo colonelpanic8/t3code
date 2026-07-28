@@ -15,6 +15,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { HttpServer } from "effect/unstable/http";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -59,7 +60,7 @@ const writeAdvertisement = Effect.fn("server.localAdvertisement.write")(function
  */
 export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisement.start")(
   function* (input: {
-    readonly connectionString: string;
+    readonly listeningAddress: HttpServer.Address;
     readonly platform?: NodeJS.Platform;
     readonly xdgRuntimeDirectory?: string;
   }) {
@@ -78,8 +79,14 @@ export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisemen
       xdgRuntimeDirectory,
       path,
     });
-    const port = Number(new URL(input.connectionString).port);
-    const httpBaseUrl = resolveLocalAdvertisementHttpBaseUrl(serverConfig.host, port);
+    const httpBaseUrl =
+      input.listeningAddress._tag === "TcpAddress"
+        ? resolveLocalAdvertisementHttpBaseUrl(
+            serverConfig.host,
+            input.listeningAddress.port,
+            input.listeningAddress.hostname,
+          )
+        : null;
     if (
       directory === null ||
       httpBaseUrl === null ||
