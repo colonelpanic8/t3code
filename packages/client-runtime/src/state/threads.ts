@@ -88,7 +88,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   // The retry-delay callback runs synchronously, so track data presence in a
   // plain flag (kept current by setThread/setDeleted) instead of reading the
   // SubscriptionRef effectfully.
-  let hasData = Option.isSome(cachedThread);
+  let hasData = Option.isSome(cachedThread) && cachedThread.value.messages.length > 0;
   const state = yield* SubscriptionRef.make<EnvironmentThreadState>({
     data: cachedThread,
     status: statusWithoutLiveData(cachedThread),
@@ -164,7 +164,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const setThread = Effect.fn("EnvironmentThreadState.setThread")(function* (
     thread: OrchestrationThread,
   ) {
-    hasData = true;
+    hasData = thread.messages.length > 0;
     const waiting = yield* Ref.get(awaitingCompletion);
     yield* SubscriptionRef.set(state, {
       data: Option.some(thread),
