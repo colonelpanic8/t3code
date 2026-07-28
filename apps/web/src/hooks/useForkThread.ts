@@ -27,8 +27,15 @@ export function useForkThread(): (
 
   return useCallback(
     async (sourceThread: ForkableThread, sourceTurnId: TurnId): Promise<ScopedThreadRef | null> => {
-      const sourceThreadKey = `${sourceThread.environmentId}:${sourceThread.id}`;
+      const sourceThreadKey = `${sourceThread.environmentId}:${sourceThread.id}:${sourceTurnId}`;
       if (inFlightForkThreadKeys.has(sourceThreadKey)) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "Thread fork already in progress",
+            description: "Wait for the current fork to finish before trying again.",
+          }),
+        );
         return null;
       }
 

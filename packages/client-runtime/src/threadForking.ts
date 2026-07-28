@@ -1,4 +1,8 @@
-import { ProviderDriverKind, type OrchestrationLatestTurn, type TurnId } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  type OrchestrationThreadShell,
+  type TurnId,
+} from "@t3tools/contracts";
 
 const THREAD_FORK_DRIVERS = new Set<ProviderDriverKind>([
   ProviderDriverKind.make("codex"),
@@ -15,10 +19,13 @@ export function supportsThreadFork(driverKind: ProviderDriverKind | null | undef
 export const supportsSelectedResponseFork = supportsThreadFork;
 
 export function resolveLatestForkableTurnId(
-  latestTurn: OrchestrationLatestTurn | null,
+  thread: Pick<OrchestrationThreadShell, "forkedFrom" | "latestTurn">,
 ): TurnId | null {
+  const latestTurn = thread.latestTurn;
+  if (latestTurn === null) {
+    return thread.forkedFrom?.turnId ?? null;
+  }
   if (
-    latestTurn === null ||
     latestTurn.state === "running" ||
     latestTurn.assistantMessageId === null
   ) {

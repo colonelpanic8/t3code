@@ -2126,7 +2126,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           ?.providers.find((provider) => provider.instanceId === providerInstanceId)?.driver ??
         null;
       const forkSupported = supportsThreadFork(providerDriver);
-      const sourceTurnId = resolveLatestForkableTurnId(thread.latestTurn);
+      const sourceTurnId = resolveLatestForkableTurnId(thread);
       const clicked = await api.contextMenu.show(
         [
           ...(thread.branch

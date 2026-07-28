@@ -1,4 +1,4 @@
-import { MessageId, ProviderDriverKind, TurnId } from "@t3tools/contracts";
+import { MessageId, ProviderDriverKind, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveLatestForkableTurnId, supportsThreadFork } from "./threadForking.js";
@@ -25,12 +25,37 @@ describe("resolveLatestForkableTurnId", () => {
   };
 
   it("uses the latest completed assistant turn as the full-thread clone boundary", () => {
-    expect(resolveLatestForkableTurnId(completedTurn)).toBe(completedTurn.turnId);
+    expect(resolveLatestForkableTurnId({ forkedFrom: null, latestTurn: completedTurn })).toBe(
+      completedTurn.turnId,
+    );
+  });
+
+  it("uses inherited history when a new fork has not run a local turn", () => {
+    const inheritedTurnId = TurnId.make("turn-inherited");
+    expect(
+      resolveLatestForkableTurnId({
+        forkedFrom: {
+          threadId: ThreadId.make("thread-parent"),
+          turnId: inheritedTurnId,
+        },
+        latestTurn: null,
+      }),
+    ).toBe(inheritedTurnId);
   });
 
   it("rejects running turns and turns without a completed assistant response", () => {
-    expect(resolveLatestForkableTurnId({ ...completedTurn, state: "running" })).toBeNull();
-    expect(resolveLatestForkableTurnId({ ...completedTurn, assistantMessageId: null })).toBeNull();
-    expect(resolveLatestForkableTurnId(null)).toBeNull();
+    expect(
+      resolveLatestForkableTurnId({
+        forkedFrom: null,
+        latestTurn: { ...completedTurn, state: "running" },
+      }),
+    ).toBeNull();
+    expect(
+      resolveLatestForkableTurnId({
+        forkedFrom: null,
+        latestTurn: { ...completedTurn, assistantMessageId: null },
+      }),
+    ).toBeNull();
+    expect(resolveLatestForkableTurnId({ forkedFrom: null, latestTurn: null })).toBeNull();
   });
 });
