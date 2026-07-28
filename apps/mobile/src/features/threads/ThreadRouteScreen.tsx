@@ -46,6 +46,7 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
+import { isThreadReplayCatchUp } from "./ThreadFeed";
 import {
   ThreadGitControls,
   useThreadGitCenterHeaderItems,
@@ -755,6 +756,7 @@ function ThreadRouteContent(
           connectionError={routeConnectionError}
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
           selectedThreadFeed={composer.selectedThreadFeed}
+          replayCatchUp={isThreadReplayCatchUp(selectedThreadDetail?.updatedAt)}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           activePendingApproval={requests.activePendingApproval}
           respondingApprovalId={requests.respondingApprovalId}
