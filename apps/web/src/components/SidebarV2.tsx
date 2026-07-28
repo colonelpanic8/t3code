@@ -1797,17 +1797,22 @@ export default function SidebarV2() {
     (threadKey: string, coParkingKeys?: ReadonlySet<string>): (() => void) | null => {
       if (routeThreadKeyRef.current !== threadKey) return null;
       const shell = allThreadByKeyRef.current.get(threadKey);
-      const orderedKeys = orderedThreadKeysRef.current;
-      const settledKeys = settledThreadKeysRef.current;
-      const snoozedKeys = snoozedThreadKeysRef.current;
-      const currentIndex = orderedKeys.indexOf(threadKey);
-      const nextCardKey =
-        currentIndex === -1
-          ? null
-          : ([...orderedKeys.slice(currentIndex + 1), ...orderedKeys.slice(0, currentIndex)].find(
-              (key) => !settledKeys.has(key) && !snoozedKeys.has(key) && !coParkingKeys?.has(key),
-            ) ?? null);
-      const nextThread = nextCardKey ? threadByKeyRef.current.get(nextCardKey) : null;
+      const navigationNow = new Date().toISOString();
+      const nextThreadKey = resolveNextActiveThreadIdAfterSettle({
+        threadIds: orderedThreadKeysRef.current,
+        fallbackThreadIds: allUnarchivedThreadKeysRef.current,
+        settledThreadId: threadKey,
+        isActive: (candidateKey) => {
+          const candidate = allThreadByKeyRef.current.get(candidateKey);
+          return (
+            candidate !== undefined &&
+            !coParkingKeys?.has(candidateKey) &&
+            !isThreadEffectivelySnoozedRef.current(candidate, navigationNow) &&
+            !isThreadEffectivelySettledRef.current(candidate)
+          );
+        },
+      });
+      const nextThread = nextThreadKey ? allThreadByKeyRef.current.get(nextThreadKey) : null;
       return nextThread
         ? () => navigateToThread(scopeThreadRef(nextThread.environmentId, nextThread.id))
         : shell
