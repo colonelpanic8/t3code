@@ -97,6 +97,29 @@ describe("pendingServerSettings", () => {
     );
   });
 
+  it("drops model options when their optimistic model change failed", () => {
+    const failedModelBase = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: {
+        instanceId: claudeId,
+        model: "claude-sonnet",
+      },
+    };
+    const patch = {
+      textGenerationModelSelection: {
+        ...failedModelBase.textGenerationModelSelection,
+        options: [{ id: "reasoning_effort", value: "high" }],
+      },
+    };
+    const settings = applyPendingServerPatches(DEFAULT_SERVER_SETTINGS, [
+      { id: 1, patch, baseSettings: failedModelBase },
+    ]);
+
+    expect(settings.textGenerationModelSelection).toEqual(
+      DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+    );
+  });
+
   it("drops stale legacy provider edits inherited from a failed optimistic base", () => {
     const failedBase = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       providers: { codex: { binaryPath: "/failed/codex" } },

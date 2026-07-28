@@ -85,6 +85,31 @@ function rebaseChangedValue(original: unknown, intended: unknown, current: unkno
   return rebased;
 }
 
+function isSameModelTarget(
+  left: ServerSettings["textGenerationModelSelection"],
+  right: ServerSettings["textGenerationModelSelection"],
+): boolean {
+  return left.instanceId === right.instanceId && left.model === right.model;
+}
+
+function rebaseModelSelection(
+  original: ServerSettings["textGenerationModelSelection"],
+  intended: ServerSettings["textGenerationModelSelection"],
+  current: ServerSettings["textGenerationModelSelection"],
+): ServerSettings["textGenerationModelSelection"] {
+  if (!isSameModelTarget(original, intended)) {
+    return intended;
+  }
+  if (!isSameModelTarget(original, current)) {
+    return current;
+  }
+  return rebaseChangedValue(
+    original,
+    intended,
+    current,
+  ) as ServerSettings["textGenerationModelSelection"];
+}
+
 /**
  * Preserve only the edits made by this operation when its original optimistic
  * base no longer matches the latest authoritative server settings.
@@ -97,11 +122,18 @@ export function rebaseServerSettingsPatch(
   const intended = applyServerSettingsPatch(originalBase, patch);
   const rebased: Record<string, unknown> = {};
   for (const key of Object.keys(patch)) {
-    rebased[key] = rebaseChangedValue(
-      originalBase[key as keyof ServerSettings],
-      intended[key as keyof ServerSettings],
-      currentBase[key as keyof ServerSettings],
-    );
+    rebased[key] =
+      key === "textGenerationModelSelection"
+        ? rebaseModelSelection(
+            originalBase.textGenerationModelSelection,
+            intended.textGenerationModelSelection,
+            currentBase.textGenerationModelSelection,
+          )
+        : rebaseChangedValue(
+            originalBase[key as keyof ServerSettings],
+            intended[key as keyof ServerSettings],
+            currentBase[key as keyof ServerSettings],
+          );
   }
   return rebased as ServerSettingsPatch;
 }
