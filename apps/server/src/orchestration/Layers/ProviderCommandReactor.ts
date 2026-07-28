@@ -351,6 +351,12 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
+  const resolveForkSourceThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+    return yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId, { includeArchived: true })
+      .pipe(Effect.map(Option.getOrUndefined));
+  });
+
   const rejectStartedThreadModelChangeIfRequired = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly currentModelSelection: ModelSelection;
@@ -533,7 +539,7 @@ const make = Effect.gen(function* () {
           ? yield* Effect.gen(function* () {
               const sourceTurnId = forkedFrom.turnId;
               let sourceThreadId = forkedFrom.threadId;
-              let sourceThread = yield* resolveThread(sourceThreadId);
+              let sourceThread = yield* resolveForkSourceThread(sourceThreadId);
               const visitedThreadIds = new Set<string>();
 
               if (sourceTurnId !== null) {
@@ -580,7 +586,7 @@ const make = Effect.gen(function* () {
                   }
 
                   sourceThreadId = parentFork.threadId;
-                  sourceThread = yield* resolveThread(sourceThreadId);
+                  sourceThread = yield* resolveForkSourceThread(sourceThreadId);
                 }
               }
 
