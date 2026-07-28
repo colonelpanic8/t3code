@@ -2379,12 +2379,17 @@ const make = Effect.gen(function* () {
         const existingAssistantMessage = findMessageById(messages, assistantMessageId);
         const shouldApplyFallbackCompletionText =
           !existingAssistantMessage || existingAssistantMessage.text.length === 0;
+        const sameMessageAlreadyCompleted =
+          existingAssistantMessage !== undefined &&
+          !existingAssistantMessage.streaming &&
+          !shouldApplyFallbackCompletionText;
 
         const shouldSkipRedundantCompletion =
           Option.isNone(activeAssistantMessageId) &&
-          turnId !== undefined &&
-          hasAssistantMessagesForTurn &&
-          (assistantCompletion.fallbackText?.trim().length ?? 0) === 0;
+          (sameMessageAlreadyCompleted ||
+            (turnId !== undefined &&
+              hasAssistantMessagesForTurn &&
+              (assistantCompletion.fallbackText?.trim().length ?? 0) === 0));
 
         let assistantFinalized = true;
         if (!shouldSkipRedundantCompletion) {
