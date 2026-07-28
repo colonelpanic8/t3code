@@ -47,7 +47,12 @@ import {
   primaryServerConfigEventAtom,
   primaryServerWelcomeAtom,
 } from "../state/server";
-import { readProject, setActiveEnvironmentId, useActiveEnvironmentId } from "../state/entities";
+import {
+  readActiveEnvironmentId,
+  readProject,
+  setActiveEnvironmentId,
+  useActiveEnvironmentId,
+} from "../state/entities";
 import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
@@ -298,7 +303,9 @@ function EventRouter() {
   const handleWelcome = useEffectEvent((payload: ServerLifecycleWelcomePayload | null) => {
     if (!payload) return;
 
-    setActiveEnvironmentId(payload.environment.environmentId);
+    if (readActiveEnvironmentId() === null) {
+      setActiveEnvironmentId(payload.environment.environmentId);
+    }
     void (async () => {
       if (!payload.bootstrapProjectId || !payload.bootstrapThreadId) {
         return;
@@ -400,7 +407,9 @@ function EventRouter() {
       return;
     }
 
-    setActiveEnvironmentId(serverConfig.environment.environmentId);
+    if (readActiveEnvironmentId() === null) {
+      setActiveEnvironmentId(serverConfig.environment.environmentId);
+    }
   }, [serverConfig]);
 
   useEffect(() => {
