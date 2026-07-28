@@ -7,13 +7,56 @@ import { useAssetUrl, useRefreshAssetUrl } from "../assets/assetUrls";
 
 const loadedProjectFaviconSrcs = new Set<string>();
 
+function hashProjectFaviconRevision(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+export function projectFaviconSettingsRevision(
+  settings: {
+    readonly projectIcons: Readonly<Record<string, string>>;
+    readonly projectIconsByGitRemote: Readonly<Record<string, string>>;
+  },
+  cwd: string,
+  repositoryKey?: string | null,
+): string | undefined {
+  const pathEntries = Object.entries(settings.projectIcons);
+  const remoteEntries = Object.entries(settings.projectIconsByGitRemote);
+  if (pathEntries.length === 0 && remoteEntries.length === 0 && !repositoryKey) return undefined;
+  const revisionSource = JSON.stringify([
+    "workspace",
+    cwd,
+    "paths",
+    pathEntries.sort(([left], [right]) => left.localeCompare(right)),
+    "repository",
+    repositoryKey ?? null,
+    "remotes",
+    remoteEntries.sort(([left], [right]) => left.localeCompare(right)),
+  ]);
+  return `icons:${revisionSource.length}:${hashProjectFaviconRevision(revisionSource)}`;
+}
+
 export function ProjectFavicon(input: {
   environmentId: EnvironmentId;
   cwd: string;
+  repositoryKey?: string | null | undefined;
   className?: string | undefined;
   fallbackIcon?: ComponentType<{ className?: string }>;
 }) {
-  const resource = { _tag: "project-favicon", cwd: input.cwd } as const;
+  const configuredIconRevision = useEnvironmentSettings(input.environmentId, (settings) =>
+    projectFaviconSettingsRevision(settings, input.cwd, input.repositoryKey),
+  );
+  // The revision lives on the shared resource so the refresh query below keys
+  // on exactly the same asset the image was minted from.
+  const resource = {
+    _tag: "project-favicon",
+    cwd: input.cwd,
+    ...(configuredIconRevision ? { revision: configuredIconRevision } : {}),
+  } as const;
   const src = useAssetUrl(input.environmentId, resource);
   // Clicking an icon re-issues its asset URL, which makes the server resolve
   // the project's icon from scratch. That is what picks up an icon that was
