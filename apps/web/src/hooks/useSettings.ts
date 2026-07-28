@@ -142,6 +142,19 @@ function persistClientSettings(settings: ClientSettings): void {
     });
 }
 
+function updateClientSettings(
+  deriveSettings: (settings: ClientSettings) => ClientSettings,
+): void {
+  if (!clientSettingsHydrated) {
+    void hydrateClientSettings().then(() => {
+      updateClientSettings(deriveSettings);
+    });
+    return;
+  }
+
+  persistClientSettings(deriveSettings(getClientSettingsSnapshot()));
+}
+
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
@@ -261,10 +274,10 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
       }
 
       if (Object.keys(clientPatch).length > 0) {
-        persistClientSettings({
-          ...getClientSettingsSnapshot(),
+        updateClientSettings((settings) => ({
+          ...settings,
           ...clientPatch,
-        });
+        }));
       }
     },
     [environmentId, persistServerSettings],
@@ -283,10 +296,10 @@ export function useUpdatePrimarySettings() {
 
 export function useUpdateClientSettings() {
   return useCallback((patch: ClientSettingsPatch) => {
-    persistClientSettings({
-      ...getClientSettingsSnapshot(),
+    updateClientSettings((settings) => ({
+      ...settings,
       ...patch,
-    });
+    }));
   }, []);
 }
 
@@ -301,11 +314,10 @@ export function useUpdateClientSettings() {
  */
 export function useUpdateClientSettingsWith() {
   return useCallback((derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
-    const settings = getClientSettingsSnapshot();
-    persistClientSettings({
+    updateClientSettings((settings) => ({
       ...settings,
       ...derivePatch(settings),
-    });
+    }));
   }, []);
 }
 
