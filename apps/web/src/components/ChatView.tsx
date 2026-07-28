@@ -2309,6 +2309,11 @@ function ChatViewContent(props: ChatViewProps) {
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
   }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
+  const threadProviderInstanceId =
+    serverThread?.session?.providerInstanceId ?? serverThread?.modelSelection.instanceId ?? null;
+  const threadProviderDriver =
+    providerStatuses.find((status) => status.instanceId === threadProviderInstanceId)?.driver ??
+    null;
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -5785,7 +5790,7 @@ function ChatViewContent(props: ChatViewProps) {
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
-                {...(isServerThread && supportsSelectedResponseFork(activeProviderStatus?.driver)
+                {...(isServerThread && supportsSelectedResponseFork(threadProviderDriver)
                   ? { onForkFromResponse, isForkingResponse }
                   : {})}
                 onImageExpand={onExpandTimelineImage}
