@@ -7,12 +7,15 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  buildGeneralSettingsRestorePatch,
   buildProviderInstanceUpdatePatch,
   formatDiagnosticsDescription,
+  hasChangedGeneralServerSettings,
   isProjectGroupingEnabled,
   projectGroupingModeFromToggle,
   resolveSettingsEnvironmentId,
 } from "./SettingsPanels.logic";
+import * as Duration from "effect/Duration";
 
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("00000000-0000-4000-8000-000000000001");
 const REMOTE_ENVIRONMENT_ID = EnvironmentId.make("00000000-0000-4000-8000-000000000002");
@@ -82,6 +85,33 @@ describe("settings environment selection", () => {
         activeEnvironmentId: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("general settings restore", () => {
+  it("detects whether server-backed general settings differ from their defaults", () => {
+    expect(hasChangedGeneralServerSettings(DEFAULT_SERVER_SETTINGS)).toBe(false);
+    expect(
+      hasChangedGeneralServerSettings({
+        ...DEFAULT_SERVER_SETTINGS,
+        automaticGitFetchInterval: Duration.seconds(5),
+      }),
+    ).toBe(true);
+  });
+
+  it("omits server-backed defaults when only client settings need restoring", () => {
+    const clientOnlyPatch = buildGeneralSettingsRestorePatch({
+      includeServerSettings: false,
+    });
+    const serverAndClientPatch = buildGeneralSettingsRestorePatch({
+      includeServerSettings: true,
+    });
+
+    expect(clientOnlyPatch).toHaveProperty("wordWrap");
+    expect(clientOnlyPatch).not.toHaveProperty("enableAssistantStreaming");
+    expect(clientOnlyPatch).not.toHaveProperty("textGenerationModelSelection");
+    expect(serverAndClientPatch).toHaveProperty("enableAssistantStreaming");
+    expect(serverAndClientPatch).toHaveProperty("textGenerationModelSelection");
   });
 });
 

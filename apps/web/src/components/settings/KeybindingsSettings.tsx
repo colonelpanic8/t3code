@@ -42,7 +42,10 @@ import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
-import { useSettingsEnvironment } from "../../hooks/useSettingsEnvironment";
+import {
+  useSettingsEnvironment,
+  type SettingsEnvironmentTarget,
+} from "../../hooks/useSettingsEnvironment";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Kbd, KbdGroup } from "../ui/kbd";
@@ -61,6 +64,7 @@ import {
   isKnownWhenVariable,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
+  keybindingsSettingsEditorKey,
   parseWhenExpressionDraft,
   type KeybindingCommandOption,
   type KeybindingRow,
@@ -1083,7 +1087,11 @@ function NewKeybindingTableRow({
   );
 }
 
-export function KeybindingsSettingsPanel() {
+function KeybindingsSettingsPanelContent({
+  settingsEnvironment,
+}: {
+  settingsEnvironment: SettingsEnvironmentTarget;
+}) {
   const {
     environmentId,
     environment,
@@ -1091,7 +1099,7 @@ export function KeybindingsSettingsPanel() {
     primaryEnvironmentId,
     selectEnvironment,
     isReady: environmentsReady,
-  } = useSettingsEnvironment();
+  } = settingsEnvironment;
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const keybindings = serverConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const keybindingsConfigPath = serverConfig?.keybindingsConfigPath ?? null;
@@ -1373,5 +1381,15 @@ export function KeybindingsSettingsPanel() {
         </SettingsSection>
       ) : null}
     </SettingsPageContainer>
+  );
+}
+
+export function KeybindingsSettingsPanel() {
+  const settingsEnvironment = useSettingsEnvironment();
+  return (
+    <KeybindingsSettingsPanelContent
+      key={keybindingsSettingsEditorKey(settingsEnvironment.environmentId)}
+      settingsEnvironment={settingsEnvironment}
+    />
   );
 }

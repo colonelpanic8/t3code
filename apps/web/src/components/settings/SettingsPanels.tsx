@@ -63,7 +63,9 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SettingsEnvironmentSelector } from "./SettingsEnvironmentSelector";
 import {
+  buildGeneralSettingsRestorePatch,
   formatDiagnosticsDescription,
+  hasChangedGeneralServerSettings,
   isProjectGroupingEnabled,
   projectGroupingModeFromToggle,
   readLastEnabledProjectGroupingMode,
@@ -321,7 +323,7 @@ function AboutVersionSection() {
 
 export function useSettingsRestore(onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
-  const { environmentId } = useSettingsEnvironment();
+  const { environmentId, environment } = useSettingsEnvironment();
   const settings = useEnvironmentSettings(environmentId);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
 
@@ -329,6 +331,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
+  const hasChangedServerSettings = hasChangedGeneralServerSettings(settings);
+  const canRestoreDefaults =
+    !hasChangedServerSettings || environment?.connection.phase === "connected";
 
   const changedSettingLabels = useMemo(
     () => [
@@ -402,7 +407,7 @@ export function useSettingsRestore(onRestored?: () => void) {
   );
 
   const restoreDefaults = useCallback(async () => {
-    if (changedSettingLabels.length === 0) return;
+    if (changedSettingLabels.length === 0 || !canRestoreDefaults) return;
     const api = readLocalApi();
     const confirmed = await (api ?? ensureLocalApi()).dialogs.confirm(
       ["Restore default settings?", `This will reset: ${changedSettingLabels.join(", ")}.`].join(
@@ -412,28 +417,23 @@ export function useSettingsRestore(onRestored?: () => void) {
     if (!confirmed) return;
 
     setTheme("system");
-    updateSettings({
-      timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
-      wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
-      diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
-      glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
-      sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
-      sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
-      autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
-      enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
-      enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-      automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-      defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
-      newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
-      addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-      confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
-      confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
-      textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-    });
+    updateSettings(
+      buildGeneralSettingsRestorePatch({
+        includeServerSettings: hasChangedServerSettings,
+      }),
+    );
     onRestored?.();
-  }, [changedSettingLabels, onRestored, setTheme, updateSettings]);
+  }, [
+    canRestoreDefaults,
+    changedSettingLabels,
+    hasChangedServerSettings,
+    onRestored,
+    setTheme,
+    updateSettings,
+  ]);
 
   return {
+    canRestoreDefaults,
     changedSettingLabels,
     restoreDefaults,
   };
@@ -743,6 +743,7 @@ export function GeneralSettingsPanel() {
             DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming ? (
               <SettingResetButton
                 label="assistant output"
+                disabled={!canConfigureServer}
                 onClick={() =>
                   updateSettings({
                     enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
@@ -771,6 +772,7 @@ export function GeneralSettingsPanel() {
             DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks ? (
               <SettingResetButton
                 label="provider update checks"
+                disabled={!canConfigureServer}
                 onClick={() =>
                   updateSettings({
                     enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
@@ -826,6 +828,7 @@ export function GeneralSettingsPanel() {
               DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
               <SettingResetButton
                 label="new threads"
+                disabled={!canConfigureServer}
                 onClick={() =>
                   updateSettings({
                     defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
@@ -876,6 +879,7 @@ export function GeneralSettingsPanel() {
               DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
                 <SettingResetButton
                   label="new worktrees start from origin"
+                  disabled={!canConfigureServer}
                   onClick={() =>
                     updateSettings({
                       newWorktreesStartFromOrigin:
@@ -906,6 +910,7 @@ export function GeneralSettingsPanel() {
             DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
               <SettingResetButton
                 label="add project base directory"
+                disabled={!canConfigureServer}
                 onClick={() =>
                   updateSettings({
                     addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
@@ -986,6 +991,7 @@ export function GeneralSettingsPanel() {
             isTextGenerationModelDirty ? (
               <SettingResetButton
                 label="text generation model"
+                disabled={!canConfigureServer}
                 onClick={() =>
                   updateSettings({
                     textGenerationModelSelection:

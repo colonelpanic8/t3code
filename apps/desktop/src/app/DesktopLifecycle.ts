@@ -170,10 +170,9 @@ export const make = DesktopLifecycle.of({
     }).pipe(
       Effect.catchCause((cause) => {
         const error = new DesktopLifecycleRelaunchError({ reason, cause });
-        return logLifecycleError(error.message, { error });
+        return Effect.fail(error);
       }),
-      Effect.forkDetach,
-      Effect.asVoid,
+      Effect.tapError((error) => logLifecycleError(error.message, { error })),
     );
   }),
   register: Effect.gen(function* () {
