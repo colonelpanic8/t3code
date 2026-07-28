@@ -381,12 +381,17 @@ function CustomSnoozeDialog(props: {
 }) {
   const { open, threadCount, onOpenChange, onConfirm } = props;
   const [dateTime, setDateTime] = useState("");
+  const [validationNow, setValidationNow] = useState(() => new Date());
 
   useEffect(() => {
-    if (open) setDateTime(defaultCustomSnoozeDateTime(new Date()));
+    if (open) {
+      const now = new Date();
+      setDateTime(defaultCustomSnoozeDateTime(now));
+      setValidationNow(now);
+    }
   }, [open]);
 
-  const snoozedUntil = parseCustomSnoozeDateTime(dateTime, new Date());
+  const snoozedUntil = parseCustomSnoozeDateTime(dateTime, validationNow);
   const showValidation = dateTime !== "" && snoozedUntil === null;
 
   return (
@@ -396,8 +401,15 @@ function CustomSnoozeDialog(props: {
           className="contents"
           onSubmit={(event) => {
             event.preventDefault();
-            const confirmedTime = parseCustomSnoozeDateTime(dateTime, new Date());
-            if (confirmedTime !== null) onConfirm(confirmedTime);
+            const now = new Date();
+            const confirmedTime = parseCustomSnoozeDateTime(dateTime, now);
+            if (confirmedTime !== null) {
+              onConfirm(confirmedTime);
+            } else {
+              // Force validation against the submit-time clock. A value can
+              // expire while the dialog is open without causing a render.
+              setValidationNow(now);
+            }
           }}
         >
           <DialogHeader>
@@ -423,11 +435,14 @@ function CustomSnoozeDialog(props: {
               value={dateTime}
               aria-invalid={showValidation || undefined}
               aria-describedby={showValidation ? "custom-snooze-time-error" : undefined}
-              onChange={(event) => setDateTime(event.currentTarget.value)}
+              onChange={(event) => {
+                setDateTime(event.currentTarget.value);
+                setValidationNow(new Date());
+              }}
             />
             {showValidation ? (
               <p id="custom-snooze-time-error" className="text-xs text-destructive">
-                Choose a time in the future.
+                Choose a valid time in the future.
               </p>
             ) : null}
           </DialogPanel>
