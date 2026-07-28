@@ -99,7 +99,7 @@
             # Electron's postinstall download is useless in a sandbox; point
             # the tooling at the nixpkgs build instead.
             ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
-            ELECTRON_OVERRIDE_DIST_PATH = "${pkgs.electron}/libexec/electron";
+            ELECTRON_OVERRIDE_DIST_PATH = "${pkgs.electron_41}/libexec/electron";
 
             shellHook = ''
               echo "T3 Code dev shell: node $(node --version), pnpm $(pnpm --version)"
