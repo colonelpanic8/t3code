@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const settingsHooks = vi.hoisted(() => ({
   read: vi.fn(() => ({ providerInstances: {} })),
-  update: vi.fn(() => vi.fn()),
+  persist: vi.fn(() => vi.fn()),
 }));
 
 const hooks = vi.hoisted(() => {
@@ -62,7 +62,7 @@ vi.mock("react/compiler-runtime", () => ({
 
 vi.mock("../../hooks/useSettings", () => ({
   useEnvironmentSettings: settingsHooks.read,
-  useUpdateEnvironmentSettings: settingsHooks.update,
+  usePersistEnvironmentSettings: settingsHooks.persist,
 }));
 
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
@@ -73,7 +73,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
   beforeEach(() => {
     hooks.reset();
     settingsHooks.read.mockClear();
-    settingsHooks.update.mockClear();
+    settingsHooks.persist.mockClear();
   });
 
   it("reads and writes settings through the supplied environment", () => {
@@ -86,6 +86,6 @@ describe("AddProviderInstanceDialog environment routing", () => {
     });
 
     expect(settingsHooks.read).toHaveBeenCalledWith(remoteEnvironmentId);
-    expect(settingsHooks.update).toHaveBeenCalledWith(remoteEnvironmentId);
+    expect(settingsHooks.persist).toHaveBeenCalledWith(remoteEnvironmentId);
   });
 });
