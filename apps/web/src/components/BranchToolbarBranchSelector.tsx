@@ -11,6 +11,7 @@ import {
   useDeferredValue,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useOptimistic,
@@ -35,12 +36,15 @@ import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
 import {
   deriveLocalBranchNameFromRemoteRef,
+  resolveBranchPickerQueryForOpenState,
+  resolveBranchPickerShortcutOpenState,
   resolveBranchTriggerLabel,
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  shouldShowBranchPickerShortcutHint,
   shouldIncludeBranchPickerItem,
 } from "./BranchToolbar.logic";
 import {
@@ -60,8 +64,14 @@ import {
   ComboboxStatus,
   ComboboxTrigger,
 } from "./ui/combobox";
+import { Kbd } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+export interface BranchToolbarBranchSelectorHandle {
+  /** Returns false (without side effects) when the picker cannot open. */
+  togglePicker: () => boolean;
+}
 
 interface BranchToolbarBranchSelectorProps {
   className?: string;
@@ -74,6 +84,10 @@ interface BranchToolbarBranchSelectorProps {
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  selectorRef?: React.RefObject<BranchToolbarBranchSelectorHandle | null>;
+  shortcutHintLabel?: string | null;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -93,6 +107,10 @@ export function BranchToolbarBranchSelector({
   onActiveThreadBranchOverrideChange,
   startFromOrigin,
   onStartFromOriginChange,
+  open,
+  onOpenChange,
+  selectorRef,
+  shortcutHintLabel,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
@@ -204,7 +222,10 @@ export function BranchToolbarBranchSelector({
   // ---------------------------------------------------------------------------
   // Git ref queries
   // ---------------------------------------------------------------------------
-  const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
+  const [uncontrolledBranchMenuOpen, setUncontrolledBranchMenuOpen] = useState(false);
+  const isBranchMenuOpen = open ?? uncontrolledBranchMenuOpen;
+  const branchMenuOpenRef = useRef(isBranchMenuOpen);
+  branchMenuOpenRef.current = isBranchMenuOpen;
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
 
@@ -327,6 +348,26 @@ export function BranchToolbarBranchSelector({
         ? `Showing ${refs.length} of ${totalBranchCount} refs`
         : null;
 
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      branchMenuOpenRef.current = nextOpen;
+      onOpenChange?.(nextOpen);
+      if (open === undefined) {
+        setUncontrolledBranchMenuOpen(nextOpen);
+      }
+      if (!nextOpen) {
+        setBranchQuery("");
+        return;
+      }
+      branchRefState.refresh();
+    },
+    [branchRefState.refresh, onOpenChange, open],
+  );
+
+  useLayoutEffect(() => {
+    setBranchQuery((current) => resolveBranchPickerQueryForOpenState(current, isBranchMenuOpen));
+  }, [isBranchMenuOpen]);
+
   // ---------------------------------------------------------------------------
   // Branch actions
   // ---------------------------------------------------------------------------
@@ -382,7 +423,7 @@ export function BranchToolbarBranchSelector({
 
     if (isSelectingWorktreeBase) {
       setThreadBranch(refName.name, null);
-      setIsBranchMenuOpen(false);
+      handleOpenChange(false);
       onComposerFocusRequest?.();
       return;
     }
@@ -395,7 +436,7 @@ export function BranchToolbarBranchSelector({
 
     if (selectionTarget.reuseExistingWorktree) {
       setThreadBranch(refName.name, selectionTarget.nextWorktreePath);
-      setIsBranchMenuOpen(false);
+      handleOpenChange(false);
       onComposerFocusRequest?.();
       return;
     }
@@ -404,7 +445,7 @@ export function BranchToolbarBranchSelector({
       ? deriveLocalBranchNameFromRemoteRef(refName.name)
       : refName.name;
 
-    setIsBranchMenuOpen(false);
+    handleOpenChange(false);
     onComposerFocusRequest?.();
 
     runBranchAction(async () => {
@@ -442,7 +483,7 @@ export function BranchToolbarBranchSelector({
     const name = rawName.trim();
     if (!branchCwd || !name || isBranchActionPending) return;
 
-    setIsBranchMenuOpen(false);
+    handleOpenChange(false);
     onComposerFocusRequest?.();
 
     runBranchAction(async () => {
@@ -505,16 +546,20 @@ export function BranchToolbarBranchSelector({
   // ---------------------------------------------------------------------------
   // Combobox / list plumbing
   // ---------------------------------------------------------------------------
-  const handleOpenChange = useCallback(
-    (open: boolean) => {
-      setIsBranchMenuOpen(open);
-      if (!open) {
-        setBranchQuery("");
-        return;
-      }
-      branchRefState.refresh();
-    },
-    [branchRefState.refresh],
+  useImperativeHandle(
+    selectorRef,
+    () => ({
+      togglePicker: () => {
+        const nextOpen = resolveBranchPickerShortcutOpenState({
+          open: branchMenuOpenRef.current,
+          unavailable: isInitialBranchesLoadPending || isBranchActionPending,
+        });
+        if (nextOpen === null) return false;
+        handleOpenChange(nextOpen);
+        return true;
+      },
+    }),
+    [handleOpenChange, isBranchActionPending, isInitialBranchesLoadPending],
   );
 
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
@@ -616,6 +661,11 @@ export function BranchToolbarBranchSelector({
     ? `Open ${sourceControlPresentation.terminology.singular} #${branchPr.number} (${branchPr.state}) in browser`
     : "";
   const openPrLink = useOpenPrLink();
+  const showShortcutHint = shouldShowBranchPickerShortcutHint({
+    shortcutHintLabel,
+    isInitialBranchesLoadPending,
+    isBranchActionPending,
+  });
 
   function renderPickerItem(itemValue: string, index: number) {
     if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
@@ -630,8 +680,7 @@ export function BranchToolbarBranchSelector({
             if (!prReference || !onCheckoutPullRequestRequest) {
               return;
             }
-            setIsBranchMenuOpen(false);
-            setBranchQuery("");
+            handleOpenChange(false);
             onComposerFocusRequest?.();
             onCheckoutPullRequestRequest(prReference);
           }}
@@ -750,6 +799,11 @@ export function BranchToolbarBranchSelector({
           >
             <GitBranchIcon className="size-3 shrink-0 opacity-70" />
             <span className="min-w-0 max-w-[240px] truncate">{triggerLabel}</span>
+            {showShortcutHint ? (
+              <Kbd className="h-4 min-w-0 shrink-0 rounded-sm px-1.5 text-[10px]">
+                {shortcutHintLabel}
+              </Kbd>
+            ) : null}
             <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
           </ComboboxTrigger>
         </span>
