@@ -1592,7 +1592,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     // provider read), so the cadence backs off geometrically for legitimately
     // long turns instead of holding the initial interval.
     const pollTurnCompletion = (
-      consecutiveFailures = 0,
+      consecutiveReadFailures = 0,
+      consecutiveMissing = 0,
       pollDelayMs = turnCompletionRecoveryPollMs,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -1604,7 +1605,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           .reconcileTurnCompletion(turn.turnId)
           .pipe(Effect.exit);
         if (Exit.isFailure(outcome)) {
-          const failureCount = consecutiveFailures + 1;
+          const failureCount = consecutiveReadFailures + 1;
           yield* Effect.logWarning("codex.turn-completion.reconciliation-failed", {
             threadId: input.threadId,
             turnId: turn.turnId,
@@ -1621,10 +1622,10 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             return;
           }
           yield* Effect.sleep(Duration.millis(pollDelayMs));
-          return yield* pollTurnCompletion(failureCount, pollDelayMs);
+          return yield* pollTurnCompletion(failureCount, 0, pollDelayMs);
         }
         if (outcome.value === "missing") {
-          const missingCount = consecutiveFailures + 1;
+          const missingCount = consecutiveMissing + 1;
           yield* Effect.logWarning("codex.turn-completion.turn-missing", {
             threadId: input.threadId,
             turnId: turn.turnId,
@@ -1641,13 +1642,14 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             return;
           }
           yield* Effect.sleep(Duration.millis(pollDelayMs));
-          return yield* pollTurnCompletion(missingCount, pollDelayMs);
+          return yield* pollTurnCompletion(0, missingCount, pollDelayMs);
         }
         if (outcome.value !== "active") {
           return;
         }
         yield* Effect.sleep(Duration.millis(pollDelayMs));
         return yield* pollTurnCompletion(
+          0,
           0,
           Math.min(pollDelayMs * 2, turnCompletionRecoveryMaxPollMs),
         );
