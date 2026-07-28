@@ -210,6 +210,14 @@
     "./localServerDiscovery": {
       "types": "./src/localServerDiscovery.ts",
       "import": "./src/localServerDiscovery.ts"
+    },
+    "./buildProvenance": {
+      "types": "./src/buildProvenance.ts",
+      "import": "./src/buildProvenance.ts"
+    },
+    "./stackProvenance": {
+      "types": "./src/stackProvenance.ts",
+      "import": "./src/stackProvenance.ts"
     }
   },
   "scripts": {
