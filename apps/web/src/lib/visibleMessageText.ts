@@ -2,7 +2,7 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "./terminalContext";
-import { extractTrailingElementContexts, type ParsedElementContextEntry } from "./elementContext";
+import type { ParsedElementContextEntry } from "./elementContext";
 import {
   extractTrailingPreviewAnnotation,
   type ParsedPreviewAnnotation,
@@ -25,22 +25,21 @@ export interface DisplayedUserMessageContent {
  * the searched text cannot drift apart.
  */
 export function deriveDisplayedUserMessageContent(text: string): DisplayedUserMessageContent {
-  const displayed = deriveDisplayedUserMessageState(text);
   const previewAnnotations: ParsedPreviewAnnotation[] = [];
-  let visibleText = displayed.visibleText;
+  let visibleText = text;
   while (true) {
     const extracted = extractTrailingPreviewAnnotation(visibleText);
     if (!extracted.annotation) break;
     previewAnnotations.unshift(extracted.annotation);
     visibleText = extracted.promptText;
   }
-  const elementContextState = extractTrailingElementContexts(visibleText);
+  const displayed = deriveDisplayedUserMessageState(visibleText);
 
   return {
-    visibleText: elementContextState.promptText,
-    copyText: displayed.copyText,
+    visibleText: displayed.visibleText,
+    copyText: text,
     terminalContexts: displayed.contexts,
     previewAnnotations,
-    elementContexts: [...displayed.elementContexts, ...elementContextState.contexts],
+    elementContexts: displayed.elementContexts,
   };
 }
