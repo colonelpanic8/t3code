@@ -15,7 +15,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { connectionStatusText } from "@t3tools/client-runtime/connection";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   EnvironmentId,
   ServerProcessDiagnosticsEntry,
@@ -849,10 +849,19 @@ interface LogsDirectoryState {
 }
 
 export function DiagnosticsSettingsPanel() {
-  const { environments } = useEnvironments();
+  const { environments, isReady: isEnvironmentCatalogReady } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const activeEnvironmentId = useActiveEnvironmentId();
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
+  useEffect(() => {
+    if (
+      isEnvironmentCatalogReady &&
+      selectedEnvironmentId !== null &&
+      !environments.some((environment) => environment.environmentId === selectedEnvironmentId)
+    ) {
+      setSelectedEnvironmentId(null);
+    }
+  }, [environments, isEnvironmentCatalogReady, selectedEnvironmentId]);
   const environmentId = resolveDiagnosticsEnvironmentId({
     selectedEnvironmentId,
     primaryEnvironmentId: primaryEnvironment?.environmentId ?? null,
