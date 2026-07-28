@@ -307,6 +307,51 @@ describe("derivePendingUserInputs", () => {
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
   });
+
+  it("clears pending user-input prompts once no provider session is bound to the thread", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-open-no-session",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-user-input-no-session-1",
+          questions: [
+            {
+              id: "fix_scope",
+              header: "Fix scope",
+              question: "How should I handle this?",
+              options: [
+                {
+                  label: "Delete now",
+                  description: "Remove the garbage",
+                },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      }),
+      makeActivity({
+        id: "user-input-failed-no-session",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "provider.user-input.respond.failed",
+        summary: "Provider user input response failed",
+        tone: "error",
+        payload: {
+          requestId: "req-user-input-no-session-1",
+          detail:
+            "No active provider session is bound to this thread. Stale pending user-input request: req-user-input-no-session-1. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.",
+        },
+      }),
+    ];
+
+    // The prompt's callback died with the session, so leaving the card
+    // answerable only lets every submit append another identical failure.
+    expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
 });
 
 describe("deriveActivePlanState", () => {
