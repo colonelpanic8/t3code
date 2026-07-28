@@ -9,6 +9,7 @@ import { LOCAL_SERVER_CHALLENGE_NONCE_BYTES } from "@t3tools/shared/localServerD
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -239,6 +240,52 @@ it.effect("removes the challenge file when the pairing request fails", () =>
     expect(error.reason).toBe("request_failed");
     assert.strictEqual(attempted.length, 1);
     expect(yield* fileSystem.exists(attempted[0] as string)).toBe(false);
+  }).pipe(Effect.provide(NodeServices.layer), TestClock.withLive),
+);
+
+it.effect("removes the challenge file when tightening its permissions fails", () =>
+  Effect.gen(function* () {
+    const { runtimeDirectory, advertisementDirectory } = yield* makeAdvertisementDirectory(
+      "t3-local-pairing-chmod-failure-test-",
+    );
+    yield* writeAdvertisement(advertisementDirectory, makeRecord());
+
+    const fileSystem = yield* FileSystem.FileSystem;
+    let challengePath: string | null = null;
+    const chmodFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "chmod",
+      pathOrDescriptor: runtimeDirectory,
+    });
+    const failingFileSystem = FileSystem.FileSystem.of({
+      ...fileSystem,
+      writeFileString: (target, contents, options) =>
+        fileSystem.writeFileString(target, contents, options).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              if (target.endsWith(".nonce")) challengePath = target;
+            }),
+          ),
+        ),
+      chmod: (target, mode) =>
+        target.endsWith(".nonce")
+          ? Effect.fail(chmodFailure)
+          : fileSystem.chmod(target, mode),
+    });
+    const discovery = yield* make({
+      platform: "linux",
+      xdgRuntimeDirectory: runtimeDirectory,
+      uid: process.getuid?.(),
+      probeEnvironment: () => Effect.succeed(descriptor),
+      postPairingChallenge: rejectPairing,
+    }).pipe(Effect.provideService(FileSystem.FileSystem, failingFileSystem));
+
+    const error = yield* discovery.pairLocalServer("instance-local").pipe(Effect.flip);
+
+    expect(error.reason).toBe("challenge_failed");
+    assert.isNotNull(challengePath);
+    expect(yield* fileSystem.exists(challengePath)).toBe(false);
   }).pipe(Effect.provide(NodeServices.layer), TestClock.withLive),
 );
 

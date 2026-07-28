@@ -265,6 +265,7 @@ export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
       });
       yield* fileSystem.chmod(challengePath, LOCAL_SERVER_CHALLENGE_FILE_MODE);
     }).pipe(
+      Effect.tapError(() => fileSystem.remove(challengePath).pipe(Effect.ignore)),
       Effect.mapError(
         (cause) =>
           new LocalServerPairingError({

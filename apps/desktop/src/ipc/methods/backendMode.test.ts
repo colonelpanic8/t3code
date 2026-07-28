@@ -16,7 +16,7 @@ const unusedLifecycleRuntimeLayer =
   Layer.empty as Layer.Layer<DesktopLifecycle.DesktopLifecycleRuntimeServices>;
 
 describe("backend mode IPC", () => {
-  it.effect("reports the active mode coherently while a successful relaunch is pending", () => {
+  it.effect("reports the saved mode while a successful relaunch is pending", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
       DesktopBackendMode.layerTest(),
@@ -42,7 +42,7 @@ describe("backend mode IPC", () => {
 
       assert.deepEqual(state, {
         effectiveMode: "managed",
-        configuredMode: "managed",
+        configuredMode: "client-only",
         cliOverride: null,
       });
       assert.deepEqual(relaunchReasons, ["backendMode=client-only"]);

@@ -53,11 +53,9 @@ export const setBackendMode = DesktopIpc.makeIpcMethod({
       yield* lifecycle
         .relaunch(`backendMode=${mode}`)
         .pipe(Effect.tapError(() => settings.setBackendMode(previousMode)));
-      // The current process is still running in its latched launch mode until
-      // Electron exits. Keep both fields coherent during that brief interval.
       return {
         ...launchState,
-        configuredMode: launchState.effectiveMode,
+        configuredMode: change.settings.backendMode,
       };
     }
     return {
