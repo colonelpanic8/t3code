@@ -1,6 +1,6 @@
-name: Android Stack Build
+name: Android Assembly Build
 
-# Builds an installable APK from the personal integration stack, without EAS.
+# Builds an installable APK from the personal assembly, without EAS.
 # Upstream's mobile-eas-*.yml workflows need pingdotgg's EXPO_TOKEN and blacksmith
 # runners, neither of which exists on a fork; this one uses a GitHub-hosted runner
 # and a Nix-pinned Android toolchain instead.
@@ -15,10 +15,10 @@ on:
         options: [preview, development, production]
   push:
     branches:
-      - t3code/stack
+      - t3code/assembled
 
 concurrency:
-  group: android-stack-build-${{ github.ref }}
+  group: android-assembly-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -98,7 +98,7 @@ jobs:
           gradle_file=apps/mobile/android/app/build.gradle
           commit_epoch="$(git show -s --format=%ct HEAD)"
           version_code=$(( (commit_epoch - 1577836800) / 60 ))
-          version_name="0.1.0-stack.$(git rev-parse --short HEAD)"
+          version_name="0.1.0-assembly.$(git rev-parse --short HEAD)"
 
           sed -i -E "s/^([[:space:]]*)versionCode .*/\1versionCode $version_code/" "$gradle_file"
           sed -i -E "s/^([[:space:]]*)versionName .*/\1versionName \"$version_name\"/" "$gradle_file"
@@ -114,7 +114,7 @@ jobs:
           {
             echo "code=$version_code"
             echo "name=$version_name"
-            echo "tag=android-stack-$APP_VARIANT-$(date -u -d "@$commit_epoch" +%Y%m%d)-$(git rev-parse --short HEAD)"
+            echo "tag=android-assembly-$APP_VARIANT-$(date -u -d "@$commit_epoch" +%Y%m%d)-$(git rev-parse --short HEAD)"
             echo "asset=t3code-$APP_VARIANT-$version_name-arm64-v8a.apk"
           } >> "$GITHUB_OUTPUT"
           echo "Version code $version_code, version name $version_name"
@@ -148,7 +148,7 @@ jobs:
           set -euo pipefail
           apk="$(find apps/mobile/android/app/build/outputs/apk/release -name '*.apk' | head -n 1)"
           {
-            echo "### Android stack build"
+            echo "### Android assembly build"
             echo
             echo "| | |"
             echo "|---|---|"
@@ -185,7 +185,7 @@ jobs:
           notes="$RUNNER_TEMP/notes.md"
           # shellcheck disable=SC2016 # The backticks are literal markdown code spans.
           {
-            printf 'Android build of the personal integration stack at `%s`.\n\n' "$GITHUB_SHA"
+            printf 'Android build of the personal assembly at `%s`.\n\n' "$GITHUB_SHA"
             printf -- '- Variant: `%s`\n' "$APP_VARIANT"
             printf -- '- Version code: `%s`\n' "$VERSION_CODE"
             printf -- '- ABI: `arm64-v8a` only\n\n'

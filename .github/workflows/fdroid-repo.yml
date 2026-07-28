@@ -2,9 +2,9 @@ name: Publish F-Droid Repository
 
 # Rebuilds and deploys the self-hosted F-Droid repository at
 # https://colonelpanic8.github.io/t3code/ from the APKs attached to recent
-# android-stack-preview-* releases.
+# android-assembly-preview-* releases.
 #
-# This runs after "Android Stack Build" finishes, because that workflow is what
+# This runs after "Android Assembly Build" finishes, because that workflow is what
 # publishes the release an APK needs before it can be indexed. The Pages
 # deployment replaces the whole site each time, so every published version is
 # re-collected on every run.
@@ -14,7 +14,7 @@ name: Publish F-Droid Repository
 
 on:
   workflow_run:
-    workflows: ["Android Stack Build"]
+    workflows: ["Android Assembly Build"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -102,7 +102,7 @@ jobs:
           <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
-          <title>T3 Code Stack F-Droid Repository</title>
+          <title>T3 Code Assembly F-Droid Repository</title>
           <style>
             :root { color-scheme: light dark; }
             body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 3rem auto;
@@ -114,8 +114,8 @@ jobs:
           </style>
           </head>
           <body>
-          <h1>T3 Code Stack F-Droid Repository</h1>
-          <p>Android builds of a personal T3 Code integration stack, which carries pull
+          <h1>T3 Code Assembly F-Droid Repository</h1>
+          <p>Android builds of a personal T3 Code assembly, which carries pull
           requests not merged upstream. These are unofficial builds, not affiliated with
           T3 Tools Inc.</p>
           <h2>Add the repository</h2>

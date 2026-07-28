@@ -1,1 +1,1 @@
-Unofficial build of T3 Code Mobile from a personal integration stack.
+Unofficial build of T3 Code Mobile from a personal assembly.

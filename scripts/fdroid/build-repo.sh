@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Assemble the self-hosted F-Droid repository of personal stack builds.
+# Assemble the self-hosted F-Droid repository of personal assembly builds.
 #
-# Collects the APKs attached to recent android-stack-* GitHub releases, lays out
+# Collects the APKs attached to recent android-assembly-* GitHub releases, lays out
 # the fdroidserver directory structure from fdroid/config.yml, fdroid/metadata,
 # and the shared fastlane metadata, then runs `fdroid update` to produce a signed
 # index. The resulting directory is what gets deployed to GitHub Pages.
@@ -34,7 +34,7 @@ release_count="${FDROID_RELEASE_COUNT:-5}"
 # The repo tracks the preview variant only. Other variants have a different
 # application id, which fdroid would reject for having no metadata file.
 app_id="com.t3tools.t3code.preview"
-tag_prefix="android-stack-preview-"
+tag_prefix="android-assembly-preview-"
 fastlane_root="fastlane/metadata/android"
 icon_source="assets/nightly/nightly-ios-1024.png"
 

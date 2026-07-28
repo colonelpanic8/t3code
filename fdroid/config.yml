@@ -1,4 +1,4 @@
-# Configuration for the self-hosted F-Droid repository of personal stack builds.
+# Configuration for the self-hosted F-Droid repository of personal assembly builds.
 #
 # `scripts/fdroid/build-repo.sh` copies this file into a scratch directory, fills
 # `repo/` with APKs downloaded from GitHub releases, and runs `fdroid update`.
@@ -8,10 +8,10 @@
 # fdroidserver's `{env: ...}` indirection, so nothing sensitive is committed.
 
 repo_url: https://colonelpanic8.github.io/t3code/fdroid/repo
-repo_name: T3 Code Stack
+repo_name: T3 Code Assembly
 repo_icon: icon.png
 repo_description: >-
-  Android builds of Ivan's personal T3 Code integration stack, which carries
+  Android builds of Ivan's personal T3 Code assembly, which carries
   pull requests that are not merged upstream. These are unofficial builds and
   are not affiliated with T3 Tools Inc. They install alongside any official
   T3 Code app rather than replacing it.

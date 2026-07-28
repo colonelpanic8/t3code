@@ -1,16 +1,16 @@
-# Android stack build
+# Android assembly build
 
-`.github/workflows/android-stack-build.yml` builds an installable APK from a fork without
+`.github/workflows/android-assembly-build.yml` builds an installable APK from a fork without
 EAS. Upstream's `mobile-eas-*.yml` workflows need `pingdotgg`'s `EXPO_TOKEN` and
 `blacksmith-*` runners, so they cannot run on a fork; this workflow uses a GitHub-hosted
 runner and pins the Android toolchain with Nix instead.
 
-It runs on `workflow_dispatch` (choose the app variant) and on pushes to `t3code/stack`.
+It runs on `workflow_dispatch` (choose the app variant) and on pushes to `t3code/assembled`.
 To make it manual-only, delete the `push:` trigger.
 
 No secrets or repository variables are required.
 
-Each run publishes a GitHub release tagged `android-stack-<variant>-<date>-<sha>`. That tag
+Each run publishes a GitHub release tagged `android-assembly-<variant>-<date>-<sha>`. That tag
 namespace is deliberate: the `release.yml` inherited from upstream triggers on `v*.*.*`, and
 its `blacksmith-*` runners do not exist on a fork, so a `v` tag would queue a desktop
 release job forever.
@@ -38,9 +38,9 @@ this out of a file shared with upstream and with EAS builds.
 ## F-Droid repository
 
 `.github/workflows/fdroid-repo.yml` indexes the APKs from recent
-`android-stack-preview-*` releases into a self-hosted F-Droid repository at
-<https://colonelpanic8.github.io/t3code/>, so a phone gets stack builds as ordinary app
-updates. It runs automatically after a successful Android Stack Build, and on
+`android-assembly-preview-*` releases into a self-hosted F-Droid repository at
+<https://colonelpanic8.github.io/t3code/>, so a phone gets assembly builds as ordinary app
+updates. It runs automatically after a successful Android Assembly Build, and on
 `workflow_dispatch`.
 
 APKs are indexed as published rather than rebuilt, so an install from the repo and an

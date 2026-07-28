@@ -3,7 +3,7 @@ your own machine or tailnet and lets you drive agent sessions, review diffs, and
 work with a terminal from your phone.
 
 These are unofficial builds of the "preview" variant, produced from a personal
-integration stack that carries pull requests not yet merged upstream. They are
+assembly that carries pull requests not yet merged upstream. They are
 not affiliated with or endorsed by T3 Tools Inc.
 
 The package identifier is com.t3tools.t3code.preview, so this installs alongside
