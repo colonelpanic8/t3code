@@ -1407,8 +1407,6 @@ function ProviderSettingsEnvironmentPanel({
   const deleteProviderInstance = (id: ProviderInstanceId) => {
     updateSettings({
       providerInstances: withoutProviderInstanceKey(settings.providerInstances, id),
-      providerModelPreferences: withoutProviderInstanceKey(settings.providerModelPreferences, id),
-      favorites: withoutProviderInstanceFavorites(settings.favorites ?? [], id),
     });
   };
 
@@ -1471,11 +1469,6 @@ function ProviderSettingsEnvironmentPanel({
         [driverKind]: defaultLegacyProvider,
       } as typeof settings.providers,
       providerInstances: withoutProviderInstanceKey(settings.providerInstances, defaultInstanceId),
-      providerModelPreferences: withoutProviderInstanceKey(
-        settings.providerModelPreferences,
-        defaultInstanceId,
-      ),
-      favorites: withoutProviderInstanceFavorites(settings.favorites ?? [], defaultInstanceId),
     });
   };
 
