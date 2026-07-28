@@ -1,0 +1,168 @@
+name: Publish F-Droid Repository
+
+# Rebuilds and deploys the self-hosted F-Droid repository at
+# https://colonelpanic8.github.io/t3code/ from the APKs attached to recent
+# android-assembly-preview-* releases.
+#
+# This runs after "Android Assembly Build" finishes, because that workflow is what
+# publishes the release an APK needs before it can be indexed. The Pages
+# deployment replaces the whole site each time, so every published version is
+# re-collected on every run.
+#
+# No Nix here: the ubuntu runner already ships an Android SDK, and fdroidserver
+# only needs apksigner out of it.
+
+on:
+  workflow_run:
+    workflows: ["Android Assembly Build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_count:
+        description: How many recent releases to index.
+        required: false
+        default: "5"
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Pages allows one in-flight deployment; queue rather than cancel so a build
+# never loses its deploy to a later run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and deploy F-Droid repository
+    # workflow_run fires for failed runs too.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install fdroidserver
+        run: pip install --disable-pip-version-check fdroidserver
+
+      - name: Expose apksigner
+        run: |
+          set -euo pipefail
+          # fdroidserver signs the v2 index with apksigner from the SDK the
+          # runner image already provides.
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -n 1)"
+          dirname "$apksigner_bin" >> "$GITHUB_PATH"
+          "$apksigner_bin" --version
+
+      - name: Build the F-Droid repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FDROID_OUT_DIR: ${{ github.workspace }}/target/fdroid
+          FDROID_RELEASE_COUNT: ${{ inputs.release_count || '5' }}
+          FDROID_KEYSTORE_BASE64: ${{ secrets.FDROID_KEYSTORE_BASE64 }}
+          FDROID_KEY_ALIAS: ${{ secrets.FDROID_KEY_ALIAS }}
+          FDROID_KEYSTORE_PASSWORD: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
+          FDROID_KEY_PASSWORD: ${{ secrets.FDROID_KEY_PASSWORD }}
+        run: ./scripts/fdroid/build-repo.sh
+
+      - name: Assemble the Pages site
+        run: |
+          set -euo pipefail
+          # Only repo/ is published; config.yml and metadata/ stay build-local.
+          mkdir -p site/fdroid
+          cp -r target/fdroid/repo site/fdroid/repo
+
+          fingerprint=""
+          if [ -f target/fdroid/fingerprint.txt ]; then
+            fingerprint="$(cat target/fdroid/fingerprint.txt)"
+          fi
+          repo_url="$(sed -n 's/^repo_url:[[:space:]]*//p' fdroid/config.yml)"
+          add_url="$repo_url"
+          if [ -n "$fingerprint" ]; then
+            add_url="$repo_url?fingerprint=$fingerprint"
+          fi
+
+          # A plain landing page so the Pages root is not a 404, and so the
+          # address a client needs is written down next to its fingerprint.
+          cat > site/index.html <<HTML
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>T3 Code Assembly F-Droid Repository</title>
+          <style>
+            :root { color-scheme: light dark; }
+            body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 3rem auto;
+                   padding: 0 1.25rem; line-height: 1.6; }
+            code { word-break: break-all; }
+            pre { padding: 0.85rem; border-radius: 0.5rem; overflow-x: auto;
+                  background: rgba(127,127,127,0.15); }
+            .note { font-size: 0.9rem; opacity: 0.8; }
+          </style>
+          </head>
+          <body>
+          <h1>T3 Code Assembly F-Droid Repository</h1>
+          <p>Android builds of a personal T3 Code assembly, which carries pull
+          requests not merged upstream. These are unofficial builds, not affiliated with
+          T3 Tools Inc.</p>
+          <h2>Add the repository</h2>
+          <p>In the F-Droid client, choose <em>Settings &rarr; Repositories &rarr; +</em> and paste:</p>
+          <pre><code>$add_url</code></pre>
+          <p class="note">The fingerprint pins the repository to its signing key. Adding the
+          address without it leaves the first fetch unauthenticated.</p>
+          <h2>Notes</h2>
+          <ul>
+            <li>Package id <code>com.t3tools.t3code.preview</code>, so it installs alongside an official T3 Code app.</li>
+            <li>Builds are <code>arm64-v8a</code> only and will not install on an x86_64 emulator.</li>
+            <li>APKs are signed with the Expo template's public debug keystore. That is fine for
+                personal sideloading but is not a trust anchor.</li>
+          </ul>
+          <p class="note"><a href="https://github.com/colonelpanic8/t3code">Source</a></p>
+          </body>
+          </html>
+          HTML
+
+          echo "Site contents:"
+          du -sh site
+          ls -lh site/fdroid/repo
+
+      - name: Summarize
+        run: |
+          set -euo pipefail
+          {
+            echo "### F-Droid repository published"
+            echo
+            echo "Repo URL: \`$(sed -n 's/^repo_url:[[:space:]]*//p' fdroid/config.yml)\`"
+            if [ -f target/fdroid/fingerprint.txt ]; then
+              echo
+              echo "Fingerprint: \`$(cat target/fdroid/fingerprint.txt)\`"
+            fi
+            echo
+            echo "Indexed APKs:"
+            echo
+            for apk in site/fdroid/repo/*.apk; do
+              echo "- \`$(basename "$apk")\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
