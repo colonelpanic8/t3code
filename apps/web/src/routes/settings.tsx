@@ -9,15 +9,23 @@ import {
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
-import { useSettingsRestore } from "../components/settings/SettingsPanels";
+import { type SettingsOwnership, useSettingsRestore } from "../components/settings/SettingsPanels";
+import { SettingsEnvironmentControl } from "../components/settings/SettingsEnvironmentSelector";
+import { isEnvironmentSettingsPath } from "../components/settings/settingsEnvironmentRoutes";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { isElectron } from "../env";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
-function RestoreDefaultsButton({ onRestored }: { onRestored: () => void }) {
-  const { changedSettingLabels, restoreDefaults } = useSettingsRestore(onRestored);
+function RestoreDefaultsButton({
+  ownership,
+  onRestored,
+}: {
+  ownership: SettingsOwnership;
+  onRestored: () => void;
+}) {
+  const { changedSettingLabels, restoreDefaults } = useSettingsRestore(ownership, onRestored);
 
   return (
     <Button
@@ -37,7 +45,13 @@ function SettingsContentLayout() {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
   const [restoreSignal, setRestoreSignal] = useState(0);
-  const showRestoreDefaults = location.pathname === "/settings/general";
+  const restoreOwnership: SettingsOwnership | null =
+    location.pathname === "/settings/general"
+      ? "client"
+      : location.pathname === "/settings/environment"
+        ? "environment"
+        : null;
+  const showEnvironmentSelector = isEnvironmentSettingsPath(location.pathname);
   const handleRestored = () => setRestoreSignal((value) => value + 1);
   const navigateBackWithinApp = useCallback(() => {
     if (canGoBack) {
@@ -80,9 +94,9 @@ function SettingsContentLayout() {
           >
             <div className="flex min-h-7 items-center gap-2 sm:min-h-6">
               <span className="text-sm font-medium text-foreground">Settings</span>
-              {showRestoreDefaults ? (
+              {restoreOwnership ? (
                 <div className="ms-auto flex items-center gap-2">
-                  <RestoreDefaultsButton onRestored={handleRestored} />
+                  <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
                 </div>
               ) : null}
             </div>
@@ -99,13 +113,30 @@ function SettingsContentLayout() {
             <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
               Settings
             </span>
-            {showRestoreDefaults ? (
+            {restoreOwnership ? (
               <div className="ms-auto flex items-center gap-2">
-                <RestoreDefaultsButton onRestored={handleRestored} />
+                <RestoreDefaultsButton ownership={restoreOwnership} onRestored={handleRestored} />
               </div>
             ) : null}
           </div>
         )}
+
+        {showEnvironmentSelector ? (
+          <div
+            className={cn(
+              "flex min-h-12 shrink-0 items-center justify-between gap-4 border-y border-border/60 bg-muted/15 px-3 py-2 sm:px-5",
+              COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            )}
+          >
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-foreground">Environment</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                Settings on this page apply to this environment.
+              </div>
+            </div>
+            <SettingsEnvironmentControl triggerClassName="shrink-0" />
+          </div>
+        ) : null}
 
         <div key={restoreSignal} className="min-h-0 flex flex-1 flex-col">
           <Outlet />
