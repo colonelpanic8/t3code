@@ -1725,7 +1725,8 @@ export function ConnectionsSettings() {
   const [localServerAdvertisements, setLocalServerAdvertisements] = useState<
     ReadonlyArray<LocalServerAdvertisement>
   >(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
-  const [isDiscoveringLocalServers, setIsDiscoveringLocalServers] = useState(false);
+  const [activeLocalServerDiscoveryCount, setActiveLocalServerDiscoveryCount] = useState(0);
+  const isDiscoveringLocalServers = activeLocalServerDiscoveryCount > 0;
   const [pairingLocalServerInstanceId, setPairingLocalServerInstanceId] = useState<string | null>(
     null,
   );
@@ -1771,20 +1772,20 @@ export function ConnectionsSettings() {
       setLocalServerAdvertisements(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
       return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
     }
-    setIsDiscoveringLocalServers(true);
+    setActiveLocalServerDiscoveryCount((count) => count + 1);
     try {
       const discovered = await discoverLocalServers();
       setLocalServerAdvertisements(discovered);
       setLocalServerDiscoveryError(null);
-      setIsDiscoveringLocalServers(false);
       return discovered;
     } catch (error) {
       setLocalServerAdvertisements(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
       setLocalServerDiscoveryError(
         error instanceof Error ? error.message : "Could not scan for local T3 Code servers.",
       );
-      setIsDiscoveringLocalServers(false);
       return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
+    } finally {
+      setActiveLocalServerDiscoveryCount((count) => Math.max(0, count - 1));
     }
   }, [desktopBridge]);
 
