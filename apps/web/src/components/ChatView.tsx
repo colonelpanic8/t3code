@@ -132,13 +132,8 @@ import {
 } from "../previewStateStore";
 import { addBrowserSurface } from "./preview/addBrowserSurface";
 import { closePreviewSession } from "./preview/closePreviewSession";
-import { ThreadPreviewMiniPlayer } from "./preview/ThreadPreviewMiniPlayer";
 import { subscribePreviewAction } from "./preview/previewActionBus";
 import { getConfiguredPreviewUrls } from "./preview/previewEmptyStateLogic";
-import {
-  selectThreadPreviewMiniPlayer,
-  usePreviewMiniPlayerStore,
-} from "../previewMiniPlayerStore";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { GeneratedImagePanel } from "./chat/GeneratedImagePanel";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -174,7 +169,6 @@ import {
   useEnvironmentSettings,
 } from "../hooks/useSettings";
 import { useNowMinute } from "../hooks/useNowMinute";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
@@ -201,6 +195,7 @@ import {
   formatElementContextLabel,
 } from "../lib/elementContext";
 import { appendPreviewAnnotationPrompt } from "../lib/previewAnnotation";
+import { isPreviewFocused } from "../lib/previewFocus";
 import { appendReviewCommentsToPrompt, type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -232,6 +227,12 @@ import {
   deriveTimelineMessages,
   deriveTurnDiffSummaryByAssistantMessageId,
 } from "./chat/threadTimelineModel";
+import { FindInThreadBar } from "./chat/FindInThreadBar";
+import {
+  clampThreadFindIndex,
+  isThreadFindActiveForThread,
+  stepThreadFindIndex,
+} from "./chat/threadFind";
 import { ChatHeader } from "./chat/ChatHeader";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -280,7 +281,6 @@ import {
   resolveThreadMetadataUpdateForNextTurn,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
-  startNewThreadForProject,
   shouldRenewDraftThreadIdAfterFailure,
   waitForStartedServerThread,
 } from "./ChatView.logic";
@@ -318,6 +318,28 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+
+interface ChatFindState {
+  open: boolean;
+  threadKey: string | null;
+  query: string;
+  activeIndex: number;
+  matchCount: number;
+  /** Bumped on every open request so a repeat Cmd+F re-selects the field. */
+  focusRequestId: number;
+  /** Bumped on every next/previous step so Enter on a lone match still re-reveals it. */
+  navigationId: number;
+}
+const CLOSED_CHAT_FIND_STATE: ChatFindState = {
+  open: false,
+  threadKey: null,
+  query: "",
+  activeIndex: 0,
+  matchCount: 0,
+  focusRequestId: 0,
+  navigationId: 0,
+};
+
 function useDraftHeroLayoutTransition(isDraftHeroState: boolean) {
   const transitionGroupRef = useRef<HTMLDivElement | null>(null);
   const composerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -1141,7 +1163,6 @@ function ChatViewContent(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
-  const handleNewThread = useNewThreadHandler();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -1254,6 +1275,7 @@ function ChatViewContent(props: ChatViewProps) {
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const branchToolbarRef = useRef<BranchToolbarHandle | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [findState, setFindState] = useState<ChatFindState>(CLOSED_CHAT_FIND_STATE);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
@@ -1500,9 +1522,6 @@ function ChatViewContent(props: ChatViewProps) {
   const activeFileSurface =
     activeRightPanelSurface?.kind === "file" ? activeRightPanelSurface : null;
   const activePreviewState = useThreadPreviewState(activeThreadRef);
-  const activePreviewMiniPlayer = usePreviewMiniPlayerStore((state) =>
-    selectThreadPreviewMiniPlayer(state.byThreadKey, activeThreadRef),
-  );
   const panelTerminalIds = useMemo(
     () =>
       new Set(
@@ -1525,24 +1544,6 @@ function ChatViewContent(props: ChatViewProps) {
       .getState()
       .reconcileBrowserSurfaces(activeThreadRef, Object.keys(activePreviewState.sessions));
   }, [activePreviewState.sessions, activeThreadRef]);
-
-  useEffect(() => {
-    if (!activeThreadRef || !activePreviewMiniPlayer) return;
-    const miniTabStillExists = Boolean(activePreviewState.sessions[activePreviewMiniPlayer.tabId]);
-    const sameTabOpenInPanel =
-      previewPanelOpen &&
-      activeRightPanelSurface?.kind === "preview" &&
-      activeRightPanelSurface.resourceId === activePreviewMiniPlayer.tabId;
-    if (!miniTabStillExists || sameTabOpenInPanel) {
-      usePreviewMiniPlayerStore.getState().close(activeThreadRef);
-    }
-  }, [
-    activePreviewMiniPlayer,
-    activePreviewState.sessions,
-    activeRightPanelSurface,
-    activeThreadRef,
-    previewPanelOpen,
-  ]);
 
   const planSidebarOpen = activeRightPanelKind === "plan";
 
@@ -1594,9 +1595,6 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
   const activeProject = useProject(activeProjectRef);
-  const handleNewThreadInActiveProject = useCallback(() => {
-    startNewThreadForProject(activeProjectRef, handleNewThread);
-  }, [activeProjectRef, handleNewThread]);
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -2311,11 +2309,6 @@ function ChatViewContent(props: ChatViewProps) {
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
   }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
-  const threadProviderInstanceId =
-    serverThread?.session?.providerInstanceId ?? serverThread?.modelSelection.instanceId ?? null;
-  const threadProviderDriver =
-    providerStatuses.find((status) => status.instanceId === threadProviderInstanceId)?.driver ??
-    null;
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -3804,6 +3797,7 @@ function ChatViewContent(props: ChatViewProps) {
   const activeThreadPr = resolveThreadPr({
     threadBranch: activeThread?.branch ?? null,
     gitStatus: gitStatusQuery.data ?? null,
+    hasDedicatedWorktree: (activeThread?.worktreePath ?? null) !== null,
   });
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
@@ -4191,6 +4185,38 @@ function ChatViewContent(props: ChatViewProps) {
     terminalUiOpenByThreadRef.current[activeThreadKey] = current;
   }, [activeThreadKey, focusComposer, terminalUiState.terminalOpen]);
 
+  const openThreadFind = useCallback(() => {
+    setFindState((state) => ({
+      ...state,
+      open: true,
+      threadKey: activeThreadKey,
+      focusRequestId: state.focusRequestId + 1,
+    }));
+  }, [activeThreadKey]);
+  const closeThreadFind = useCallback(() => {
+    setFindState(CLOSED_CHAT_FIND_STATE);
+  }, []);
+  const changeThreadFindQuery = useCallback((query: string) => {
+    setFindState((state) => ({ ...state, query, activeIndex: 0 }));
+  }, []);
+  const stepThreadFind = useCallback((delta: number) => {
+    setFindState((state) => ({
+      ...state,
+      activeIndex: stepThreadFindIndex(state.activeIndex, state.matchCount, delta),
+      navigationId: state.navigationId + 1,
+    }));
+  }, []);
+  const handleThreadFindMatchCountChange = useCallback((matchCount: number) => {
+    setFindState((state) => (state.matchCount === matchCount ? state : { ...state, matchCount }));
+  }, []);
+  // Find is per-thread; switching threads drops it rather than carrying a query
+  // that matched somewhere else.
+  useEffect(() => {
+    setFindState(CLOSED_CHAT_FIND_STATE);
+  }, [activeThreadKey]);
+  const isThreadFindActive = isThreadFindActiveForThread(findState, activeThreadKey);
+  const threadFindActiveIndex = clampThreadFindIndex(findState.activeIndex, findState.matchCount);
+
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || isCommandPaletteOpen()) {
@@ -4203,6 +4229,7 @@ function ChatViewContent(props: ChatViewProps) {
       const shortcutContext = {
         terminalFocus: terminalFocusOwner !== null,
         terminalOpen: Boolean(terminalUiState.terminalOpen),
+        previewFocus: isPreviewFocused(),
         modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
       };
 
@@ -4227,6 +4254,13 @@ function ChatViewContent(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         toggleTerminalVisibility();
+        return;
+      }
+
+      if (command === "chat.find") {
+        event.preventDefault();
+        event.stopPropagation();
+        openThreadFind();
         return;
       }
 
@@ -4383,6 +4417,7 @@ function ChatViewContent(props: ChatViewProps) {
     onToggleDiff,
     toggleRightPanel,
     toggleTerminalVisibility,
+    openThreadFind,
     composerRef,
   ]);
 
@@ -5704,7 +5739,6 @@ function ChatViewContent(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
-            onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
@@ -5751,7 +5785,7 @@ function ChatViewContent(props: ChatViewProps) {
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
-                {...(isServerThread && supportsSelectedResponseFork(threadProviderDriver)
+                {...(isServerThread && supportsSelectedResponseFork(activeProviderStatus?.driver)
                   ? { onForkFromResponse, isForkingResponse }
                   : {})}
                 onImageExpand={onExpandTimelineImage}
@@ -5768,7 +5802,26 @@ function ChatViewContent(props: ChatViewProps) {
                 onManualNavigation={cancelTimelineLiveFollowForUserNavigation}
                 hideEmptyPlaceholder={isDraftHeroState}
                 topFadeEnabled={!hasTimelineTopBanner}
+                findQuery={isThreadFindActive ? findState.query : ""}
+                findActiveIndex={threadFindActiveIndex}
+                findNavigationId={findState.navigationId}
+                onFindMatchCountChange={handleThreadFindMatchCountChange}
               />
+
+              {isThreadFindActive && (
+                <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-end px-3 sm:px-5">
+                  <FindInThreadBar
+                    query={findState.query}
+                    matchCount={findState.matchCount}
+                    activeIndex={threadFindActiveIndex}
+                    focusRequestId={findState.focusRequestId}
+                    onQueryChange={changeThreadFindQuery}
+                    onNext={() => stepThreadFind(1)}
+                    onPrevious={() => stepThreadFind(-1)}
+                    onClose={closeThreadFind}
+                  />
+                </div>
+              )}
 
               {/* scroll to end pill — shown when user has scrolled away from the live edge */}
               {showScrollToBottom && (
@@ -5969,15 +6022,6 @@ function ChatViewContent(props: ChatViewProps) {
                 </div>
               </div>
             </div>
-
-            {activeThreadRef && activePreviewMiniPlayer ? (
-              <ThreadPreviewMiniPlayer
-                key={`${activeThreadKey}:${activePreviewMiniPlayer.tabId}`}
-                threadRef={activeThreadRef}
-                tabId={activePreviewMiniPlayer.tabId}
-                bottomInset={isDraftHeroState ? 0 : composerOverlayHeight}
-              />
-            ) : null}
 
             <AlertDialog open={branchRestoreConfirmOpen} onOpenChange={setBranchRestoreConfirmOpen}>
               <AlertDialogPopup>
