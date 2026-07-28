@@ -111,9 +111,7 @@ export const resolveLocalAdvertisementHttpBaseUrl = (
   }
   const normalized = normalizedListeningHost ?? (host ? normalizeHost(host) : "127.0.0.1");
   const canonicalHost =
-    listeningHost === undefined && normalized === "localhost"
-      ? "127.0.0.1"
-      : formatHostForUrl(normalized);
+    normalized === "localhost" ? "127.0.0.1" : formatHostForUrl(normalized);
   return `http://${canonicalHost}:${port}/`;
 };
 
