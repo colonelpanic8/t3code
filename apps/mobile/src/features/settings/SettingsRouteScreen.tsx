@@ -537,9 +537,50 @@ function GeneralSettingsSection() {
   const projectGroupingEnabled = AsyncResult.isSuccess(preferencesResult)
     ? preferencesResult.value.projectGroupingEnabled !== false
     : true;
+  const defaultThreadEnvMode = AsyncResult.isSuccess(preferencesResult)
+    ? (preferencesResult.value.defaultThreadEnvMode ?? "local")
+    : "local";
+  const enableAssistantStreaming = AsyncResult.isSuccess(preferencesResult)
+    ? preferencesResult.value.enableAssistantStreaming === true
+    : false;
+  const newWorktreesStartFromOrigin = AsyncResult.isSuccess(preferencesResult)
+    ? preferencesResult.value.newWorktreesStartFromOrigin !== false
+    : true;
 
   return (
     <SettingsSection title="General">
+      <SettingsRow
+        icon="square.stack.3d.up"
+        label="New Threads"
+        value={defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
+        onPress={() =>
+          Alert.alert("New Threads", "Choose the default workspace for new threads.", [
+            {
+              text: "Local",
+              onPress: () => savePreferences({ defaultThreadEnvMode: "local" }),
+            },
+            {
+              text: "New worktree",
+              onPress: () => savePreferences({ defaultThreadEnvMode: "worktree" }),
+            },
+            { text: "Cancel", style: "cancel" },
+          ])
+        }
+      />
+      <SettingsSwitchRow
+        icon="text.bubble"
+        label="Assistant Output"
+        value={enableAssistantStreaming}
+        onValueChange={(value) => savePreferences({ enableAssistantStreaming: value })}
+      />
+      {defaultThreadEnvMode === "worktree" ? (
+        <SettingsSwitchRow
+          icon="arrow.triangle.branch"
+          label="Start Worktrees from Origin"
+          value={newWorktreesStartFromOrigin}
+          onValueChange={(value) => savePreferences({ newWorktreesStartFromOrigin: value })}
+        />
+      ) : null}
       <SettingsSwitchRow
         icon="folder"
         label="Project Grouping"

@@ -126,6 +126,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface TimelineRowSharedState {
+  showStreamingAssistantOutput: boolean;
   timestampFormat: TimestampFormat;
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
@@ -162,6 +163,7 @@ const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "d
 // ---------------------------------------------------------------------------
 
 interface MessagesTimelineProps {
+  showStreamingAssistantOutput: boolean;
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
@@ -199,6 +201,7 @@ interface MessagesTimelineProps {
 // ---------------------------------------------------------------------------
 
 export const MessagesTimeline = memo(function MessagesTimeline({
+  showStreamingAssistantOutput,
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
@@ -427,6 +430,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
+      showStreamingAssistantOutput,
       timestampFormat,
       routeThreadKey,
       threadRef: parseScopedThreadKey(routeThreadKey),
@@ -444,6 +448,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleWorkGroup,
     }),
     [
+      showStreamingAssistantOutput,
       timestampFormat,
       routeThreadKey,
       markdownCwd,
@@ -1036,7 +1041,10 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
 
 function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
-  const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+  const messageText =
+    row.message.streaming && !ctx.showStreamingAssistantOutput
+      ? ""
+      : row.message.text || (row.message.streaming ? "" : "(empty response)");
 
   return (
     <>

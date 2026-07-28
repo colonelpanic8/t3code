@@ -5,11 +5,11 @@
  * `settings.json` on the server, fetched via `server.getConfig`) and
  * client-only settings (persisted in localStorage).
  *
- * Live server settings always require an environment id. Primary-environment
- * access is intentionally named as such so environment-sensitive consumers
- * cannot silently read the wrong server's settings.
+ * Live server settings require an environment id. Callers without a selected
+ * environment receive schema defaults for server fields while client fields
+ * remain fully functional.
  */
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -20,25 +20,24 @@ import {
 import {
   type ClientSettingsPatch,
   type ClientSettings,
+  ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import {
-  acknowledgePendingServerSettings,
   applyPendingServerPatches,
   getPendingServerPatches,
-  getPendingServerPatchForDispatch,
   NO_PENDING_SERVER_PATCHES,
-  type PendingServerPatch,
+  releasePendingServerPatch,
   retainPendingServerPatch,
-  settlePendingServerPatch,
   subscribePendingServerPatches,
 } from "./pendingServerSettings";
+import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import { ensureLocalApi } from "~/localApi";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
-import { usePrimaryEnvironment } from "~/state/environments";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";
@@ -51,7 +50,6 @@ let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
 let clientSettingsHydrated = false;
 let clientSettingsHydrationPromise: Promise<void> | null = null;
 let clientSettingsHydrationGeneration = 0;
-const serverSettingsWriteQueueByEnvironment = new Map<EnvironmentId, Promise<void>>();
 
 function emitClientSettingsChange() {
   for (const listener of clientSettingsListeners) {
@@ -156,7 +154,7 @@ function persistClientSettings(settings: ClientSettings): void {
 
 function usePendingServerPatches(
   environmentId: EnvironmentId | null,
-): ReadonlyArray<PendingServerPatch> {
+): ReadonlyArray<ServerSettingsPatch> {
   const getSnapshot = useCallback(() => getPendingServerPatches(environmentId), [environmentId]);
   return useSyncExternalStore(
     subscribePendingServerPatches,
@@ -168,18 +166,21 @@ function usePendingServerPatches(
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
+const CLIENT_SETTINGS_KEYS = new Set<string>(Struct.keys(ClientSettingsSchema.fields));
 
-function splitPatch(patch: UnifiedSettingsPatch): {
+export function splitSettingsPatch(patch: UnifiedSettingsPatch): {
   serverPatch: ServerSettingsPatch;
   clientPatch: ClientSettingsPatch;
 } {
   const serverPatch: Record<string, unknown> = {};
   const clientPatch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(patch)) {
-    if (SERVER_SETTINGS_KEYS.has(key)) {
-      serverPatch[key] = value;
-    } else {
+    // During the legacy migration window a few preferences are present in
+    // both schemas. Client ownership wins whenever a key overlaps.
+    if (CLIENT_SETTINGS_KEYS.has(key)) {
       clientPatch[key] = value;
+    } else if (SERVER_SETTINGS_KEYS.has(key)) {
+      serverPatch[key] = value;
     }
   }
   return {
@@ -229,11 +230,6 @@ function useMergedSettings<T>(
 ): T {
   const clientSettings = useClientSettingsValue();
   const pendingPatches = usePendingServerPatches(environmentId);
-  useEffect(() => {
-    if (environmentId) {
-      acknowledgePendingServerSettings(environmentId, serverSettings);
-    }
-  }, [environmentId, serverSettings]);
 
   const optimisticServerSettings = useMemo<ServerSettings>(
     () => applyPendingServerPatches(serverSettings, pendingPatches),
@@ -255,12 +251,18 @@ export function useClientSettings<T = ClientSettings>(
   return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
 }
 
+/** Resolve the shortcuts owned and persisted by this client. */
+export function useClientKeybindings() {
+  const keybindings = useClientSettings((settings) => settings.keybindings);
+  return useMemo(() => compileResolvedKeybindingsConfig(keybindings), [keybindings]);
+}
+
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const serverSettings = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings;
   return useMergedSettings(environmentId, serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -268,7 +270,7 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
   return useMergedSettings(environmentId, useAtomValue(primaryServerSettingsAtom), selector);
 }
 
@@ -278,54 +280,23 @@ export function usePrimarySettings<T = UnifiedSettings>(
  * Server keys are applied optimistically through `./pendingServerSettings` and
  * persisted via RPC. Client keys go through client persistence.
  */
-function useUpdateSettingsTarget(
-  environmentId: EnvironmentId | null,
-  serverSettings: ServerSettings,
-) {
+function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   const persistServerSettings = useAtomCommand(
     serverEnvironment.updateSettings,
     "server settings update",
   );
   const updateSettings = useCallback(
     (patch: UnifiedSettingsPatch) => {
-      const { serverPatch, clientPatch } = splitPatch(patch);
+      const { serverPatch, clientPatch } = splitSettingsPatch(patch);
 
       if (Object.keys(serverPatch).length > 0) {
         if (environmentId) {
-          const optimisticBase = applyPendingServerPatches(
-            serverSettings,
-            getPendingServerPatches(environmentId),
-          );
-          const pendingId = retainPendingServerPatch(
+          retainPendingServerPatch(environmentId, serverPatch);
+          void persistServerSettings({
             environmentId,
-            serverPatch,
-            optimisticBase,
-            serverSettings,
-          );
-          const previous =
-            serverSettingsWriteQueueByEnvironment.get(environmentId) ?? Promise.resolve();
-          const current = previous
-            .then(async () => {
-              const pendingPatch = getPendingServerPatchForDispatch(environmentId, pendingId);
-              if (!pendingPatch) return;
-              const result = await persistServerSettings({
-                environmentId,
-                input: { patch: pendingPatch },
-              });
-              settlePendingServerPatch(
-                environmentId,
-                pendingId,
-                result._tag === "Success" ? result.value : null,
-              );
-            })
-            .catch(() => {
-              settlePendingServerPatch(environmentId, pendingId, null);
-            });
-          serverSettingsWriteQueueByEnvironment.set(environmentId, current);
-          void current.finally(() => {
-            if (serverSettingsWriteQueueByEnvironment.get(environmentId) === current) {
-              serverSettingsWriteQueueByEnvironment.delete(environmentId);
-            }
+            input: { patch: serverPatch },
+          }).finally(() => {
+            releasePendingServerPatch(environmentId);
           });
         }
       }
@@ -337,24 +308,18 @@ function useUpdateSettingsTarget(
         });
       }
     },
-    [environmentId, persistServerSettings, serverSettings],
+    [environmentId, persistServerSettings],
   );
 
   return updateSettings;
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
-  const serverSettings =
-    useAtomValue(serverEnvironment.settingsValueAtom(environmentId)) ?? DEFAULT_SERVER_SETTINGS;
-  return useUpdateSettingsTarget(environmentId, serverSettings);
+export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null) {
+  return useUpdateSettingsTarget(environmentId);
 }
 
 export function useUpdatePrimarySettings() {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
-  return useUpdateSettingsTarget(
-    environmentId,
-    useAtomValue(primaryServerSettingsAtom),
-  );
+  return useUpdateSettingsTarget(useAtomValue(primaryEnvironmentIdAtom));
 }
 
 export function useUpdateClientSettings() {
@@ -362,6 +327,25 @@ export function useUpdateClientSettings() {
     persistClientSettings({
       ...getClientSettingsSnapshot(),
       ...patch,
+    });
+  }, []);
+}
+
+/**
+ * Client-settings updater whose patch is derived from the settings in effect at
+ * call time rather than at render time.
+ *
+ * Use it whenever the new value is computed from the old one — merging one key
+ * into a record, toggling a flag. Deriving from a render-time snapshot loses
+ * writes when two updates run before React re-renders, because both start from
+ * the same stale value and the second overwrites the first.
+ */
+export function useUpdateClientSettingsWith() {
+  return useCallback((derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
+    const settings = getClientSettingsSnapshot();
+    persistClientSettings({
+      ...settings,
+      ...derivePatch(settings),
     });
   }, []);
 }

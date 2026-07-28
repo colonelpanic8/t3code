@@ -1,6 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import {
+  ClientSettingsSchema,
+  DEFAULT_KEYBINDINGS,
+  EnvironmentId,
+  type ClientSettings,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -16,11 +21,22 @@ const clientSettings: ClientSettings = {
   autoOpenPlanSidebar: false,
   confirmThreadArchive: true,
   confirmThreadDelete: false,
+  defaultThreadEnvMode: "worktree",
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
+  enableAssistantStreaming: true,
+  environmentAccentColors: {
+    [EnvironmentId.make("environment-1")]: "#2563eb",
+  },
+  environmentDisplayNames: {},
   favorites: [],
   glassOpacity: 80,
+  hasMigratedServerKeybindings: true,
+  hasMigratedServerWorkflowPreferences: true,
+  keybindings: DEFAULT_KEYBINDINGS,
+  newWorktreesStartFromOrigin: false,
   providerModelPreferences: {},
+  showEnvironmentBadges: true,
   sidebarAutoSettleAfterDays: 3,
   sidebarProjectGroupingMode: "repository_path",
   sidebarProjectGroupingOverrides: {
