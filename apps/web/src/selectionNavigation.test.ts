@@ -112,6 +112,7 @@ describe("selection navigation", () => {
   });
 
   it.each([
+    ["model", "data-chat-provider-model-picker", "combobox-list"],
     ["runtime/access", "data-chat-runtime-mode-picker", "select-popup"],
     ["effort and provider options", "data-chat-provider-traits-picker", "menu-popup"],
   ] as const)(

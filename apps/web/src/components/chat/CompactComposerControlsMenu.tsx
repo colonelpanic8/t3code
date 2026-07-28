@@ -63,8 +63,10 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             <MenuRadioGroup
               value={props.interactionMode}
               onValueChange={(value) => {
-                if (!value || value === props.interactionMode) return;
-                props.onToggleInteractionMode();
+                if (!value) return;
+                if (value !== props.interactionMode) {
+                  props.onToggleInteractionMode();
+                }
                 completeSelection();
               }}
             >
@@ -82,8 +84,10 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <MenuRadioGroup
           value={props.runtimeMode}
           onValueChange={(value) => {
-            if (!value || value === props.runtimeMode) return;
-            props.onRuntimeModeChange(value as RuntimeMode);
+            if (!value) return;
+            if (value !== props.runtimeMode) {
+              props.onRuntimeModeChange(value as RuntimeMode);
+            }
             completeSelection();
           }}
         >
