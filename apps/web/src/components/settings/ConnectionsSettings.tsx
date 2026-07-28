@@ -1457,7 +1457,12 @@ function SavedBackendListRow({
           ) : null}
         </div>
         <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-          <Button size="xs" variant="outline" onClick={() => onRename(environment)}>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={removingEnvironmentId === environmentId}
+            onClick={() => onRename(environment)}
+          >
             Rename
           </Button>
           {isWslEnvironment ? (
