@@ -59,6 +59,27 @@ describe("T3 storage paths", () => {
     });
   });
 
+  it("honors an independently configured XDG root on macOS", () => {
+    expect(
+      resolveDefaultT3StorageRoots({
+        platform: "darwin",
+        homeDirectory: "/Users/alice",
+        temporaryDirectory: "/tmp",
+        userId: 501,
+        isDevelopment: false,
+        environment: { XDG_CACHE_HOME: "/custom/cache" },
+        path,
+      }),
+    ).toEqual({
+      layout: "split",
+      configDir: "/Users/alice/.config/t3code",
+      dataDir: "/Users/alice/.local/share/t3code",
+      stateDir: "/Users/alice/.local/state/t3code",
+      cacheDir: "/custom/cache/t3code",
+      runtimeDir: "/tmp/t3code-501",
+    });
+  });
+
   it("ignores relative XDG base directories", () => {
     expect(
       linuxDefaults({

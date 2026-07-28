@@ -128,7 +128,14 @@ export function resolveDefaultT3StorageRoots(
   const xdgCacheHome = absoluteEnvironmentDirectory(environment.XDG_CACHE_HOME, path);
   const xdgRuntimeHome = absoluteEnvironmentDirectory(environment.XDG_RUNTIME_DIR, path);
 
-  if (platform === "darwin" && xdgConfigHome === undefined && xdgDataHome === undefined) {
+  if (
+    platform === "darwin" &&
+    xdgConfigHome === undefined &&
+    xdgDataHome === undefined &&
+    xdgStateHome === undefined &&
+    xdgCacheHome === undefined &&
+    xdgRuntimeHome === undefined
+  ) {
     const applicationSupportRoot = path.join(
       homeDirectory,
       "Library",

@@ -109,6 +109,7 @@ it("renders a systemd unit with absolute paths and append-mode logging", () => {
       "Type=simple",
       "WorkingDirectory=%h",
       "Environment=T3CODE_HOME=/home/theo/.t3",
+      "UnsetEnvironment=T3CODE_CONFIG_DIR T3CODE_DATA_DIR T3CODE_STATE_DIR T3CODE_CACHE_DIR T3CODE_RUNTIME_DIR",
       "Environment=T3_BOOT_SERVICE_UNIT=t3code.service",
       "ExecStart=/usr/local/bin/node /home/theo/.t3/runtime/versions/0.0.27/node_modules/t3/dist/bin.mjs serve",
       "Restart=always",
@@ -146,6 +147,7 @@ it("pins every split storage root in the background service environment", () => 
   assert.include(unit, "Environment=T3CODE_CACHE_DIR=/home/alice/.cache/t3code");
   assert.include(unit, "Environment=T3CODE_RUNTIME_DIR=/run/user/1000/t3code");
   assert.notInclude(unit, "Environment=T3CODE_HOME=");
+  assert.include(unit, "UnsetEnvironment=T3CODE_HOME");
 });
 
 it("quotes systemd values containing spaces and escapes percent specifiers", () => {

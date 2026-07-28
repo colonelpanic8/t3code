@@ -14,7 +14,15 @@ import {
   HostProcessExecutablePath,
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
-import { t3StorageEnvironment, type T3StorageRoots } from "@t3tools/shared/storagePaths";
+import {
+  T3CODE_CACHE_DIR_ENV,
+  T3CODE_CONFIG_DIR_ENV,
+  T3CODE_DATA_DIR_ENV,
+  T3CODE_RUNTIME_DIR_ENV,
+  T3CODE_STATE_DIR_ENV,
+  t3StorageEnvironment,
+  type T3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 
 import * as ProcessRunner from "../processRunner.ts";
 import { ensurePinnedRuntimeInstalled, pinnedRuntimePaths } from "./pinnedRuntime.ts";
@@ -27,6 +35,13 @@ import { ensurePinnedRuntimeInstalled, pinnedRuntimePaths } from "./pinnedRuntim
  */
 
 const BOOT_SERVICE_NAME = "t3code";
+const GRANULAR_STORAGE_ENVIRONMENT_NAMES = [
+  T3CODE_CONFIG_DIR_ENV,
+  T3CODE_DATA_DIR_ENV,
+  T3CODE_STATE_DIR_ENV,
+  T3CODE_CACHE_DIR_ENV,
+  T3CODE_RUNTIME_DIR_ENV,
+];
 
 export const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
 export const BOOT_SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
@@ -94,6 +109,9 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
   const storageEnvironmentLines = Object.entries(storageEnvironment).map(
     ([name, value]) => `Environment=${name}=${quoteSystemdValue(value)}`,
   );
+  const unsetStorageEnvironmentLine = Object.hasOwn(storageEnvironment, "T3CODE_HOME")
+    ? `UnsetEnvironment=${GRANULAR_STORAGE_ENVIRONMENT_NAMES.join(" ")}`
+    : "UnsetEnvironment=T3CODE_HOME";
   // No After=network-online.target: it does not exist in the systemd *user*
   // manager, so ordering on it is silently ignored. The server retries its
   // relay connection, and Restart=always covers early-boot failures.
@@ -110,6 +128,7 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "Type=simple",
     "WorkingDirectory=%h",
     ...storageEnvironmentLines,
+    unsetStorageEnvironmentLine,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
     `ExecStart=${quoteSystemdValue(plan.nodePath)} ${quoteSystemdValue(plan.t3EntryPath)} serve`,
     "Restart=always",
