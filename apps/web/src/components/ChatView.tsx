@@ -26,6 +26,7 @@ import {
   type EnvironmentConnectionPresentation,
 } from "@t3tools/client-runtime/connection";
 import { effectiveSettled, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { supportsSelectedResponseFork } from "@t3tools/client-runtime/thread-forking";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -113,6 +114,7 @@ import {
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
+import { useForkThread } from "../hooks/useForkThread";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -1262,6 +1264,8 @@ function ChatViewContent(props: ChatViewProps) {
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
+  const [isForkingResponse, setIsForkingResponse] = useState(false);
+  const forkFromResponse = useForkThread();
   const [maximizedRightPanelThreadKey, setMaximizedRightPanelThreadKey] = useState<string | null>(
     null,
   );
@@ -2388,6 +2392,11 @@ function ChatViewContent(props: ChatViewProps) {
     const defaultInstanceId = defaultInstanceIdForDriver(selectedProvider);
     return providerStatuses.find((status) => status.instanceId === defaultInstanceId) ?? null;
   }, [activeProviderInstanceId, providerStatuses, selectedProvider]);
+  const threadProviderInstanceId =
+    serverThread?.session?.providerInstanceId ?? serverThread?.modelSelection.instanceId ?? null;
+  const threadProviderDriver =
+    providerStatuses.find((status) => status.instanceId === threadProviderInstanceId)?.driver ??
+    null;
   const providerStatusBannerKey = getProviderStatusBannerKey(activeProviderStatus);
   const [dismissedProviderStatusBannerKey, setDismissedProviderStatusBannerKey] = useState<
     string | null
@@ -5264,6 +5273,28 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
+  const onForkFromResponse = useCallback(
+    async (sourceTurnId: TurnId) => {
+      if (!serverThread) return;
+      setIsForkingResponse(true);
+      try {
+        const forkedThreadRef = await forkFromResponse(serverThread, sourceTurnId);
+        if (forkedThreadRef !== null) {
+          await navigate({
+            to: "/$environmentId/$threadId",
+            params: {
+              environmentId: forkedThreadRef.environmentId,
+              threadId: forkedThreadRef.threadId,
+            },
+          });
+        }
+      } finally {
+        setIsForkingResponse(false);
+      }
+    },
+    [forkFromResponse, navigate, serverThread],
+  );
+
   const onImplementPlanInNewThread = useCallback(async () => {
     if (
       !activeThread ||
@@ -5782,6 +5813,9 @@ function ChatViewContent(props: ChatViewProps) {
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
+                {...(isServerThread && supportsSelectedResponseFork(threadProviderDriver)
+                  ? { onForkFromResponse, isForkingResponse }
+                  : {})}
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}
                 resolvedTheme={resolvedTheme}

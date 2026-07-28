@@ -122,6 +122,7 @@ function createProviderServiceHarness(
           continuationKey: `${providerName}:instance:${instanceId}`,
         },
       }),
+    hasPersistedResumeCursor: () => Effect.succeed(false),
     rollbackConversation,
     get streamEvents() {
       return Stream.fromPubSub(runtimeEventPubSub);
