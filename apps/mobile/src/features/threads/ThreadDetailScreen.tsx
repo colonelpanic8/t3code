@@ -193,6 +193,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const lastScrolledAnchorMessageIdRef = useRef<MessageId | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [anchorMessageId, setAnchorMessageId] = useState<MessageId | null>(null);
+  const [replayCatchUpDismissedThreadKey, setReplayCatchUpDismissedThreadKey] = useState<
+    string | null
+  >(null);
+  const replayCatchUp =
+    (props.replayCatchUp ?? false) && replayCatchUpDismissedThreadKey !== selectedThreadKey;
   const composerBottomInset = composerExpanded ? 0 : Math.max(insets.bottom, 12);
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
@@ -236,11 +241,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const isSplitLayout = layoutVariant === "split";
   const contentMaxWidth = isSplitLayout ? CHAT_CONTENT_MAX_WIDTH : undefined;
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
-  useStreamingHaptics(
-    props.selectedThread.id,
-    props.selectedThreadFeed,
-    props.replayCatchUp ?? false,
-  );
+  useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed, replayCatchUp);
   const selectedProviderSkills = useMemo(
     () =>
       props.serverConfig?.providers.find((provider) => provider.instanceId === selectedInstanceId)
@@ -257,6 +258,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     lastScrolledAnchorMessageIdRef.current = null;
     freeze.set(false);
   }, [freeze, selectedThreadKey]);
+
+  useEffect(() => {
+    if (!props.replayCatchUp) {
+      setReplayCatchUpDismissedThreadKey((current) =>
+        current === selectedThreadKey ? null : current,
+      );
+    }
+  }, [props.replayCatchUp, selectedThreadKey]);
 
   useEffect(() => {
     if (
@@ -312,8 +321,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   const handleSendMessage = useCallback(async () => {
     const targetThreadKey = selectedThreadKey;
+    // A user send ends backlog-only behavior immediately. The optimistic
+    // message can reach the feed before a fresh server event updates the
+    // replay signal, so clear it before enqueueing to keep the anchor scroll
+    // animated instead of snapping to the end.
+    setReplayCatchUpDismissedThreadKey(targetThreadKey);
     const messageId = await props.onSendMessage();
-    if (messageId === null || selectedThreadKeyRef.current !== targetThreadKey) {
+    if (messageId === null) {
+      setReplayCatchUpDismissedThreadKey((current) =>
+        current === targetThreadKey ? null : current,
+      );
+      return messageId;
+    }
+    if (selectedThreadKeyRef.current !== targetThreadKey) {
       return messageId;
     }
 
@@ -376,7 +396,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             agentLabel={agentLabel}
             latestTurn={props.selectedThread.latestTurn}
             activeWorkStartedAt={props.activeWorkStartedAt}
-            replayCatchUp={props.replayCatchUp}
+            replayCatchUp={replayCatchUp}
             listRef={listRef}
             freeze={freeze}
             anchorMessageId={anchorMessageId}
