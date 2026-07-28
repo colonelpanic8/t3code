@@ -794,6 +794,41 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE thread_id = ${threadId}
+        LIMIT 1
+      `,
+  });
+
+  const getUndeletedThreadRowById = SqlSchema.findOneOption({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadDbRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          project_id AS "projectId",
+          title,
+          model_selection_json AS "modelSelection",
+          runtime_mode AS "runtimeMode",
+          interaction_mode AS "interactionMode",
+          branch,
+          worktree_path AS "worktreePath",
+          forked_from_thread_id AS "forkedFromThreadId",
+          forked_from_turn_id AS "forkedFromTurnId",
+          latest_turn_id AS "latestTurnId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
+          settled_override AS "settledOverride",
+          settled_at AS "settledAt",
+          snoozed_until AS "snoozedUntil",
+          snoozed_at AS "snoozedAt",
+          latest_user_message_at AS "latestUserMessageAt",
+          pending_approval_count AS "pendingApprovalCount",
+          pending_user_input_count AS "pendingUserInputCount",
+          has_actionable_proposed_plan AS "hasActionableProposedPlan",
+          deleted_at AS "deletedAt"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
           AND deleted_at IS NULL
         LIMIT 1
       `,
@@ -2039,9 +2074,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         latestTurnRow,
         sessionRow,
       ] = yield* Effect.all([
-        (options?.includeArchived === true
+        (options?.includeDeleted === true
           ? getThreadRowById({ threadId })
-          : getActiveThreadRowById({ threadId })
+          : options?.includeArchived === true
+            ? getUndeletedThreadRowById({ threadId })
+            : getActiveThreadRowById({ threadId })
         ).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
@@ -2122,7 +2159,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         settledAt: threadRow.value.settledAt,
         snoozedUntil: threadRow.value.snoozedUntil,
         snoozedAt: threadRow.value.snoozedAt,
-        deletedAt: null,
+        deletedAt: threadRow.value.deletedAt,
         messages: messageRows.map((row) => {
           const message = {
             id: row.messageId,

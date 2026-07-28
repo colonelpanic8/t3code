@@ -353,7 +353,7 @@ const make = Effect.gen(function* () {
 
   const resolveForkSourceThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     return yield* projectionSnapshotQuery
-      .getThreadDetailById(threadId, { includeArchived: true })
+      .getThreadDetailById(threadId, { includeArchived: true, includeDeleted: true })
       .pipe(Effect.map(Option.getOrUndefined));
   });
 
@@ -710,7 +710,9 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession({ includeForkSource: true });
+    const startedSession = yield* startProviderSession(
+      thread.session === null ? { includeForkSource: true } : undefined,
+    );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
