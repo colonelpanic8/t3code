@@ -98,6 +98,16 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<ProviderInstanceRoutingInfo, ProviderServiceError>;
 
   /**
+   * Whether this thread has provider-owned resume state for the requested
+   * instance. Fork orchestration uses this to distinguish initial/retry forks
+   * from cold resumes of an already-started fork.
+   */
+  readonly hasPersistedResumeCursor: (
+    threadId: ThreadId,
+    instanceId: ProviderInstanceId,
+  ) => Effect.Effect<boolean, ProviderServiceError>;
+
+  /**
    * Roll back provider conversation state by a number of turns.
    */
   readonly rollbackConversation: (input: {

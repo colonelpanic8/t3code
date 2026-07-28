@@ -120,6 +120,7 @@ function createProviderServiceHarness() {
         },
       });
     },
+    hasPersistedResumeCursor: () => Effect.succeed(false),
     rollbackConversation: () => unsupported(),
     get streamEvents() {
       return Stream.fromPubSub(runtimeEventPubSub);

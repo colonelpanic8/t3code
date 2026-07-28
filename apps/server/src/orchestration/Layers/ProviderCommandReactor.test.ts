@@ -354,6 +354,7 @@ describe("ProviderCommandReactor", () => {
           },
         });
       },
+      hasPersistedResumeCursor: () => Effect.succeed(false),
       rollbackConversation: () => unsupported(),
       get streamEvents() {
         return Stream.fromPubSub(runtimeEventPubSub);

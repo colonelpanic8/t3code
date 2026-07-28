@@ -692,6 +692,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const hasPersistedResumeCursor: ProviderServiceMethod<"hasPersistedResumeCursor"> = Effect.fn(
+    "ProviderService.hasPersistedResumeCursor",
+  )(function* (threadId, instanceId) {
+    const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+    return (
+      binding?.providerInstanceId === instanceId &&
+      binding.resumeCursor !== null &&
+      binding.resumeCursor !== undefined
+    );
+  });
+
   const sendTurn: ProviderServiceMethod<"sendTurn"> = Effect.fn("sendTurn")(function* (rawInput) {
     const parsed = yield* decodeInputOrValidationError({
       operation: "ProviderService.sendTurn",
@@ -1134,6 +1145,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     listSessions,
     getCapabilities,
     getInstanceInfo,
+    hasPersistedResumeCursor,
     rollbackConversation,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each

@@ -590,8 +590,16 @@ const make = Effect.gen(function* () {
                 }
               }
 
+              if (sourceThread === undefined || sourceThread.deletedAt !== null) {
+                return yield* new ProviderAdapterRequestError({
+                  provider: desiredInfo.driverKind,
+                  method: "thread.turn.start",
+                  detail: `Cannot fork from${sourceTurnId !== null ? ` turn '${sourceTurnId}'` : ""} because source thread '${sourceThreadId}' is unavailable.`,
+                });
+              }
+
               const sourceTurnIndex =
-                sourceThread !== undefined && sourceTurnId !== null
+                sourceTurnId !== null
                   ? findCompletedTurnIndex(sourceThread.messages, sourceTurnId)
                   : undefined;
               return {
@@ -710,8 +718,12 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
+    const hasPersistedResumeCursor =
+      thread.forkedFrom !== null
+        ? yield* providerService.hasPersistedResumeCursor(threadId, desiredInstanceId)
+        : false;
     const startedSession = yield* startProviderSession(
-      thread.session === null ? { includeForkSource: true } : undefined,
+      hasPersistedResumeCursor ? undefined : { includeForkSource: true },
     );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
