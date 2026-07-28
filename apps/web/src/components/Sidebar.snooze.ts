@@ -29,6 +29,7 @@ const MORNING_HOUR = 9;
 const HOUR_MS = 60 * 60 * 1_000;
 const DAY_MS = 24 * HOUR_MS;
 const CUSTOM_TIME_STEP_MINUTES = 15;
+const CUSTOM_TIME_STEP_MS = CUSTOM_TIME_STEP_MINUTES * 60_000;
 
 function atHour(base: Date, hour: number): Date {
   const next = new Date(base);
@@ -68,22 +69,57 @@ export function formatSnoozeDateTimeLocal(date: Date): string {
  * Start custom snoozes one hour out, rounded up to a friendly quarter-hour.
  */
 export function defaultCustomSnoozeDateTime(now: Date): string {
-  const next = new Date(now.getTime() + HOUR_MS);
+  const minimumWakeTime = now.getTime() + HOUR_MS;
+  const next = new Date(minimumWakeTime);
   next.setSeconds(0, 0);
+  if (next.getTime() < minimumWakeTime) {
+    next.setTime(next.getTime() + 60_000);
+  }
   next.setMinutes(
     Math.ceil(next.getMinutes() / CUSTOM_TIME_STEP_MINUTES) * CUSTOM_TIME_STEP_MINUTES,
   );
-  return formatSnoozeDateTimeLocal(next);
+
+  // datetime-local drops the timezone offset. During the repeated hour at the
+  // end of DST, formatting the later occurrence and parsing it again can pick
+  // the earlier occurrence. Advance by friendly quarter-hours until the value
+  // the form will actually submit remains at least one elapsed hour away.
+  for (;;) {
+    const value = formatSnoozeDateTimeLocal(next);
+    const parsed = parseCustomSnoozeDateTime(value, now);
+    if (parsed !== null && new Date(parsed).getTime() >= minimumWakeTime) return value;
+    next.setTime(next.getTime() + CUSTOM_TIME_STEP_MS);
+  }
 }
 
 /**
  * Interpret a datetime-local value in the browser's local timezone and
- * return the ISO command payload. Invalid and non-future values are rejected.
+ * return the ISO command payload. Invalid, normalized, and non-future values
+ * are rejected.
  */
 export function parseCustomSnoozeDateTime(value: string, now: Date): string | null {
-  if (value.trim() === "") return null;
-  const wakeAt = new Date(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  if (match === null) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const wakeAt = new Date(year, month - 1, day, hour, minute, 0, 0);
   if (Number.isNaN(wakeAt.getTime()) || wakeAt.getTime() <= now.getTime()) return null;
+
+  // Date normalizes impossible wall-clock values, including the missing hour
+  // during a spring-forward transition. Reject that normalization instead of
+  // silently snoozing until a different time than the user selected.
+  if (
+    wakeAt.getFullYear() !== year ||
+    wakeAt.getMonth() !== month - 1 ||
+    wakeAt.getDate() !== day ||
+    wakeAt.getHours() !== hour ||
+    wakeAt.getMinutes() !== minute
+  ) {
+    return null;
+  }
   return wakeAt.toISOString();
 }
 
