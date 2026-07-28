@@ -1049,9 +1049,13 @@ function MarkdownWorkspaceImage({
     threadId: threadRef.threadId,
     path: filePath,
   });
+  const preparedConnection = usePreparedConnection(threadRef.environmentId);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   if (assetUrl._tag === "Loading") {
+    if (preparedConnection._tag === "None") {
+      return <>{fallback}</>;
+    }
     return <span className="chat-markdown-image-placeholder" role="presentation" />;
   }
   if (assetUrl._tag === "Failure" || failedUrl === assetUrl.url) {
