@@ -18,14 +18,16 @@
     export T3CODE_HOME=${lib.escapeShellArg cfg.dataDirectory}
 
     cd "$repository_root"
-    exec ${lib.getExe' cfg.package "t3"} serve \
-      --host ${lib.escapeShellArg cfg.host} \
-      --port ${toString cfg.port} \
+    server_args=(
+      serve
+      --host ${lib.escapeShellArg cfg.host}
+      --port ${toString cfg.port}
       ${lib.optionalString cfg.tailscaleServe.enable ''
-      --tailscale-serve \
-      --tailscale-serve-port ${toString cfg.tailscaleServe.port} \
-    ''} \
-      "$repository_root"
+      --tailscale-serve
+      --tailscale-serve-port ${toString cfg.tailscaleServe.port}
+    ''}
+    )
+    exec ${lib.getExe' cfg.package "t3"} "''${server_args[@]}"
   '';
 in {
   options.services.t3code = {
