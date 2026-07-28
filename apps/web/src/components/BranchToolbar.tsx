@@ -16,10 +16,7 @@ import { useProject, useThread, useThreadShellsForProjectRefs } from "../state/e
 import { useLayoutScopedState } from "../hooks/useLayoutScopedOpenState";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
-import {
-  remainingShortcutLabelForCommand,
-  shouldShowCommandHintForModifiers,
-} from "../keybindings";
+import { shortcutLabelForCommand, shouldShowCommandHintForModifiers } from "../keybindings";
 import { useShortcutModifierState } from "../shortcutModifierState";
 import {
   type BranchToolbarPicker,
@@ -101,6 +98,7 @@ interface MobileRunContextSelectorProps {
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel: string | null;
   onUsePreviousWorktree: () => void;
+  onSelectionComplete?: () => void;
 }
 
 const MobileRunContextSelector = memo(function MobileRunContextSelector({
@@ -121,6 +119,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
+  onSelectionComplete,
 }: MobileRunContextSelectorProps) {
   const activeEnvironment = useMemo(
     () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
@@ -189,7 +188,10 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
               <MenuGroupLabel>Run on</MenuGroupLabel>
               <MenuRadioGroup
                 value={environmentId}
-                onValueChange={(value) => onEnvironmentChange(value as EnvironmentId)}
+                onValueChange={(value) => {
+                  onEnvironmentChange(value as EnvironmentId);
+                  onSelectionComplete?.();
+                }}
               >
                 {availableEnvironments.map((env) => {
                   const Icon = env.isPrimary ? MonitorIcon : CloudIcon;
@@ -218,9 +220,11 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
             onValueChange={(value) => {
               if (value === "previous-worktree") {
                 onUsePreviousWorktree();
+                onSelectionComplete?.();
                 return;
               }
               onEnvModeChange(value as EnvMode);
+              onSelectionComplete?.();
             }}
           >
             <MenuRadioItem disabled={envModeLocked} value="local">
@@ -415,13 +419,6 @@ export const BranchToolbar = memo(function BranchToolbar({
       },
       toggleEnvModePicker: () => {
         if (envModeShortcutTarget === null) return false;
-        // Workspace is a two-state choice, so the chord flips it directly (like
-        // planMode.toggle) instead of opening a two-item menu. On mobile the
-        // control lives in the combined run-context sheet, which still opens.
-        if (envModeShortcutTarget === "env-mode") {
-          onEnvModeChange(effectiveEnvMode === "worktree" ? "local" : "worktree");
-          return true;
-        }
         handlePickerToggle(envModeShortcutTarget);
         return true;
       },
@@ -430,14 +427,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         return branchSelectorRef.current?.togglePicker() ?? false;
       },
     }),
-    [
-      effectiveEnvMode,
-      environmentShortcutTarget,
-      envModeShortcutTarget,
-      handlePickerToggle,
-      isRendered,
-      onEnvModeChange,
-    ],
+    [environmentShortcutTarget, envModeShortcutTarget, handlePickerToggle, isRendered],
   );
 
   // Hold-modifier hint badges, mirroring the composer footer controls.
@@ -450,7 +440,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "environmentPicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? remainingShortcutLabelForCommand(keybindings, "environmentPicker.toggle", shortcutModifiers, {
+    ? shortcutLabelForCommand(keybindings, "environmentPicker.toggle", {
         context: shortcutContext,
       })
     : null;
@@ -460,7 +450,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "envModePicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? remainingShortcutLabelForCommand(keybindings, "envModePicker.toggle", shortcutModifiers, {
+    ? shortcutLabelForCommand(keybindings, "envModePicker.toggle", {
         context: shortcutContext,
       })
     : null;
@@ -470,7 +460,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     "branchPicker.toggle",
     { platform: navigator.platform, context: shortcutContext },
   )
-    ? remainingShortcutLabelForCommand(keybindings, "branchPicker.toggle", shortcutModifiers, {
+    ? shortcutLabelForCommand(keybindings, "branchPicker.toggle", {
         context: shortcutContext,
       })
     : null;
@@ -501,6 +491,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           onEnvModeChange={onEnvModeChange}
           previousWorktreeLabel={previousWorktreeLabel}
           onUsePreviousWorktree={onUsePreviousWorktree}
+          {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
         />
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -513,6 +504,7 @@ export const BranchToolbar = memo(function BranchToolbar({
                 open={environmentPickerOpen}
                 onOpenChange={(open) => handlePickerOpenChange("environment", open)}
                 shortcutHintLabel={availableEnvironmentHintLabel}
+                {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
               <Separator orientation="vertical" className="mx-0.5 h-3.5!" />
@@ -528,6 +520,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onEnvModeChange={onEnvModeChange}
             previousWorktreeLabel={previousWorktreeLabel}
             onUsePreviousWorktree={onUsePreviousWorktree}
+            {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
           />
         </div>
       )}

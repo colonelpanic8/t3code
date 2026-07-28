@@ -16,7 +16,7 @@ import {
 } from "@t3tools/shared/model";
 import { memo, useCallback, useRef, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { ZapIcon } from "lucide-react";
+import { ChevronDownIcon, ZapIcon } from "lucide-react";
 import { Button, buttonVariants } from "../ui/button";
 import {
   Menu,
@@ -31,7 +31,7 @@ import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
-import { ComposerControlChevron } from "./ComposerControlShortcutHint";
+import { ComposerControlShortcutHint } from "./ComposerControlShortcutHint";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
 
@@ -219,6 +219,7 @@ export interface TraitsMenuContentProps {
   allowPromptInjectedEffort?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
+  onSelectionComplete?: () => void;
 }
 
 export interface TraitsPickerControlProps {
@@ -236,6 +237,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   onPromptChange,
   modelOptions,
   allowPromptInjectedEffort = true,
+  onSelectionComplete,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -288,6 +290,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           ? ULTRATHINK_PROMPT_PREFIX
           : applyClaudePromptEffortPrefix(prompt, "ultrathink");
       onPromptChange(nextPrompt);
+      onSelectionComplete?.();
       return;
     }
     if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
@@ -296,6 +299,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       onPromptChange(stripped);
     }
     updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
+    onSelectionComplete?.();
   };
 
   if (!hasAnyControls) {
@@ -368,6 +372,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                   updateDescriptors(
                     replaceDescriptorCurrentValue(descriptors, descriptor.id, value === "on"),
                   );
+                  onSelectionComplete?.();
                 }}
               >
                 {(["on", "off"] as const).map((value) => (
@@ -440,9 +445,11 @@ export const TraitsPicker = memo(function TraitsPicker({
   open,
   onOpenChange,
   shortcutHintLabel,
+  onSelectionComplete,
   ...persistence
 }: TraitsMenuContentProps & TraitsPickerControlProps & TraitsPersistence) {
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const isMenuOpen = open ?? uncontrolledMenuOpen;
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, fastModeEnabled } =
     getTraitsSectionVisibility({
@@ -494,8 +501,10 @@ export const TraitsPicker = memo(function TraitsPicker({
       <MenuTrigger
         render={
           <Button
+            ref={triggerRef}
             size="sm"
             variant={triggerVariant ?? "ghost"}
+            data-chat-provider-traits-picker="true"
             className={cn(
               isCodexStyle
                 ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:max-w-48 sm:px-3 [&_svg]:mx-0"
@@ -509,13 +518,13 @@ export const TraitsPicker = memo(function TraitsPicker({
           <span className="flex min-w-0 w-full items-center gap-1.5 overflow-hidden">
             {fastModeIcon}
             <span className="min-w-0 truncate">{triggerLabel}</span>
-            <ComposerControlChevron hintLabel={shortcutHintLabel} className="shrink-0" />
+            <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
           </span>
         ) : (
           <>
             {fastModeIcon}
             <span>{triggerLabel}</span>
-            <ComposerControlChevron hintLabel={shortcutHintLabel} />
+            <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
           </>
         )}
       </MenuTrigger>
@@ -529,9 +538,11 @@ export const TraitsPicker = memo(function TraitsPicker({
           onPromptChange={onPromptChange}
           modelOptions={modelOptions}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
+          {...(onSelectionComplete ? { onSelectionComplete } : {})}
           {...persistence}
         />
       </MenuPopup>
+      <ComposerControlShortcutHint anchorRef={triggerRef} label={shortcutHintLabel ?? null} />
     </Menu>
   );
 });
