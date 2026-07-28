@@ -12,6 +12,7 @@ export const THREAD_FIND_ACTIVE_HIGHLIGHT_NAME = "t3-thread-find-active";
  * counted nor shift the active-occurrence index within a row.
  */
 const THREAD_FIND_TEXT_SELECTOR = "[data-thread-find-text]";
+const THREAD_FIND_IGNORE_SELECTOR = "[data-thread-find-ignore]";
 
 export interface ThreadFindRangeGroup<T = Range> {
   rowId: string;
@@ -114,6 +115,10 @@ export function collectThreadFindRanges(
     const walker = ownerDocument.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
     while (node) {
+      if (node.parentElement?.closest(THREAD_FIND_IGNORE_SELECTOR)) {
+        node = walker.nextNode();
+        continue;
+      }
       const text = node.nodeValue ?? "";
       const offsets = text.length > 0 ? findThreadTextOccurrences(text, query) : [];
       if (offsets.length > 0) {

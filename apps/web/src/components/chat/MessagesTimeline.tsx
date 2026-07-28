@@ -545,7 +545,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
 
-    const matchKey = `${findNavigationId}:${normalizedFindQuery}:${activeFindMatch.entryId}:${activeFindMatch.occurrence}:${activeFindMatch.offset}`;
+    const matchKey = `${findNavigationId}:${normalizedFindQuery}:${activeFindMatch.entryId}:${activeFindMatch.occurrence}`;
     if (navigatedFindMatchKeyRef.current === matchKey) {
       return;
     }
@@ -1463,7 +1463,11 @@ const UserMessageTerminalContextInlineLabel = memo(
         ? `${props.context.header}\n${props.context.body}`
         : props.context.header;
 
-    return <TerminalContextInlineChip label={props.context.header} tooltipText={tooltipText} />;
+    return (
+      <span data-thread-find-ignore="true">
+        <TerminalContextInlineChip label={props.context.header} tooltipText={tooltipText} />
+      </span>
+    );
   },
 );
 
