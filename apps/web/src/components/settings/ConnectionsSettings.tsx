@@ -1761,6 +1761,8 @@ export function ConnectionsSettings() {
     () => selectLocalServerPairingCandidates(localServerAdvertisements, environments),
     [environments, localServerAdvertisements],
   );
+  const hasLocalServerDiscoveryContent =
+    localServerPairingCandidates.length > 0 || localServerDiscoveryError !== null;
   const refreshLocalServerAdvertisements = useCallback(async () => {
     const discoverLocalServers = desktopBridge?.discoverLocalServers;
     if (!discoverLocalServers) {
@@ -3533,7 +3535,7 @@ export function ConnectionsSettings() {
         </SettingsSection>
       )}
 
-      {localServerPairingCandidates.length > 0 ? (
+      {hasLocalServerDiscoveryContent ? (
         <SettingsSection
           title="Available on this computer"
           headerAction={
@@ -3552,11 +3554,13 @@ export function ConnectionsSettings() {
             </Button>
           }
         >
-          <p className="px-1 text-xs text-muted-foreground">
-            These loopback servers published credential-free presence records. Pairing verifies the
-            server belongs to your local user, then saves the connection; this desktop will not
-            manage the server process.
-          </p>
+          {localServerPairingCandidates.length > 0 ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              These loopback servers published credential-free presence records. Pairing verifies
+              the server belongs to your local user, then saves the connection; this desktop will
+              not manage the server process.
+            </p>
+          ) : null}
           {renderLocalServerPairingCandidates()}
         </SettingsSection>
       ) : null}
@@ -3603,16 +3607,25 @@ export function ConnectionsSettings() {
               </DialogHeader>
               <DialogPanel>
                 <div className="space-y-4">
-                  {localServerPairingCandidates.length > 0 ? (
-                    <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          A local T3 Code server is running
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Pair explicitly to save it without copying its URL.
-                        </p>
-                      </div>
+                  {hasLocalServerDiscoveryContent ? (
+                    <div
+                      className={cn(
+                        "space-y-2 rounded-lg border p-3",
+                        localServerPairingCandidates.length > 0
+                          ? "border-primary/20 bg-primary/5"
+                          : "border-destructive/30 bg-destructive/5",
+                      )}
+                    >
+                      {localServerPairingCandidates.length > 0 ? (
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            A local T3 Code server is running
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Pair explicitly to save it without copying its URL.
+                          </p>
+                        </div>
+                      ) : null}
                       {renderLocalServerPairingCandidates()}
                     </div>
                   ) : null}
