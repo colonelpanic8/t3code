@@ -253,15 +253,15 @@ const INITIAL_STATS: ReplayStats = {
 
 function readParams() {
   const search = new URLSearchParams(window.location.search);
-  const num = (key: string, fallback: number) => {
+  const num = (key: string, fallback: number, minimum = 1) => {
     const raw = Number(search.get(key));
-    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
+    return Number.isFinite(raw) && raw >= minimum ? Math.floor(raw) : fallback;
   };
   return {
-    deltas: num("deltas", 2000),
-    activities: num("activities", 0),
+    deltas: num("deltas", 2000, 0),
+    activities: num("activities", 0, 0),
     batch: num("batch", 1),
-    history: num("history", 8),
+    history: num("history", 8, 0),
     code: search.get("code") !== "0",
     auto: search.get("auto") === "1",
   };

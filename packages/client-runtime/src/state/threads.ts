@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Atom } from "effect/unstable/reactivity";
@@ -242,8 +243,12 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   });
 
   const applyItem = (item: OrchestrationThreadStreamItem) => applyItems([item]);
-
-  const pendingItems = yield* Queue.unbounded<OrchestrationThreadStreamItem>();
+  const applyLock = yield* Semaphore.make(1);
+  const subscriptionGeneration = yield* Ref.make(0);
+  const pendingItems = yield* Queue.unbounded<{
+    readonly generation: number;
+    readonly item: OrchestrationThreadStreamItem;
+  }>();
 
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
@@ -270,58 +275,74 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     subscribeDynamic(
       ORCHESTRATION_WS_METHODS.subscribeThread,
       Effect.fn("EnvironmentThreadState.makeSubscribeInput")(function* (session) {
-        const supportsCompletionMarker = yield* session.initialConfig.pipe(
-          Effect.map((config) => config.threadResumeCompletionMarker === true),
-          Effect.orElseSucceed(() => false),
+        return yield* applyLock.withPermits(1)(
+          Effect.gen(function* () {
+            // A switched-out stream may already have queued items. Give every
+            // subscription attempt a generation and clear its predecessor's
+            // backlog before loading a replacement snapshot.
+            yield* Ref.update(subscriptionGeneration, (generation) => generation + 1);
+            yield* Queue.clear(pendingItems);
+
+            const supportsCompletionMarker = yield* session.initialConfig.pipe(
+              Effect.map((config) => config.threadResumeCompletionMarker === true),
+              Effect.orElseSucceed(() => false),
+            );
+            yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
+            yield* setSynchronizing;
+
+            let current = yield* SubscriptionRef.get(state);
+            if (Option.isNone(current.data) && current.status !== "deleted") {
+              const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onSome: Effect.succeed,
+                    onNone: () =>
+                      SubscriptionRef.changes(supervisor.prepared).pipe(
+                        Stream.filter(Option.isSome),
+                        Stream.map((value) => value.value),
+                        Stream.runHead,
+                        Effect.map(Option.getOrThrow),
+                      ),
+                  }),
+                ),
+              );
+              const httpSnapshot = yield* snapshotLoader.load(prepared, threadId);
+              if (Option.isSome(httpSnapshot)) {
+                yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
+                current = yield* SubscriptionRef.get(state);
+              }
+            }
+
+            const sequence = yield* SubscriptionRef.get(lastSequence);
+            const canResume = Option.isSome(current.data);
+            if (!supportsCompletionMarker && canResume) {
+              yield* SubscriptionRef.update(state, (value) => ({
+                ...value,
+                status: value.status === "deleted" ? value.status : ("live" as const),
+                error: Option.none(),
+              }));
+            }
+
+            return {
+              threadId,
+              ...(canResume ? { afterSequence: sequence } : {}),
+              ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+            };
+          }),
         );
-        yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
-        yield* setSynchronizing;
-
-        let current = yield* SubscriptionRef.get(state);
-        if (Option.isNone(current.data) && current.status !== "deleted") {
-          const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
-            Effect.flatMap(
-              Option.match({
-                onSome: Effect.succeed,
-                onNone: () =>
-                  SubscriptionRef.changes(supervisor.prepared).pipe(
-                    Stream.filter(Option.isSome),
-                    Stream.map((value) => value.value),
-                    Stream.runHead,
-                    Effect.map(Option.getOrThrow),
-                  ),
-              }),
-            ),
-          );
-          const httpSnapshot = yield* snapshotLoader.load(prepared, threadId);
-          if (Option.isSome(httpSnapshot)) {
-            yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
-            current = yield* SubscriptionRef.get(state);
-          }
-        }
-
-        const sequence = yield* SubscriptionRef.get(lastSequence);
-        const canResume = Option.isSome(current.data);
-        if (!supportsCompletionMarker && canResume) {
-          yield* SubscriptionRef.update(state, (value) => ({
-            ...value,
-            status: value.status === "deleted" ? value.status : ("live" as const),
-            error: Option.none(),
-          }));
-        }
-
-        return {
-          threadId,
-          ...(canResume ? { afterSequence: sequence } : {}),
-          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
-        };
       }),
       {
         onExpectedFailure: setStreamError,
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEach((item) => Queue.offer(pendingItems, item))),
+    ).pipe(
+      Stream.runForEach((item) =>
+        Ref.get(subscriptionGeneration).pipe(
+          Effect.flatMap((generation) => Queue.offer(pendingItems, { generation, item })),
+        ),
+      ),
+    ),
   );
 
   // Drain-based batching: apply one item plus everything that accumulated
@@ -334,14 +355,24 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   yield* Effect.forkScoped(
     Effect.forever(
       Effect.gen(function* () {
-        const batch: Array<OrchestrationThreadStreamItem> = [yield* Queue.take(pendingItems)];
+        const batch = [yield* Queue.take(pendingItems)];
         for (let round = 0; round < 32; round += 1) {
           yield* Effect.yieldNow;
           const more = yield* Queue.clear(pendingItems);
           if (more.length === 0) break;
           batch.push(...more);
         }
-        yield* applyItems(batch);
+        yield* applyLock.withPermits(1)(
+          Effect.gen(function* () {
+            const generation = yield* Ref.get(subscriptionGeneration);
+            const currentItems = batch
+              .filter((pending) => pending.generation === generation)
+              .map((pending) => pending.item);
+            if (currentItems.length > 0) {
+              yield* applyItems(currentItems);
+            }
+          }),
+        );
       }),
     ),
   );
