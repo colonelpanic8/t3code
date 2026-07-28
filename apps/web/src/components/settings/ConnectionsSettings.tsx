@@ -1876,8 +1876,16 @@ export function ConnectionsSettings() {
   const canManageLocalBackend = currentSessionScopes?.includes(AuthAccessWriteScope) ?? false;
   const canManageRelay = currentSessionScopes?.includes(AuthRelayWriteScope) ?? false;
 
+  const liveActiveEnvironmentId =
+    activeEnvironmentId !== null &&
+    environments.some((environment) => environment.environmentId === activeEnvironmentId)
+      ? activeEnvironmentId
+      : (environments[0]?.environmentId ?? null);
   const { environmentId: accessEnvironmentId, isPrimary: isAccessEnvironmentPrimary } =
-    resolveAccessEnvironment({ primaryEnvironmentId, activeEnvironmentId });
+    resolveAccessEnvironment({
+      primaryEnvironmentId,
+      activeEnvironmentId: liveActiveEnvironmentId,
+    });
   const accessEnvironment =
     accessEnvironmentId === null
       ? null
