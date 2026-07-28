@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - Build configuration; it runs in
+// plain Node before any Effect runtime exists.
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -5,10 +7,12 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
+import * as NodeURL from "node:url";
 import pkg from "./package.json" with { type: "json" };
 
 import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 
+import { readBuildProvenance } from "../../scripts/lib/build-provenance";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 
 const repoEnv = loadRepoEnv();
@@ -37,6 +41,16 @@ const configuredRelayTracingDataset = repoEnv.VITE_RELAY_OTLP_TRACES_DATASET?.tr
 const configuredRelayTracingToken = repoEnv.VITE_RELAY_OTLP_TRACES_TOKEN?.trim() || "";
 const configuredHostedAppChannel = process.env.VITE_HOSTED_APP_CHANNEL?.trim() || "";
 const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
+
+const repoRoot = NodeURL.fileURLToPath(new URL("../../", import.meta.url));
+
+const buildProvenance = readBuildProvenance(repoRoot);
+const configuredStackBuildInfo = buildProvenance.stackBuildInfo;
+const configuredBuildCommit = buildProvenance.commit;
+const configuredBuildRepoRemote = buildProvenance.repoRemote;
+const configuredBuildDate = buildProvenance.date;
+const configuredBuildDirty = buildProvenance.dirty;
+
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
   if (explicitHostedAppUrl) {
@@ -173,6 +187,11 @@ export default defineConfig(() => {
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
+      "import.meta.env.BUILD_COMMIT": JSON.stringify(configuredBuildCommit),
+      "import.meta.env.BUILD_REPO_REMOTE": JSON.stringify(configuredBuildRepoRemote),
+      "import.meta.env.BUILD_DATE": JSON.stringify(configuredBuildDate),
+      "import.meta.env.BUILD_DIRTY": JSON.stringify(configuredBuildDirty),
+      "import.meta.env.STACK_BUILD_INFO": JSON.stringify(configuredStackBuildInfo),
     },
     resolve: {
       tsconfigPaths: true,

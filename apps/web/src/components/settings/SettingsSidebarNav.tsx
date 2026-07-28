@@ -7,6 +7,7 @@ import {
   GitBranchIcon,
   KeyboardIcon,
   Link2Icon,
+  PackageIcon,
   Settings2Icon,
 } from "lucide-react";
 import { useCanGoBack, useNavigate } from "@tanstack/react-router";
@@ -32,7 +33,8 @@ export type SettingsSectionPath =
   | "/settings/source-control"
   | "/settings/connections"
   | "/settings/beta"
-  | "/settings/archived";
+  | "/settings/archived"
+  | "/settings/build";
 
 export type SettingsNavItem = {
   label: string;
@@ -54,6 +56,9 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       { label: "Connections", to: "/settings/connections", icon: Link2Icon },
       { label: "Beta", to: "/settings/beta", icon: FlaskConicalIcon },
       { label: "Archive", to: "/settings/archived", icon: ArchiveIcon },
+      // Client, not Environment: it describes the bundle this client is
+      // running, which is the same whichever environment is selected.
+      { label: "Build", to: "/settings/build", icon: PackageIcon },
     ],
   },
   {

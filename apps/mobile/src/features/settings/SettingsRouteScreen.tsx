@@ -715,6 +715,7 @@ function AppSettingsSection() {
   return (
     <SettingsSection title="App">
       <SettingsRow icon="internaldrive" label="Client Storage" target="SettingsClientStorage" />
+      <SettingsRow icon="shippingbox" label="Build" target="SettingsBuild" />
       <SettingsRow icon="doc.text" label="Legal" fullScreenTarget="SettingsLegal" />
       {Updates.isEnabled ? (
         <Pressable
