@@ -775,9 +775,19 @@ function ProcessResourceHistoryTable({
   );
 }
 
-function DiagnosticsLastChecked({ checkedAt }: { checkedAt: DateTime.Utc | null }) {
+function DiagnosticsLastChecked({
+  checkedAt,
+  isConnected,
+}: {
+  checkedAt: DateTime.Utc | null;
+  isConnected: boolean;
+}) {
   useRelativeTimeTick();
   const relative = getRelativeTimeState(checkedAt ? DateTime.formatIso(checkedAt) : null);
+
+  if (!isConnected) {
+    return null;
+  }
 
   if (relative.status === "missing") {
     return <span className="text-[11px] text-muted-foreground/50">Checking</span>;
@@ -1141,7 +1151,10 @@ export function DiagnosticsSettingsPanel() {
         title="Live Processes"
         headerAction={
           <div className="flex items-center gap-1.5">
-            <DiagnosticsLastChecked checkedAt={processData?.readAt ?? null} />
+            <DiagnosticsLastChecked
+              checkedAt={processData?.readAt ?? null}
+              isConnected={isConnected}
+            />
             <DiagnosticsRefreshButton
               isPending={isProcessPending && isConnected}
               isDisabled={!isConnected}
@@ -1209,7 +1222,10 @@ export function DiagnosticsSettingsPanel() {
               selectedWindowMs={resourceWindowMs}
               onSelect={setResourceWindowMs}
             />
-            <DiagnosticsLastChecked checkedAt={resourceData?.readAt ?? null} />
+            <DiagnosticsLastChecked
+              checkedAt={resourceData?.readAt ?? null}
+              isConnected={isConnected}
+            />
             <DiagnosticsRefreshButton
               isPending={isResourcePending && isConnected}
               isDisabled={!isConnected}
@@ -1273,7 +1289,7 @@ export function DiagnosticsSettingsPanel() {
         title="Trace Diagnostics"
         headerAction={
           <div className="flex items-center gap-1.5">
-            <DiagnosticsLastChecked checkedAt={data?.readAt ?? null} />
+            <DiagnosticsLastChecked checkedAt={data?.readAt ?? null} isConnected={isConnected} />
             <Tooltip>
               <TooltipTrigger
                 render={
