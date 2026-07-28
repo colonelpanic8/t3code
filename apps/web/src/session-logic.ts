@@ -468,7 +468,7 @@ function parseUserInputQuestions(
           };
         })
         .filter((option): option is UserInputQuestion["options"][number] => option !== null);
-      if (options.length === 0) {
+      if (options.length === 0 || options.length !== question.options.length) {
         return null;
       }
       return {
@@ -480,7 +480,7 @@ function parseUserInputQuestions(
       };
     })
     .filter((question): question is UserInputQuestion => question !== null);
-  return parsed.length > 0 ? parsed : null;
+  return parsed.length > 0 && parsed.length === questions.length ? parsed : null;
 }
 
 function parseUserInputAnswerValues(value: unknown): ReadonlyArray<string> {
