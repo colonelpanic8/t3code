@@ -39,6 +39,7 @@ import { resolveAttachmentPathById } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import type { ResolvedThreadArtifactPath } from "./ThreadArtifactResolver.ts";
 
 export const ASSET_ROUTE_PREFIX = "/api/assets";
 
@@ -346,6 +347,41 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
     expiresAt,
   };
 });
+
+export const issueThreadArtifactUrl = Effect.fn("AssetAccess.issueThreadArtifactUrl")(
+  function* (input: {
+    readonly resource: Extract<AssetResource, { readonly _tag: "thread-artifact" }>;
+    readonly artifact: ResolvedThreadArtifactPath;
+    readonly workspaceRoot?: string;
+  }) {
+    const path = yield* Path.Path;
+    let workspaceRoot: string;
+
+    if (input.artifact.scope === "workspace") {
+      if (!input.workspaceRoot) {
+        return yield* new AssetWorkspaceContextNotFoundError({ resource: input.resource });
+      }
+      workspaceRoot = input.workspaceRoot;
+    } else {
+      // Only the typed image-generation path may authorize provider-managed
+      // storage. It must be absolute so a relative provider value cannot make
+      // the server process cwd an implicit asset root.
+      if (!path.isAbsolute(input.artifact.path)) {
+        return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
+      }
+      workspaceRoot = path.dirname(input.artifact.path);
+    }
+
+    return yield* issueAssetUrl({
+      resource: {
+        _tag: "workspace-file",
+        threadId: input.resource.threadId,
+        path: input.artifact.path,
+      },
+      workspaceRoot,
+    });
+  },
+);
 
 export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   token: string,
