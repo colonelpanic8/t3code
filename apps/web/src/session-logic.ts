@@ -807,20 +807,36 @@ export function deriveWorkLogEntries(
   // user-input lifecycle. Suppress the former only after the latter has
   // successfully produced a Q&A card; malformed structured payloads still
   // need the tool row's raw question JSON as a fallback.
-  const removableUserInputToolEntryIds = new Set<string>();
+  const removableUserInputEntryIds = new Set<string>();
+  let activeUserInputRequestId: string | null = null;
+  let activeUserInputToolCallId: string | null = null;
+  let startedUserInputToolWithoutCallId = false;
   let suppressUserInputToolEntries = false;
   for (const activity of ordered) {
     if (isUserInputToolActivity(activity)) {
+      const toolCallId = extractToolCallId(asRecord(activity.payload));
       if (activity.kind === "tool.started") {
-        removableUserInputToolEntryIds.clear();
+        removableUserInputEntryIds.clear();
+        activeUserInputToolCallId = toolCallId;
+        startedUserInputToolWithoutCallId = toolCallId === null;
         suppressUserInputToolEntries = false;
         continue;
+      }
+      if (toolCallId !== null && toolCallId !== activeUserInputToolCallId) {
+        if (startedUserInputToolWithoutCallId) {
+          activeUserInputToolCallId = toolCallId;
+          startedUserInputToolWithoutCallId = false;
+        } else {
+          removableUserInputEntryIds.clear();
+          activeUserInputToolCallId = toolCallId;
+          suppressUserInputToolEntries = false;
+        }
       }
       if (suppressUserInputToolEntries) {
         continue;
       }
       entries.push(toDerivedWorkLogEntry(activity));
-      removableUserInputToolEntryIds.add(activity.id);
+      removableUserInputEntryIds.add(activity.id);
       continue;
     }
     if (activity.kind === "tool.started") continue;
@@ -834,6 +850,11 @@ export function deriveWorkLogEntries(
       const requestId = asTrimmedString(payload?.requestId);
       const questions = parseUserInputQuestions(payload);
       if (requestId) {
+        if (activeUserInputRequestId !== null && requestId !== activeUserInputRequestId) {
+          removableUserInputEntryIds.clear();
+          suppressUserInputToolEntries = false;
+        }
+        activeUserInputRequestId = requestId;
         if (questions) {
           const derived = toWorkLogUserInputEntry(activity, {
             requestId,
@@ -841,19 +862,19 @@ export function deriveWorkLogEntries(
             questions: questions.map((question) => toWorkLogUserInputQuestion(question, null)),
           });
           for (let index = entries.length - 1; index >= 0; index -= 1) {
-            if (removableUserInputToolEntryIds.has(entries[index]!.id)) {
+            if (removableUserInputEntryIds.has(entries[index]!.id)) {
               entries.splice(index, 1);
             }
           }
-          removableUserInputToolEntryIds.clear();
+          removableUserInputEntryIds.clear();
           suppressUserInputToolEntries = true;
           userInputEntryIndexByRequestId.set(requestId, entries.length);
           entries.push(derived);
           continue;
         }
         userInputEntryIndexByRequestId.set(requestId, entries.length);
+        removableUserInputEntryIds.add(activity.id);
       }
-      removableUserInputToolEntryIds.clear();
       suppressUserInputToolEntries = false;
     }
 
