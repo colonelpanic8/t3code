@@ -161,19 +161,36 @@ export function runStream<TTag extends EnvironmentStreamCommandRpcTag>(
  * describes, and so a later session can be reported in its own right.
  */
 const sessionsReportedBroken = new WeakSet<RpcSession>();
+const sessionsRequestingRecovery = new WeakSet<RpcSession>();
 
-function requestSessionRecovery(
+const requestSessionRecovery = Effect.fn("EnvironmentRpc.requestSessionRecovery")(function* (
   supervisor: EnvironmentSupervisor["Service"],
   session: RpcSession,
-): Effect.Effect<void> {
-  return Effect.suspend(() => {
-    if (sessionsReportedBroken.has(session)) {
+) {
+  const current = yield* SubscriptionRef.get(supervisor.session);
+  if (!Option.isSome(current) || current.value !== session) {
+    return;
+  }
+
+  return yield* Effect.suspend(() => {
+    if (sessionsReportedBroken.has(session) || sessionsRequestingRecovery.has(session)) {
       return Effect.void;
     }
-    sessionsReportedBroken.add(session);
-    return supervisor.retryNow;
+    sessionsRequestingRecovery.add(session);
+    return supervisor.retryNow.pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          sessionsReportedBroken.add(session);
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          sessionsRequestingRecovery.delete(session);
+        }),
+      ),
+    );
   });
-}
+});
 
 interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly onExpectedFailure?: (
