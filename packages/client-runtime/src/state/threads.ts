@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Atom } from "effect/unstable/reactivity";
@@ -201,45 +202,75 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     );
   });
 
-  const applyItem = Effect.fn("EnvironmentThreadState.applyItem")(function* (
-    item: OrchestrationThreadStreamItem,
+  const applyItems = Effect.fn("EnvironmentThreadState.applyItems")(function* (
+    batch: Iterable<OrchestrationThreadStreamItem>,
   ) {
-    if (item.kind === "synchronized") {
+    // Fold the whole batch into at most one thread publication. A resume
+    // replay can deliver thousands of persisted events; publishing state per
+    // event makes reopening a thread quadratic in the backlog, because every
+    // publication re-derives and re-renders the full timeline.
+    let sequence = yield* SubscriptionRef.get(lastSequence);
+    let data = (yield* SubscriptionRef.get(state)).data;
+    let dirty = false;
+    let deleted = false;
+    let synchronized = false;
+
+    for (const item of batch) {
+      if (item.kind === "synchronized") {
+        synchronized = true;
+        continue;
+      }
+      if (item.kind === "snapshot") {
+        sequence = item.snapshot.snapshotSequence;
+        data = Option.some(item.snapshot.thread);
+        dirty = true;
+        deleted = false;
+        continue;
+      }
+      if (item.event.sequence <= sequence) {
+        continue;
+      }
+      sequence = item.event.sequence;
+      if (Option.isNone(data)) {
+        if (item.event.type === "thread.deleted") {
+          deleted = true;
+        }
+        continue;
+      }
+      const result = applyThreadDetailEvent(data.value, item.event);
+      if (result.kind === "updated") {
+        data = Option.some(result.thread);
+        dirty = true;
+      } else if (result.kind === "deleted") {
+        data = Option.none();
+        dirty = false;
+        deleted = true;
+      }
+    }
+
+    yield* SubscriptionRef.set(lastSequence, sequence);
+    if (deleted && Option.isNone(data)) {
+      yield* setDeleted();
+    } else if (dirty && Option.isSome(data)) {
+      yield* setThread(data.value);
+    }
+    if (synchronized) {
       yield* Ref.set(awaitingCompletion, false);
       yield* SubscriptionRef.update(state, (current) =>
         Option.isSome(current.data) && current.status !== "deleted"
           ? { ...current, status: "live" as const, error: Option.none() }
           : current,
       );
-      return;
-    }
-
-    if (item.kind === "snapshot") {
-      yield* SubscriptionRef.set(lastSequence, item.snapshot.snapshotSequence);
-      yield* setThread(item.snapshot.thread);
-      return;
-    }
-
-    const sequence = yield* SubscriptionRef.get(lastSequence);
-    if (item.event.sequence <= sequence) {
-      return;
-    }
-    yield* SubscriptionRef.set(lastSequence, item.event.sequence);
-
-    const current = yield* SubscriptionRef.get(state);
-    if (Option.isNone(current.data)) {
-      if (item.event.type === "thread.deleted") {
-        yield* setDeleted();
-      }
-      return;
-    }
-    const result = applyThreadDetailEvent(current.data.value, item.event);
-    if (result.kind === "updated") {
-      yield* setThread(result.thread);
-    } else if (result.kind === "deleted") {
-      yield* setDeleted();
     }
   });
+
+  const applyItem = (item: OrchestrationThreadStreamItem) => applyItems([item]);
+  const applyLock = yield* Semaphore.make(1);
+  const subscriptionGeneration = yield* Ref.make(0);
+  const pendingItems = yield* Queue.unbounded<{
+    readonly generation: number;
+    readonly item: OrchestrationThreadStreamItem;
+  }>();
 
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
@@ -265,58 +296,68 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     subscribeDynamic(
       ORCHESTRATION_WS_METHODS.subscribeThread,
       Effect.fn("EnvironmentThreadState.makeSubscribeInput")(function* (session) {
-        const supportsCompletionMarker = yield* session.initialConfig.pipe(
-          Effect.map((config) => config.threadResumeCompletionMarker === true),
-          Effect.orElseSucceed(() => false),
+        return yield* applyLock.withPermits(1)(
+          Effect.gen(function* () {
+            // A switched-out stream may already have queued items. Give every
+            // subscription attempt a generation and clear its predecessor's
+            // backlog before loading a replacement snapshot.
+            yield* Ref.update(subscriptionGeneration, (generation) => generation + 1);
+            yield* Queue.clear(pendingItems);
+
+            const supportsCompletionMarker = yield* session.initialConfig.pipe(
+              Effect.map((config) => config.threadResumeCompletionMarker === true),
+              Effect.orElseSucceed(() => false),
+            );
+            yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
+            yield* setSynchronizing;
+
+            let current = yield* SubscriptionRef.get(state);
+            // A cached body with no messages but a current snapshot sequence would
+            // resume past the events that carried the messages and could never
+            // self-heal, so treat it like a cold cache and reload the snapshot.
+            // If the loader yields nothing (offline/404) we still resume from the
+            // cached sequence below, exactly as before.
+            const needsSnapshot =
+              Option.isNone(current.data) || current.data.value.messages.length === 0;
+            if (needsSnapshot && current.status !== "deleted") {
+              const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onSome: Effect.succeed,
+                    onNone: () =>
+                      SubscriptionRef.changes(supervisor.prepared).pipe(
+                        Stream.filter(Option.isSome),
+                        Stream.map((value) => value.value),
+                        Stream.runHead,
+                        Effect.map(Option.getOrThrow),
+                      ),
+                  }),
+                ),
+              );
+              const httpSnapshot = yield* snapshotLoader.load(prepared, threadId);
+              if (Option.isSome(httpSnapshot)) {
+                yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
+                current = yield* SubscriptionRef.get(state);
+              }
+            }
+
+            const sequence = yield* SubscriptionRef.get(lastSequence);
+            const canResume = Option.isSome(current.data);
+            if (!supportsCompletionMarker && canResume) {
+              yield* SubscriptionRef.update(state, (value) => ({
+                ...value,
+                status: value.status === "deleted" ? value.status : ("live" as const),
+                error: Option.none(),
+              }));
+            }
+
+            return {
+              threadId,
+              ...(canResume ? { afterSequence: sequence } : {}),
+              ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+            };
+          }),
         );
-        yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
-        yield* setSynchronizing;
-
-        let current = yield* SubscriptionRef.get(state);
-        // A cached body with no messages but a current snapshot sequence would
-        // resume past the events that carried the messages and could never
-        // self-heal, so treat it like a cold cache and reload the snapshot.
-        // If the loader yields nothing (offline/404) we still resume from the
-        // cached sequence below, exactly as before.
-        const needsSnapshot =
-          Option.isNone(current.data) || current.data.value.messages.length === 0;
-        if (needsSnapshot && current.status !== "deleted") {
-          const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
-            Effect.flatMap(
-              Option.match({
-                onSome: Effect.succeed,
-                onNone: () =>
-                  SubscriptionRef.changes(supervisor.prepared).pipe(
-                    Stream.filter(Option.isSome),
-                    Stream.map((value) => value.value),
-                    Stream.runHead,
-                    Effect.map(Option.getOrThrow),
-                  ),
-              }),
-            ),
-          );
-          const httpSnapshot = yield* snapshotLoader.load(prepared, threadId);
-          if (Option.isSome(httpSnapshot)) {
-            yield* applyItem({ kind: "snapshot", snapshot: httpSnapshot.value });
-            current = yield* SubscriptionRef.get(state);
-          }
-        }
-
-        const sequence = yield* SubscriptionRef.get(lastSequence);
-        const canResume = Option.isSome(current.data);
-        if (!supportsCompletionMarker && canResume) {
-          yield* SubscriptionRef.update(state, (value) => ({
-            ...value,
-            status: value.status === "deleted" ? value.status : ("live" as const),
-            error: Option.none(),
-          }));
-        }
-
-        return {
-          threadId,
-          ...(canResume ? { afterSequence: sequence } : {}),
-          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
-        };
       }),
       {
         onExpectedFailure: setStreamError,
@@ -327,7 +368,45 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           ),
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEach(applyItem)),
+    ).pipe(
+      Stream.runForEach((item) =>
+        Ref.get(subscriptionGeneration).pipe(
+          Effect.flatMap((generation) => Queue.offer(pendingItems, { generation, item })),
+        ),
+      ),
+    ),
+  );
+
+  // Drain-based batching: apply one item plus everything that accumulated
+  // while the previous batch was being applied, giving the producer a few
+  // scheduler turns to flush a burst it is actively delivering (a resume
+  // replay arrives as one rapid burst). Live updates arriving one at a time
+  // publish immediately; a replay backlog folds into large batches with a
+  // single publication each, keeping thread reopen cost linear instead of
+  // quadratic. No timers, so batching never delays a quiet stream.
+  yield* Effect.forkScoped(
+    Effect.forever(
+      Effect.gen(function* () {
+        const batch = [yield* Queue.take(pendingItems)];
+        for (let round = 0; round < 32; round += 1) {
+          yield* Effect.yieldNow;
+          const more = yield* Queue.clear(pendingItems);
+          if (more.length === 0) break;
+          batch.push(...more);
+        }
+        yield* applyLock.withPermits(1)(
+          Effect.gen(function* () {
+            const generation = yield* Ref.get(subscriptionGeneration);
+            const currentItems = batch
+              .filter((pending) => pending.generation === generation)
+              .map((pending) => pending.item);
+            if (currentItems.length > 0) {
+              yield* applyItems(currentItems);
+            }
+          }),
+        );
+      }),
+    ),
   );
 
   yield* Effect.addFinalizer(() =>
