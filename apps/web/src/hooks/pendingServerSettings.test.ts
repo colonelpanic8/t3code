@@ -5,13 +5,15 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it } from "vite-plus/test";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import {
   __resetPendingServerPatchesForTests,
+  acknowledgePendingServerSettings,
   applyPendingServerPatches,
   getPendingServerPatches,
-  releasePendingServerPatch,
   retainPendingServerPatch,
+  settlePendingServerPatch,
   subscribePendingServerPatches,
 } from "./pendingServerSettings";
 
@@ -23,6 +25,13 @@ const providerInstance = (driver: string, enabled: boolean) => ({
   driver: ProviderDriverKind.make(driver),
   enabled,
 });
+const retain = (patch: Parameters<typeof retainPendingServerPatch>[1]) =>
+  retainPendingServerPatch(
+    environmentId,
+    patch,
+    applyPendingServerPatches(DEFAULT_SERVER_SETTINGS, getPendingServerPatches(environmentId)),
+    DEFAULT_SERVER_SETTINGS,
+  );
 
 afterEach(() => {
   __resetPendingServerPatchesForTests();
@@ -40,7 +49,7 @@ describe("pendingServerSettings", () => {
     const disableCodex = {
       providerInstances: { [codexId]: providerInstance("codex", false) },
     };
-    retainPendingServerPatch(environmentId, disableCodex);
+    retain(disableCodex);
 
     // Before the echo lands, the panel must already see codex disabled so the
     // next whole-map replacement it builds carries that edit forward.
@@ -56,7 +65,7 @@ describe("pendingServerSettings", () => {
         [claudeId]: providerInstance("claudeAgent", false),
       },
     };
-    retainPendingServerPatch(environmentId, disableClaude);
+    retain(disableClaude);
 
     const both = applyPendingServerPatches(
       DEFAULT_SERVER_SETTINGS,
@@ -66,23 +75,23 @@ describe("pendingServerSettings", () => {
     expect(both.providerInstances[claudeId]?.enabled).toBe(false);
   });
 
-  it("retains the overlay until the last outstanding write settles", () => {
+  it("retains a successful overlay until its settings echo arrives", () => {
     const patch = { providerInstances: { [codexId]: providerInstance("codex", false) } };
-    retainPendingServerPatch(environmentId, patch);
-    retainPendingServerPatch(environmentId, patch);
+    const id = retain(patch);
+    const settledSettings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, patch);
 
-    releasePendingServerPatch(environmentId);
-    expect(getPendingServerPatches(environmentId)).toHaveLength(2);
+    settlePendingServerPatch(environmentId, id, settledSettings);
+    expect(getPendingServerPatches(environmentId)).toHaveLength(1);
 
-    releasePendingServerPatch(environmentId);
+    acknowledgePendingServerSettings(environmentId, settledSettings);
     expect(getPendingServerPatches(environmentId)).toEqual([]);
   });
 
   it("drops the overlay for a failed write so the server value wins again", () => {
-    retainPendingServerPatch(environmentId, {
+    const id = retain({
       providerInstances: { [codexId]: providerInstance("codex", false) },
     });
-    releasePendingServerPatch(environmentId);
+    settlePendingServerPatch(environmentId, id, null);
 
     const settings = applyPendingServerPatches(
       DEFAULT_SERVER_SETTINGS,
@@ -93,12 +102,9 @@ describe("pendingServerSettings", () => {
 
   it("scopes pending writes to their own environment", () => {
     const otherEnvironmentId = EnvironmentId.make("environment-2");
-    retainPendingServerPatch(environmentId, {
-      providerInstances: { [codexId]: providerInstance("codex", false) },
-    });
+    retain({ providerInstances: { [codexId]: providerInstance("codex", false) } });
 
     expect(getPendingServerPatches(otherEnvironmentId)).toEqual([]);
-    releasePendingServerPatch(otherEnvironmentId);
     expect(getPendingServerPatches(environmentId)).toHaveLength(1);
   });
 
@@ -108,10 +114,10 @@ describe("pendingServerSettings", () => {
       notifications += 1;
     });
 
-    retainPendingServerPatch(environmentId, { enableAssistantStreaming: false });
-    releasePendingServerPatch(environmentId);
+    const id = retain({ enableAssistantStreaming: false });
+    settlePendingServerPatch(environmentId, id, null);
     unsubscribe();
-    retainPendingServerPatch(environmentId, { enableAssistantStreaming: false });
+    retain({ enableAssistantStreaming: false });
 
     expect(notifications).toBe(2);
   });

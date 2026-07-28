@@ -1,41 +1,84 @@
-/**
- * Optimistic overlay for server settings writes that are still in flight.
- *
- * Server settings only change locally once the server echoes a
- * `settingsUpdated` broadcast back over the websocket. Until that round trip
- * lands, readers still see pre-edit settings, so a second edit issued inside
- * the window is computed from stale state — and because keys such as
- * `providerInstances` are whole-value replacements rather than deep merges,
- * that second write silently reverts the first one. (Toggle one provider off,
- * toggle a second off a moment later, and the first provider's switch snaps
- * back on once its own write is overwritten.)
- *
- * Each in-flight patch is retained here and replayed on top of the server value
- * through the same `applyServerSettingsPatch` the server runs, so both reads and
- * follow-up patches are built from the edit the user just made. Retained patches
- * are dropped once no write is outstanding for that environment, at which point
- * the server value is authoritative again — including when a write failed.
- *
- * @module hooks/pendingServerSettings
- */
 import type { EnvironmentId, ServerSettings, ServerSettingsPatch } from "@t3tools/contracts";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
-interface PendingServerPatches {
-  readonly patches: ReadonlyArray<ServerSettingsPatch>;
-  /** Writes dispatched for this environment that have not settled yet. */
-  readonly inFlight: number;
+export interface PendingServerPatch {
+  readonly id: number;
+  readonly patch: ServerSettingsPatch;
+  readonly baseSettings: ServerSettings;
+  readonly settledSettings?: ServerSettings;
 }
 
-export const NO_PENDING_SERVER_PATCHES: ReadonlyArray<ServerSettingsPatch> = [];
+interface PendingServerState {
+  readonly patches: ReadonlyArray<PendingServerPatch>;
+  readonly authoritativeSettings: ServerSettings;
+}
 
-const pendingByEnvironment = new Map<EnvironmentId, PendingServerPatches>();
+export const NO_PENDING_SERVER_PATCHES: ReadonlyArray<PendingServerPatch> = [];
+
+const pendingByEnvironment = new Map<EnvironmentId, PendingServerState>();
 const listeners = new Set<() => void>();
+let nextPendingPatchId = 1;
 
 function emitChange(): void {
-  for (const listener of listeners) {
-    listener();
+  for (const listener of listeners) listener();
+}
+
+function structurallyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
+    return false;
   }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => structurallyEqual(value, right[index]))
+    );
+  }
+  const leftRecord = left as Readonly<Record<string, unknown>>;
+  const rightRecord = right as Readonly<Record<string, unknown>>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+        structurallyEqual(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
+/**
+ * Preserve only the provider-instance edits made by this operation when its
+ * original optimistic base no longer matches the server after an earlier
+ * write failed.
+ */
+export function rebaseServerSettingsPatch(
+  patch: ServerSettingsPatch,
+  originalBase: ServerSettings,
+  currentBase: ServerSettings,
+): ServerSettingsPatch {
+  if (patch.providerInstances === undefined) return patch;
+
+  const rebasedProviderInstances = { ...currentBase.providerInstances };
+  const keys = new Set([
+    ...Object.keys(originalBase.providerInstances),
+    ...Object.keys(patch.providerInstances),
+  ]);
+  for (const key of keys) {
+    const instanceId = key as keyof typeof patch.providerInstances;
+    const previous = originalBase.providerInstances[instanceId];
+    const next = patch.providerInstances[instanceId];
+    if (structurallyEqual(previous, next)) continue;
+    if (next === undefined) {
+      delete rebasedProviderInstances[instanceId];
+    } else {
+      rebasedProviderInstances[instanceId] = next;
+    }
+  }
+  return { ...patch, providerInstances: rebasedProviderInstances };
 }
 
 export function subscribePendingServerPatches(listener: () => void): () => void {
@@ -45,63 +88,118 @@ export function subscribePendingServerPatches(listener: () => void): () => void 
   };
 }
 
-/**
- * Snapshot accessor for `useSyncExternalStore`: the returned array is stable
- * until the environment's pending set actually changes.
- */
 export function getPendingServerPatches(
   environmentId: EnvironmentId | null,
-): ReadonlyArray<ServerSettingsPatch> {
+): ReadonlyArray<PendingServerPatch> {
   if (environmentId === null) return NO_PENDING_SERVER_PATCHES;
   return pendingByEnvironment.get(environmentId)?.patches ?? NO_PENDING_SERVER_PATCHES;
 }
 
-/** Record a patch that has just been dispatched to the server. */
+export function applyPendingServerPatches(
+  settings: ServerSettings,
+  patches: ReadonlyArray<PendingServerPatch>,
+): ServerSettings {
+  return patches.reduce((current, pending) => {
+    const rebasedPatch = rebaseServerSettingsPatch(
+      pending.patch,
+      pending.baseSettings,
+      current,
+    );
+    return applyServerSettingsPatch(current, rebasedPatch);
+  }, settings);
+}
+
 export function retainPendingServerPatch(
   environmentId: EnvironmentId,
   patch: ServerSettingsPatch,
-): void {
-  const pending = pendingByEnvironment.get(environmentId);
+  baseSettings: ServerSettings,
+  authoritativeSettings: ServerSettings,
+): number {
+  const existing = pendingByEnvironment.get(environmentId);
+  const id = nextPendingPatchId++;
   pendingByEnvironment.set(environmentId, {
-    patches: [...(pending?.patches ?? NO_PENDING_SERVER_PATCHES), patch],
-    inFlight: (pending?.inFlight ?? 0) + 1,
+    patches: [...(existing?.patches ?? NO_PENDING_SERVER_PATCHES), { id, patch, baseSettings }],
+    authoritativeSettings: existing?.authoritativeSettings ?? authoritativeSettings,
   });
   emitChange();
+  return id;
 }
 
-/**
- * Mark one dispatched write as settled. Patches are only forgotten when the
- * last outstanding write settles: releasing them one at a time would expose the
- * server value before its later echo arrived, flickering the UI back to a state
- * the user has already edited away from.
- */
-export function releasePendingServerPatch(environmentId: EnvironmentId): void {
-  const pending = pendingByEnvironment.get(environmentId);
-  if (pending === undefined) return;
-  if (pending.inFlight <= 1) {
+export function getPendingServerPatchForDispatch(
+  environmentId: EnvironmentId,
+  id: number,
+): ServerSettingsPatch | null {
+  const state = pendingByEnvironment.get(environmentId);
+  const pending = state?.patches.find((entry) => entry.id === id);
+  if (!state || !pending) return null;
+  return rebaseServerSettingsPatch(
+    pending.patch,
+    pending.baseSettings,
+    state.authoritativeSettings,
+  );
+}
+
+export function settlePendingServerPatch(
+  environmentId: EnvironmentId,
+  id: number,
+  settings: ServerSettings | null,
+): void {
+  const state = pendingByEnvironment.get(environmentId);
+  if (!state) return;
+  const patches =
+    settings === null
+      ? state.patches.filter((entry) => entry.id !== id)
+      : state.patches.map((entry) =>
+          entry.id === id ? { ...entry, settledSettings: settings } : entry,
+        );
+  if (patches.length === 0 && settings === null) {
     pendingByEnvironment.delete(environmentId);
   } else {
     pendingByEnvironment.set(environmentId, {
-      patches: pending.patches,
-      inFlight: pending.inFlight - 1,
+      patches,
+      authoritativeSettings: settings ?? state.authoritativeSettings,
     });
   }
   emitChange();
 }
 
-/** Replay in-flight patches over an authoritative server settings value. */
-export function applyPendingServerPatches(
+/**
+ * Retire successful overlays only when their actual settingsUpdated payload is
+ * observed. An initial config snapshot cannot acknowledge a write accidentally.
+ */
+export function acknowledgePendingServerSettings(
+  environmentId: EnvironmentId,
   settings: ServerSettings,
-  patches: ReadonlyArray<ServerSettingsPatch>,
-): ServerSettings {
-  if (patches.length === 0) return settings;
-  return patches.reduce<ServerSettings>(
-    (current, patch) => applyServerSettingsPatch(current, patch),
-    settings,
+): void {
+  const state = pendingByEnvironment.get(environmentId);
+  if (!state) return;
+  const acknowledgedIndex = state.patches.findLastIndex(
+    (entry) =>
+      entry.settledSettings !== undefined && structurallyEqual(entry.settledSettings, settings),
   );
+  if (acknowledgedIndex >= 0) {
+    const patches = state.patches.slice(acknowledgedIndex + 1);
+    if (patches.length === 0) {
+      pendingByEnvironment.delete(environmentId);
+    } else {
+      pendingByEnvironment.set(environmentId, {
+        patches,
+        authoritativeSettings: settings,
+      });
+    }
+    emitChange();
+    return;
+  }
+  if (!state.patches.some((entry) => entry.settledSettings !== undefined)) {
+    pendingByEnvironment.set(environmentId, {
+      ...state,
+      authoritativeSettings: settings,
+    });
+  }
 }
 
 export function __resetPendingServerPatchesForTests(): void {
   pendingByEnvironment.clear();
   listeners.clear();
+  nextPendingPatchId = 1;
 }
