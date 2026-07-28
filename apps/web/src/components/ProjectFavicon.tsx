@@ -4,6 +4,7 @@ import { FolderIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { useState } from "react";
 import { useAssetUrl, useRefreshAssetUrl } from "../assets/assetUrls";
+import { useEnvironmentSettings } from "../hooks/useSettings";
 
 const loadedProjectFaviconSrcs = new Set<string>();
 
