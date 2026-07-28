@@ -344,6 +344,7 @@ function selectedClaudeContextWindow(
   }
 
   switch (modelSelection?.model) {
+    case "default":
     case "claude-opus-4-8":
     case "claude-opus-4-7":
       // Always 1M at the API; these models expose no contextWindow option.

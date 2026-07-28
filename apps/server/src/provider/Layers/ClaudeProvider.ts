@@ -366,12 +366,17 @@ function formatClaudeOpus47UpgradeMessage(version: string | null): string {
   return `Claude Code ${versionLabel} is too old for Claude Opus 4.7. Upgrade to v${MINIMUM_CLAUDE_OPUS_4_7_VERSION} or newer to access it.`;
 }
 
-export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {
+export function findFallbackClaudeModelCapabilities(
+  model: string | null | undefined,
+): ModelCapabilities | undefined {
   const slug = model?.trim();
   return (
-    FALLBACK_CLAUDE_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ??
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES
+    FALLBACK_CLAUDE_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? undefined
   );
+}
+
+export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {
+  return findFallbackClaudeModelCapabilities(model) ?? DEFAULT_CLAUDE_MODEL_CAPABILITIES;
 }
 
 export function resolveClaudeEffort(

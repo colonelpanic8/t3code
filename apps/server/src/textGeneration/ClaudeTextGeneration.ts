@@ -13,7 +13,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { type ClaudeSettings, type ModelSelection } from "@t3tools/contracts";
+import {
+  type ClaudeSettings,
+  type ModelCapabilities,
+  type ModelSelection,
+} from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
@@ -38,6 +42,7 @@ import {
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 import {
+  findFallbackClaudeModelCapabilities,
   getClaudeModelCapabilities,
   isClaudeUltracodeEffort,
   normalizeClaudeCliEffort,
@@ -62,6 +67,9 @@ const decodeClaudeOutputEnvelope = Schema.decodeEffect(Schema.fromJsonString(Cla
 export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(function* (
   claudeSettings: ClaudeSettings,
   environment?: NodeJS.ProcessEnv,
+  resolveModelCapabilities: (model: string) => Effect.Effect<ModelCapabilities | undefined> = (
+    model,
+  ) => Effect.succeed(findFallbackClaudeModelCapabilities(model)),
 ) {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, environment);
@@ -127,14 +135,17 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
       toJsonSchemaObject(outputSchemaJson),
       "Failed to encode structured output schema.",
     );
-    const caps = getClaudeModelCapabilities(modelSelection.model);
-    const descriptors = getProviderOptionDescriptors({
-      caps,
-      selections: modelSelection.options,
-    });
+    const catalogCaps = yield* resolveModelCapabilities(modelSelection.model);
+    const caps = catalogCaps ?? getClaudeModelCapabilities(modelSelection.model);
+    const descriptors = catalogCaps
+      ? getProviderOptionDescriptors({
+          caps: catalogCaps,
+          selections: modelSelection.options,
+        })
+      : [];
     const findDescriptor = (id: string) => descriptors.find((descriptor) => descriptor.id === id);
     const rawEffortSelection = getModelSelectionStringOptionValue(modelSelection, "effort");
-    const hasCatalogCapabilities = descriptors.length > 0;
+    const hasCatalogCapabilities = catalogCaps !== undefined;
     const resolvedEffort = hasCatalogCapabilities
       ? resolveClaudeEffort(caps, rawEffortSelection)
       : rawEffortSelection;
