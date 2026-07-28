@@ -15,8 +15,9 @@ import {
   type DraftThreadState,
   useComposerDraftStore,
 } from "../composerDraftStore";
-import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
+import { stackedThreadToast, toastManager } from "../components/ui/toast";
+import { newDraftId, newThreadId } from "../lib/utils";
 import {
   deriveLogicalProjectKeyFromSettings,
   getProjectOrderKey,
@@ -107,10 +108,23 @@ export function useNewThreadHandler() {
           candidate.id === projectRef.projectId &&
           candidate.environmentId === projectRef.environmentId,
       );
-      const targetServerSettings = (
-        serverConfigs.get(projectRef.environmentId) ??
-        (await waitForServerConfig(projectRef.environmentId))
-      ).settings;
+      let targetServerConfig = serverConfigs.get(projectRef.environmentId);
+      if (targetServerConfig === undefined) {
+        try {
+          targetServerConfig = await waitForServerConfig(projectRef.environmentId);
+        } catch (error) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to create thread",
+              description:
+                error instanceof Error ? error.message : "Server settings are unavailable.",
+            }),
+          );
+          return;
+        }
+      }
+      const targetServerSettings = targetServerConfig.settings;
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
