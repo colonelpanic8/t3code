@@ -2,6 +2,12 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { CloudIcon, MonitorIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
+import {
+  environmentAccentStyle,
+  resolveEnvironmentAccentColor,
+  useEnvironmentAccentColors,
+  type EnvironmentAccentColors,
+} from "../environmentAccentColors";
 import type { EnvironmentOption } from "./BranchToolbar.logic";
 import { cn } from "../lib/utils";
 import {
@@ -28,6 +34,22 @@ interface BranchToolbarEnvironmentSelectorProps {
   displayMode?: "toolbar" | "panel";
 }
 
+function EnvironmentIcon({
+  accentColors,
+  environment,
+  className,
+}: {
+  readonly accentColors: EnvironmentAccentColors;
+  readonly environment: EnvironmentOption | null;
+  readonly className?: string;
+}) {
+  const accentColor = resolveEnvironmentAccentColor(accentColors, environment?.environmentId);
+  const Icon = environment?.isPrimary ? MonitorIcon : CloudIcon;
+  return (
+    <Icon className={className ?? "size-3 shrink-0"} style={environmentAccentStyle(accentColor)} />
+  );
+}
+
 export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvironmentSelector({
   envLocked,
   environmentId,
@@ -35,6 +57,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   onEnvironmentChange,
   displayMode = "toolbar",
 }: BranchToolbarEnvironmentSelectorProps) {
+  const accentColors = useEnvironmentAccentColors();
   const activeEnvironment = useMemo(() => {
     return availableEnvironments.find((env) => env.environmentId === environmentId) ?? null;
   }, [availableEnvironments, environmentId]);
@@ -56,19 +79,11 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           displayMode === "panel" && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
         )}
       >
-        {activeEnvironment?.isPrimary ? (
-          <MonitorIcon
-            className={
-              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
-            }
-          />
-        ) : (
-          <CloudIcon
-            className={
-              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
-            }
-          />
-        )}
+        <EnvironmentIcon
+          accentColors={accentColors}
+          environment={activeEnvironment}
+          className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"}
+        />
         <span
           data-composer-label
           className="min-w-0 max-w-[240px] truncate transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0"
@@ -95,19 +110,11 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         )}
         aria-label="Run on"
       >
-        {activeEnvironment?.isPrimary ? (
-          <MonitorIcon
-            className={
-              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
-            }
-          />
-        ) : (
-          <CloudIcon
-            className={
-              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
-            }
-          />
-        )}
+        <EnvironmentIcon
+          accentColors={accentColors}
+          environment={activeEnvironment}
+          className={displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"}
+        />
         <span
           data-composer-label
           className="min-w-0 max-w-[240px] truncate transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0"
@@ -128,11 +135,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           {availableEnvironments.map((env) => (
             <SelectItem key={env.environmentId} value={env.environmentId}>
               <span className="inline-flex items-center gap-1.5">
-                {env.isPrimary ? (
-                  <MonitorIcon className="size-3" />
-                ) : (
-                  <CloudIcon className="size-3" />
-                )}
+                <EnvironmentIcon accentColors={accentColors} environment={env} />
                 {env.label}
               </span>
             </SelectItem>

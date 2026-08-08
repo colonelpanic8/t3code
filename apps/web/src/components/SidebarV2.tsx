@@ -13,6 +13,7 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import type {
+  EnvironmentId,
   ScopedThreadRef,
   SidebarProjectGroupingMode,
   TimestampFormat,
@@ -93,6 +94,7 @@ import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
+import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
@@ -276,6 +278,17 @@ function terminalProcessLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
 }
 
+/** Server glyph tinted with the environment's accent color, when one is set. */
+function EnvironmentServerIcon({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const accentColor = useEnvironmentAccentColor(environmentId);
+  return (
+    <ServerIcon
+      className="size-4 shrink-0 stroke-muted-foreground"
+      style={environmentAccentStyle(accentColor, "stroke")}
+    />
+  );
+}
+
 function SidebarV2ThreadTooltip({
   thread,
   projectTitle,
@@ -327,7 +340,7 @@ function SidebarV2ThreadTooltip({
           ) : null}
           {environmentLabel ? (
             <div className="flex min-w-0 items-center gap-2">
-              <ServerIcon className="size-3 shrink-0 stroke-muted-foreground" />
+              <EnvironmentServerIcon environmentId={thread.environmentId} />
               <div className="min-w-0 truncate text-foreground/75">{environmentLabel}</div>
             </div>
           ) : null}
@@ -583,6 +596,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
 
   const isRemote =
     props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
+  const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
 
   const detailsTooltip = (
     <SidebarV2ThreadTooltip
@@ -1071,7 +1085,10 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
               >
                 {isRemote ? (
-                  <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+                  <span
+                    className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70"
+                    style={environmentAccentStyle(environmentAccentColor)}
+                  >
                     <ServerIcon aria-hidden className="size-3.5" />
                   </span>
                 ) : null}

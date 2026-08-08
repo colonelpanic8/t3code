@@ -195,6 +195,12 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, useUpdateClientSettings } from "~/hooks/useSettings";
+import {
+  environmentAccentStyle,
+  resolveSharedEnvironmentAccentColor,
+  useEnvironmentAccentColor,
+  useEnvironmentAccentColors,
+} from "~/environmentAccentColors";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import {
   derivePhysicalProjectKey,
@@ -402,6 +408,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
   const threadEnvironmentLabel = isRemoteThread
     ? (remoteEnvLabel ?? (isDesktopLocalThread ? "Local" : "Remote"))
     : null;
+  const threadEnvironmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
   // For grouped projects, the thread may belong to a different environment
   // than the representative project.  Look up the thread's own project cwd
   // so git status (and thus PR detection) queries the correct path.
@@ -869,7 +876,10 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                         />
                       }
                     >
-                      <CloudIcon className="size-3 text-muted-foreground/40" />
+                      <CloudIcon
+                        className="size-3 text-muted-foreground/40"
+                        style={environmentAccentStyle(threadEnvironmentAccentColor)}
+                      />
                     </TooltipTrigger>
                     <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
                   </Tooltip>
@@ -1132,6 +1142,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (settings) => settings.confirmThreadArchive,
   );
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const environmentAccentColors = useEnvironmentAccentColors();
+  const remoteEnvironmentAccentColor = resolveSharedEnvironmentAccentColor(
+    environmentAccentColors,
+    project.remoteEnvironmentIds,
+  );
+  const remoteEnvironmentAccentStyle = environmentAccentStyle(remoteEnvironmentAccentColor);
   const deleteProject = useAtomCommand(projectEnvironment.delete, {
     reportFailure: false,
   });
@@ -2325,9 +2341,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               }
             >
               {project.allRemoteMembersAreDesktopLocal ? (
-                <ContainerIcon className="size-3" />
+                <ContainerIcon className="size-3" style={remoteEnvironmentAccentStyle} />
               ) : (
-                <CloudIcon className="size-3" />
+                <CloudIcon className="size-3" style={remoteEnvironmentAccentStyle} />
               )}
             </TooltipTrigger>
             <TooltipPopup side="top">
