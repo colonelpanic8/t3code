@@ -5,13 +5,19 @@ import {
   SshConnectionTarget,
   type ConnectionCatalogEntry,
 } from "@t3tools/client-runtime/connection";
-import { EnvironmentId, type AdvertisedEndpoint, type DesktopWslState } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type AdvertisedEndpoint,
+  type DesktopWslState,
+  type LocalServerAdvertisement,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyWslEnableSelection,
   environmentPairingBaseUrl,
   isQrShareableEndpoint,
+  selectLocalServerPairingCandidates,
   selectQrEndpointOption,
 } from "./ConnectionsSettings.logic";
 
@@ -225,5 +231,32 @@ describe("selectQrEndpointOption", () => {
     const loopbackOnly = options.slice(0, 1);
     expect(selectQrEndpointOption(loopbackOnly, null, null)?.id).toBe("desktop-loopback:4780");
     expect(selectQrEndpointOption([], "anything", "anything")).toBeNull();
+  });
+});
+
+describe("selectLocalServerPairingCandidates", () => {
+  const advertisement = {
+    version: 1,
+    instanceId: "instance-local",
+    pid: 1234,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    httpBaseUrl: "http://127.0.0.1:3773/",
+    environmentId: EnvironmentId.make("environment-local"),
+    label: "Local server",
+  } satisfies LocalServerAdvertisement;
+
+  it("suppresses connected servers and retains reconnecting servers for pairing", () => {
+    expect(
+      selectLocalServerPairingCandidates(
+        [advertisement],
+        [{ environmentId: advertisement.environmentId, connection: { phase: "connected" } }],
+      ),
+    ).toEqual([]);
+    expect(
+      selectLocalServerPairingCandidates(
+        [advertisement],
+        [{ environmentId: advertisement.environmentId, connection: { phase: "reconnecting" } }],
+      ),
+    ).toEqual([{ advertisement, pairAgain: true }]);
   });
 });

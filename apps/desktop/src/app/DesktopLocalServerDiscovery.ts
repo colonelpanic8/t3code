@@ -14,6 +14,7 @@ import {
   LOCAL_SERVER_ADVERTISEMENT_FILE_MODE,
   LOCAL_SERVER_ADVERTISEMENT_MAX_BYTES,
   LOCAL_SERVER_CHALLENGE_NONCE_BYTES,
+  isValidLocalServerPairingUrl,
   parseCanonicalLoopbackHttpBaseUrl,
   resolveLocalServerAdvertisementDirectory,
   resolveLocalServerChallengeDirectory,
@@ -264,6 +265,7 @@ export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
       });
       yield* fileSystem.chmod(challengePath, LOCAL_SERVER_CHALLENGE_FILE_MODE);
     }).pipe(
+      Effect.tapError(() => fileSystem.remove(challengePath).pipe(Effect.ignore)),
       Effect.mapError(
         (cause) =>
           new LocalServerPairingError({
@@ -276,12 +278,23 @@ export const make = Effect.fn("desktop.localServerDiscovery.make")(function* (
 
     // The nonce is the whole proof of local-user identity, so it must not
     // outlive the request regardless of how that request ends.
-    return yield* options
+    const result = yield* options
       .postPairingChallenge({
         httpBaseUrl: advertisement.httpBaseUrl,
         challenge: { instanceId, challengePath, nonce },
       })
       .pipe(Effect.ensuring(fileSystem.remove(challengePath).pipe(Effect.ignore)));
+    const httpBaseUrl = parseCanonicalLoopbackHttpBaseUrl(advertisement.httpBaseUrl);
+    if (
+      httpBaseUrl === null ||
+      !isValidLocalServerPairingUrl({ pairingUrl: result.pairingUrl, httpBaseUrl })
+    ) {
+      return yield* new LocalServerPairingError({
+        reason: "request_failed",
+        detail: "The local T3 Code server returned an invalid pairing link.",
+      });
+    }
+    return result;
   });
 
   return DesktopLocalServerDiscovery.of({ discover, pairLocalServer });

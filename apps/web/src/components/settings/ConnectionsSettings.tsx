@@ -1757,7 +1757,8 @@ export function ConnectionsSettings() {
   const [localServerAdvertisements, setLocalServerAdvertisements] = useState<
     ReadonlyArray<LocalServerAdvertisement>
   >(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
-  const [isDiscoveringLocalServers, setIsDiscoveringLocalServers] = useState(false);
+  const [activeLocalServerDiscoveryCount, setActiveLocalServerDiscoveryCount] = useState(0);
+  const isDiscoveringLocalServers = activeLocalServerDiscoveryCount > 0;
   const [pairingLocalServerInstanceId, setPairingLocalServerInstanceId] = useState<string | null>(
     null,
   );
@@ -1815,26 +1816,30 @@ export function ConnectionsSettings() {
     () => selectLocalServerPairingCandidates(localServerAdvertisements, environments),
     [environments, localServerAdvertisements],
   );
+  const hasLocalServerDiscoveryContent =
+    isDiscoveringLocalServers ||
+    localServerPairingCandidates.length > 0 ||
+    localServerDiscoveryError !== null;
   const refreshLocalServerAdvertisements = useCallback(async () => {
     const discoverLocalServers = desktopBridge?.discoverLocalServers;
     if (!discoverLocalServers) {
       setLocalServerAdvertisements(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
       return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
     }
-    setIsDiscoveringLocalServers(true);
-    setLocalServerDiscoveryError(null);
+    setActiveLocalServerDiscoveryCount((count) => count + 1);
     try {
       const discovered = await discoverLocalServers();
       setLocalServerAdvertisements(discovered);
-      setIsDiscoveringLocalServers(false);
+      setLocalServerDiscoveryError(null);
       return discovered;
     } catch (error) {
       setLocalServerAdvertisements(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
       setLocalServerDiscoveryError(
         error instanceof Error ? error.message : "Could not scan for local T3 Code servers.",
       );
-      setIsDiscoveringLocalServers(false);
       return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
+    } finally {
+      setActiveLocalServerDiscoveryCount((count) => Math.max(0, count - 1));
     }
   }, [desktopBridge]);
 
@@ -2704,6 +2709,12 @@ export function ConnectionsSettings() {
   );
   const renderLocalServerPairingCandidates = () => (
     <div className="space-y-2">
+      {isDiscoveringLocalServers && localServerPairingCandidates.length === 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Spinner className="size-3" />
+          Scanning for local T3 Code servers…
+        </p>
+      ) : null}
       {localServerPairingCandidates.map(({ advertisement, pairAgain }) => (
         <div
           key={advertisement.instanceId}
@@ -3782,7 +3793,7 @@ export function ConnectionsSettings() {
         </SettingsSection>
       )}
 
-      {localServerPairingCandidates.length > 0 ? (
+      {hasLocalServerDiscoveryContent ? (
         <SettingsSection
           title="Available on this computer"
           headerAction={
@@ -3801,10 +3812,13 @@ export function ConnectionsSettings() {
             </Button>
           }
         >
-          <p className="px-1 text-xs text-muted-foreground">
-            These loopback servers advertised a private, short-lived pairing link. Pairing saves the
-            connection; this desktop will not manage the server process.
-          </p>
+          {localServerPairingCandidates.length > 0 ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              These loopback servers published credential-free presence records. Pairing verifies
+              the server belongs to your local user, then saves the connection; this desktop will
+              not manage the server process.
+            </p>
+          ) : null}
           {renderLocalServerPairingCandidates()}
         </SettingsSection>
       ) : null}
@@ -3851,16 +3865,27 @@ export function ConnectionsSettings() {
               </DialogHeader>
               <DialogPanel>
                 <div className="space-y-4">
-                  {localServerPairingCandidates.length > 0 ? (
-                    <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          A local T3 Code server is running
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Pair explicitly to save it without copying its URL.
-                        </p>
-                      </div>
+                  {hasLocalServerDiscoveryContent ? (
+                    <div
+                      className={cn(
+                        "space-y-2 rounded-lg border p-3",
+                        localServerPairingCandidates.length > 0
+                          ? "border-primary/20 bg-primary/5"
+                          : localServerDiscoveryError
+                            ? "border-destructive/30 bg-destructive/5"
+                            : "border-border/70 bg-muted/20",
+                      )}
+                    >
+                      {localServerPairingCandidates.length > 0 ? (
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            A local T3 Code server is running
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Pair explicitly to save it without copying its URL.
+                          </p>
+                        </div>
+                      ) : null}
                       {renderLocalServerPairingCandidates()}
                     </div>
                   ) : null}

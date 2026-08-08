@@ -15,6 +15,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { HttpServer } from "effect/unstable/http";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -59,7 +60,7 @@ const writeAdvertisement = Effect.fn("server.localAdvertisement.write")(function
  */
 export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisement.start")(
   function* (input: {
-    readonly connectionString: string;
+    readonly listeningAddress: HttpServer.Address;
     readonly platform?: NodeJS.Platform;
     readonly xdgRuntimeDirectory?: string;
   }) {
@@ -78,8 +79,14 @@ export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisemen
       xdgRuntimeDirectory,
       path,
     });
-    const port = Number(new URL(input.connectionString).port);
-    const httpBaseUrl = resolveLocalAdvertisementHttpBaseUrl(serverConfig.host, port);
+    const httpBaseUrl =
+      input.listeningAddress._tag === "TcpAddress"
+        ? resolveLocalAdvertisementHttpBaseUrl(
+            serverConfig.host,
+            input.listeningAddress.port,
+            input.listeningAddress.hostname,
+          )
+        : null;
     if (
       directory === null ||
       httpBaseUrl === null ||
@@ -93,6 +100,19 @@ export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisemen
     const environment = yield* serverEnvironment.getDescriptor;
     const recordPath = path.join(directory, `${instanceId}.json`);
     const tempPath = path.join(directory, `.${instanceId}.${process.pid}.tmp`);
+
+    const cleanup = Effect.gen(function* () {
+      yield* discoveryState.deactivate;
+      yield* fileSystem.remove(recordPath, { force: true }).pipe(Effect.ignore);
+      yield* fileSystem.remove(tempPath, { force: true }).pipe(Effect.ignore);
+    });
+    yield* Effect.addFinalizer(() => cleanup);
+    yield* discoveryState.activate({
+      instanceId,
+      httpBaseUrl,
+      platform,
+      xdgRuntimeDirectory,
+    });
 
     const publishExit = yield* Effect.exit(
       writeAdvertisement({
@@ -111,25 +131,12 @@ export const startLocalServerAdvertisement = Effect.fn("server.localAdvertisemen
       }),
     );
     if (Exit.isFailure(publishExit)) {
+      yield* cleanup;
       yield* Effect.logWarning("Local T3 Code server discovery is unavailable.", {
         recordPath,
         cause: publishExit.cause,
       });
       return;
     }
-
-    yield* Effect.addFinalizer(() =>
-      Effect.gen(function* () {
-        yield* discoveryState.deactivate;
-        yield* fileSystem.remove(recordPath, { force: true }).pipe(Effect.ignore);
-        yield* fileSystem.remove(tempPath, { force: true }).pipe(Effect.ignore);
-      }),
-    );
-    yield* discoveryState.activate({
-      instanceId,
-      httpBaseUrl,
-      platform,
-      xdgRuntimeDirectory,
-    });
   },
 );

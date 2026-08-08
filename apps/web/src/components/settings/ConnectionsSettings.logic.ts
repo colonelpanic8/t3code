@@ -40,7 +40,7 @@ export function selectLocalServerPairingCandidates(
     const savedEnvironment = environments.find(
       (environment) => environment.environmentId === advertisement.environmentId,
     );
-    if (savedEnvironment && savedEnvironment.connection.phase !== "error") return [];
+    if (savedEnvironment?.connection.phase === "connected") return [];
     return [{ advertisement, pairAgain: savedEnvironment !== undefined }];
   });
 }

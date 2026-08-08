@@ -35,7 +35,9 @@ export type LocalServerAdvertisement = typeof LocalServerAdvertisement.Type;
  */
 export const LocalServerPairingChallenge = Schema.Struct({
   instanceId: TrimmedNonEmptyString,
-  challengePath: TrimmedNonEmptyString,
+  // Filesystem paths are opaque bytes represented as strings. Do not trim:
+  // leading or trailing whitespace can be part of a legitimate filename.
+  challengePath: Schema.String.check(Schema.isMinLength(1)),
   nonce: TrimmedNonEmptyString,
 });
 export type LocalServerPairingChallenge = typeof LocalServerPairingChallenge.Type;
