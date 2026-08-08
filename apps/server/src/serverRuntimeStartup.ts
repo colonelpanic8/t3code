@@ -41,6 +41,7 @@ import { forkParked, forkParkedFiber } from "./serverActivation.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import { startLocalServerAdvertisement } from "./localServerAdvertisement.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -565,6 +566,7 @@ export const make = (options?: StartupOptions) =>
           if (serverConfig.startupPresentation === "headless") {
             yield* Effect.logDebug("startup phase: headless access info");
             const accessInfo = yield* issueHeadlessServeAccessInfo();
+            yield* startLocalServerAdvertisement({ terminalAccessInfo: accessInfo });
             yield* runStartupPhase(
               "headless.output",
               Console.log(formatHeadlessServeOutput(accessInfo)),

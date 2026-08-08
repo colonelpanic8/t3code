@@ -1,5 +1,11 @@
 import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
-import type { AdvertisedEndpoint, DesktopBridge, DesktopWslState } from "@t3tools/contracts";
+import type {
+  AdvertisedEndpoint,
+  DesktopBridge,
+  DesktopWslState,
+  EnvironmentId,
+  LocalServerAdvertisement,
+} from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string | null {
@@ -17,6 +23,27 @@ export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string
 }
 
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
+
+export interface LocalServerPairingCandidate {
+  readonly advertisement: LocalServerAdvertisement;
+  readonly pairAgain: boolean;
+}
+
+export function selectLocalServerPairingCandidates(
+  advertisements: ReadonlyArray<LocalServerAdvertisement>,
+  environments: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly connection: { readonly phase: string };
+  }>,
+): ReadonlyArray<LocalServerPairingCandidate> {
+  return advertisements.flatMap((advertisement) => {
+    const savedEnvironment = environments.find(
+      (environment) => environment.environmentId === advertisement.environmentId,
+    );
+    if (savedEnvironment && savedEnvironment.connection.phase !== "error") return [];
+    return [{ advertisement, pairAgain: savedEnvironment !== undefined }];
+  });
+}
 
 /**
  * A QR code encoding a loopback URL makes the scanning device dial itself, so

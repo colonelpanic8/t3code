@@ -6,7 +6,7 @@ import {
   TerminalIcon,
 } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { type ReactNode, memo, useCallback, useId, useMemo, useState } from "react";
+import { type ReactNode, memo, useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
@@ -25,6 +25,7 @@ import {
   type DesktopDiscoveredSshHost,
   type DesktopBackendMode,
   type DesktopBackendModeState,
+  type LocalServerAdvertisement,
   type DesktopSshEnvironmentTarget,
   type DesktopServerExposureState,
   type DesktopWslState,
@@ -47,6 +48,7 @@ import {
   applyWslEnableSelection,
   environmentPairingBaseUrl,
   isQrShareableEndpoint,
+  selectLocalServerPairingCandidates,
   selectQrEndpointOption,
 } from "./ConnectionsSettings.logic";
 import { EnvironmentAccentColorControl } from "./EnvironmentAccentColorControl";
@@ -141,6 +143,7 @@ import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
 const EMPTY_DISCOVERED_SSH_HOSTS: ReadonlyArray<DesktopDiscoveredSshHost> = [];
+const EMPTY_LOCAL_SERVER_ADVERTISEMENTS: ReadonlyArray<LocalServerAdvertisement> = [];
 
 // Sentinels for the consolidated WSL backend picker. The colon is
 // rejected by DISTRO_NAME_PATTERN (validated on the desktop side) so
@@ -1751,6 +1754,14 @@ export function ConnectionsSettings() {
     useState<DesktopBackendModeState | null>(() => desktopBridge?.getBackendModeState?.() ?? null);
   const [desktopBackendModeError, setDesktopBackendModeError] = useState<string | null>(null);
   const [isUpdatingDesktopBackendMode, setIsUpdatingDesktopBackendMode] = useState(false);
+  const [localServerAdvertisements, setLocalServerAdvertisements] = useState<
+    ReadonlyArray<LocalServerAdvertisement>
+  >(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
+  const [isDiscoveringLocalServers, setIsDiscoveringLocalServers] = useState(false);
+  const [pairingLocalServerInstanceId, setPairingLocalServerInstanceId] = useState<string | null>(
+    null,
+  );
+  const [localServerDiscoveryError, setLocalServerDiscoveryError] = useState<string | null>(null);
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const {
@@ -1800,6 +1811,92 @@ export function ConnectionsSettings() {
     (environment) => !isDesktopLocalConnectionTarget(environment.entry.target),
   );
   const isClientOnlyDesktop = desktopBackendModeState?.effectiveMode === "client-only";
+  const localServerPairingCandidates = useMemo(
+    () => selectLocalServerPairingCandidates(localServerAdvertisements, environments),
+    [environments, localServerAdvertisements],
+  );
+  const refreshLocalServerAdvertisements = useCallback(async () => {
+    const discoverLocalServers = desktopBridge?.discoverLocalServers;
+    if (!discoverLocalServers) {
+      setLocalServerAdvertisements(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
+      return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
+    }
+    setIsDiscoveringLocalServers(true);
+    setLocalServerDiscoveryError(null);
+    try {
+      const discovered = await discoverLocalServers();
+      setLocalServerAdvertisements(discovered);
+      setIsDiscoveringLocalServers(false);
+      return discovered;
+    } catch (error) {
+      setLocalServerAdvertisements(EMPTY_LOCAL_SERVER_ADVERTISEMENTS);
+      setLocalServerDiscoveryError(
+        error instanceof Error ? error.message : "Could not scan for local T3 Code servers.",
+      );
+      setIsDiscoveringLocalServers(false);
+      return EMPTY_LOCAL_SERVER_ADVERTISEMENTS;
+    }
+  }, [desktopBridge]);
+
+  useEffect(() => {
+    void refreshLocalServerAdvertisements();
+  }, [refreshLocalServerAdvertisements]);
+
+  const handlePairLocalServer = useCallback(
+    async (advertisement: LocalServerAdvertisement, pairAgain: boolean) => {
+      const discoverLocalServers = desktopBridge?.discoverLocalServers;
+      if (!discoverLocalServers) return;
+      setPairingLocalServerInstanceId(advertisement.instanceId);
+      setLocalServerDiscoveryError(null);
+      try {
+        // Re-read immediately before the explicit pairing action so a rotated
+        // one-time credential is used instead of a stale UI snapshot.
+        const currentAdvertisements = await discoverLocalServers();
+        setLocalServerAdvertisements(currentAdvertisements);
+        const current = currentAdvertisements.find(
+          (candidate) =>
+            candidate.instanceId === advertisement.instanceId &&
+            candidate.environmentId === advertisement.environmentId,
+        );
+        if (!current) {
+          throw new Error("This local server is no longer advertising a valid pairing link.");
+        }
+
+        const result = await connectPairing({ pairingUrl: current.pairingUrl });
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) {
+            setPairingLocalServerInstanceId(null);
+            return;
+          }
+          throw squashAtomCommandFailure(result);
+        }
+
+        setLocalServerAdvertisements((previous) =>
+          previous.filter((candidate) => candidate.instanceId !== advertisement.instanceId),
+        );
+        setAddBackendDialogOpen(false);
+        toastManager.add({
+          type: "success",
+          title: pairAgain ? "Environment paired again" : "Environment paired",
+          description: `${current.label} is saved and will reconnect on app startup.`,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Could not pair the local T3 Code server.";
+        setLocalServerDiscoveryError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not pair local server",
+            description: message,
+          }),
+        );
+      } finally {
+        setPairingLocalServerInstanceId(null);
+      }
+    },
+    [connectPairing, desktopBridge],
+  );
   const savedDesktopSshEnvironmentsByAlias = useMemo(
     () =>
       savedEnvironments.reduce<Record<string, EnvironmentPresentation>>(
@@ -2613,6 +2710,42 @@ export function ConnectionsSettings() {
       </Button>
     </div>
   );
+  const renderLocalServerPairingCandidates = () => (
+    <div className="space-y-2">
+      {localServerPairingCandidates.map(({ advertisement, pairAgain }) => (
+        <div
+          key={advertisement.instanceId}
+          className="flex items-center gap-3 rounded-lg border border-border/70 bg-background p-3"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
+            <TerminalIcon aria-hidden className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-foreground">
+              {advertisement.label}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {advertisement.httpBaseUrl} · process {advertisement.pid}
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pairingLocalServerInstanceId !== null}
+            onClick={() => void handlePairLocalServer(advertisement, pairAgain)}
+          >
+            {pairingLocalServerInstanceId === advertisement.instanceId ? (
+              <Spinner className="size-3.5" />
+            ) : null}
+            {pairAgain ? "Pair again" : "Pair"}
+          </Button>
+        </div>
+      ))}
+      {localServerDiscoveryError ? (
+        <p className="text-xs text-destructive">{localServerDiscoveryError}</p>
+      ) : null}
+    </div>
+  );
   const renderSshFields = () => (
     <div className="space-y-4">
       <div className="space-y-3">
@@ -3241,6 +3374,7 @@ export function ConnectionsSettings() {
         "Pair and save an environment before switching to client-only mode.",
       );
       setAddBackendDialogOpen(true);
+      void refreshLocalServerAdvertisements();
       return;
     }
 
@@ -3656,6 +3790,33 @@ export function ConnectionsSettings() {
         </SettingsSection>
       )}
 
+      {localServerPairingCandidates.length > 0 ? (
+        <SettingsSection
+          title="Available on this computer"
+          headerAction={
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={isDiscoveringLocalServers}
+              onClick={() => void refreshLocalServerAdvertisements()}
+            >
+              {isDiscoveringLocalServers ? (
+                <Spinner className="size-3" />
+              ) : (
+                <RefreshCwIcon className="size-3" />
+              )}
+              Scan again
+            </Button>
+          }
+        >
+          <p className="px-1 text-xs text-muted-foreground">
+            These loopback servers advertised a private, short-lived pairing link. Pairing saves the
+            connection; this desktop will not manage the server process.
+          </p>
+          {renderLocalServerPairingCandidates()}
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection
         {...searchableSetting("remote-environments")}
         headerAction={
@@ -3663,6 +3824,9 @@ export function ConnectionsSettings() {
             open={addBackendDialogOpen}
             onOpenChange={(open) => {
               setAddBackendDialogOpen(open);
+              if (open) {
+                void refreshLocalServerAdvertisements();
+              }
               if (!open) {
                 setSavedBackendError(null);
               }
@@ -3695,6 +3859,19 @@ export function ConnectionsSettings() {
               </DialogHeader>
               <DialogPanel>
                 <div className="space-y-4">
+                  {localServerPairingCandidates.length > 0 ? (
+                    <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          A local T3 Code server is running
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Pair explicitly to save it without copying its URL.
+                        </p>
+                      </div>
+                      {renderLocalServerPairingCandidates()}
+                    </div>
+                  ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
                     {renderConnectionModeCard({
                       mode: "remote",
