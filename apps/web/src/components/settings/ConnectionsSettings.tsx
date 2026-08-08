@@ -23,6 +23,8 @@ import {
   type AuthPairingLink,
   type AdvertisedEndpoint,
   type DesktopDiscoveredSshHost,
+  type DesktopBackendMode,
+  type DesktopBackendModeState,
   type DesktopSshEnvironmentTarget,
   type DesktopServerExposureState,
   type DesktopWslState,
@@ -1745,6 +1747,10 @@ function CloudRemoteEnvironmentRows({
 
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
+  const [desktopBackendModeState, setDesktopBackendModeState] =
+    useState<DesktopBackendModeState | null>(() => desktopBridge?.getBackendModeState?.() ?? null);
+  const [desktopBackendModeError, setDesktopBackendModeError] = useState<string | null>(null);
+  const [isUpdatingDesktopBackendMode, setIsUpdatingDesktopBackendMode] = useState(false);
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const {
@@ -1790,6 +1796,10 @@ export function ConnectionsSettings() {
         .toSorted((left, right) => left.label.localeCompare(right.label)),
     [environments],
   );
+  const hasUsableClientOnlyEnvironment = savedEnvironments.some(
+    (environment) => !isDesktopLocalConnectionTarget(environment.entry.target),
+  );
+  const isClientOnlyDesktop = desktopBackendModeState?.effectiveMode === "client-only";
   const savedDesktopSshEnvironmentsByAlias = useMemo(
     () =>
       savedEnvironments.reduce<Record<string, EnvironmentPresentation>>(
@@ -1903,7 +1913,8 @@ export function ConnectionsSettings() {
   const setDefaultAdvertisedEndpointKey = useUiStateStore(
     (state) => state.setDefaultAdvertisedEndpointKey,
   );
-  const canManageLocalBackend = currentSessionScopes?.includes(AuthAccessWriteScope) ?? false;
+  const canManageLocalBackend =
+    !isClientOnlyDesktop && (currentSessionScopes?.includes(AuthAccessWriteScope) ?? false);
   const canManageRelay = currentSessionScopes?.includes(AuthRelayWriteScope) ?? false;
   const isAccessEnvironmentPrimary =
     accessEnvironmentId !== null && accessEnvironmentId === primaryEnvironmentId;
@@ -3222,11 +3233,90 @@ export function ConnectionsSettings() {
       />
     );
 
+  const handleDesktopBackendModeChange = async (mode: DesktopBackendMode) => {
+    if (!desktopBridge || !desktopBackendModeState) return;
+    if (mode === desktopBackendModeState.configuredMode) return;
+    if (mode === "client-only" && !hasUsableClientOnlyEnvironment) {
+      setDesktopBackendModeError(
+        "Pair and save an environment before switching to client-only mode.",
+      );
+      setAddBackendDialogOpen(true);
+      return;
+    }
+
+    setIsUpdatingDesktopBackendMode(true);
+    setDesktopBackendModeError(null);
+    try {
+      const next = await desktopBridge.setBackendMode(mode);
+      setDesktopBackendModeState(next);
+      setIsUpdatingDesktopBackendMode(false);
+    } catch (error) {
+      setDesktopBackendModeError(
+        error instanceof Error ? error.message : "Could not update the desktop backend mode.",
+      );
+      setIsUpdatingDesktopBackendMode(false);
+    }
+  };
+
   return (
     <SettingsPageContainer>
+      {desktopBridge && desktopBackendModeState ? (
+        <SettingsSection title="Desktop application">
+          <SettingsRow
+            title="Backend mode"
+            description={
+              isClientOnlyDesktop
+                ? "Connect only to saved environments. This desktop process does not start or control a local backend."
+                : "Start and manage a local backend while retaining access to saved environments."
+            }
+            status={
+              desktopBackendModeError ? (
+                <span className="block text-destructive">{desktopBackendModeError}</span>
+              ) : desktopBackendModeState.cliOverride !== null ? (
+                <span className="block text-muted-foreground">
+                  This launch is overridden by --backend-mode=
+                  {desktopBackendModeState.cliOverride}. The saved preference applies when launched
+                  without that flag.
+                </span>
+              ) : null
+            }
+            control={
+              <Select
+                value={desktopBackendModeState.configuredMode}
+                onValueChange={(value) => {
+                  if (value === "managed" || value === "client-only") {
+                    void handleDesktopBackendModeChange(value);
+                  }
+                }}
+              >
+                <SelectTrigger
+                  className="w-full sm:w-48"
+                  aria-label="Desktop backend mode"
+                  disabled={isUpdatingDesktopBackendMode}
+                >
+                  <SelectValue>
+                    {desktopBackendModeState.configuredMode === "managed"
+                      ? "Managed backend"
+                      : "Client only"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value="managed">
+                    Managed backend
+                  </SelectItem>
+                  <SelectItem hideIndicator value="client-only">
+                    Client only
+                  </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        </SettingsSection>
+      ) : null}
+
       {renderAccessManagement()}
 
-      {canManageLocalBackend ? (
+      {isClientOnlyDesktop ? null : canManageLocalBackend ? (
         <>
           <SettingsSection title="This environment">
             {primaryVersionMismatch || primaryServerUpdateState.status !== "idle" ? (
