@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as DesktopIpc from "./DesktopIpc.ts";
 import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
 import { getBackendModeState, setBackendMode } from "./methods/backendMode.ts";
-import { discoverLocalServers } from "./methods/localServerDiscovery.ts";
+import { discoverLocalServers, pairLocalServer } from "./methods/localServerDiscovery.ts";
 import {
   clearConnectionCatalog,
   getConnectionCatalog,
@@ -57,6 +57,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);
   yield* ipc.handle(getLocalEnvironmentBearerToken);
   yield* ipc.handle(discoverLocalServers);
+  yield* ipc.handle(pairLocalServer);
   yield* ipc.handle(setBackendMode);
 
   yield* ipc.handle(getClientSettings);

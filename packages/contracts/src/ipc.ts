@@ -26,7 +26,7 @@ import type {
 } from "./review.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type { AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
-import type { LocalServerAdvertisement } from "./localServerDiscovery.ts";
+import type { LocalServerAdvertisement, LocalServerPairingResult } from "./localServerDiscovery.ts";
 import type {
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -1016,6 +1016,7 @@ export interface DesktopBridge {
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentBearerToken: () => Promise<string>;
   discoverLocalServers?: () => Promise<readonly LocalServerAdvertisement[]>;
+  pairLocalServer?: (instanceId: string) => Promise<LocalServerPairingResult>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog?: () => Promise<string | null>;

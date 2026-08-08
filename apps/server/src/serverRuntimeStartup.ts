@@ -566,7 +566,7 @@ export const make = (options?: StartupOptions) =>
           if (serverConfig.startupPresentation === "headless") {
             yield* Effect.logDebug("startup phase: headless access info");
             const accessInfo = yield* issueHeadlessServeAccessInfo();
-            yield* startLocalServerAdvertisement({ terminalAccessInfo: accessInfo });
+            yield* startLocalServerAdvertisement({ connectionString: accessInfo.connectionString });
             yield* runStartupPhase(
               "headless.output",
               Console.log(formatHeadlessServeOutput(accessInfo)),

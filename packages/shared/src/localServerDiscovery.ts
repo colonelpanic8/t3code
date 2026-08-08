@@ -5,11 +5,20 @@ export const LOCAL_SERVER_ADVERTISEMENT_DIRECTORY_MODE = 0o700;
 export const LOCAL_SERVER_ADVERTISEMENT_FILE_MODE = 0o600;
 export const LOCAL_SERVER_ADVERTISEMENT_MAX_BYTES = 64 * 1024;
 
-export function resolveLocalServerAdvertisementDirectory(input: {
-  readonly platform: NodeJS.Platform;
-  readonly xdgRuntimeDirectory: string | undefined;
-  readonly path: Path.Path;
-}): string | null {
+export const LOCAL_SERVER_CHALLENGE_DIRECTORY_PARTS = ["t3code", "challenges"] as const;
+export const LOCAL_SERVER_CHALLENGE_MAX_BYTES = 4 * 1024;
+// 256 bits of entropy, hex encoded. Long enough that a caller who cannot read
+// the challenge file cannot guess its contents.
+export const LOCAL_SERVER_CHALLENGE_NONCE_BYTES = 32;
+
+function resolveRuntimeSubdirectory(
+  input: {
+    readonly platform: NodeJS.Platform;
+    readonly xdgRuntimeDirectory: string | undefined;
+    readonly path: Path.Path;
+  },
+  parts: readonly string[],
+): string | null {
   if (input.platform !== "linux") {
     return null;
   }
@@ -17,7 +26,48 @@ export function resolveLocalServerAdvertisementDirectory(input: {
   if (!runtimeDirectory || !input.path.isAbsolute(runtimeDirectory)) {
     return null;
   }
-  return input.path.join(runtimeDirectory, ...LOCAL_SERVER_ADVERTISEMENT_DIRECTORY_PARTS);
+  return input.path.join(runtimeDirectory, ...parts);
+}
+
+export function resolveLocalServerAdvertisementDirectory(input: {
+  readonly platform: NodeJS.Platform;
+  readonly xdgRuntimeDirectory: string | undefined;
+  readonly path: Path.Path;
+}): string | null {
+  return resolveRuntimeSubdirectory(input, LOCAL_SERVER_ADVERTISEMENT_DIRECTORY_PARTS);
+}
+
+/**
+ * Directory a pairing client writes its challenge nonce into. Separate from the
+ * advertisement directory so the server never reads a caller-named path out of
+ * the directory it publishes into.
+ */
+export function resolveLocalServerChallengeDirectory(input: {
+  readonly platform: NodeJS.Platform;
+  readonly xdgRuntimeDirectory: string | undefined;
+  readonly path: Path.Path;
+}): string | null {
+  return resolveRuntimeSubdirectory(input, LOCAL_SERVER_CHALLENGE_DIRECTORY_PARTS);
+}
+
+/**
+ * Confirm a caller-supplied challenge path resolves inside the challenge
+ * directory. Callers must pass already-canonicalized paths (realPath on both)
+ * so a symlink cannot escape the directory. This is the only thing standing
+ * between `/api/auth/local-pair` and an arbitrary-file read, so it fails closed.
+ */
+export function isContainedChallengePath(input: {
+  readonly canonicalChallengePath: string;
+  readonly canonicalChallengeDirectory: string;
+  readonly path: Path.Path;
+}): boolean {
+  if (
+    !input.path.isAbsolute(input.canonicalChallengePath) ||
+    !input.path.isAbsolute(input.canonicalChallengeDirectory)
+  ) {
+    return false;
+  }
+  return input.path.dirname(input.canonicalChallengePath) === input.canonicalChallengeDirectory;
 }
 
 export function isCanonicalLoopbackHostname(hostname: string): boolean {

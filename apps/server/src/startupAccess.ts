@@ -1,7 +1,6 @@
 import * as NodeOS from "node:os";
 
 import { QrCode } from "@t3tools/shared/qrCode";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/unstable/http";
 
@@ -9,11 +8,9 @@ import { ServerConfig } from "./config.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 
 export interface HeadlessServeAccessInfo {
-  readonly pairingCredentialId: string;
   readonly connectionString: string;
   readonly token: string;
   readonly pairingUrl: string;
-  readonly pairingExpiresAt: string;
 }
 
 type NetworkInterfacesMap = ReturnType<typeof NodeOS.networkInterfaces>;
@@ -156,10 +153,8 @@ export const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessI
   const issued = yield* serverAuth.issueStartupPairingCredential();
 
   return {
-    pairingCredentialId: issued.id,
     connectionString,
     token: issued.credential,
     pairingUrl: buildPairingUrl(connectionString, issued.credential),
-    pairingExpiresAt: DateTime.formatIso(issued.expiresAt),
   } satisfies HeadlessServeAccessInfo;
 });

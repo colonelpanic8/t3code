@@ -76,11 +76,9 @@ it("renders terminal QR codes as a multi-line unicode block grid", () => {
 
 it("formats headless serve output with the connection string, token, pairing url, and qr code", () => {
   const output = formatHeadlessServeOutput({
-    pairingCredentialId: "pairing-id",
     connectionString: "http://192.168.1.42:3773",
     token: "PAIRCODE",
     pairingUrl: "http://192.168.1.42:3773/pair#token=PAIRCODE",
-    pairingExpiresAt: "2026-01-01T00:05:00.000Z",
   });
 
   expect(output).toContain("Connection string: http://192.168.1.42:3773");
