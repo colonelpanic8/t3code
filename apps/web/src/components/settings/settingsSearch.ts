@@ -6,6 +6,7 @@ export type SettingsPath =
   | "/settings/scheduled-tasks"
   | "/settings/source-control"
   | "/settings/connections"
+  | "/settings/diagnostics"
   | "/settings/beta"
   | "/settings/archived";
 
@@ -28,6 +29,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/scheduled-tasks": "Schedule Tasks",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
+  "/settings/diagnostics": "Diagnostics",
   "/settings/beta": "Beta",
   "/settings/archived": "Archive",
 };
@@ -161,7 +163,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "diagnostics",
     title: "Diagnostics",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
   },
   {
     id: "keybindings",
