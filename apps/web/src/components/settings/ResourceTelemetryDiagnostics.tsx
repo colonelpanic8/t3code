@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type {
   BackgroundBooleanState,
+  EnvironmentId,
   ResourceAttributionEntry,
   ResourceTelemetryAggregate,
   ResourceTelemetryHistoryBucket,
@@ -38,7 +39,6 @@ import {
   useResourceTelemetryHistory,
 } from "../../lib/resourceTelemetryState";
 import { cn } from "../../lib/utils";
-import { usePrimaryEnvironment } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTime } from "../../timestampFormat";
@@ -830,17 +830,20 @@ function AttributionTable({ entries }: { entries: ReadonlyArray<ResourceAttribut
   );
 }
 
-export function ResourceTelemetryDiagnostics() {
+export function ResourceTelemetryDiagnostics({
+  environmentId,
+}: {
+  readonly environmentId: EnvironmentId;
+}) {
   const [windowMs, setWindowMs] = useState(15 * 60_000);
   const selectedWindow =
     HISTORY_WINDOWS.find((option) => option.windowMs === windowMs) ?? HISTORY_WINDOWS[1];
-  const telemetry = useResourceTelemetry();
+  const telemetry = useResourceTelemetry(environmentId);
   const retryTelemetry = telemetry.retry;
-  const history = useResourceTelemetryHistory({
+  const history = useResourceTelemetryHistory(environmentId, {
     windowMs: selectedWindow.windowMs,
     bucketMs: selectedWindow.bucketMs,
   });
-  const primaryEnvironment = usePrimaryEnvironment();
   const signalServerProcess = useAtomCommand(serverEnvironment.signalProcess, {
     reportFailure: false,
   });
@@ -860,10 +863,6 @@ export function ResourceTelemetryDiagnostics() {
         return;
       }
       const identityKey = processIdentityKey(process);
-      const environmentId = primaryEnvironment?.environmentId;
-      if (environmentId === undefined) {
-        return;
-      }
       setSignalingKeys((current) => new Set(current).add(identityKey));
       void signalServerProcess({
         environmentId,
@@ -904,7 +903,7 @@ export function ResourceTelemetryDiagnostics() {
           });
         });
     },
-    [primaryEnvironment?.environmentId, signalServerProcess],
+    [environmentId, signalServerProcess],
   );
 
   const retryCollector = useCallback(() => {
