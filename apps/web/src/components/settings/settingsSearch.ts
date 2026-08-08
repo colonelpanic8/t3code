@@ -1,5 +1,6 @@
 export type SettingsPath =
   | "/settings/general"
+  | "/settings/environment"
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/providers"
@@ -23,6 +24,7 @@ export interface SettingsSearchItem {
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
+  "/settings/environment": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",
@@ -122,28 +124,28 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "assistant-output",
     title: "Assistant output",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "provider-update-checks",
     title: "Provider update checks",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "new-threads",
     title: "New threads",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "start-from-origin",
     title: "Start from origin",
-    to: "/settings/general",
+    to: "/settings/environment",
     targetId: "new-threads",
   },
   {
     id: "add-project-starts-in",
     title: "Add project starts in",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "archive-confirmation",
@@ -158,7 +160,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "text-generation-model",
     title: "Text generation model",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "diagnostics",

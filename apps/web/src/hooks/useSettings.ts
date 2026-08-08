@@ -109,7 +109,10 @@ async function hydrateClientSettings(): Promise<void> {
         return;
       }
       if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
+        replaceClientSettingsSnapshot({
+          ...DEFAULT_CLIENT_SETTINGS,
+          ...persistedSettings,
+        });
       }
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, {
@@ -276,10 +279,10 @@ export function useSidebarV2Enabled(): boolean {
 
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const serverSettings = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings;
   return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -326,7 +329,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
   return updateSettings;
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
+export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null) {
   return useUpdateSettingsTarget(environmentId);
 }
 

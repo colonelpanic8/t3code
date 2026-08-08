@@ -50,6 +50,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
+  "/settings/environment": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
@@ -77,12 +78,14 @@ const SETTINGS_NAV_GROUPS: ReadonlyArray<{
 }> = [
   {
     label: "Client",
-    paths: ["/settings/general", "/settings/appearance", "/settings/keybindings"],
+    paths: ["/settings/general", "/settings/appearance"],
   },
   {
     label: "Environments",
     paths: [
       "/settings/connections",
+      "/settings/environment",
+      "/settings/keybindings",
       "/settings/providers",
       "/settings/source-control",
       "/settings/scheduled-tasks",
@@ -173,7 +176,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         scrollToSettingsTarget(targetId);
         return;
       }
-      void navigate({ to: item.to, hash: targetId, replace: true, hashScrollIntoView: false });
+      void navigate({
+        to: item.to,
+        hash: targetId,
+        replace: true,
+        hashScrollIntoView: false,
+      });
     },
     [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
   );
