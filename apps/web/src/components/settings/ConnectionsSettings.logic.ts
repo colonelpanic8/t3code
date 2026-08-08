@@ -1,4 +1,20 @@
+import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
 import type { AdvertisedEndpoint, DesktopBridge, DesktopWslState } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+
+export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string | null {
+  switch (entry.target._tag) {
+    case "PrimaryConnectionTarget":
+      return entry.target.httpBaseUrl;
+    case "BearerConnectionTarget":
+      return Option.isSome(entry.profile) && entry.profile.value._tag === "BearerConnectionProfile"
+        ? entry.profile.value.httpBaseUrl
+        : null;
+    case "RelayConnectionTarget":
+    case "SshConnectionTarget":
+      return null;
+  }
+}
 
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
 
