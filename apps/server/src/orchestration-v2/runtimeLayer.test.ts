@@ -623,6 +623,30 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
       });
 
       yield* orchestrator.dispatch({
+        type: "thread.pin",
+        commandId: CommandId.make("runtime-layer-lifecycle-pin"),
+        threadId,
+        orderKey: "m",
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.pin.reorder",
+        commandId: CommandId.make("runtime-layer-lifecycle-pin-reorder"),
+        threadId,
+        orderKey: "t",
+      });
+      const reorderedShell = yield* orchestrator.getThreadShell(threadId);
+      assert.equal(reorderedShell?.pinOrderKey, "t");
+
+      yield* orchestrator.dispatch({
+        type: "thread.unpin",
+        commandId: CommandId.make("runtime-layer-lifecycle-unpin"),
+        threadId,
+      });
+      const unpinnedShell = yield* orchestrator.getThreadShell(threadId);
+      assert.isNull(unpinnedShell?.pinnedAt);
+      assert.isNull(unpinnedShell?.pinOrderKey);
+
+      yield* orchestrator.dispatch({
         type: "thread.settle",
         commandId: CommandId.make("runtime-layer-lifecycle-settle"),
         threadId,

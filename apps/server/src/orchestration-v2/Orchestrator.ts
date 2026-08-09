@@ -196,6 +196,7 @@ function commandThreadId(command: OrchestrationV2Command): ThreadId {
     case "thread.snooze":
     case "thread.unsnooze":
     case "thread.pin":
+    case "thread.pin.reorder":
     case "thread.unpin":
     case "thread.visit":
     case "thread.mark-unread":
@@ -1345,6 +1346,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.snooze"
           | "thread.unsnooze"
           | "thread.pin"
+          | "thread.pin.reorder"
           | "thread.unpin"
           | "thread.visit"
           | "thread.mark-unread"
@@ -1407,6 +1409,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.snooze" ||
         command.type === "thread.unsnooze" ||
         command.type === "thread.pin" ||
+        command.type === "thread.pin.reorder" ||
         command.type === "thread.unpin") &&
       thread.archivedAt !== null
     ) {
@@ -1530,6 +1533,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             settledOverride: "settled",
             settledAt: alreadySettled ? thread.settledAt : now,
             pinnedAt: null,
+            pinOrderKey: null,
             updatedAt: alreadySettled ? thread.updatedAt : now,
           };
         }
@@ -1573,6 +1577,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             pinnedAt: alreadyPinned ? thread.pinnedAt : now,
+            pinOrderKey: alreadyPinned
+              ? (thread.pinOrderKey ?? command.orderKey ?? null)
+              : (command.orderKey ?? thread.pinOrderKey ?? null),
             settledOverride:
               thread.settledOverride === "settled" ? "active" : thread.settledOverride,
             settledAt: thread.settledOverride === "settled" ? null : thread.settledAt,
@@ -1581,11 +1588,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: alreadyPinned && !promotes ? thread.updatedAt : now,
           };
         }
+        case "thread.pin.reorder":
+          return {
+            ...thread,
+            pinOrderKey: command.orderKey,
+            updatedAt: now,
+          };
         case "thread.unpin": {
           const alreadyUnpinned = thread.pinnedAt == null;
           return {
             ...thread,
             pinnedAt: null,
+            pinOrderKey: null,
             updatedAt: alreadyUnpinned ? thread.updatedAt : now,
           };
         }
@@ -1658,6 +1672,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.unsnoozed" as const;
         case "thread.pin":
           return "thread.pinned" as const;
+        case "thread.pin.reorder":
+          return "thread.pin-reordered" as const;
         case "thread.unpin":
           return "thread.unpinned" as const;
         case "thread.visit":

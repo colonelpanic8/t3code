@@ -77,8 +77,13 @@ export interface UnsettleThreadInput extends ThreadCommandInput {
   readonly reason: "user";
 }
 
-export type PinThreadInput = ThreadCommandInput;
+export interface PinThreadInput extends ThreadCommandInput {
+  readonly orderKey?: string;
+}
 export type UnpinThreadInput = ThreadCommandInput;
+export interface ReorderPinnedThreadInput extends ThreadCommandInput {
+  readonly orderKey: string;
+}
 
 export interface SnoozeThreadInput extends ThreadCommandInput {
   readonly snoozedUntil: string;
@@ -391,6 +396,17 @@ export const unpinThread = Effect.fn("EnvironmentCommands.unpinThread")(function
   input: UnpinThreadInput,
 ) {
   return yield* simpleThreadCommand("thread.unpin", input);
+});
+
+export const reorderPinnedThread = Effect.fn("EnvironmentCommands.reorderPinnedThread")(function* (
+  input: ReorderPinnedThreadInput,
+) {
+  return yield* dispatch({
+    type: "thread.pin.reorder",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    orderKey: input.orderKey,
+  });
 });
 
 export const unsettleThread = Effect.fn("EnvironmentCommands.unsettleThread")(function* (

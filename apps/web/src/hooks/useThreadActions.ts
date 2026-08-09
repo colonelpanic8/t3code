@@ -13,7 +13,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo, useRef } from "react";
 
-import { getFallbackThreadIdAfterDelete } from "../components/Sidebar.logic";
+import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
@@ -23,12 +23,14 @@ import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsStat
 import { readLocalApi } from "../localApi";
 import {
   readEnvironmentSupportsPinning,
+  readEnvironmentSupportsPinReorder,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
   readEnvironmentSupportsVisitedTracking,
   readEnvironmentThreadRefs,
   readProject,
   readThreadShell,
+  readThreadShells,
 } from "../state/entities";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -110,6 +112,24 @@ export class ThreadPinningUnsupportedError extends Schema.TaggedErrorClass<Threa
   }
 }
 
+function topOfPinnedRunOrderKey(): string | undefined {
+  let firstKey: string | null = null;
+  for (const shell of readThreadShells()) {
+    if (shell.pinnedAt == null || shell.pinOrderKey == null) continue;
+    if (firstKey === null || shell.pinOrderKey < firstKey) firstKey = shell.pinOrderKey;
+  }
+  return pinOrderKeyBetween(null, firstKey) ?? undefined;
+}
+
+export class ThreadPinReorderUnsupportedError extends Schema.TaggedErrorClass<ThreadPinReorderUnsupportedError>()(
+  "ThreadPinReorderUnsupportedError",
+  { environmentId: EnvironmentId, threadId: ThreadId },
+) {
+  override get message(): string {
+    return "This environment's server does not support reordering pinned threads yet. Update the server to reorder pins.";
+  }
+}
+
 /**
  * Marks a thread unread. Servers with visited tracking own the unread marker
  * (thread.mark-unread rewinds the server-side visited watermark, syncing the
@@ -157,6 +177,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const unpinThreadMutation = useAtomCommand(threadEnvironment.unpin, {
+    reportFailure: false,
+  });
+  const reorderPinnedThreadMutation = useAtomCommand(threadEnvironment.reorderPin, {
     reportFailure: false,
   });
   const snoozeThreadMutation = useAtomCommand(threadEnvironment.snooze, {
@@ -255,7 +278,7 @@ export function useThreadActions() {
   );
 
   const unarchiveThread = useCallback(
-    async (target: ScopedThreadRef) => {
+    async (target: ScopedThreadRef, opts: { orderKey?: string } = {}) => {
       const result = await unarchiveThreadMutation({
         environmentId: target.environmentId,
         input: { threadId: target.threadId },
@@ -534,7 +557,7 @@ export function useThreadActions() {
   );
 
   const pinThread = useCallback(
-    async (target: ScopedThreadRef) => {
+    async (target: ScopedThreadRef, opts: { orderKey?: string } = {}) => {
       // Version skew: never send the command to a server that predates it.
       if (!readEnvironmentSupportsPinning(target.environmentId)) {
         return AsyncResult.failure(
@@ -546,9 +569,12 @@ export function useThreadActions() {
           ),
         );
       }
+      const orderKey = readEnvironmentSupportsPinReorder(target.environmentId)
+        ? (opts.orderKey ?? topOfPinnedRunOrderKey())
+        : undefined;
       return pinThreadMutation({
         environmentId: target.environmentId,
-        input: { threadId: target.threadId },
+        input: { threadId: target.threadId, ...(orderKey !== undefined ? { orderKey } : {}) },
       });
     },
     [pinThreadMutation],
@@ -572,6 +598,26 @@ export function useThreadActions() {
       });
     },
     [unpinThreadMutation],
+  );
+
+  const reorderPinnedThread = useCallback(
+    async (target: ScopedThreadRef, orderKey: string) => {
+      if (!readEnvironmentSupportsPinReorder(target.environmentId)) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadPinReorderUnsupportedError({
+              environmentId: target.environmentId,
+              threadId: target.threadId,
+            }),
+          ),
+        );
+      }
+      return reorderPinnedThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, orderKey },
+      });
+    },
+    [reorderPinnedThreadMutation],
   );
 
   const snoozeThread = useCallback(
@@ -669,6 +715,7 @@ export function useThreadActions() {
       unsnoozeThread,
       pinThread,
       unpinThread,
+      reorderPinnedThread,
       markThreadUnread,
     }),
     [
@@ -681,6 +728,7 @@ export function useThreadActions() {
       snoozeThread,
       unarchiveThread,
       unpinThread,
+      reorderPinnedThread,
       unsettleThread,
       unsnoozeThread,
     ],

@@ -247,7 +247,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         );
   const databaseLayer = options.databaseLayer ?? SqlitePersistenceMemory;
   const serverSettingsLayer = ServerSettingsService.layerTest({
-    enableAssistantStreaming: options.enableAssistantStreaming ?? false,
+    enableLegacyTokenStreaming: options.enableAssistantStreaming ?? false,
   }).pipe(Layer.orDie);
   const storesLayer = Layer.mergeAll(
     eventStoreLayer,

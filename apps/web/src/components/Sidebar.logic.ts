@@ -591,6 +591,13 @@ export function sortThreadsForSidebarV2<
   );
 }
 
+export {
+  generateSpreadPinOrderKeys,
+  pinOrderKeyBetween,
+  planPinnedReorder,
+} from "@t3tools/client-runtime/state/thread-sort";
+export { sortPinnedThreadsByOrderKey as sortPinnedThreadsForSidebarV2 } from "@t3tools/client-runtime/state/thread-sort";
+
 /**
  * Search the already-ordered sidebar thread collection by title only.
  * Keeping the input order means lifecycle ordering (active, snoozed, settled)

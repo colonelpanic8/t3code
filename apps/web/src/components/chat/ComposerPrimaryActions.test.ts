@@ -110,6 +110,24 @@ describe("formatPendingPrimaryActionLabel", () => {
 });
 
 describe("active-turn primary action", () => {
+  it("shows stop while a running turn is waiting for user input", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ComposerPrimaryActions, {
+        ...activeTurnProps,
+        isRunning: true,
+        pendingAction: {
+          questionIndex: 0,
+          isLastQuestion: true,
+          canAdvance: false,
+          isResponding: false,
+          isComplete: false,
+        },
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Stop generation"');
+  });
+
   it("shows stop while the active composer is empty", () => {
     const markup = renderToStaticMarkup(
       createElement(ComposerPrimaryActions, {
