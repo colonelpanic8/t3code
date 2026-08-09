@@ -6707,6 +6707,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.snooze":
       case "thread.unsnooze":
       case "thread.pin":
+      case "thread.pin.reorder":
       case "thread.unpin":
       case "thread.visit":
       case "thread.mark-unread":
