@@ -7,6 +7,7 @@ import {
   type ThreadId as ThreadIdType,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -117,6 +118,14 @@ function shouldPersistThread(
   );
 }
 
+const RETRY_BASE_MILLIS = 250;
+const RETRY_CAP_NO_DATA_MILLIS = 2_000;
+const RETRY_CAP_WITH_DATA_MILLIS = 10_000;
+
+function retrySubscribeBackoff(attempt: number, capMillis: number): Duration.Duration {
+  return Duration.millis(Math.min(RETRY_BASE_MILLIS * 2 ** attempt, capMillis));
+}
+
 export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make")(function* (
   threadId: ThreadIdType,
 ) {
@@ -145,6 +154,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     onNone: () => EMPTY_THREAD_HISTORY_META,
     onSome: historyMetaFromCachedSnapshot,
   });
+  let hasData = Option.isSome(cachedThread) && cachedThread.value.messages.length > 0;
   const state = yield* SubscriptionRef.make<EnvironmentThreadState>({
     data: cachedThread,
     status: statusWithoutLiveData(cachedThread),
@@ -230,6 +240,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       readonly history?: ThreadHistoryMeta;
     },
   ) {
+    hasData = thread.messages.length > 0;
     const waiting = yield* Ref.get(awaitingCompletion);
     // Atomic with concurrent history meta updates: never get-then-set the whole
     // state when only the projection changes. Bounded installs pass history so
@@ -265,6 +276,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     }));
 
   const setDeleted = Effect.fn("EnvironmentThreadState.setDeleted")(function* () {
+    hasData = false;
     yield* Ref.set(awaitingCompletion, false);
     yield* SubscriptionRef.set(state, {
       data: Option.none(),
@@ -577,7 +589,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
         yield* setSynchronizing;
 
-        if (Option.isNone(current.data)) {
+        const needsSnapshot =
+          Option.isNone(current.data) || current.data.value.messages.length === 0;
+        if (needsSnapshot) {
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
             Effect.flatMap(
               Option.match({
@@ -648,7 +662,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       }),
       {
         onExpectedFailure: setStreamError,
-        retryExpectedFailureAfter: "250 millis",
+        retryExpectedFailureAfter: (attempt) =>
+          retrySubscribeBackoff(
+            attempt,
+            hasData ? RETRY_CAP_WITH_DATA_MILLIS : RETRY_CAP_NO_DATA_MILLIS,
+          ),
         resubscribe: foregroundResubscriptions,
       },
     ).pipe(Stream.runForEach(applyItem)),
