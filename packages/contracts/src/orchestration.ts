@@ -1,6 +1,5 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as Struct from "effect/Struct";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -27,7 +26,7 @@ import {
   RuntimeMode,
 } from "./providerPolicy.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
-import { Project, ProjectScript } from "./project.ts";
+import { Project, ProjectFaviconPath, ProjectScript } from "./project.ts";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 import {
   ApplicationEventMetadata,
@@ -37,6 +36,7 @@ import {
 } from "./applicationEvent.ts";
 
 export { OrchestrationProjectShell } from "./orchestrationProject.ts";
+export { ProjectFaviconPath } from "./project.ts";
 
 export {
   ApplicationProjectCreatedPayload as ProjectCreatedPayload,
@@ -59,7 +59,7 @@ export {
 export const CorrelationId = CommandId;
 export type CorrelationId = typeof CorrelationId.Type;
 
-export const OrchestrationProject = Project.mapFields(Struct.omit(["faviconPath"]));
+export const OrchestrationProject = Project;
 export type OrchestrationProject = typeof OrchestrationProject.Type;
 
 export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
@@ -411,6 +411,8 @@ export const ProjectMetaUpdateCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  defaultThreadEnvMode: Project.fields.defaultThreadEnvMode,
+  faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });
 
@@ -665,6 +667,7 @@ const ThreadSessionStopCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
+  onlyIfSettled: Schema.optional(Schema.Boolean),
 });
 
 const DispatchableClientOrchestrationCommand = Schema.Union([

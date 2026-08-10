@@ -250,6 +250,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           title: command.title,
           workspaceRoot: command.workspaceRoot,
           defaultModelSelection: command.defaultModelSelection ?? null,
+          faviconPath: null,
           scripts: command.scripts ?? [],
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
@@ -287,6 +288,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
+          ...(command.defaultThreadEnvMode !== undefined
+            ? { defaultThreadEnvMode: command.defaultThreadEnvMode }
+            : {}),
+          ...(command.faviconPath !== undefined ? { faviconPath: command.faviconPath } : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
           updatedAt: occurredAt,
         },
@@ -1116,11 +1121,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.session.stop": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (command.onlyIfSettled === true) {
+        const sessionComingAlive =
+          thread.session?.status === "starting" || thread.session?.status === "running";
+        if (
+          thread.settledOverride !== "settled" ||
+          sessionComingAlive ||
+          threadHasQueuedTurnStart(thread, command.createdAt)
+        ) {
+          return yield* Effect.fail(
+            new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: `thread ${command.threadId} was re-engaged after settle; skipping session stop`,
+            }),
+          );
+        }
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",

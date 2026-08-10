@@ -10,6 +10,7 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   activeProjectName: string | undefined;
   activeProjectCwd: string | null;
+  activeProjectFaviconPath: string | null;
   rightPanelOpen: boolean;
   onNewThreadInProject: () => void;
 }
@@ -19,6 +20,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   activeProjectName,
   activeProjectCwd,
+  activeProjectFaviconPath,
   rightPanelOpen,
   onNewThreadInProject,
 }: ChatHeaderProps) {
@@ -49,6 +51,7 @@ export const ChatHeader = memo(function ChatHeader({
                 <ProjectFavicon
                   environmentId={activeThreadEnvironmentId}
                   cwd={activeProjectCwd ?? ""}
+                  faviconPath={activeProjectFaviconPath}
                   className="size-3.5"
                 />
                 <span className="max-w-40 truncate text-sm font-medium">{activeProjectName}</span>

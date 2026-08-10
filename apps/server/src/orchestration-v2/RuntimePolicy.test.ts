@@ -64,6 +64,8 @@ const TestLayer = layerFromProjectRepository.pipe(
             projectId,
             title: "Project",
             workspaceRoot: "/project-root",
+            defaultThreadEnvMode: null,
+            faviconPath: null,
             defaultModelSelection: null,
             scripts: [],
             createdAt: "2026-06-21T00:00:00.000Z",

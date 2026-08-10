@@ -267,6 +267,7 @@ function projectFaviconIcon(project: Project): ReactNode {
     <ProjectFavicon
       environmentId={project.environmentId}
       cwd={project.workspaceRoot}
+      faviconPath={project.faviconPath}
       className={ITEM_ICON_CLASS}
     />
   );
@@ -1504,6 +1505,31 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/settings" });
     },
   });
+
+  const contextualProjectGroup =
+    (contextualProjectRef
+      ? projectGroupByTargetKey.get(
+          `${contextualProjectRef.environmentId}:${contextualProjectRef.projectId}`,
+        )
+      : null) ??
+    projectGroups[0] ??
+    null;
+  if (contextualProjectGroup) {
+    actionItems.push({
+      kind: "action",
+      value: "action:project-settings",
+      searchTerms: ["project", "settings", "scripts", "model", "grouping", "checkout"],
+      title: "Project settings",
+      description: contextualProjectGroup.displayName,
+      icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/projects/$projectKey",
+          params: { projectKey: contextualProjectGroup.projectKey },
+        });
+      },
+    });
+  }
 
   const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
   const sourceSelectionViewValue =

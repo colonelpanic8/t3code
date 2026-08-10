@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { RepositoryIdentity } from "./environment.ts";
+import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
   CommandId,
@@ -37,12 +37,19 @@ export const ProjectScript = Schema.Struct({
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
+export const ProjectFaviconPath = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(1024),
+  Schema.isPattern(/\.(?:avif|gif|ico|jpe?g|png|svg|webp)$/i),
+);
+export type ProjectFaviconPath = typeof ProjectFaviconPath.Type;
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
-  faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+  faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -76,6 +83,8 @@ export const ProjectMutation = Schema.Union([
     workspaceRoot: TrimmedNonEmptyString,
     createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
     defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+    defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+    faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
     scripts: Schema.optional(Schema.Array(ProjectScript)),
   }),
   Schema.Struct({
@@ -85,6 +94,8 @@ export const ProjectMutation = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
     workspaceRoot: Schema.optional(TrimmedNonEmptyString),
     defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+    defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
+    faviconPath: Schema.optional(Schema.NullOr(ProjectFaviconPath)),
     scripts: Schema.optional(Schema.Array(ProjectScript)),
   }),
   Schema.Struct({
@@ -115,6 +126,7 @@ export const ProjectSearchEntriesInput = Schema.Struct({
   query: TrimmedString.check(Schema.isMaxLength(256)),
   limit: PositiveInt.check(Schema.isLessThanOrEqualTo(PROJECT_SEARCH_ENTRIES_MAX_LIMIT)),
   kind: Schema.optional(ProjectEntryKind),
+  imageOnly: Schema.optional(Schema.Boolean),
 });
 export type ProjectSearchEntriesInput = typeof ProjectSearchEntriesInput.Type;
 
