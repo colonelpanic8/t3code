@@ -28,6 +28,7 @@ import {
   type VcsStatusResult,
 } from "@t3tools/contracts";
 
+import * as ServerSettings from "../serverSettings.ts";
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -159,6 +160,7 @@ export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -347,7 +349,14 @@ export const make = Effect.gen(function* () {
       ),
     createWorktree: (input, options) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
-        Effect.andThen(gitManager.createWorktree(input, options)),
+        Effect.andThen(
+          input.path === null && options?.pathTemplate === undefined
+            ? ServerSettings.readWorktreePathTemplate(serverSettings).pipe(
+                Effect.map((pathTemplate) => ({ ...options, pathTemplate })),
+              )
+            : Effect.succeed(options),
+        ),
+        Effect.flatMap((resolvedOptions) => gitManager.createWorktree(input, resolvedOptions)),
       ),
     listLocalBranchNames: (cwd) =>
       ensureGitCommand("GitWorkflowService.listLocalBranchNames", cwd).pipe(

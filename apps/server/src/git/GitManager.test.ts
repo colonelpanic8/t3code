@@ -831,6 +831,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
               Layer.provide(VcsProcess.layer),
             ),
           ),
+          Layer.provide(ServerSettings.layerTest()),
         ),
       );
       const broadcasterContext = yield* Layer.build(

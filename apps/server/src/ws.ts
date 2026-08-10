@@ -98,6 +98,7 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
+  VcsRepositoryDetectionError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -1311,6 +1312,24 @@ const layerWsRpc = (
           }).pipe(Effect.as(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
         ),
       );
+      const addReviewWorkspacePaths = <T extends { readonly cwd: string }>(input: T) =>
+        Effect.all({
+          repositoryRoots: projectStore
+            .list()
+            .pipe(Effect.map((projects) => projects.map((project) => project.workspaceRoot))),
+          knownWorktreePaths: projectStore.listActiveThreadWorktreePaths(),
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new VcsRepositoryDetectionError({
+                operation: "review.workspacePaths",
+                cwd: input.cwd,
+                detail: "Failed to load project paths required to validate the review workspace.",
+                cause,
+              }),
+          ),
+          Effect.map((paths) => ({ ...input, ...paths })),
+        );
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
@@ -2840,8 +2859,10 @@ const layerWsRpc = (
           gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsInit]: (input) =>
           vcsProvisioning.initRepository(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
-        [WS_METHODS.reviewGetDiffPreview]: (input) => review.getDiffPreview(input),
-        [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
+        [WS_METHODS.reviewGetDiffPreview]: (input) =>
+          addReviewWorkspacePaths(input).pipe(Effect.flatMap(review.getDiffPreview)),
+        [WS_METHODS.reviewGetDiffFileContents]: (input) =>
+          addReviewWorkspacePaths(input).pipe(Effect.flatMap(review.getDiffFileContents)),
         [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
         [WS_METHODS.terminalAttach]: (input) =>
           Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>

@@ -15,6 +15,7 @@ import {
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_WORKTREE_PATH_TEMPLATE,
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -350,6 +351,17 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
       subscribeChanges: Effect.succeed(Stream.empty),
     } satisfies ServerSettingsService["Service"];
   });
+
+/** The configured worktree path template; falls back to the default when settings cannot be read. */
+export const readWorktreePathTemplate = (serverSettings: ServerSettingsService["Service"]) =>
+  serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.worktreePathTemplate),
+    Effect.catch((cause) =>
+      Effect.logWarning("Failed to read worktree path template; using the default", {
+        cause,
+      }).pipe(Effect.as(DEFAULT_WORKTREE_PATH_TEMPLATE)),
+    ),
+  );
 
 export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
   Layer.effect(ServerSettingsService, makeTest(overrides));
