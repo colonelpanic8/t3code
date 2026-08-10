@@ -3,6 +3,7 @@ import { type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { ProviderInstanceEntry } from "../../providerInstances";
+import { modelPickerModelKey } from "./modelPickerKeys";
 
 let capturedExtraData: unknown;
 
@@ -123,8 +124,8 @@ describe("ModelPickerContent", () => {
         activeInstanceId: instanceId,
         activeModel: "gpt-5.6-sol",
         modelJumpLabelByKey: new Map([
-          [`${instanceId}:gpt-5.6-sol`, "Ctrl+1"],
-          [`${instanceId}:gpt-5.6-luna`, "Ctrl+2"],
+          [modelPickerModelKey(instanceId, "gpt-5.6-sol"), "⌃1"],
+          [modelPickerModelKey(instanceId, "gpt-5.6-luna"), "⌃2"],
         ]),
       }),
     );
