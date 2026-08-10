@@ -141,6 +141,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
     >
       <div
         ref={listRef}
+        data-composer-command-menu={props.items.length > 0 ? "" : undefined}
         className="dropdown-glass relative w-full overflow-hidden rounded-[20px] **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
       >
         {props.items.length > 0 ? (
