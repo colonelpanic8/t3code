@@ -28,6 +28,7 @@ export interface ThreadActionMenuState {
   readonly isSettled: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
+  readonly includeCustomSnooze?: boolean;
   readonly isRegeneratingTitle: boolean;
   readonly supports: {
     readonly settlement: boolean;
@@ -80,10 +81,15 @@ export function buildThreadActionMenuItems(
                 id: "snooze" as const,
                 label: "Snooze",
                 disabled: !state.canSnoozeNow,
-                children: state.snoozePresets.map((preset) => ({
-                  id: `snooze:${preset.id}` as const,
-                  label: `${preset.label} (${preset.whenLabel})`,
-                })),
+                children: [
+                  ...state.snoozePresets.map((preset) => ({
+                    id: `snooze:${preset.id}` as const,
+                    label: `${preset.label} (${preset.whenLabel})`,
+                  })),
+                  ...(state.includeCustomSnooze
+                    ? [{ id: "snooze:custom" as const, label: "Custom time…" }]
+                    : []),
+                ],
               },
         ]
       : []),
