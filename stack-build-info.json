@@ -1,0 +1,218 @@
+{
+  "entries": [
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4259",
+      "commit": "f6fb5057ddaed6f98dccc89ed90ab55e99d94897",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4259",
+      "pr": 4259,
+      "status": "merged",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4257",
+      "commit": "2bd668035e4ba11b9ca45984d602e79096301983",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4257",
+      "pr": 4257,
+      "status": "merged",
+      "summary": "Directory-path Tab completion"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4277",
+      "commit": "58d2f4c9c0035031c21257069e5c6a0ee3ccd1e2",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4277",
+      "pr": 4277,
+      "status": "merged",
+      "summary": "Settle the open thread with Mod+Shift+X"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4324",
+      "commit": "7e662726b605d92ec3ea59e3204cc1fe6fdbab22",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4324",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar-v2 project icons"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4332",
+      "commit": "485ecbdc7818f14b9c8becc666a1d3a29ba26cd3",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4332",
+      "pr": 4332,
+      "status": "merged",
+      "summary": "Android adaptive launcher icon"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4388",
+      "commit": "9a914dadbf51a2b32cf83248131d90f1ec3b9a9a",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4388",
+      "pr": 4388,
+      "status": "merged",
+      "summary": "Keep the Android new-task composer above the keyboard"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4394",
+      "commit": "29cafcfd3f622211ed358e15b0cfff8952488e0d",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4394",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N and Ctrl-P"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4405",
+      "commit": "e74921f6cc7204c6dc53ba209510ff5881f1ff4a",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4405",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Harden thread-detail loading and subscriptions"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4602",
+      "commit": "7bec1d7ea9b4ebb611918cf1cf1564c0d7ac7f45",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4602",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4447",
+      "commit": "b4182595635eb3a472ff1ec92d541f677660afe6",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4447",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task flow on mobile"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4433",
+      "commit": "efdb587ec66fab9516a59a3066b64104ec37a89c",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4433",
+      "pr": 4433,
+      "status": "merged",
+      "summary": "Refresh positional model-picker shortcuts"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4701",
+      "commit": "29b556e77d2318094502d83b9115bbb4612944fd",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4701",
+      "pr": 4701,
+      "status": "merged",
+      "summary": "Render shortcuts with Apple glyphs"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4439",
+      "commit": "6f999658a6c44f06161884bae5fdd6db3a0b0bf4",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4439",
+      "note": "Rebased port with obsolete orchestration-v1 files removed.",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configurable worktree placement"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4437",
+      "commit": "ebd38bd7b34042d3f38ae64a207c9684c3661fcd",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4437",
+      "note": "Rebased port with the obsolete orchestration-v1 documentation removed.",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "XDG storage layout"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4482",
+      "commit": "bb3d8f3e0111c6d967852b814cdc608924fb4c54",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4482",
+      "pr": 4482,
+      "status": "merged",
+      "summary": "Refresh the sidebar resize cap after window growth"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4487",
+      "commit": "9d0b0527a084e1b7277d726a6a9901081b88db4b",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4487",
+      "pr": 4487,
+      "status": "merged",
+      "summary": "Filter non-interactive Codex models"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4494",
+      "commit": "652f448a4f4380cae682a1f9fe6026b27c224498",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4494",
+      "pr": 4494,
+      "status": "merged",
+      "summary": "Keep rapid provider-settings edits from reverting"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4699",
+      "commit": "c652d55789b48d5c7130f4771be2de2d984420d0",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4699",
+      "pr": 4699,
+      "status": "merged",
+      "summary": "Self-contained Nix flake"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/client-environment-suite",
+      "commit": "77d4b2241585b285224c51e30f558fa059f8d91a",
+      "fixup": "patches/orchestration-v2-main-client-environment-suite.patch",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/client-environment-suite",
+      "note": "Canonical v2-native replacement for the overlapping #4444, #4474, #4486, #4496, #4505, #4538, #4548, #4559, and #4567 branches. Their individual shadow refs remain available but are not replayed twice.",
+      "status": "merged",
+      "summary": "Orchestration-v2 client, environment, discovery, and pairing suite"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4677",
+      "commit": "35ae05453ce1ba67b8cd0f58a48b8cc7608d3495",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4677",
+      "pr": 4677,
+      "status": "merged",
+      "summary": "Custom snooze times"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4593",
+      "commit": "88857f13265e870ef5d02fb076e8ddb137fb45fd",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4593",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state after a settle does not land"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4631",
+      "commit": "a0cc996d03be78e3b80385c180bc7b99bc10e24a",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4631",
+      "pr": 4631,
+      "status": "merged",
+      "summary": "Render markdown images from workspace files"
+    }
+  ],
+  "fork": {
+    "branch": "orchestrator-assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "f7e4fdb447d3ba50a265803f09e8edee05ca3bef",
+    "date": "2026-08-09T22:19:12-07:00",
+    "ref": "t3code/orchestration-v2-main/base",
+    "remote": "https://github.com/colonelpanic8/t3code",
+    "subject": "Merge latest upstream main into orchestration v2 base"
+  }
+}
