@@ -68,6 +68,7 @@ import {
   ExistingThreadSettingsRouteScreen,
   NewTaskThreadSettingsRouteScreen,
 } from "./features/threads/ThreadSettingsSheet";
+import { NewTaskEnvironmentRouteScreen } from "./features/threads/NewTaskEnvironmentRouteScreen";
 import { NewTaskFlowProvider } from "./features/threads/new-task-flow-provider";
 import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
@@ -449,8 +450,15 @@ const NewTaskSheetStack = createNativeStackNavigator({
   },
   screens: {
     NewTask: createNativeStackScreen({
-      screen: NewTaskRouteScreen,
+      screen: NewTaskEnvironmentRouteScreen,
       linking: "",
+      options: {
+        title: "Choose environment",
+      },
+    }),
+    NewTaskProject: createNativeStackScreen({
+      screen: NewTaskRouteScreen,
+      linking: "projects/:environmentId",
       options: {
         title: "Choose project",
       },
@@ -873,7 +881,7 @@ const RootStackConfig = createNativeStackNavigator({
     NewTaskSheet: createNativeStackScreen({
       screen: NewTaskSheetStack,
       linking: "new",
-      // The whole new-task flow (choose project → draft → add project) shares
+      // The whole new-task flow (choose environment → project → draft → add project) shares
       // draft state via NewTaskFlowProvider. The expo-router era mounted it in
       // app/new/_layout.tsx; this layout wrapper is the native-stack equivalent.
       // A screen's layout replaces the navigator's screenLayout.
