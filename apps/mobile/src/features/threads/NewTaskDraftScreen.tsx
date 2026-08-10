@@ -364,8 +364,12 @@ export function NewTaskDraftScreen(props: {
     // Let usePreventRemove commit its disabled state before replacing this
     // route, otherwise the transfer guard can swallow the fallback action.
     const frame = requestAnimationFrame(() => {
+      const environmentId = props.initialProjectRef?.environmentId;
       navigation.dispatch(
-        StackActions.replace("NewTaskProject", { incomingShareId: props.incomingShareId }),
+StackActions.replace("NewTaskProject", {
+          environmentId,
+          incomingShareId: props.incomingShareId,
+        }),
       );
     });
     return () => cancelAnimationFrame(frame);
@@ -373,6 +377,7 @@ export function NewTaskDraftScreen(props: {
     isReturningToProjectPicker,
     navigation,
     props.incomingShareId,
+    props.initialProjectRef?.environmentId,
     requestedInitialProjectAvailable,
   ]);
   useEffect(() => {
