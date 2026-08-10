@@ -139,6 +139,7 @@ import {
   RECENT_THREAD_LIMIT,
   reduceCommandPaletteUiState,
   type SearchOverlayMode,
+  resolveBrowseTabCompletion,
 } from "./CommandPalette.logic";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
@@ -2288,6 +2289,30 @@ function OpenCommandPaletteDialog(props: {
       event.stopPropagation();
       setOpen(false);
       void copyActiveThreadReference();
+      return;
+    }
+
+    const isPlainTab =
+      event.key === "Tab" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+
+    if (isBrowsing && isPlainTab) {
+      event.preventDefault();
+
+      if (relativePathNeedsActiveProject || (isBrowsePending && browseResult === null)) {
+        return;
+      }
+
+      const completion = resolveBrowseTabCompletion({
+        allowFirstEntryFallback: browsePath.filterQuery.length > 0,
+        exactEntry: exactBrowseEntry,
+        filteredEntries: visibleBrowseEntries,
+        highlightedItemValue,
+      });
+      if (completion?.kind === "up") {
+        browseUp();
+      } else if (completion?.kind === "entry") {
+        browseTo(completion.entry.name);
+      }
       return;
     }
 
