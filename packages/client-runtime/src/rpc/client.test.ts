@@ -574,6 +574,71 @@ describe("environment RPC", () => {
     }),
   );
 
+  it.effect("uses a caller-supplied retry delay for each consecutive failure", () =>
+    Effect.gen(function* () {
+      const domainError = new Error("thread not found yet");
+      const subscriptionCount = yield* Ref.make(0);
+      const client = {
+        [WS_METHODS.subscribeTerminalEvents]: () =>
+          Stream.unwrap(
+            Ref.update(subscriptionCount, (count) => count + 1).pipe(
+              Effect.as(Stream.fail(domainError)),
+            ),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+      const awaitSubscriptions = Effect.fn("TestEnvironmentRpc.awaitSubscriptions")(function* (
+        count: number,
+      ) {
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if ((yield* Ref.get(subscriptionCount)) >= count) {
+            return;
+          }
+          yield* Effect.yieldNow;
+        }
+        return yield* Effect.die(new Error(`Expected ${count} subscriptions.`));
+      });
+      const settle = Effect.gen(function* () {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          yield* Effect.yieldNow;
+        }
+      });
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      const subscriptionFiber = yield* subscribe(
+        WS_METHODS.subscribeTerminalEvents,
+        {},
+        {
+          onExpectedFailure: () => Effect.void,
+          retryExpectedFailureAfter: (attempt) => 100 * 2 ** attempt,
+        },
+      ).pipe(
+        Stream.runDrain,
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      yield* awaitSubscriptions(1);
+      yield* settle;
+
+      // First failure retries after the base delay.
+      yield* TestClock.adjust("100 millis");
+      yield* awaitSubscriptions(2);
+      yield* settle;
+
+      // The second failure asks for 200ms and gets exactly that, not a
+      // further doubling.
+      yield* TestClock.adjust("100 millis");
+      yield* settle;
+      expect(yield* Ref.get(subscriptionCount)).toBe(2);
+
+      yield* TestClock.adjust("100 millis");
+      yield* awaitSubscriptions(3);
+      yield* Fiber.interrupt(subscriptionFiber);
+
+      expect(yield* Ref.get(subscriptionCount)).toBe(3);
+    }),
+  );
+
   it.effect.each(["input", "stream"] as const)(
     "does not classify %s subscription defects as expected failures",
     (where) =>
