@@ -37,6 +37,7 @@ import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { isElectron } from "../../env";
 import { usePrimarySessionState } from "../../environments/primary";
 import { useEnvironmentSettings, useUpdateEnvironmentSettings } from "../../hooks/useSettings";
+import { useSettingsEnvironment } from "../../hooks/useSettingsEnvironment";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
 import {
@@ -191,19 +192,14 @@ function EnvironmentUnavailableRow({
 export function ProviderSettingsPanel() {
   const { environments, isReady } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const { environmentId: settingsEnvironmentId, selectEnvironment } = useSettingsEnvironment();
   const options = useMemo(
     () => buildProviderEnvironmentOptions(environments, primaryEnvironmentId),
     [environments, primaryEnvironmentId],
   );
-  // Raw user intent; the effective selection is re-derived every render so a
-  // device that drops out of the catalog falls back without erasing the pick —
-  // if it reappears (e.g. after a reconnect) the selection is restored.
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
-    primaryEnvironmentId,
-  );
   const effectiveEnvironmentId = resolveSelectedProviderEnvironmentId(
     options,
-    selectedEnvironmentId,
+    settingsEnvironmentId,
     primaryEnvironmentId,
   );
   const selectedEnvironment =
@@ -243,7 +239,7 @@ export function ProviderSettingsPanel() {
                         ? "bg-primary/8 ring-1 ring-primary/25 dark:bg-primary/12"
                         : "hover:bg-muted/40",
                     )}
-                    onClick={() => setSelectedEnvironmentId(environment.environmentId)}
+                    onClick={() => selectEnvironment(environment.environmentId)}
                   >
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground">
                       <Icon className="size-4" aria-hidden />

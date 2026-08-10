@@ -45,7 +45,7 @@ import {
 } from "~/themePalette";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
-import { usePrimaryEnvironment } from "~/state/environments";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 
@@ -59,7 +59,10 @@ let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
 let clientSettingsHydrated = false;
 let clientSettingsHydrationPromise: Promise<void> | null = null;
 let clientSettingsHydrationGeneration = 0;
-const serverSettingsWriteQueueByEnvironment = new Map<EnvironmentId, Promise<void>>();
+const serverSettingsWriteQueueByEnvironment = new Map<
+  EnvironmentId,
+  Promise<void>
+>();
 
 function emitClientSettingsChange() {
   for (const listener of clientSettingsListeners) {
@@ -121,18 +124,25 @@ async function hydrateClientSettings(): Promise<void> {
   const hydrationGeneration = clientSettingsHydrationGeneration;
   const nextHydration = (async () => {
     try {
-      const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
+      const persistedSettings =
+        await ensureLocalApi().persistence.getClientSettings();
       if (hydrationGeneration !== clientSettingsHydrationGeneration) {
         return;
       }
       if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
+        replaceClientSettingsSnapshot({
+          ...DEFAULT_CLIENT_SETTINGS,
+          ...persistedSettings,
+        });
       }
     } catch (error) {
-      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, {
-        operation: "hydrate",
-        ...safeErrorLogAttributes(error),
-      });
+      console.error(
+        `${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`,
+        {
+          operation: "hydrate",
+          ...safeErrorLogAttributes(error),
+        },
+      );
     } finally {
       if (hydrationGeneration === clientSettingsHydrationGeneration) {
         setClientSettingsHydrated(true);
@@ -155,17 +165,23 @@ function persistClientSettings(settings: ClientSettings): void {
   void ensureLocalApi()
     .persistence.setClientSettings(settings)
     .catch((error) => {
-      console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`, {
-        operation: "persist",
-        ...safeErrorLogAttributes(error),
-      });
+      console.error(
+        `${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} persist failed`,
+        {
+          operation: "persist",
+          ...safeErrorLogAttributes(error),
+        },
+      );
     });
 }
 
 function usePendingServerPatches(
   environmentId: EnvironmentId | null,
 ): ReadonlyArray<PendingServerPatch> {
-  const getSnapshot = useCallback(() => getPendingServerPatches(environmentId), [environmentId]);
+  const getSnapshot = useCallback(
+    () => getPendingServerPatches(environmentId),
+    [environmentId],
+  );
   return useSyncExternalStore(
     subscribePendingServerPatches,
     getSnapshot,
@@ -173,9 +189,23 @@ function usePendingServerPatches(
   );
 }
 
+function updateClientSettings(
+  deriveSettings: (settings: ClientSettings) => ClientSettings,
+): void {
+  if (!clientSettingsHydrated) {
+    void hydrateClientSettings().then(() => {
+      updateClientSettings(deriveSettings);
+    });
+    return;
+  }
+
+  persistClientSettings(deriveSettings(getClientSettingsSnapshot()));
+}
 // ── Key sets for routing patches ─────────────────────────────────────
 
-const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
+const SERVER_SETTINGS_KEYS = new Set<string>(
+  Struct.keys(ServerSettings.fields),
+);
 
 function splitPatch(patch: UnifiedSettingsPatch): {
   serverPatch: ServerSettingsPatch;
@@ -253,14 +283,20 @@ function useMergedSettings<T>(
     [clientSettings, optimisticServerSettings],
   );
 
-  return useMemo(() => (selector ? selector(merged) : (merged as T)), [merged, selector]);
+  return useMemo(
+    () => (selector ? selector(merged) : (merged as T)),
+    [merged, selector],
+  );
 }
 
 export function useClientSettings<T = ClientSettings>(
   selector?: (settings: ClientSettings) => T,
 ): T {
   const settings = useClientSettingsValue();
-  return useMemo(() => (selector ? selector(settings) : (settings as T)), [selector, settings]);
+  return useMemo(
+    () => (selector ? selector(settings) : (settings as T)),
+    [selector, settings],
+  );
 }
 
 export function resolveEnvironmentIdentificationMode(input: {
@@ -273,7 +309,9 @@ export function resolveEnvironmentIdentificationMode(input: {
   if (!input.settingsHydrated) return "none";
   // Stage artwork has fixed colors that can clash with palette themes. Keep an
   // explicit "none", but use the theme-aware pill in place of artwork.
-  return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
+  return input.paletteThemeActive &&
+    !input.paletteThemeAllowsArtwork &&
+    input.mode === "artwork"
     ? "pill"
     : input.mode;
 }
@@ -292,7 +330,8 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
   return resolveEnvironmentIdentificationMode({
     mode,
     settingsHydrated,
-    paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
+    paletteThemeActive:
+      previewSidebarArtwork !== null || activeThemeDefinition !== null,
     paletteThemeAllowsArtwork:
       previewSidebarArtwork ?? activeThemeDefinition?.sidebarArtwork === true,
   });
@@ -315,19 +354,29 @@ export function useLegacySidebarEnabled(): boolean {
 
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
-  return useMergedSettings(environmentId, serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
+  const serverSettings = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+  )?.settings;
+  return useMergedSettings(
+    environmentId,
+    serverSettings ?? DEFAULT_SERVER_SETTINGS,
+    selector,
+  );
 }
 
 /** Primary-only settings access for the settings UI and other explicitly global surfaces. */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
-  return useMergedSettings(environmentId, useAtomValue(primaryServerSettingsAtom), selector);
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
+  return useMergedSettings(
+    environmentId,
+    useAtomValue(primaryServerSettingsAtom),
+    selector,
+  );
 }
 
 /**
@@ -361,10 +410,14 @@ function useUpdateSettingsTarget(
             serverSettings,
           );
           const previous =
-            serverSettingsWriteQueueByEnvironment.get(environmentId) ?? Promise.resolve();
+            serverSettingsWriteQueueByEnvironment.get(environmentId) ??
+            Promise.resolve();
           const current = previous
             .then(async () => {
-              const pendingPatch = getPendingServerPatchForDispatch(environmentId, pendingId);
+              const pendingPatch = getPendingServerPatchForDispatch(
+                environmentId,
+                pendingId,
+              );
               if (!pendingPatch) return;
               const result = await persistServerSettings({
                 environmentId,
@@ -381,17 +434,20 @@ function useUpdateSettingsTarget(
             });
           serverSettingsWriteQueueByEnvironment.set(environmentId, current);
           void current.finally(() => {
-            if (serverSettingsWriteQueueByEnvironment.get(environmentId) === current) {
+            if (
+              serverSettingsWriteQueueByEnvironment.get(environmentId) ===
+              current
+            ) {
               serverSettingsWriteQueueByEnvironment.delete(environmentId);
             }
           });
         }
       }
       if (Object.keys(clientPatch).length > 0) {
-        persistClientSettings({
-          ...getClientSettingsSnapshot(),
+        updateClientSettings((settings) => ({
+          ...settings,
           ...clientPatch,
-        });
+        }));
       }
     },
     [environmentId, persistServerSettings, serverSettings],
@@ -400,14 +456,17 @@ function useUpdateSettingsTarget(
   return updateSettings;
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
+export function useUpdateEnvironmentSettings(
+  environmentId: EnvironmentId | null,
+) {
   const serverSettings =
-    useAtomValue(serverEnvironment.settingsValueAtom(environmentId)) ?? DEFAULT_SERVER_SETTINGS;
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings ??
+    DEFAULT_SERVER_SETTINGS;
   return useUpdateSettingsTarget(environmentId, serverSettings);
 }
 
 export function useUpdatePrimarySettings() {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
   return useUpdateSettingsTarget(
     environmentId,
     useAtomValue(primaryServerSettingsAtom),
@@ -416,11 +475,32 @@ export function useUpdatePrimarySettings() {
 
 export function useUpdateClientSettings() {
   return useCallback((patch: ClientSettingsPatch) => {
-    persistClientSettings({
-      ...getClientSettingsSnapshot(),
+    updateClientSettings((settings) => ({
+      ...settings,
       ...patch,
-    });
+    }));
   }, []);
+}
+
+/**
+ * Client-settings updater whose patch is derived from the settings in effect at
+ * call time rather than at render time.
+ *
+ * Use it whenever the new value is computed from the old one — merging one key
+ * into a record, toggling a flag. Deriving from a render-time snapshot loses
+ * writes when two updates run before React re-renders, because both start from
+ * the same stale value and the second overwrites the first.
+ */
+export function useUpdateClientSettingsWith() {
+  return useCallback(
+    (derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
+      updateClientSettings((settings) => ({
+        ...settings,
+        ...derivePatch(settings),
+      }));
+    },
+    [],
+  );
 }
 
 export function __resetClientSettingsPersistenceForTests(): void {
