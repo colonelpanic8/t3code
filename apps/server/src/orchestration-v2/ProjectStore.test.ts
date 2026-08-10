@@ -52,5 +52,76 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistenceMemory)))(
         );
       }),
     );
+
+    it.effect("lists worktree paths of live threads in active projects", () =>
+      Effect.gen(function* () {
+        const projects = yield* ProjectStore.ProjectStoreV2;
+        const sql = yield* SqlClient.SqlClient;
+        const createProject = (projectId: ProjectId, sequence: number) =>
+          projects.apply({
+            sequence,
+            eventId: EventId.make(`event-${projectId}`),
+            aggregateKind: "project",
+            aggregateId: projectId,
+            occurredAt: "2026-03-24T00:00:00.000Z",
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "project.created",
+            payload: {
+              projectId,
+              title: projectId,
+              workspaceRoot: `/tmp/${projectId}`,
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: "2026-03-24T00:00:00.000Z",
+              updatedAt: "2026-03-24T00:00:00.000Z",
+            },
+          });
+        const activeProjectId = ProjectId.make("project-worktrees-active");
+        const deletedProjectId = ProjectId.make("project-worktrees-deleted");
+        yield* createProject(activeProjectId, 10);
+        yield* createProject(deletedProjectId, 11);
+        yield* projects.apply({
+          sequence: 12,
+          eventId: EventId.make("event-project-worktrees-deleted-removed"),
+          aggregateKind: "project",
+          aggregateId: deletedProjectId,
+          occurredAt: "2026-03-25T00:00:00.000Z",
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          type: "project.deleted",
+          payload: { projectId: deletedProjectId, deletedAt: "2026-03-25T00:00:00.000Z" },
+        });
+        const insertThread = (
+          threadId: string,
+          projectId: ProjectId,
+          worktreePath: string | null,
+          deletedAt: string | null = null,
+        ) => sql`
+          INSERT INTO orchestration_v2_projection_threads (
+            thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+            created_at, updated_at, deleted_at, payload_json
+          )
+          VALUES (
+            ${threadId}, ${projectId}, ${threadId}, 'codex', 'full-access', 'default',
+            '2026-03-24T00:00:00.000Z', '2026-03-24T00:00:00.000Z', ${deletedAt},
+            ${JSON.stringify({ worktreePath })}
+          )
+        `;
+        yield* insertThread("thread-live", activeProjectId, "/worktrees/live");
+        yield* insertThread("thread-live-same", activeProjectId, "/worktrees/live");
+        yield* insertThread("thread-local", activeProjectId, null);
+        yield* insertThread("thread-deleted", activeProjectId, "/worktrees/deleted", "2026-03-25");
+        yield* insertThread("thread-orphaned", deletedProjectId, "/worktrees/orphaned");
+
+        assert.deepStrictEqual(yield* projects.listActiveThreadWorktreePaths(), [
+          "/worktrees/live",
+        ]);
+      }),
+    );
   },
 );

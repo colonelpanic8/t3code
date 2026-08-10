@@ -96,6 +96,11 @@ export class ProjectStoreV2 extends Context.Service<
     readonly listShells: (options?: {
       readonly projectIds?: ReadonlyArray<ProjectId>;
     }) => Effect.Effect<ReadonlyArray<OrchestrationProjectShell>, ProjectStoreV2Error>;
+    /** Worktree paths of non-deleted threads in active projects. */
+    readonly listActiveThreadWorktreePaths: () => Effect.Effect<
+      ReadonlyArray<string>,
+      ProjectStoreV2Error
+    >;
   }
 >()("t3/orchestration-v2/ProjectStore/ProjectStoreV2") {}
 
@@ -136,6 +141,21 @@ export const make = Effect.gen(function* () {
           : [sql`workspace_root = ${request.workspaceRoot}`]),
       ])}
       ORDER BY created_at ASC, project_id ASC
+    `,
+  });
+
+  const selectActiveThreadWorktreePaths = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ worktreePath: Schema.String }),
+    execute: () => sql`
+      SELECT DISTINCT json_extract(threads.payload_json, '$.worktreePath') AS "worktreePath"
+      FROM orchestration_v2_projection_threads AS threads
+      INNER JOIN projection_projects AS projects
+        ON projects.project_id = threads.project_id
+      WHERE threads.deleted_at IS NULL
+        AND projects.deleted_at IS NULL
+        AND json_extract(threads.payload_json, '$.worktreePath') IS NOT NULL
+      ORDER BY 1 ASC
     `,
   });
 
@@ -271,6 +291,11 @@ export const make = Effect.gen(function* () {
     listShells: (options) =>
       list(options?.projectIds === undefined ? undefined : { projectIds: options.projectIds }).pipe(
         Effect.map((rows) => rows.map(toShell)),
+      ),
+    listActiveThreadWorktreePaths: () =>
+      selectActiveThreadWorktreePaths(undefined).pipe(
+        Effect.map((rows) => rows.map((row) => row.worktreePath)),
+        mapError("listActiveThreadWorktreePaths"),
       ),
   });
 });
