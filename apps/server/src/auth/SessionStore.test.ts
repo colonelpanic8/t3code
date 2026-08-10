@@ -124,6 +124,20 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(error.message).toContain("Malformed session token");
     }).pipe(Effect.provide(makeSessionStoreLayer())),
   );
+  it.effect("maps the configured managed token to a renewable server session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const verified = yield* sessions.verify("managed-fleet-secret");
+      const websocket = yield* sessions.issueWebSocketToken(verified.sessionId);
+      const websocketSession = yield* sessions.verifyWebSocketToken(websocket.token);
+
+      expect(verified.method).toBe("bearer-access-token");
+      expect(verified.subject).toBe("managed-access");
+      expect(verified.client).toEqual({ label: "Managed fleet", deviceType: "bot" });
+      expect(websocketSession.sessionId).toBe(verified.sessionId);
+      expect(websocketSession.subject).toBe("managed-access");
+    }).pipe(Effect.provide(makeSessionStoreLayer({ managedAccessToken: "managed-fleet-secret" }))),
+  );
   it.effect("preserves repository failures while verifying session and websocket credentials", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;
