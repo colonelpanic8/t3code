@@ -40,6 +40,7 @@ import type {
 import {
   AlarmClockIcon,
   AlarmClockOffIcon,
+  CalendarClockIcon,
   CheckIcon,
   ChevronDownIcon,
   CircleAlertIcon,
@@ -188,6 +189,9 @@ import {
   type TerminalStatusIndicator,
 } from "./ThreadStatusIndicators";
 import {
+  defaultCustomSnoozeDateTime,
+  formatSnoozeDateTimeLocal,
+  parseCustomSnoozeDateTime,
   resolveSnoozePresets,
   snoozeWakeDescription,
   snoozeWakeLabel,
@@ -255,6 +259,11 @@ import {
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
+interface CustomSnoozeRequest {
+  readonly threadRefs: ReadonlyArray<ScopedThreadRef>;
+  readonly coSnoozingKeys?: ReadonlySet<string>;
+  readonly clearSelectionOnConfirm?: boolean;
+}
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   {
     repository: "Group by repository",
@@ -481,9 +490,11 @@ function SnoozePopoverButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSnooze: (preset: SnoozePreset) => void;
+  onCustomSnooze: () => void;
   timestampFormat: TimestampFormat;
 }) {
-  const { open, onOpenChange, onSnooze, timestampFormat } = props;
+  const { open, onOpenChange, onSnooze, onCustomSnooze, timestampFormat } =
+    props;
   // Presets resolve at open time so "In 1 hour" is relative to the click,
   // not to when the row mounted.
   const presets = useMemo(
@@ -528,8 +539,114 @@ function SnoozePopoverButton(props: {
             </span>
           </button>
         ))}
+        <button
+          type="button"
+          data-testid="sidebar-v2-snooze-custom"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenChange(false);
+            onCustomSnooze();
+          }}
+          className="mt-1 flex w-full cursor-pointer items-center gap-2 border-t border-border/60 px-2 pt-2 pb-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
+        >
+          <CalendarClockIcon className="size-3.5 text-muted-foreground" />
+          <span className="flex-1">Custom time…</span>
+        </button>
       </PopoverPopup>
     </Popover>
+  );
+}
+
+function CustomSnoozeDialog(props: {
+  open: boolean;
+  threadCount: number;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (snoozedUntil: string) => void;
+}) {
+  const { open, threadCount, onOpenChange, onConfirm } = props;
+  const [dateTime, setDateTime] = useState("");
+  const [validationNow, setValidationNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!open) return;
+    const now = new Date();
+    setDateTime(defaultCustomSnoozeDateTime(now));
+    setValidationNow(now);
+  }, [open]);
+
+  const snoozedUntil = parseCustomSnoozeDateTime(dateTime, validationNow);
+  const showValidation = dateTime !== "" && snoozedUntil === null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="max-w-sm">
+        <form
+          className="contents"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const now = new Date();
+            const confirmedTime = parseCustomSnoozeDateTime(dateTime, now);
+            if (confirmedTime !== null) onConfirm(confirmedTime);
+            else setValidationNow(now);
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Snooze until</DialogTitle>
+            <DialogDescription>
+              {threadCount === 1
+                ? "Choose when this thread should return to your inbox."
+                : `Choose when these ${threadCount} threads should return to your inbox.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-2">
+            <label
+              htmlFor="custom-snooze-time"
+              className="text-sm font-medium text-foreground"
+            >
+              Date and time
+            </label>
+            <Input
+              id="custom-snooze-time"
+              data-testid="custom-snooze-time-input"
+              nativeInput
+              autoFocus
+              type="datetime-local"
+              step={60}
+              min={formatSnoozeDateTimeLocal(new Date())}
+              value={dateTime}
+              aria-invalid={showValidation || undefined}
+              aria-describedby={
+                showValidation ? "custom-snooze-time-error" : undefined
+              }
+              onChange={(event) => {
+                setDateTime(event.currentTarget.value);
+                setValidationNow(new Date());
+              }}
+            />
+            {showValidation ? (
+              <p
+                id="custom-snooze-time-error"
+                className="text-xs text-destructive"
+              >
+                Choose a valid time in the future.
+              </p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={snoozedUntil === null}>
+              Snooze
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -610,6 +727,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   onSettle: (threadRef: ScopedThreadRef) => void;
   onUnsettle: (threadRef: ScopedThreadRef) => void;
   onSnooze: (threadRef: ScopedThreadRef, preset: SnoozePreset) => void;
+  onCustomSnooze: (threadRef: ScopedThreadRef) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
   onChangeRequestState: (
     threadKey: string,
@@ -625,6 +743,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     onCancelRename,
     onCommitRename,
     onContextMenu,
+    onCustomSnooze,
     onRenameTitleChange,
     onSettle,
     onSnooze,
@@ -1242,6 +1361,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                         onOpenChange={setSnoozeMenuOpen}
                         timestampFormat={rowTimestampFormat}
                         onSnooze={handleSnoozePreset}
+                        onCustomSnooze={() => onCustomSnooze(threadRef)}
                       />
                     ) : null}
                     {props.settlementSupported ? (
@@ -1522,6 +1642,8 @@ export default function SidebarV2() {
   });
   const [projectActionsTarget, setProjectActionsTarget] =
     useState<SidebarProjectSnapshot | null>(null);
+  const [customSnoozeRequest, setCustomSnoozeRequest] =
+    useState<CustomSnoozeRequest | null>(null);
   const [projectScopeMenuOpen, setProjectScopeMenuOpen] = useState(false);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
@@ -2725,6 +2847,33 @@ export default function SidebarV2() {
     },
     [attemptUnsnooze, planForwardNavigation, snoozeThread],
   );
+  const confirmCustomSnooze = useCallback(
+    (snoozedUntil: string) => {
+      const request = customSnoozeRequest;
+      if (request === null) return;
+      setCustomSnoozeRequest(null);
+      for (const threadRef of request.threadRefs) {
+        attemptSnooze(
+          threadRef,
+          {
+            id: "hour",
+            label: "Custom time",
+            whenLabel: snoozeWakeDescription(
+              snoozedUntil,
+              new Date(),
+              timestampFormat,
+            ),
+            snoozedUntil,
+          },
+          request.coSnoozingKeys === undefined
+            ? {}
+            : { coSnoozingKeys: request.coSnoozingKeys },
+        );
+      }
+      if (request.clearSelectionOnConfirm) clearSelection();
+    },
+    [attemptSnooze, clearSelection, customSnoozeRequest, timestampFormat],
+  );
 
   const removeFromSelection = useThreadSelectionStore(
     (s) => s.removeFromSelection,
@@ -2778,10 +2927,13 @@ export default function SidebarV2() {
                   {
                     id: "snooze",
                     label: `Snooze (${count})`,
-                    children: snoozePresets.map((preset) => ({
-                      id: `snooze:${preset.id}`,
-                      label: `${preset.label} (${preset.whenLabel})`,
-                    })),
+                    children: [
+                      ...snoozePresets.map((preset) => ({
+                        id: `snooze:${preset.id}`,
+                        label: `${preset.label} (${preset.whenLabel})`,
+                      })),
+                      { id: "snooze:custom", label: "Custom time…" },
+                    ],
                   },
                 ]
               : []),
@@ -2793,6 +2945,17 @@ export default function SidebarV2() {
         ),
       );
       if (clicked._tag === "Failure") return;
+      if (clicked.value === "snooze:custom") {
+        const coSnoozingKeys = new Set(threadKeys);
+        setCustomSnoozeRequest({
+          threadRefs: selectedThreads.map((thread) =>
+            scopeThreadRef(thread.environmentId, thread.id),
+          ),
+          coSnoozingKeys,
+          clearSelectionOnConfirm: true,
+        });
+        return;
+      }
       if (clicked.value?.startsWith("snooze:")) {
         const preset = snoozePresets.find(
           (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -3000,10 +3163,13 @@ export default function SidebarV2() {
                           disabled: !canSnooze(thread, {
                             now: new Date().toISOString(),
                           }),
-                          children: snoozePresets.map((preset) => ({
-                            id: `snooze:${preset.id}`,
-                            label: `${preset.label} (${preset.whenLabel})`,
-                          })),
+                          children: [
+                            ...snoozePresets.map((preset) => ({
+                              id: `snooze:${preset.id}`,
+                              label: `${preset.label} (${preset.whenLabel})`,
+                            })),
+                            { id: "snooze:custom", label: "Custom time…" },
+                          ],
                         },
                   ]
                 : []),
@@ -3035,6 +3201,10 @@ export default function SidebarV2() {
           ),
         );
         if (clicked._tag === "Failure") return;
+        if (clicked.value === "snooze:custom") {
+          setCustomSnoozeRequest({ threadRefs: [threadRef] });
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset = snoozePresets.find(
             (candidate) => `snooze:${candidate.id}` === clicked.value,
@@ -3673,6 +3843,9 @@ export default function SidebarV2() {
                         onSettle={attemptSettle}
                         onUnsettle={attemptUnsettle}
                         onSnooze={attemptSnooze}
+                        onCustomSnooze={(threadRef) =>
+                          setCustomSnoozeRequest({ threadRefs: [threadRef] })
+                        }
                         onUnsnooze={attemptUnsnooze}
                         onChangeRequestState={handleChangeRequestState}
                       />
@@ -3862,6 +4035,14 @@ export default function SidebarV2() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
+      <CustomSnoozeDialog
+        open={customSnoozeRequest !== null}
+        threadCount={customSnoozeRequest?.threadRefs.length ?? 1}
+        onOpenChange={(open) => {
+          if (!open) setCustomSnoozeRequest(null);
+        }}
+        onConfirm={confirmCustomSnooze}
+      />
       <Dialog
         open={projectActionsTarget !== null}
         onOpenChange={(open) => {
