@@ -12,6 +12,7 @@ import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
+  DEFAULT_WORKTREE_PATH_TEMPLATE,
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
   type ApplicationStoredEvent,
@@ -59,6 +60,7 @@ import {
   type TerminalError,
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
+  VcsRepositoryDetectionError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -466,6 +468,30 @@ const makeWsRpcLayer = (
           }).pipe(Effect.as(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
         ),
       );
+      const worktreePathTemplate = serverSettings.getSettings.pipe(
+        Effect.map((settings) => settings.worktreePathTemplate),
+        Effect.catch((cause) =>
+          Effect.logWarning("Failed to read worktree path template; using the default", {
+            detail: cause.message,
+          }).pipe(Effect.as(DEFAULT_WORKTREE_PATH_TEMPLATE)),
+        ),
+      );
+      const addReviewWorkspacePaths = <T extends { readonly cwd: string }>(input: T) =>
+        Effect.all({
+          repositoryRoots: projectionSnapshotQuery.getActiveProjectWorkspaceRoots(),
+          knownWorktreePaths: projectionSnapshotQuery.getActiveThreadWorktreePaths(),
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new VcsRepositoryDetectionError({
+                operation: "review.workspacePaths",
+                cwd: input.cwd,
+                detail: "Failed to load project paths required to validate the review workspace.",
+                cause,
+              }),
+          ),
+          Effect.map((paths) => ({ ...input, ...paths })),
+        );
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
@@ -1700,7 +1726,12 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            worktreePathTemplate.pipe(
+              Effect.flatMap((pathTemplate) =>
+                gitWorkflow.createWorktree({ ...input, pathTemplate }),
+              ),
+              Effect.tap(() => refreshGitStatus(input.cwd)),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
@@ -1730,13 +1761,15 @@ const makeWsRpcLayer = (
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
-          observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
-            "rpc.aggregate": "review",
-          }),
+          observeRpcEffect(
+            WS_METHODS.reviewGetDiffPreview,
+            addReviewWorkspacePaths(input).pipe(Effect.flatMap(review.getDiffPreview)),
+            { "rpc.aggregate": "review" },
+          ),
         [WS_METHODS.reviewGetDiffFileContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.reviewGetDiffFileContents,
-            review.getDiffFileContents(input),
+            addReviewWorkspacePaths(input).pipe(Effect.flatMap(review.getDiffFileContents)),
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
