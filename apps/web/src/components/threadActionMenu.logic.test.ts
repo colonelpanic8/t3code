@@ -52,6 +52,17 @@ describe("buildThreadActionMenuItems", () => {
     expect(snooze?.children?.map((child) => child.id)).toEqual(["snooze:hour"]);
   });
 
+  it("includes custom snooze only for surfaces that can handle it", () => {
+    const snooze = buildThreadActionMenuItems({
+      ...baseState,
+      includeCustomSnooze: true,
+    }).find((item) => item.id === "snooze");
+    expect(snooze?.children?.map((child) => child.id)).toEqual([
+      "snooze:hour",
+      "snooze:custom",
+    ]);
+  });
+
   it("disables title regeneration while one is in flight", () => {
     const item = buildThreadActionMenuItems({ ...baseState, isRegeneratingTitle: true }).find(
       (candidate) => candidate.id === "regenerate-title",
