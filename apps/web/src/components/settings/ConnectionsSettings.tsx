@@ -1791,9 +1791,6 @@ export function ConnectionsSettings() {
         .toSorted((left, right) => left.label.localeCompare(right.label)),
     [environments],
   );
-  const hasUsableClientOnlyEnvironment = savedEnvironments.some(
-    (environment) => !isDesktopLocalConnectionTarget(environment.entry.target),
-  );
   const isClientOnlyDesktop = desktopBackendModeState?.effectiveMode === "client-only";
   const localServerPairingCandidates = useMemo(
     () => selectLocalServerPairingCandidates(localServerAdvertisements, environments),
@@ -3317,15 +3314,6 @@ export function ConnectionsSettings() {
   const handleDesktopBackendModeChange = async (mode: DesktopBackendMode) => {
     if (!desktopBridge || !desktopBackendModeState) return;
     if (mode === desktopBackendModeState.configuredMode) return;
-    if (mode === "client-only" && !hasUsableClientOnlyEnvironment) {
-      setDesktopBackendModeError(
-        "Pair and save an environment before switching to client-only mode.",
-      );
-      setAddBackendDialogOpen(true);
-      void refreshLocalServerAdvertisements();
-      return;
-    }
-
     setIsUpdatingDesktopBackendMode(true);
     setDesktopBackendModeError(null);
     try {
@@ -3362,7 +3350,7 @@ export function ConnectionsSettings() {
             title="Backend mode"
             description={
               isClientOnlyDesktop
-                ? "Connect only to saved environments. This desktop process does not start or control a local backend."
+                ? "Use this desktop only as a client. It does not start a local backend, and you can add remote environments at any time."
                 : "Start and manage a local backend while retaining access to saved environments."
             }
             status={
