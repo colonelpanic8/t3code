@@ -85,6 +85,7 @@ interface MobileRunContextSelectorProps {
   onEnvModeChange: (mode: EnvMode) => void;
   previousWorktreeLabel: string | null;
   onUsePreviousWorktree: () => void;
+  onSelectionComplete?: () => void;
 }
 
 const MobileRunContextSelector = memo(function MobileRunContextSelector({
@@ -102,7 +103,13 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   onEnvModeChange,
   previousWorktreeLabel,
   onUsePreviousWorktree,
+  onSelectionComplete,
 }: MobileRunContextSelectorProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const completeSelection = useCallback(() => {
+    setIsMenuOpen(false);
+    onSelectionComplete?.();
+  }, [onSelectionComplete]);
   const activeEnvironment = useMemo(
     () => availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null,
     [availableEnvironments, environmentId],
@@ -166,7 +173,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
   }
 
   return (
-    <Menu>
+    <Menu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
       <MenuTrigger
         render={<Button variant="ghost" size="xs" />}
         className="min-w-0 max-w-[48%] flex-initial justify-start font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80"
@@ -182,14 +189,18 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
               <MenuGroupLabel>Run on</MenuGroupLabel>
               <MenuRadioGroup
                 value={autoEnvironmentLabel ? "auto" : environmentId}
-                onValueChange={(value) =>
-                  value === "auto"
-                    ? onAutoEnvironment?.()
-                    : onEnvironmentChange(value as EnvironmentId)
-                }
+                onValueChange={(value) => {
+                  if (value === "auto") {
+                    onAutoEnvironment?.();
+                  } else {
+                    onEnvironmentChange(value as EnvironmentId);
+                  }
+                  completeSelection();
+                }}
               >
                 {onAutoEnvironment && (
                   <MenuRadioItem
+                    closeOnClick
                     value="auto"
                     disabled={envLocked}
                     onClick={() => {
@@ -207,6 +218,7 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
                 {availableEnvironments.map((env) => (
                   <MenuRadioItem
                     key={env.environmentId}
+                    closeOnClick
                     disabled={envLocked}
                     value={env.environmentId}
                   >
@@ -228,12 +240,14 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
             onValueChange={(value) => {
               if (value === "previous-worktree") {
                 onUsePreviousWorktree();
+                completeSelection();
                 return;
               }
               onEnvModeChange(value as EnvMode);
+              completeSelection();
             }}
           >
-            <MenuRadioItem disabled={envModeLocked} value="local">
+            <MenuRadioItem closeOnClick disabled={envModeLocked} value="local">
               <span className="flex min-w-0 items-center gap-1.5">
                 {activeWorktreePath ? (
                   <FolderGitIcon className="size-3" />
@@ -245,14 +259,14 @@ const MobileRunContextSelector = memo(function MobileRunContextSelector({
                 </span>
               </span>
             </MenuRadioItem>
-            <MenuRadioItem disabled={envModeLocked} value="worktree">
+            <MenuRadioItem closeOnClick disabled={envModeLocked} value="worktree">
               <span className="flex min-w-0 items-center gap-1.5">
                 <FolderGit2Icon className="size-3" />
                 <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
               </span>
             </MenuRadioItem>
             {previousWorktreeLabel ? (
-              <MenuRadioItem disabled={envModeLocked} value="previous-worktree">
+              <MenuRadioItem closeOnClick disabled={envModeLocked} value="previous-worktree">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <HistoryIcon className="size-3" />
                   <span className="min-w-0 truncate">{previousWorktreeLabel}</span>
@@ -601,6 +615,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onEnvModeChange={onEnvModeChange}
             previousWorktreeLabel={previousWorktreeLabel}
             onUsePreviousWorktree={onUsePreviousWorktree}
+            {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
           />
         </div>
       ) : null}
@@ -620,6 +635,7 @@ export const BranchToolbar = memo(function BranchToolbar({
                 envLocked={envLocked}
                 environmentId={environmentId}
                 availableEnvironments={availableEnvironments}
+                {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
               {showGitControls ? (
@@ -639,6 +655,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               onEnvModeChange={onEnvModeChange}
               previousWorktreeLabel={previousWorktreeLabel}
               onUsePreviousWorktree={onUsePreviousWorktree}
+              {...(onComposerFocusRequest ? { onSelectionComplete: onComposerFocusRequest } : {})}
             />
           ) : null}
         </div>
