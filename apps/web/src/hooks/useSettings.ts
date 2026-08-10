@@ -9,7 +9,7 @@
  * access is intentionally named as such so environment-sensitive consumers
  * cannot silently read the wrong server's settings.
  */
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -32,6 +32,17 @@ import {
   splitSharedServerPatch,
   supportsSharedSettingsSync,
 } from "@t3tools/client-runtime/state/shared-settings";
+import {
+  acknowledgePendingServerSettings,
+  applyPendingServerPatches,
+  getPendingServerPatches,
+  getPendingServerPatchForDispatch,
+  NO_PENDING_SERVER_PATCHES,
+  type PendingServerPatch,
+  retainPendingServerPatch,
+  settlePendingServerPatch,
+  subscribePendingServerPatches,
+} from "./pendingServerSettings";
 import { ensureLocalApi } from "~/localApi";
 import {
   getThemeDefinition,
@@ -61,6 +72,7 @@ let clientSettingsHydrationPromise: Promise<void> | null = null;
 let clientSettingsHydrationGeneration = 0;
 let clientSettingsPersistenceQueue: Promise<void> = Promise.resolve();
 let deferredClientSettingsPatchCount = 0;
+const serverSettingsWriteQueueByEnvironment = new Map<EnvironmentId, Promise<void>>();
 
 function emitClientSettingsChange() {
   for (const listener of clientSettingsListeners) {
@@ -231,6 +243,17 @@ export async function persistClientSettingsUpdate(
   });
 }
 
+function usePendingServerPatches(
+  environmentId: EnvironmentId | null,
+): ReadonlyArray<PendingServerPatch> {
+  const getSnapshot = useCallback(() => getPendingServerPatches(environmentId), [environmentId]);
+  return useSyncExternalStore(
+    subscribePendingServerPatches,
+    getSnapshot,
+    () => NO_PENDING_SERVER_PATCHES,
+  );
+}
+
 // ── Key sets for routing patches ─────────────────────────────────────
 
 const SERVER_SETTINGS_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
@@ -312,14 +335,26 @@ export function mergeEnvironmentSettings(
 }
 
 function useMergedSettings<T>(
+  environmentId: EnvironmentId | null,
   serverSettings: ServerSettings,
   selector: ((settings: UnifiedSettings) => T) | undefined,
 ): T {
   const clientSettings = useClientSettingsValue();
+  const pendingPatches = usePendingServerPatches(environmentId);
+  useEffect(() => {
+    if (environmentId) {
+      acknowledgePendingServerSettings(environmentId, serverSettings);
+    }
+  }, [environmentId, serverSettings]);
+
+  const optimisticServerSettings = useMemo<ServerSettings>(
+    () => applyPendingServerPatches(serverSettings, pendingPatches),
+    [pendingPatches, serverSettings],
+  );
 
   const merged = useMemo<UnifiedSettings>(
-    () => mergeEnvironmentSettings(serverSettings, clientSettings),
-    [clientSettings, serverSettings],
+    () => mergeEnvironmentSettings(optimisticServerSettings, clientSettings),
+    [clientSettings, optimisticServerSettings],
   );
 
   return useMemo(() => (selector ? selector(merged) : (merged as T)), [merged, selector]);
@@ -387,14 +422,15 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
   const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
-  return useMergedSettings(serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
+  return useMergedSettings(environmentId, serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
 /** Primary-only settings access for the settings UI and other explicitly global surfaces. */
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  return useMergedSettings(useAtomValue(primaryServerSettingsAtom), selector);
+  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  return useMergedSettings(environmentId, useAtomValue(primaryServerSettingsAtom), selector);
 }
 
 export const PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE =
@@ -414,13 +450,16 @@ export function usePrimarySettingsAvailable(): boolean {
 /**
  * Returns an updater that routes each key to the correct backing store.
  *
- * Server keys are optimistically patched in atom-backed server state, then
- * persisted via RPC. Shared server keys (see `SHARED_SERVER_SETTING_KEYS`)
- * are written to every eligible sync target, not only the selected target, so
- * a user preference does not silently drift between machines. Client keys go
- * through client persistence.
+ * Server keys are applied optimistically through `./pendingServerSettings` and
+ * persisted via RPC, one write at a time for the selected environment. Shared
+ * server keys (see `SHARED_SERVER_SETTING_KEYS`) are capability-filtered and
+ * written to every eligible sync target so a user preference does not silently
+ * drift between machines. Client keys go through client persistence.
  */
-function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
+function useUpdateSettingsTarget(
+  environmentId: EnvironmentId | null,
+  serverSettings: ServerSettings,
+) {
   const persistServerSettings = useAtomCommand(
     serverEnvironment.updateSettings,
     "server settings update",
@@ -439,16 +478,61 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
             title: "Setting not saved",
             description,
           });
-        if (Object.keys(localPatch).length > 0) {
-          if (environmentId) {
-            void persistServerSettings({
+
+        if (environmentId) {
+          const target = environments.find(
+            (candidate) => candidate.environmentId === environmentId,
+          );
+          const targetPatch = {
+            ...localPatch,
+            ...filterSharedServerPatch(
+              sharedPatch,
+              target?.serverConfig?.environment.capabilities,
+            ),
+          };
+          if (Object.keys(targetPatch).length > 0) {
+            // The selected environment takes one combined patch through the
+            // serialized queue so rapid edits cannot revert each other.
+            const optimisticBase = applyPendingServerPatches(
+              serverSettings,
+              getPendingServerPatches(environmentId),
+            );
+            const pendingId = retainPendingServerPatch(
               environmentId,
-              input: { patch: localPatch },
+              targetPatch,
+              optimisticBase,
+              serverSettings,
+            );
+            const previous =
+              serverSettingsWriteQueueByEnvironment.get(environmentId) ?? Promise.resolve();
+            const current = previous
+              .then(async () => {
+                const pendingPatch = getPendingServerPatchForDispatch(environmentId, pendingId);
+                if (!pendingPatch) return;
+                const result = await persistServerSettings({
+                  environmentId,
+                  input: { patch: pendingPatch },
+                });
+                settlePendingServerPatch(
+                  environmentId,
+                  pendingId,
+                  result._tag === "Success" ? result.value : null,
+                );
+              })
+              .catch(() => {
+                settlePendingServerPatch(environmentId, pendingId, null);
+              });
+            serverSettingsWriteQueueByEnvironment.set(environmentId, current);
+            void current.finally(() => {
+              if (serverSettingsWriteQueueByEnvironment.get(environmentId) === current) {
+                serverSettingsWriteQueueByEnvironment.delete(environmentId);
+              }
             });
-          } else {
-            warnUnsaved();
           }
+        } else if (Object.keys(localPatch).length > 0) {
+          warnUnsaved();
         }
+
         if (Object.keys(sharedPatch).length > 0) {
           const targets = new Set(
             environments.filter(supportsSharedSettingsSync).map((target) => target.environmentId),
@@ -465,6 +549,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
             );
             if (Object.keys(targetPatch).length === 0) continue;
             wroteToTarget = true;
+            if (targetId === environmentId) continue;
             void persistServerSettings({
               environmentId: targetId,
               input: { patch: targetPatch },
@@ -481,7 +566,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
         persistClientSettingsPatch(clientPatch);
       }
     },
-    [environmentId, environments, persistServerSettings],
+    [environmentId, environments, persistServerSettings, serverSettings],
   );
 
   return updateSettings;
@@ -550,11 +635,17 @@ export function useSharedSettingsSync() {
 }
 
 export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
-  return useUpdateSettingsTarget(environmentId);
+  const serverSettings =
+    useAtomValue(serverEnvironment.settingsValueAtom(environmentId)) ?? DEFAULT_SERVER_SETTINGS;
+  return useUpdateSettingsTarget(environmentId, serverSettings);
 }
 
 export function useUpdatePrimarySettings() {
-  return useUpdateSettingsTarget(usePrimaryEnvironment()?.environmentId ?? null);
+  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  return useUpdateSettingsTarget(
+    environmentId,
+    useAtomValue(primaryServerSettingsAtom),
+  );
 }
 
 export function useUpdateClientSettings() {
