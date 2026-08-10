@@ -116,6 +116,33 @@ For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
 open it, or pair from the desktop app. On mobile, an IP address entered without a
 scheme uses HTTP, so include `https://` when your server uses HTTPS.
 
+## Declarative desktop connections
+
+Managed desktop installations can provision a stable fleet without an interactive pairing step.
+Set `T3CODE_MANAGED_ACCESS_TOKEN` on each server and give each server a stable
+`T3CODE_ENVIRONMENT_ID`. Then start the desktop app with
+`T3CODE_MANAGED_CONNECTIONS_FILE` pointing to a mode-`0600` JSON file:
+
+```json
+{
+  "version": 1,
+  "connections": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "httpBaseUrl": "https://build-host.example.ts.net/",
+      "wsBaseUrl": "wss://build-host.example.ts.net/",
+      "token": "shared-managed-token"
+    }
+  ]
+}
+```
+
+The desktop catalog overlays these entries on its encrypted user-managed catalog and reconciles
+removed entries on the next load. Treat the managed file and server token as secrets. Use this mode
+only over a trusted private network or authenticated HTTPS endpoint, and rotate the token on every
+server and client together.
+
 ## Desktop-managed SSH
 
 In the desktop app, open **Settings → Connections → Add environment**, choose
