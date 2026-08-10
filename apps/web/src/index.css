@@ -2054,6 +2054,39 @@ code {
   background-size: 4px 2px;
 }
 
+.chat-markdown .chat-markdown-link-favicon {
+  @apply inline-flex;
+  width: 14px;
+  height: 14px;
+  margin-inline: 0.25em 0.2em;
+  vertical-align: -0.125em;
+}
+
+.chat-markdown .chat-markdown-link-leading {
+  white-space: nowrap;
+}
+
+.chat-markdown .chat-markdown-image {
+  display: block;
+  max-width: 100%;
+  max-height: 32rem;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background-color: var(--muted);
+  object-fit: contain;
+}
+
+.chat-markdown .chat-markdown-image-placeholder {
+  display: block;
+  width: 100%;
+  max-width: 24rem;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background-color: var(--muted);
+}
+
 .chat-markdown blockquote {
   border-left: 2px solid var(--border);
   padding-left: 0.8rem;
