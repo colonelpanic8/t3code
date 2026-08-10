@@ -641,6 +641,7 @@ export const TraitsPicker = memo(function TraitsPicker({
                   disabled={disabled}
                   aria-label={triggerLabel}
                   data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
+                  data-chat-provider-traits-picker="true"
                   size={size}
                   className={cn(
                     isCodexStyle
