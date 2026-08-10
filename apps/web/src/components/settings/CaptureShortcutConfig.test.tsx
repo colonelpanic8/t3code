@@ -117,18 +117,14 @@ it.each(["niri", "hyprland"] as const)(
   "shows the fallback before review and requires separate read and write approval on %s",
   async (desktop) => {
     let tree = render(desktop);
-    expect(shortcutInput(tree)["aria-label"]).toBe(
-      "Record snapshot shortcut, currently Ctrl+Shift+2",
-    );
+    expect(shortcutInput(tree)["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⇧2");
     expect(bridge.previewSnapShotConfig).not.toHaveBeenCalled();
     expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
     expect(visitElements(tree, (element) => element.type === "details")).not.toBeNull();
     button(tree, "Review changes").onClick();
     await finish(bridge.previewSnapShotConfig.mock.results[0]!.value);
     tree = render(desktop);
-    expect(shortcutInput(tree)["aria-label"]).toBe(
-      "Record snapshot shortcut, currently Ctrl+Shift+2",
-    );
+    expect(shortcutInput(tree)["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⇧2");
     expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
     const diff = visitElements(tree, (element) => "fileDiff" in element.props);
     expect(diff).not.toBeNull();
@@ -231,9 +227,7 @@ it("cancelling a reviewed diff does not write or finish setup", async () => {
   button(render(), "Review changes").onClick();
   await finish(bridge.previewSnapShotConfig.mock.results[0]!.value);
   button(render(), "Cancel").onClick();
-  expect(shortcutInput(render())["aria-label"]).toBe(
-    "Record snapshot shortcut, currently Ctrl+Shift+2",
-  );
+  expect(shortcutInput(render())["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⇧2");
   expect(button(render(), "Review changes")).toBeDefined();
   expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
   expect(complete).not.toHaveBeenCalled();
