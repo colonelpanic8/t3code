@@ -168,6 +168,38 @@ export function runStream<TTag extends EnvironmentStreamCommandRpcTag>(
   );
 }
 
+const sessionsReportedBroken = new WeakSet<RpcSession>();
+const sessionsRequestingRecovery = new WeakSet<RpcSession>();
+
+const requestSessionRecovery = Effect.fn("EnvironmentRpc.requestSessionRecovery")(function* (
+  supervisor: EnvironmentSupervisor["Service"],
+  session: RpcSession,
+) {
+  const current = yield* SubscriptionRef.get(supervisor.session);
+  if (!Option.isSome(current) || current.value !== session) {
+    return;
+  }
+
+  return yield* Effect.suspend(() => {
+    if (sessionsReportedBroken.has(session) || sessionsRequestingRecovery.has(session)) {
+      return Effect.void;
+    }
+    sessionsRequestingRecovery.add(session);
+    return supervisor.retryNow.pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          sessionsReportedBroken.add(session);
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          sessionsRequestingRecovery.delete(session);
+        }),
+      ),
+    );
+  });
+});
+
 interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly onExpectedFailure?: (
     cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
@@ -237,13 +269,13 @@ export function subscribeDynamic<TTag extends EnvironmentSubscriptionRpcTag>(
                           if (isTransportFailure) {
                             return Stream.fromEffect(
                               Effect.logWarning(
-                                "Durable RPC subscription lost its transport; waiting for the next session.",
+                                "Durable RPC subscription lost its transport; requesting a new session.",
                                 {
                                   cause: Cause.pretty(cause),
                                   method: tag,
                                   environmentId: supervisor.target.environmentId,
                                 },
-                              ),
+                              ).pipe(Effect.andThen(requestSessionRecovery(supervisor, session))),
                             ).pipe(Stream.drain);
                           }
                           if (hasOnlyExpectedFailures && options?.onExpectedFailure !== undefined) {
