@@ -1657,6 +1657,22 @@ const makeWsRpcLayer = (
               ...(config.otlpLogsUrl !== undefined ? { otlpLogsUrl: config.otlpLogsUrl } : {}),
               otlpLogsEnabled: config.otlpLogsUrl !== undefined,
             },
+            storage: {
+              layout: config.layout,
+              configDirectoryPath: config.configDir,
+              dataDirectoryPath: config.dataDir,
+              stateDirectoryPath: config.stateDir,
+              cacheDirectoryPath: config.cacheDir,
+              runtimeDirectoryPath: config.runtimeDir,
+              databaseFilePath: config.dbPath,
+              settingsFilePath: config.settingsPath,
+              keybindingsFilePath: config.keybindingsConfigPath,
+              worktreesDirectoryPath: config.worktreesDir,
+              attachmentsDirectoryPath: config.attachmentsDir,
+              ...(config.legacyBaseDir === undefined
+                ? {}
+                : { legacyBaseDirectoryPath: config.legacyBaseDir }),
+            },
             settings,
             shellResumeCompletionMarker: true,
             ...(fileManagerRevealKind === undefined
