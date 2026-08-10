@@ -315,6 +315,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "large-project-icons",
+    title: "Large project icons",
+    to: "/settings/general",
+    searchTerms: ["sidebar thread rows favicon size bigger"],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/general",
