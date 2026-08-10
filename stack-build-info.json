@@ -1,0 +1,225 @@
+{
+  "entries": [
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4259",
+      "commit": "8cd189d749025a13888e0de4dda4ad4306e43d96",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4259",
+      "pr": 4259,
+      "status": "merged",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4257",
+      "commit": "531d54a2594e8f49f9a3f9493cd2964c8e6a9f5c",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4257",
+      "pr": 4257,
+      "status": "merged",
+      "summary": "Directory-path Tab completion"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4277",
+      "commit": "0ebf7de177627f5cb4efda4fd93c3b1a5446f7ed",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4277",
+      "pr": 4277,
+      "status": "merged",
+      "summary": "Settle the open thread with Mod+Shift+X"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4324",
+      "commit": "853d89ec27a6f97b03d4b17d6ccc1e5ec2b15963",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4324",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar-v2 project icons"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4332",
+      "commit": "afb66cec29bf3d29dc4f22e1a87bd863f383ecd2",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4332",
+      "pr": 4332,
+      "status": "merged",
+      "summary": "Android adaptive launcher icon"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4388",
+      "commit": "266b477ccba21aff649db6b6cb120351c5a09540",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4388",
+      "pr": 4388,
+      "status": "merged",
+      "summary": "Keep the Android new-task composer above the keyboard"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4394",
+      "commit": "270bcbce5c50b6e05b943b21373da63b9e375507",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4394",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N and Ctrl-P"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4405",
+      "commit": "99607741badc97a1181dce9625bf41d647fc1b51",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4405",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Harden thread-detail loading and subscriptions"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4602",
+      "commit": "acf4554ec1c70de40a80a60e3b3109ea7be61e3d",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4602",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4447",
+      "commit": "9e5d8bef4fa8ddef22f0928c3a4611ec3f9c031d",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4447",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task flow on mobile"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4433",
+      "commit": "5396906c4f94da402b308aad895028c09568f6dc",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4433",
+      "pr": 4433,
+      "status": "merged",
+      "summary": "Refresh positional model-picker shortcuts"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4701",
+      "commit": "233f652a0d6f114113c2de26a47aa4bcb37796e7",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4701",
+      "pr": 4701,
+      "status": "merged",
+      "summary": "Render shortcuts with Apple glyphs"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4439",
+      "commit": "24e4bb00ee087a069fd9624052611e51a1884d2d",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4439",
+      "note": "Rebased port with obsolete orchestration-v1 files removed.",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configurable worktree placement"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4437",
+      "commit": "a3ed6bb54cf4c79b9bf9707bc3ab9d16960c0a75",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4437",
+      "note": "Rebased port with the obsolete orchestration-v1 documentation removed.",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "XDG storage layout"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4482",
+      "commit": "c7004fd7e1eed1dd23979b4ca8c4492488a00c14",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4482",
+      "pr": 4482,
+      "status": "merged",
+      "summary": "Refresh the sidebar resize cap after window growth"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4487",
+      "commit": "5b047da2ba499cd49754d5b247b7c6bcdc71c0c4",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4487",
+      "pr": 4487,
+      "status": "merged",
+      "summary": "Filter non-interactive Codex models"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4494",
+      "commit": "71688b7995a725257f7d1761073032958e57b5e7",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4494",
+      "pr": 4494,
+      "status": "merged",
+      "summary": "Keep rapid provider-settings edits from reverting"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4699",
+      "commit": "699c399eaaa44f753606e729dc4ed7d3d2111a40",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4699",
+      "pr": 4699,
+      "status": "merged",
+      "summary": "Self-contained Nix flake"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/client-environment-suite",
+      "commit": "f87a5fb839f0504a2df8d1a54ef9cdc99f6598f9",
+      "fixup": "patches/orchestration-v2-main-client-environment-suite.patch",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/client-environment-suite",
+      "note": "Canonical v2-native replacement for the overlapping #4444, #4474, #4486, #4496, #4505, #4538, #4548, #4559, and #4567 branches. Their individual shadow refs remain available but are not replayed twice.",
+      "status": "merged",
+      "summary": "Orchestration-v2 client, environment, discovery, and pairing suite"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4677",
+      "commit": "37efe59947f74aed2c0fac2fb5a6068569bb7a6f",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4677",
+      "pr": 4677,
+      "status": "merged",
+      "summary": "Custom snooze times"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4593",
+      "commit": "b9fcef9c2e337d53e8992676121a451c5de08dff",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4593",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state after a settle does not land"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4631",
+      "commit": "2f84c0af8abda997e5697962e2ef73b8d3b897b1",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4631",
+      "pr": 4631,
+      "status": "merged",
+      "summary": "Render markdown images from workspace files"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/managed-fleet",
+      "commit": "ee635c701c9747e6c7d7c8888bd92602dace33dc",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/managed-fleet",
+      "status": "merged"
+    }
+  ],
+  "fork": {
+    "branch": "orchestrator-assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "ff032dddd2111d99e003d4bce801123012cf0c67",
+    "date": "2026-08-10T20:31:07+02:00",
+    "ref": "t3code/codex-turn-mapping",
+    "remote": "https://github.com/pingdotgg/t3code",
+    "subject": "fix(web): restore the branch's slim chat header"
+  }
+}
