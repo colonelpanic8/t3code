@@ -7,6 +7,7 @@ import {
   type ThreadId as ThreadIdType,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
@@ -121,6 +122,14 @@ function shouldPersistThread(
   );
 }
 
+const RETRY_BASE_MILLIS = 250;
+const RETRY_CAP_NO_DATA_MILLIS = 2_000;
+const RETRY_CAP_WITH_DATA_MILLIS = 10_000;
+
+function retrySubscribeBackoff(attempt: number, capMillis: number): Duration.Duration {
+  return Duration.millis(Math.min(RETRY_BASE_MILLIS * 2 ** attempt, capMillis));
+}
+
 interface ThreadResumeSnapshot {
   readonly state: EnvironmentThreadState;
   readonly sequence: number;
@@ -209,6 +218,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           onSome: historyMetaFromCachedSnapshot,
         }),
       };
+  let hasData = Option.isSome(initialState.data) && initialState.data.value.messages.length > 0;
   const state = yield* SubscriptionRef.make(initialState);
   // Seed the resume cursor from the cached snapshot so a warm cache can catch up
   // via `afterSequence` instead of re-downloading the full thread body.
@@ -337,6 +347,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       readonly history?: ThreadHistoryMeta;
     },
   ) {
+    hasData = thread.messages.length > 0;
     const waiting = yield* Ref.get(awaitingCompletion);
     // Atomic with concurrent history meta updates: never get-then-set the whole
     // state when only the projection changes. Bounded installs pass history so
@@ -378,6 +389,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     }));
 
   const setDeleted = Effect.fn("EnvironmentThreadState.setDeleted")(function* () {
+    hasData = false;
     yield* Ref.set(awaitingCompletion, false);
     yield* SubscriptionRef.set(state, {
       data: Option.none(),
@@ -447,7 +459,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         if (current.status === "deleted") {
           return [{ _tag: "noop" }, current];
         }
-        if (Option.isNone(current.data)) {
+        const needsSnapshot =
+          Option.isNone(current.data) || current.data.value.messages.length === 0;
+        if (needsSnapshot) {
           return [
             item.event.type === "thread.deleted" ? { _tag: "delete" } : { _tag: "noop" },
             current,
@@ -795,7 +809,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       {
         onDefect: () => setStreamError("Could not synchronize the thread."),
         onExpectedFailure: (cause) => setStreamError(formatThreadError(cause)),
-        retryExpectedFailureAfter: "250 millis",
+        retryExpectedFailureAfter: (attempt) =>
+          retrySubscribeBackoff(
+            attempt,
+            hasData ? RETRY_CAP_WITH_DATA_MILLIS : RETRY_CAP_NO_DATA_MILLIS,
+          ),
         resubscribe: foregroundResubscriptions,
       },
     ).pipe(Stream.runForEach(applyItem)),
