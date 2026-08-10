@@ -41,7 +41,7 @@ import { providerSettingsTabClassName } from "./providerSettingsTabs";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon, providerInstanceInitials } from "../chat/ProviderInstanceIcon";
-import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
+import { AccentColorPicker } from "./AccentColorPicker";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -919,7 +919,7 @@ export function ProviderInstanceCard({
           </div>
 
           <div>
-            <ProviderAccentColorPicker
+            <AccentColorPicker
               displayName={displayName}
               value={accentColor}
               onCommit={updateAccentColor}
