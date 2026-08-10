@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 
 import * as ServerConfig from "../config.ts";
@@ -14,6 +15,7 @@ import * as ReviewService from "./ReviewService.ts";
 function layer(input: {
   readonly workspaceRoot: string;
   readonly baseDir: string;
+  readonly worktreePathTemplate?: string;
   readonly detectCalls?: Array<{ readonly cwd: string }>;
   readonly worktreesDirectory?: string;
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
@@ -32,9 +34,10 @@ function layer(input: {
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(
-      ServerSettings.ServerSettingsService.layerTest({
+      ServerSettings.layerTest({
         worktreesDirectory: input.worktreesDirectory ?? "",
         previousWorktreesDirectories: [...(input.previousWorktreesDirectories ?? [])],
+        ...(input.worktreePathTemplate ? { worktreePathTemplate: input.worktreePathTemplate } : {}),
       }),
     ),
     Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir)),
@@ -149,6 +152,199 @@ describe("ReviewService", () => {
       assert.strictEqual(result.cwd, workspaceRoot);
       assert.deepStrictEqual(result.sources, []);
       assert.deepStrictEqual(detectCalls, [{ cwd: workspaceRoot }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows diff preview cwd matching the configured worktree template", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const repositoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-repo-" });
+      const repositoryAliasesRoot = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-review-repo-aliases-",
+      });
+      const repositoryRootAlias = path.join(repositoryAliasesRoot, "repo");
+      const worktreeRoot = path.join(repositoryRoot, ".worktrees", "feature-local");
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+      yield* fs.symlink(repositoryRoot, repositoryRootAlias);
+      yield* fs.makeDirectory(worktreeRoot, { recursive: true });
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({
+          cwd: worktreeRoot,
+          repositoryRoots: [repositoryRootAlias],
+        });
+      }).pipe(
+        Effect.provide(
+          layer({
+            workspaceRoot,
+            baseDir,
+            detectCalls,
+            worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+          }),
+        ),
+      );
+
+      assert.strictEqual(result.cwd, worktreeRoot);
+      assert.deepStrictEqual(result.sources, []);
+      assert.deepStrictEqual(detectCalls, [{ cwd: worktreeRoot }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows an active worktree created with a previous path template", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const repositoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-repo-" });
+      const legacyWorktreeRoot = path.join(baseDir, "legacy-layout", "feature-local");
+      const nestedCwd = path.join(legacyWorktreeRoot, "packages", "app");
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+      yield* fs.makeDirectory(nestedCwd, { recursive: true });
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({
+          cwd: nestedCwd,
+          repositoryRoots: [repositoryRoot],
+          knownWorktreePaths: [legacyWorktreeRoot],
+        });
+      }).pipe(
+        Effect.provide(
+          layer({
+            workspaceRoot,
+            baseDir,
+            detectCalls,
+            worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+          }),
+        ),
+      );
+
+      assert.strictEqual(result.cwd, nestedCwd);
+      assert.deepStrictEqual(result.sources, []);
+      assert.deepStrictEqual(detectCalls, [{ cwd: nestedCwd }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("preserves lexical repo names when matching canonical worktree paths", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const repositoryParent = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-review-repo-parent-",
+      });
+      const repositoryRoot = path.join(repositoryParent, "physical-repo-name");
+      const repositoryRootAlias = path.join(repositoryParent, "lexical-repo-name");
+      const worktreeRoot = path.join(
+        repositoryParent,
+        "lexical-repo-name-worktrees",
+        "feature-local",
+      );
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+      yield* fs.makeDirectory(repositoryRoot);
+      yield* fs.symlink(repositoryRoot, repositoryRootAlias);
+      yield* fs.makeDirectory(worktreeRoot, { recursive: true });
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({
+          cwd: worktreeRoot,
+          repositoryRoots: [repositoryRootAlias],
+        });
+      }).pipe(
+        Effect.provide(
+          layer({
+            workspaceRoot,
+            baseDir,
+            detectCalls,
+            worktreePathTemplate: "{repoRoot}/../{repoName}-worktrees/{branch}",
+          }),
+        ),
+      );
+
+      assert.strictEqual(result.cwd, worktreeRoot);
+      assert.deepStrictEqual(result.sources, []);
+      assert.deepStrictEqual(detectCalls, [{ cwd: worktreeRoot }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("skips invalid unrelated repository roots", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const repositoryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-repo-" });
+      const worktreeRoot = path.join(repositoryRoot, ".worktrees", "feature-local");
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+      yield* fs.makeDirectory(worktreeRoot, { recursive: true });
+
+      const result = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review.getDiffPreview({
+          cwd: worktreeRoot,
+          repositoryRoots: [`${repositoryRoot}\0invalid`, repositoryRoot],
+        });
+      }).pipe(
+        Effect.provide(
+          layer({
+            workspaceRoot,
+            baseDir,
+            detectCalls,
+            worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+          }),
+        ),
+      );
+
+      assert.strictEqual(result.cwd, worktreeRoot);
+      assert.deepStrictEqual(result.sources, []);
+      assert.deepStrictEqual(detectCalls, [{ cwd: worktreeRoot }]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("rejects configured-template paths outside known repository roots", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const knownRepositoryRoot = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-review-known-repo-",
+      });
+      const unknownRepositoryRoot = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-review-unknown-repo-",
+      });
+      const unknownWorktreeRoot = path.join(unknownRepositoryRoot, ".worktrees", "feature-local");
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+      yield* fs.makeDirectory(unknownWorktreeRoot, { recursive: true });
+
+      const error = yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        return yield* review
+          .getDiffPreview({
+            cwd: unknownWorktreeRoot,
+            repositoryRoots: [knownRepositoryRoot],
+          })
+          .pipe(Effect.flip);
+      }).pipe(
+        Effect.provide(
+          layer({
+            workspaceRoot,
+            baseDir,
+            detectCalls,
+            worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+          }),
+        ),
+      );
+
+      assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
+      assert.deepStrictEqual(detectCalls, []);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
