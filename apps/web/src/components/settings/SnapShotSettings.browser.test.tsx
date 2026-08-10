@@ -167,17 +167,13 @@ it.each(["direct", "gnome-extension", "kde"] as const)(
     };
     await mount();
     if (backend !== "direct") {
-      expect(recorder().getAttribute("aria-label")).toBe(
-        "Record snapshot shortcut, currently Ctrl+Shift+2",
-      );
+      expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⇧2");
     }
     await act(async () => userEvent.click(recorder()));
     await act(async () => userEvent.keyboard("{Control>}{Alt>}y{/Alt}{/Control}"));
     expect(bridge.checkSnapShotShortcut).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Ready to save.");
-    expect(recorder().getAttribute("aria-label")).toBe(
-      "Record snapshot shortcut, currently Ctrl+Alt+Y",
-    );
+    expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⌥Y");
     await click("Save");
     expect(settingsStore.update).toHaveBeenCalledWith({
       snapShotShortcut: expect.objectContaining({ key: "y", modKey: true, altKey: true }),
@@ -209,16 +205,12 @@ it("keeps the approved desktop shortcut when recording is cancelled in setup", a
   await mount();
   await click("Manage capture");
   expect(dialog()).not.toBeNull();
-  expect(recorder().getAttribute("aria-label")).toBe(
-    "Record snapshot shortcut, currently Ctrl+Alt+8",
-  );
+  expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⌥8");
   await act(async () => userEvent.click(recorder()));
   expect(recorder().textContent).toBe("Press shortcut…");
   await act(async () => userEvent.keyboard("{Escape}"));
   expect(dialog()).not.toBeNull();
-  expect(recorder().getAttribute("aria-label")).toBe(
-    "Record snapshot shortcut, currently Ctrl+Alt+8",
-  );
+  expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⌥8");
   expect(settingsStore.update).not.toHaveBeenCalled();
   expect(bridge.checkSnapShotShortcut).not.toHaveBeenCalled();
 });
