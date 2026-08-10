@@ -156,6 +156,10 @@ describe("ClientSettings sidebar", () => {
     expect(() => decodeClientSettingsPatch({ confirmThreadUnpin: "yes" })).toThrow();
   });
 
+  it("defaults large thread-row icons off", () => {
+    expect(decodeClientSettings({}).sidebarV2LargeIcons).toBe(false);
+  });
+
   it("allows auto-settle by inactivity to be disabled", () => {
     expect(
       decodeClientSettings({ sidebarAutoSettleAfterDays: null }).sidebarAutoSettleAfterDays,
