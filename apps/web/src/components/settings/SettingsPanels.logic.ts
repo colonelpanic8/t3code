@@ -1,6 +1,7 @@
 import type {
   BackgroundActivityProfile,
   BackgroundActivitySettings,
+  EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceConfig,
   ProviderInstanceId,
@@ -17,6 +18,25 @@ import {
 } from "@t3tools/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
+
+export function resolveSettingsEnvironmentId(input: {
+  readonly selectedEnvironmentId: EnvironmentId | null;
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly activeEnvironmentId: EnvironmentId | null;
+  readonly availableEnvironmentIds: ReadonlyArray<EnvironmentId>;
+}): EnvironmentId | null {
+  const available = new Set(input.availableEnvironmentIds);
+  if (input.selectedEnvironmentId !== null && available.has(input.selectedEnvironmentId)) {
+    return input.selectedEnvironmentId;
+  }
+  if (input.primaryEnvironmentId !== null && available.has(input.primaryEnvironmentId)) {
+    return input.primaryEnvironmentId;
+  }
+  if (input.activeEnvironmentId !== null && available.has(input.activeEnvironmentId)) {
+    return input.activeEnvironmentId;
+  }
+  return input.availableEnvironmentIds[0] ?? null;
+}
 
 export function isProjectGroupingEnabled(mode: SidebarProjectGroupingMode): boolean {
   return mode !== "separate";

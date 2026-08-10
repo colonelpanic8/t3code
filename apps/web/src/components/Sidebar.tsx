@@ -77,6 +77,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { isElectron } from "../env";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
+import { isRemoteEnvironmentId } from "../environmentPresence";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -111,7 +113,12 @@ import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useNowMinute } from "../hooks/useNowMinute";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useAppOwnsLocalEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { useProjects, useThreadShells } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -189,6 +196,7 @@ import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrom
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -499,7 +507,6 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   wokeAt: string | null;
   isActive: boolean;
   jumpLabel: string | null;
-  currentEnvironmentId: string | null;
   environmentLabel: string | null;
   projectCwd: string | null;
   projectTitle: string | null;
@@ -520,6 +527,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   onChangeRequestState: (threadKey: string, state: "open" | "closed" | "merged" | null) => void;
 }) {
   const rowTimestampFormat = useClientSettings((s) => s.timestampFormat);
+  const environmentPresenceScope = useEnvironmentPresenceScope();
   const {
     isRenaming,
     onChangeRequestState,
@@ -539,6 +547,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     variant,
     variantAction,
   } = props;
+  const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
     [thread.environmentId, thread.id],
@@ -623,8 +632,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  const isRemote =
-    props.currentEnvironmentId !== null && thread.environmentId !== props.currentEnvironmentId;
+  const isRemote = isRemoteEnvironmentId(thread.environmentId, environmentPresenceScope);
 
   const detailsTooltip = (
     <SidebarV2ThreadTooltip
@@ -1128,7 +1136,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               >
                 {isRemote ? (
                   <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-                    <ServerIcon aria-hidden className="size-3.5" />
+                    <ServerIcon
+                      aria-hidden
+                      className="size-3.5"
+                      style={environmentAccentStyle(environmentAccentColor)}
+                    />
                   </span>
                 ) : null}
                 {driverKind ? (
@@ -1341,6 +1353,7 @@ export default function SidebarV2() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -1391,11 +1404,20 @@ export default function SidebarV2() {
         projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
+        isDesktopLocalEnvironment: (environmentId) =>
+          environments.some(
+            (environment) =>
+              environment.environmentId === environmentId &&
+              isDesktopLocalConnectionTarget(environment.entry.target),
+          ),
       }),
     [
       environmentLabelById,
+      environments,
       orderedProjects,
+      ownsLocalEnvironment,
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,
@@ -3185,7 +3207,6 @@ export default function SidebarV2() {
                         wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                         isActive={routeThreadKey === threadKey}
                         jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
-                        currentEnvironmentId={primaryEnvironmentId}
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                         projectCwd={
                           projectCwdByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
