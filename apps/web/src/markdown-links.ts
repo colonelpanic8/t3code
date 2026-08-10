@@ -380,6 +380,7 @@ export function resolveMarkdownFileLinkMeta(
   href: string | undefined,
   cwd?: string,
 ): MarkdownFileLinkMeta | null {
+  if (href?.startsWith("//")) return null;
   const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
   if (!targetPath) return null;
   return buildFileLinkMetaFromTarget(targetPath, cwd);

@@ -9,6 +9,7 @@ import {
   WrapTextIcon,
 } from "lucide-react";
 import type { ScopedThreadRef, ServerProviderSkill } from "@t3tools/contracts";
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -75,6 +76,7 @@ import {
   type MarkdownFileLinkMeta,
 } from "../markdown-links";
 import { readLocalApi } from "../localApi";
+import { useAssetUrlState } from "../assets/assetUrls";
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
@@ -827,6 +829,20 @@ function extractInlineCodeSpans(text: string): string[] {
   return spans;
 }
 
+function markdownFileLinkLabel(
+  meta: MarkdownFileLinkMeta,
+  parentSuffix: string | undefined,
+): string {
+  const labelParts = [meta.basename];
+  if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
+    labelParts.push(parentSuffix);
+  }
+  if (meta.line) {
+    labelParts.push(`L${meta.line}${meta.column ? `:C${meta.column}` : ""}`);
+  }
+  return labelParts.join(" · ");
+}
+
 function extractMarkdownLinkHrefs(text: string): string[] {
   const hrefs: string[] = [];
   for (const match of text.matchAll(MARKDOWN_LINK_HREF_PATTERN)) {
@@ -1012,6 +1028,74 @@ function MarkdownExternalLinkContent({
       </span>
       {childNodes.slice(1)}
     </>
+  );
+}
+
+const MARKDOWN_IMAGE_CLASS_NAME = "chat-markdown-image";
+
+/**
+ * Workspace images can't be loaded straight from their filesystem path — the web
+ * origin only serves the client bundle, so `<img src="/home/me/shot.png">` resolves
+ * to the SPA fallback and renders as a broken image. Mint a signed asset URL for the
+ * file instead, and degrade to the usual file chip when the environment refuses it.
+ */
+function MarkdownWorkspaceImage({
+  threadRef,
+  filePath,
+  alt,
+  title,
+  fallback,
+  onOpen,
+}: {
+  threadRef: ScopedThreadRef;
+  filePath: string;
+  alt: string;
+  title: string;
+  fallback: ReactNode;
+  onOpen: (() => void) | undefined;
+}) {
+  const assetUrl = useAssetUrlState(threadRef.environmentId, {
+    _tag: "workspace-file",
+    threadId: threadRef.threadId,
+    path: filePath,
+  });
+  const preparedConnection = usePreparedConnection(threadRef.environmentId);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  if (assetUrl._tag === "Loading") {
+    if (preparedConnection._tag === "None") {
+      return <>{fallback}</>;
+    }
+    return <span className="chat-markdown-image-placeholder" role="presentation" />;
+  }
+  if (assetUrl._tag === "Failure" || failedUrl === assetUrl.url) {
+    return <>{fallback}</>;
+  }
+
+  const image = (
+    <img
+      src={assetUrl.url}
+      alt={alt}
+      title={title}
+      loading="lazy"
+      draggable={false}
+      className={MARKDOWN_IMAGE_CLASS_NAME}
+      onError={() => setFailedUrl(assetUrl.url)}
+    />
+  );
+  if (!onOpen) {
+    return image;
+  }
+
+  return (
+    <button
+      type="button"
+      className="cursor-zoom-in"
+      aria-label={`Preview ${title}`}
+      onClick={onOpen}
+    >
+      {image}
+    </button>
   );
 }
 
@@ -1300,15 +1384,6 @@ function createChatMarkdownComponents(ctx: ChatMarkdownComponentsContext): Compo
     className?: string,
   ) => {
     const parentSuffix = fileLinkParentSuffixByPath.get(fileLinkMeta.filePath);
-    const labelParts = [fileLinkMeta.basename];
-    if (typeof parentSuffix === "string" && parentSuffix.length > 0) {
-      labelParts.push(parentSuffix);
-    }
-    if (fileLinkMeta.line) {
-      labelParts.push(
-        `L${fileLinkMeta.line}${fileLinkMeta.column ? `:C${fileLinkMeta.column}` : ""}`,
-      );
-    }
 
     return (
       <MarkdownFileLink
@@ -1318,7 +1393,7 @@ function createChatMarkdownComponents(ctx: ChatMarkdownComponentsContext): Compo
         displayPath={fileLinkMeta.displayPath}
         workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
         line={fileLinkMeta.line}
-        label={labelParts.join(" · ")}
+        label={markdownFileLinkLabel(fileLinkMeta, parentSuffix)}
         copyMarkdown={copyMarkdown}
         theme={resolvedTheme}
         threadRef={threadRef}
@@ -1452,6 +1527,54 @@ function createChatMarkdownComponents(ctx: ChatMarkdownComponentsContext): Compo
         fileLinkMeta,
         `[${fileLinkMeta.basename}](${normalizedHref})`,
         props.className,
+      );
+    },
+    img({ node: _node, src, alt, ...props }) {
+      const altText = alt ?? "";
+      const normalizedSrc = typeof src === "string" ? normalizeMarkdownLinkHrefKey(src) : "";
+      const plainImage = (
+        <img
+          {...props}
+          src={src}
+          alt={altText}
+          loading="lazy"
+          className={cn(MARKDOWN_IMAGE_CLASS_NAME, props.className)}
+        />
+      );
+      if (!threadRef || normalizedSrc.length === 0) {
+        return plainImage;
+      }
+
+      const fileLinkMeta =
+        markdownFileLinkMetaByHref.get(normalizedSrc) ??
+        resolveMarkdownFileLinkMeta(normalizedSrc, cwd);
+      if (!fileLinkMeta) {
+        return plainImage;
+      }
+
+      const fallback = fileLinkChip(
+        fileLinkMeta,
+        `![${altText}](${normalizedSrc})`,
+        props.className,
+      );
+      if (!isWorkspaceImagePreviewPath(fileLinkMeta.filePath)) {
+        return fallback;
+      }
+
+      const workspaceRelativePath = fileLinkMeta.workspaceRelativePath;
+      return (
+        <MarkdownWorkspaceImage
+          threadRef={threadRef}
+          filePath={fileLinkMeta.filePath}
+          alt={altText}
+          title={fileLinkMeta.displayPath}
+          onOpen={
+            workspaceRelativePath
+              ? () => useRightPanelStore.getState().openFile(threadRef, workspaceRelativePath)
+              : undefined
+          }
+          fallback={fallback}
+        />
       );
     },
     code({ node, children, className, ...props }) {
