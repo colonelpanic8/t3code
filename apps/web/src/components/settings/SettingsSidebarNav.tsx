@@ -4,11 +4,13 @@ import {
   useMemo,
   useRef,
   useState,
+  Fragment,
   type ComponentType,
   type KeyboardEvent,
 } from "react";
 import {
   ArchiveIcon,
+  ActivityIcon,
   ArrowLeftIcon,
   BotIcon,
   CalendarClockIcon,
@@ -47,12 +49,14 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
+  "/settings/environment": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/providers": BotIcon,
   "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/connections": Link2Icon,
+  "/settings/diagnostics": ActivityIcon,
   "/settings/archived": ArchiveIcon,
 };
 
@@ -65,6 +69,29 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: SETTINGS_SECTION_LABELS[to],
   icon: SETTINGS_SECTION_ICONS[to],
 }));
+
+const SETTINGS_NAV_GROUPS: ReadonlyArray<{
+  readonly label: string;
+  readonly paths: ReadonlyArray<SettingsPath>;
+}> = [
+  {
+    label: "Client",
+    paths: ["/settings/general", "/settings/appearance"],
+  },
+  {
+    label: "Environments",
+    paths: [
+      "/settings/connections",
+      "/settings/environment",
+      "/settings/keybindings",
+      "/settings/providers",
+      "/settings/source-control",
+      "/settings/scheduled-tasks",
+      "/settings/diagnostics",
+    ],
+  },
+  { label: "Other", paths: ["/settings/archived"] },
+];
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
@@ -147,7 +174,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         scrollToSettingsTarget(targetId);
         return;
       }
-      void navigate({ to: item.to, hash: targetId, replace: true, hashScrollIntoView: false });
+      void navigate({
+        to: item.to,
+        hash: targetId,
+        replace: true,
+        hashScrollIntoView: false,
+      });
     },
     [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
   );
@@ -277,21 +309,29 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))
-              : SETTINGS_NAV_ITEMS.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
-                  return (
-                    <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        onClick={() => handleSectionClick(item.to)}
-                      >
-                        <Icon />
-                        <span className="truncate">{item.label}</span>
-                      </SidebarMenuButton>
+              : SETTINGS_NAV_GROUPS.map((group) => (
+                  <Fragment key={group.label}>
+                    <SidebarMenuItem className="pointer-events-none mt-2 px-2 pt-1 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted-foreground/60 first:mt-0">
+                      {group.label}
                     </SidebarMenuItem>
-                  );
-                })}
+                    {group.paths.map((path) => {
+                      const item = SETTINGS_NAV_ITEMS.find((candidate) => candidate.to === path)!;
+                      const Icon = item.icon;
+                      const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
+                      return (
+                        <SidebarMenuItem key={item.to}>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            onClick={() => handleSectionClick(item.to)}
+                          >
+                            <Icon />
+                            <span className="truncate">{item.label}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </Fragment>
+                ))}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
