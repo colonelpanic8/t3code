@@ -3,10 +3,15 @@
 Edit keybindings from **Settings** → **Keybindings**. That page lists every command, its current
 shortcut, whether it is a default or your own, and warns about conflicts.
 
-The same configuration lives in `~/.t3/userdata/keybindings.json` on the machine running the
-server, if you prefer editing it directly. T3 Code writes the built-in defaults into that file on
-first run, and adds any new defaults on later startups unless a rule of yours already claims the
-command or the shortcut.
+The same configuration lives on the machine running the server, if you prefer editing it directly:
+
+- `$XDG_CONFIG_HOME/t3code/keybindings.json` (normally `~/.config/t3code/keybindings.json`) for a
+  new installation
+- `~/.t3/userdata/keybindings.json` while using the legacy layout
+
+The exact active path is shown under **Settings → Diagnostics → Storage Locations**. T3 Code writes
+the built-in defaults into that file on first run, and adds any new defaults on later startups
+unless a rule of yours already claims the command or the shortcut.
 
 The file is a JSON array of rules.
 
