@@ -144,6 +144,7 @@ packageExtensions:
       vite: "catalog:"
 
 patchedDependencies:
+  "@clerk/electron@0.0.37": patches/@clerk__electron@0.0.37.patch
   "@clerk/expo@4.2.0": patches/@clerk__expo@4.2.0.patch
   "@effect/vitest@4.0.0-beta.103": patches/@effect__vitest@4.0.0-beta.103.patch
   "@expo/metro-config@57.0.12": patches/@expo__metro-config@57.0.12.patch
