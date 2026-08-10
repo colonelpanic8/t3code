@@ -1027,12 +1027,11 @@ describe("canSettleLegacySidebarRouteThread", () => {
     expect(
       canSettleLegacySidebarRouteThread({
         thread: makeThreadShell({
-          session: {
-            threadId: ThreadId.make("thread-running"),
+          runtime: {
+            activeRunId: null,
             status: "running",
+            providerInstanceId: ProviderInstanceId.make("codex"),
             providerName: "Codex",
-            runtimeMode: DEFAULT_RUNTIME_MODE,
-            activeTurnId: "turn-running" as never,
             lastError: null,
             updatedAt: now,
           },
