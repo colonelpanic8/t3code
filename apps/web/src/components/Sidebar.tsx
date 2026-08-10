@@ -759,6 +759,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     snapshot: ThreadChangeRequestSnapshot | null,
   ) => void;
 }) {
+  const largeIcons = useClientSettings((s) => s.sidebarV2LargeIcons);
   const {
     isRenaming,
     changeRequestSnapshot,
@@ -1240,7 +1241,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 environmentId={thread.environmentId}
                 cwd={props.projectCwd ?? ""}
                 faviconPath={props.projectFaviconPath}
-                className="size-4"
+                className={largeIcons ? "size-6" : "size-4"}
                 fallbackIcon={MessageSquareIcon}
               />
             </span>
@@ -1387,7 +1388,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 environmentId={thread.environmentId}
                 cwd={props.projectCwd ?? ""}
                 faviconPath={props.projectFaviconPath}
-                className="size-4 shrink-0"
+                className={largeIcons ? "size-6 shrink-0" : "size-4 shrink-0"}
               />
               {props.projectTitle ? (
                 <span
