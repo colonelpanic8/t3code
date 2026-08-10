@@ -23,6 +23,8 @@ import { AsyncResult } from "effect/reactivity";
 import { useRouter } from "@tanstack/react-router";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
+import { requestResync } from "../lib/resyncRequests";
+import { confirmSettleConverged as confirmSettleConvergedWith } from "../lib/settleConvergence";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentSession, readEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -690,6 +692,17 @@ export function useThreadActions() {
     return result;
   };
 
+  const confirmSettleConverged = async (target: ScopedThreadRef) => {
+    await confirmSettleConvergedWith({
+      readSettled: () => {
+        const shell = readThreadShell(target);
+        return shell === null ? null : shell.settledOverride === "settled";
+      },
+      requestResync: () => requestResync(),
+      delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
+  };
+
   const settleThread = async (target: ScopedThreadRef) => {
     if (!readEnvironmentSupportsSettlement(target.environmentId)) {
       return AsyncResult.failure(
@@ -726,6 +739,13 @@ export function useThreadActions() {
     if (wokeAt !== null) {
       markThreadVisited(scopedThreadKey(target), wokeAt);
     }
+    // A settle the server accepts always publishes an authoritative
+    // thread-upserted, so the local view should show it settled shortly
+    // after. When it does not, the client is working from a view the server
+    // no longer agrees with: every further click succeeds as an idempotent
+    // no-op and silently changes nothing, which reads as a dead control.
+    // Reconcile instead of stranding the user until they restart.
+    void confirmSettleConverged(target);
     showThreadUndoNotice({
       action: "Settled",
       claim: action,
