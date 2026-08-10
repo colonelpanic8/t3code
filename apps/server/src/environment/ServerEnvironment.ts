@@ -152,6 +152,9 @@ const makeIdentity = Effect.gen(function* () {
   );
 
   const environmentIdRaw = yield* Effect.gen(function* () {
+    if (serverConfig.environmentIdOverride) {
+      return serverConfig.environmentIdOverride;
+    }
     const persisted = yield* readPersistedEnvironmentId;
     if (persisted) {
       return persisted;
