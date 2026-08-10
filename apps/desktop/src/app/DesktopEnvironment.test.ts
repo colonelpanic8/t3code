@@ -41,6 +41,7 @@ describe("DesktopEnvironment", () => {
         {},
         {
           T3CODE_HOME: " /tmp/t3 ",
+          T3CODE_MANAGED_CONNECTIONS_FILE: " /run/secrets/t3code-connections.json ",
           T3CODE_COMMIT_HASH: " 0123456789abcdef ",
           T3CODE_PORT: "4949",
           VITE_DEV_SERVER_URL: "http://localhost:5173",
@@ -59,6 +60,10 @@ describe("DesktopEnvironment", () => {
       assert.equal(
         environment.savedEnvironmentRegistryPath,
         "/tmp/t3/userdata/saved-environments.json",
+      );
+      assert.deepEqual(
+        environment.managedConnectionsPath,
+        Option.some("/run/secrets/t3code-connections.json"),
       );
       assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
       assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
