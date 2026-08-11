@@ -13,7 +13,9 @@ import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 const makeServerConfigLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "managedAccessToken">
+  >,
 ) =>
   Layer.effect(
     ServerConfig.ServerConfig,
@@ -27,7 +29,9 @@ const makeServerConfigLayer = (
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-session-test-" })));
 
 const makeSessionStoreLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "managedAccessToken">
+  >,
 ) =>
   SessionStore.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
@@ -92,6 +96,20 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(error._tag).toBe("MalformedSessionTokenError");
       expect(error.message).toContain("Malformed session token");
     }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+  it.effect("maps the configured managed token to a renewable server session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const verified = yield* sessions.verify("managed-fleet-secret");
+      const websocket = yield* sessions.issueWebSocketToken(verified.sessionId);
+      const websocketSession = yield* sessions.verifyWebSocketToken(websocket.token);
+
+      expect(verified.method).toBe("bearer-access-token");
+      expect(verified.subject).toBe("managed-access");
+      expect(verified.client).toEqual({ label: "Managed fleet", deviceType: "bot" });
+      expect(websocketSession.sessionId).toBe(verified.sessionId);
+      expect(websocketSession.subject).toBe("managed-access");
+    }).pipe(Effect.provide(makeSessionStoreLayer({ managedAccessToken: "managed-fleet-secret" }))),
   );
   it.effect("preserves repository failures while verifying session and websocket credentials", () =>
     Effect.gen(function* () {
