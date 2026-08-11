@@ -1,6 +1,7 @@
 import {
   BearerConnectionCredential,
   BearerConnectionProfile,
+  BearerConnectionRegistration,
   BearerConnectionTarget,
   RelayConnectionTarget,
   SshConnectionProfile,
@@ -8,9 +9,16 @@ import {
 } from "@t3tools/client-runtime/connection";
 import {
   ConnectionCatalogDocument as RuntimeConnectionCatalogDocument,
+  EMPTY_CONNECTION_CATALOG_DOCUMENT,
+  registerConnectionInCatalog,
+  removeConnectionFromCatalog,
   type ConnectionCatalogDocument as RuntimeConnectionCatalogDocumentType,
 } from "@t3tools/client-runtime/platform";
-import type { PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type PersistedSavedEnvironmentRecord,
+  TrimmedNonEmptyString,
+} from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -45,6 +53,25 @@ const RuntimeConnectionCatalogDocumentJson = Schema.fromJsonString(
 const encodeRuntimeConnectionCatalogDocumentJson = Schema.encodeEffect(
   RuntimeConnectionCatalogDocumentJson,
 );
+const decodeRuntimeConnectionCatalogDocumentJson = Schema.decodeEffect(
+  RuntimeConnectionCatalogDocumentJson,
+);
+
+const ManagedConnection = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: TrimmedNonEmptyString,
+  httpBaseUrl: TrimmedNonEmptyString,
+  wsBaseUrl: TrimmedNonEmptyString,
+  token: TrimmedNonEmptyString,
+});
+type ManagedConnection = typeof ManagedConnection.Type;
+
+const ManagedConnectionsDocument = Schema.Struct({
+  version: Schema.Literal(1),
+  connections: Schema.Array(ManagedConnection),
+});
+const ManagedConnectionsDocumentJson = fromLenientJson(ManagedConnectionsDocument);
+const decodeManagedConnectionsDocumentJson = Schema.decodeEffect(ManagedConnectionsDocumentJson);
 
 const DesktopConnectionCatalogStoreWriteOperation = Schema.Literals([
   "create-temporary-file-name",
@@ -83,7 +110,7 @@ export class DesktopConnectionCatalogStoreWriteError extends Schema.TaggedErrorC
 export class DesktopConnectionCatalogStoreDecodeError extends Schema.TaggedErrorClass<DesktopConnectionCatalogStoreDecodeError>()(
   "DesktopConnectionCatalogStoreDecodeError",
   {
-    resource: Schema.Literal("encryptedCatalog"),
+    resource: Schema.Literals(["catalog", "encryptedCatalog"]),
     catalogPath: Schema.String,
     cause: Schema.Defect(),
   },
@@ -285,6 +312,49 @@ function connectionId(prefix: "bearer" | "ssh", environmentId: string): string {
   return `${prefix}:${environmentId}`;
 }
 
+function managedConnectionId(environmentId: string): string {
+  return `managed:${environmentId}`;
+}
+
+function registerManagedConnections(
+  catalog: RuntimeConnectionCatalogDocumentType,
+  connections: ReadonlyArray<ManagedConnection>,
+): RuntimeConnectionCatalogDocumentType {
+  return connections.reduce((current, connection) => {
+    const connectionId = managedConnectionId(connection.environmentId);
+    return registerConnectionInCatalog(
+      current,
+      new BearerConnectionRegistration({
+        target: new BearerConnectionTarget({
+          environmentId: connection.environmentId,
+          label: connection.label,
+          connectionId,
+        }),
+        profile: new BearerConnectionProfile({
+          connectionId,
+          environmentId: connection.environmentId,
+          label: connection.label,
+          httpBaseUrl: connection.httpBaseUrl,
+          wsBaseUrl: connection.wsBaseUrl,
+        }),
+        credential: new BearerConnectionCredential({ token: connection.token }),
+      }),
+    );
+  }, catalog);
+}
+
+function removeManagedConnections(
+  catalog: RuntimeConnectionCatalogDocumentType,
+): RuntimeConnectionCatalogDocumentType {
+  return catalog.targets.reduce(
+    (current, target) =>
+      "connectionId" in target && target.connectionId.startsWith("managed:")
+        ? removeConnectionFromCatalog(current, target)
+        : current,
+    catalog,
+  );
+}
+
 const migrateSavedEnvironmentRecords = Effect.fn(
   "desktop.connectionCatalogStore.migrateSavedEnvironmentRecords",
 )(function* (
@@ -394,6 +464,58 @@ export const make = Effect.gen(function* () {
     ),
   );
 
+  const readManagedConnections = Effect.fn("desktop.connectionCatalogStore.readManagedConnections")(
+    function* () {
+      if (Option.isNone(environment.managedConnectionsPath)) {
+        return [] as const;
+      }
+      const managedConnectionsPath = environment.managedConnectionsPath.value;
+      const raw = yield* fileSystem.readFileString(managedConnectionsPath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreReadError({
+              catalogPath: managedConnectionsPath,
+              cause,
+            }),
+        ),
+      );
+      const document = yield* decodeManagedConnectionsDocumentJson(raw).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreDocumentDecodeError({
+              catalogPath: managedConnectionsPath,
+              cause,
+            }),
+        ),
+      );
+      return document.connections;
+    },
+  );
+
+  const decodeCatalog = (catalog: string) =>
+    decodeRuntimeConnectionCatalogDocumentJson(catalog).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DesktopConnectionCatalogStoreDecodeError({
+            resource: "catalog",
+            catalogPath,
+            cause,
+          }),
+      ),
+    );
+
+  const encodeCatalog = (catalog: RuntimeConnectionCatalogDocumentType) =>
+    encodeRuntimeConnectionCatalogDocumentJson(catalog).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DesktopConnectionCatalogStoreDecodeError({
+            resource: "catalog",
+            catalogPath,
+            cause,
+          }),
+      ),
+    );
+
   const writeCatalog = Effect.fn("desktop.connectionCatalogStore.writeCatalog")(function* (
     catalog: string,
   ) {
@@ -471,28 +593,45 @@ export const make = Effect.gen(function* () {
 
   return DesktopConnectionCatalogStore.of({
     get: Effect.gen(function* () {
+      const managedConnections = yield* readManagedConnections();
       const document = yield* readDocument(fileSystem, catalogPath);
+      let storedCatalog: Option.Option<string>;
       if (Option.isNone(document)) {
-        return yield* migrateLegacyCatalog;
-      }
-      if (!(yield* encryptionAvailable)) {
-        return Option.none<string>();
-      }
-      const decrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
-        Effect.flatMap((encryptedCatalog) =>
-          safeStorage.decryptString(encryptedCatalog).pipe(
-            Effect.mapError(
-              (cause) =>
-                new DesktopConnectionCatalogStoreProtectionError({
-                  operation: "decrypt-catalog",
-                  catalogPath,
-                  cause,
-                }),
+        storedCatalog = yield* migrateLegacyCatalog;
+      } else if (!(yield* encryptionAvailable)) {
+        storedCatalog = Option.none();
+      } else {
+        const decrypted = yield* decodeSecretBytes(
+          catalogPath,
+          document.value.encryptedCatalog,
+        ).pipe(
+          Effect.flatMap((encryptedCatalog) =>
+            safeStorage.decryptString(encryptedCatalog).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new DesktopConnectionCatalogStoreProtectionError({
+                    operation: "decrypt-catalog",
+                    catalogPath,
+                    cause,
+                  }),
+              ),
             ),
           ),
+        );
+        storedCatalog = Option.some(decrypted);
+      }
+
+      if (Option.isNone(environment.managedConnectionsPath)) {
+        return storedCatalog;
+      }
+      const catalog = Option.isSome(storedCatalog)
+        ? yield* decodeCatalog(storedCatalog.value)
+        : EMPTY_CONNECTION_CATALOG_DOCUMENT;
+      return Option.some(
+        yield* encodeCatalog(
+          registerManagedConnections(removeManagedConnections(catalog), managedConnections),
         ),
       );
-      return Option.some(decrypted);
     }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
       if (!(yield* encryptionAvailable)) {
