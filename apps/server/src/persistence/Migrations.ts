@@ -73,6 +73,7 @@ import Migration0058 from "./Migrations/058_OrchestrationV2RecoveryIndexes.ts";
 import Migration0059 from "./Migrations/059_OrchestrationV2ShellIndexes.ts";
 import Migration0060 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
 import Migration0061 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
+import Migration0062 from "./Migrations/062_ProjectionThreadSchemaCompatibility.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -146,6 +147,7 @@ export const migrationEntries = [
   [59, "OrchestrationV2ShellIndexes", Migration0059],
   [60, "ProjectionThreadBranchPullRequest", Migration0060],
   [61, "ProjectionThreadsActiveOrderKey", Migration0061],
+  [62, "ProjectionThreadSchemaCompatibility", Migration0062],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
