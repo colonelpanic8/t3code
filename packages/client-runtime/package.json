@@ -398,6 +398,10 @@
     "./state/mcp-apps": {
       "types": "./src/state/mcpApps.ts",
       "default": "./src/state/mcpApps.ts"
+    },
+    "./state/voice-live": {
+      "types": "./src/state/voiceLive.ts",
+      "default": "./src/state/voiceLive.ts"
     }
   },
   "scripts": {
