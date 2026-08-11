@@ -218,6 +218,10 @@
     "./work-log/command-label": {
       "types": "./src/work-log/commandLabel.ts",
       "default": "./src/work-log/commandLabel.ts"
+    },
+    "./state/voice-live": {
+      "types": "./src/state/voiceLive.ts",
+      "default": "./src/state/voiceLive.ts"
     }
   },
   "scripts": {

@@ -163,6 +163,8 @@ export const make = Effect.gen(function* () {
       threadTitleRegeneration: true,
       threadVisitedTracking: true,
       threadPullRequestLinking: true,
+      voiceLive: true,
+      voiceLiveToolExecution: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       ...(serverSelfUpdate === "boot-service" ? { serverSelfUpdateProgress: true } : {}),
     },
