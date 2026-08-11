@@ -22,6 +22,7 @@ import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLa
 import { LegacyThreadMigrationToast } from "../components/LegacyThreadMigrationToast";
 import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToastCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
+import { VoiceLiveCallCard } from "../voice/VoiceLiveCallCard";
 import { Button } from "../components/ui/button";
 import {
   AnchoredToastProvider,
@@ -147,6 +148,9 @@ function RootRouteView() {
         {/* Above the router: a theme draft is judged by walking the app, so the
             editor has to survive navigation away from settings. */}
         <ThemeEditorHost />
+        {/* Above the router for the same reason: an active call keeps its
+            surface while the user navigates anywhere in the app. */}
+        <VoiceLiveCallCard />
       </AnchoredToastProvider>
     </ToastProvider>
   );
