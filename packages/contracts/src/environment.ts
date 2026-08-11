@@ -108,6 +108,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       this is false — no update would ever repaint it. Absent on older
       servers, which may still publish, so only an explicit false skips. */
   agentActivityPublishing: Schema.optionalKey(Schema.Boolean),
+  /** Server can host Live Voice calls (voice.live.start/stop/respond).
+      Absent on older servers, so clients hide the launcher for them. */
+  voiceLive: Schema.optionalKey(Schema.Boolean),
+  /** Server executes routed Live Voice tools (voice.live.tool.execute).
+      Checked per target host before a client routes a tool call there. */
+  voiceLiveToolExecution: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
