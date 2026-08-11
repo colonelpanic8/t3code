@@ -323,12 +323,14 @@ function useEnvironmentOptions(): ReadonlyArray<EnvironmentOption> {
   }, [connectedEnvironments, savedConnectionsById, serverConfigByEnvironmentId]);
 }
 
-function useSelectedEnvironment(): {
+function useSelectedEnvironment(initialEnvironmentId: EnvironmentId | null): {
   readonly environmentOptions: ReadonlyArray<EnvironmentOption>;
   readonly selectedEnvironment: EnvironmentOption | null;
   readonly setSelectedEnvironmentId: (environmentId: EnvironmentId) => void;
 } {
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(
+    initialEnvironmentId,
+  );
   const environmentOptions = useEnvironmentOptions();
   const selectedEnvironment =
     environmentOptions.find(
@@ -414,12 +416,17 @@ function SourceControlRow(props: {
   );
 }
 
-export function AddProjectSourceScreen() {
+export function AddProjectSourceScreen({
+  environmentId,
+}: {
+  readonly environmentId?: string | string[];
+}) {
   const navigation = useNavigation();
   const accentColor = useThemeColor("--color-icon-muted");
   const iconColor = useThemeColor("--color-icon");
+  const initialEnvironmentId = stringParam(environmentId) as EnvironmentId | null;
   const { environmentOptions, selectedEnvironment, setSelectedEnvironmentId } =
-    useSelectedEnvironment();
+    useSelectedEnvironment(initialEnvironmentId);
   const discoveryState = useEnvironmentQuery(
     selectedEnvironment === null
       ? null
