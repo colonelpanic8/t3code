@@ -238,6 +238,10 @@
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"
+    },
+    "./localServerDiscovery": {
+      "types": "./src/localServerDiscovery.ts",
+      "import": "./src/localServerDiscovery.ts"
     }
   },
   "scripts": {
