@@ -225,6 +225,8 @@ export const make = Effect.gen(function* () {
       threadTitleRegeneration: true,
       threadVisitedTracking: true,
       threadPullRequestLinking: true,
+      voiceLive: true,
+      voiceLiveToolExecution: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
       // Running-thread continuation across a self-update (#9167) marks v1
       // provider session bindings; the v2 recovery path terminalizes running
