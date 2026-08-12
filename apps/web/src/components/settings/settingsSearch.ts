@@ -141,6 +141,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "new-threads",
   },
   {
+    id: "worktree-path",
+    title: "Worktree path",
+    to: "/settings/environment",
+  },
+  {
     id: "add-project-starts-in",
     title: "Add project starts in",
     to: "/settings/environment",
