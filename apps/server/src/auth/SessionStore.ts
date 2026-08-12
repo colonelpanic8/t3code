@@ -752,6 +752,7 @@ export const make = Effect.gen(function* () {
         ttl: MANAGED_ACCESS_SESSION_TTL,
         subject: "managed-access",
         method: "bearer-access-token",
+        replaceActiveForSubjectAndMethod: true,
         client: {
           label: "Managed fleet",
           deviceType: "bot",
