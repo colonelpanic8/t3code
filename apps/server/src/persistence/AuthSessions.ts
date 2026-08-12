@@ -96,6 +96,9 @@ export class AuthSessionRepository extends Context.Service<
     readonly create: (
       input: CreateAuthSessionInput,
     ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    readonly replaceBySubject: (
+      input: CreateAuthSessionInput,
+    ) => Effect.Effect<void, AuthSessionRepositoryError>;
     readonly getById: (
       input: GetAuthSessionByIdInput,
     ) => Effect.Effect<Option.Option<AuthSessionRecord>, AuthSessionRepositoryError>;
@@ -254,6 +257,15 @@ export const make = Effect.gen(function* () {
       `,
   });
 
+  const deleteSessionRowsBySubject = SqlSchema.void({
+    Request: Schema.Struct({ subject: Schema.String }),
+    execute: ({ subject }) =>
+      sql`
+        DELETE FROM auth_sessions
+        WHERE subject = ${subject}
+      `,
+  });
+
   const listActiveSessionRows = SqlSchema.findAll({
     Request: ListActiveAuthSessionsInput,
     Result: AuthSessionRawDbRow,
@@ -342,6 +354,23 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+
+  const replaceBySubject: AuthSessionRepository["Service"]["replaceBySubject"] = (input) =>
+    sql
+      .withTransaction(
+        deleteSessionRowsBySubject({ subject: input.subject }).pipe(
+          Effect.flatMap(() => createSessionRow(input)),
+        ),
+      )
+      .pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "AuthSessionRepository.replaceBySubject:query",
+            "AuthSessionRepository.replaceBySubject:encodeRequest",
+            { sessionId: input.sessionId },
+          ),
+        ),
+      );
 
   const getById: AuthSessionRepository["Service"]["getById"] = (input) =>
     getSessionRowById(input).pipe(
@@ -442,6 +471,7 @@ export const make = Effect.gen(function* () {
 
   return {
     create,
+    replaceBySubject,
     getById,
     listActive,
     revoke,
