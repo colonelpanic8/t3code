@@ -573,99 +573,106 @@ export const make = Effect.gen(function* () {
     );
 
   const encodeClaims = Schema.encodeEffect(Schema.fromJsonString(SessionClaims));
-  const issue: SessionStore["Service"]["issue"] = Effect.fn("SessionStore.issue")(
-    function* (input) {
-      const sessionId = AuthSessionId.make(
-        yield* crypto.randomUUIDv4.pipe(
-          Effect.mapError((cause) => new SessionCredentialIssueError({ cause })),
-        ),
-      );
-      const issuedAt = yield* DateTime.now;
-      const expiresAt = DateTime.add(issuedAt, {
-        milliseconds: Duration.toMillis(input?.ttl ?? DEFAULT_SESSION_TTL),
-      });
-      const claims: SessionClaims = {
-        v: 1,
-        kind: "session",
-        sid: sessionId,
-        sub: input?.subject ?? "browser",
-        scopes: input?.scopes ?? AuthStandardClientScopes,
-        method: input?.method ?? "browser-session-cookie",
-        ...(input?.proofKeyThumbprint ? { jkt: input.proofKeyThumbprint } : {}),
-        iat: issuedAt.epochMilliseconds,
-        exp: expiresAt.epochMilliseconds,
-      };
+  const issueSession = Effect.fn("SessionStore.issueSession")(function* (
+    input: Parameters<SessionStore["Service"]["issue"]>[0],
+    replaceBySubject = false,
+  ) {
+    const sessionId = AuthSessionId.make(
+      yield* crypto.randomUUIDv4.pipe(
+        Effect.mapError((cause) => new SessionCredentialIssueError({ cause })),
+      ),
+    );
+    const issuedAt = yield* DateTime.now;
+    const expiresAt = DateTime.add(issuedAt, {
+      milliseconds: Duration.toMillis(input?.ttl ?? DEFAULT_SESSION_TTL),
+    });
+    const claims: SessionClaims = {
+      v: 1,
+      kind: "session",
+      sid: sessionId,
+      sub: input?.subject ?? "browser",
+      scopes: input?.scopes ?? AuthStandardClientScopes,
+      method: input?.method ?? "browser-session-cookie",
+      ...(input?.proofKeyThumbprint ? { jkt: input.proofKeyThumbprint } : {}),
+      iat: issuedAt.epochMilliseconds,
+      exp: expiresAt.epochMilliseconds,
+    };
 
-      const encodedPayload = yield* encodeClaims(claims).pipe(
-        Effect.map(base64UrlEncode),
-        Effect.mapError(
-          (cause) =>
-            new SessionCredentialIssueError({
+    const encodedPayload = yield* encodeClaims(claims).pipe(
+      Effect.map(base64UrlEncode),
+      Effect.mapError(
+        (cause) =>
+          new SessionCredentialIssueError({
+            sessionId,
+            cause: new SessionClaimsEncodingError({
               sessionId,
-              cause: new SessionClaimsEncodingError({
-                sessionId,
-                operation: "encode_session_claims",
-                cause,
-              }),
+              operation: "encode_session_claims",
+              cause,
             }),
-        ),
-      );
-      const signature = signPayload(encodedPayload, signingSecret);
-      const client = input?.client ?? createDefaultClientMetadata();
-      yield* authSessions
-        .create({
-          sessionId,
-          subject: claims.sub,
-          scopes: claims.scopes,
-          method: claims.method,
-          client: {
-            label: client.label ?? null,
-            ipAddress: client.ipAddress ?? null,
-            userAgent: client.userAgent ?? null,
-            deviceType: client.deviceType,
-            os: client.os ?? null,
-            browser: client.browser ?? null,
-          },
-          issuedAt,
-          expiresAt,
-        })
-        .pipe(Effect.mapError((cause) => new SessionCredentialIssueError({ sessionId, cause })));
-      yield* emitUpsert(
-        toAuthClientSession({
-          sessionId,
-          subject: claims.sub,
-          scopes: claims.scopes,
-          method: claims.method,
-          client,
-          issuedAt,
-          expiresAt,
-          lastConnectedAt: null,
-          connected: false,
-        }),
-      );
-
-      return {
+          }),
+      ),
+    );
+    const signature = signPayload(encodedPayload, signingSecret);
+    const client = input?.client ?? createDefaultClientMetadata();
+    const persistenceInput = {
+      sessionId,
+      subject: claims.sub,
+      scopes: claims.scopes,
+      method: claims.method,
+      client: {
+        label: client.label ?? null,
+        ipAddress: client.ipAddress ?? null,
+        userAgent: client.userAgent ?? null,
+        deviceType: client.deviceType,
+        os: client.os ?? null,
+        browser: client.browser ?? null,
+      },
+      issuedAt,
+      expiresAt,
+    } satisfies AuthSessions.CreateAuthSessionInput;
+    yield* authSessions[replaceBySubject ? "replaceBySubject" : "create"](persistenceInput).pipe(
+      Effect.mapError((cause) => new SessionCredentialIssueError({ sessionId, cause })),
+    );
+    yield* emitUpsert(
+      toAuthClientSession({
         sessionId,
-        token: `${encodedPayload}.${signature}`,
+        subject: claims.sub,
+        scopes: claims.scopes,
         method: claims.method,
         client,
-        expiresAt: expiresAt,
-        scopes: claims.scopes,
-        ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
-      } satisfies IssuedSession;
-    },
-  );
+        issuedAt,
+        expiresAt,
+        lastConnectedAt: null,
+        connected: false,
+      }),
+    );
+
+    return {
+      sessionId,
+      token: `${encodedPayload}.${signature}`,
+      method: claims.method,
+      client,
+      expiresAt: expiresAt,
+      scopes: claims.scopes,
+      ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
+    } satisfies IssuedSession;
+  });
+
+  const issue: SessionStore["Service"]["issue"] = (input) => issueSession(input);
 
   const managedAccessSession = serverConfig.managedAccessToken
-    ? yield* issue({
-        ttl: MANAGED_ACCESS_SESSION_TTL,
-        subject: "managed-access",
-        method: "bearer-access-token",
-        client: {
-          label: "Managed fleet",
-          deviceType: "bot",
+    ? yield* issueSession(
+        {
+          ttl: MANAGED_ACCESS_SESSION_TTL,
+          subject: "managed-access",
+          method: "bearer-access-token",
+          client: {
+            label: "Managed fleet",
+            deviceType: "bot",
+          },
         },
-      })
+        true,
+      )
     : undefined;
 
   const verify: SessionStore["Service"]["verify"] = Effect.fn("SessionStore.verify")(
