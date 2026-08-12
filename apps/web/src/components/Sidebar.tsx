@@ -18,6 +18,7 @@ import {
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  canSettle,
   canSnooze,
   effectiveSettled,
   effectiveSnoozed,
@@ -3127,6 +3128,21 @@ export default function Sidebar() {
           modelPickerOpen: isModelPickerOpen(),
         },
       });
+      if (command === "thread.settle") {
+        const targetThread = routeThreadKey ? threadByKey.get(routeThreadKey) : null;
+        if (
+          targetThread &&
+          serverConfigs.get(targetThread.environmentId)?.environment.capabilities
+            .threadSettlement === true &&
+          !settlingThreadKeysRef.current.has(routeThreadKey) &&
+          canSettle(targetThread, { now: new Date().toISOString() })
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          attemptSettle(scopeThreadRef(targetThread.environmentId, targetThread.id));
+        }
+        return;
+      }
       const navigateToThreadKey = (targetThreadKey: string | null) => {
         if (!targetThreadKey) return false;
         const targetThread = threadByKey.get(targetThreadKey);
@@ -3154,11 +3170,13 @@ export default function Sidebar() {
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
   }, [
+    attemptSettle,
     keybindings,
     navigateToThread,
     orderedThreadKeys,
     routeTerminalOpen,
     routeThreadKey,
+    serverConfigs,
     threadByKey,
   ]);
 
