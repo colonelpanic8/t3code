@@ -576,6 +576,8 @@ function makeReplayServerConfig(
       tailscaleServeEnabled: false,
       tailscaleServePort: 443,
       desktopBootstrapToken: undefined,
+      managedAccessToken: undefined,
+      environmentIdOverride: undefined,
       autoBootstrapProjectFromCwd: false,
       logWebSocketEvents: false,
       stateDir,
