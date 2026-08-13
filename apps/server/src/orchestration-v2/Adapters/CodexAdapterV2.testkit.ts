@@ -9,7 +9,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
-import { ServerConfig } from "../../config.ts";
+import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { layer as idAllocatorLayer } from "../IdAllocator.ts";
 import { ProviderAdapterOpenSessionError } from "../ProviderAdapter.ts";
 import { ProviderAdapterDriverCreateError } from "../ProviderAdapterDriver.ts";
@@ -69,6 +69,7 @@ export function makeReplayServerConfig(
     const baseDir = yield* fs.makeTempDirectory({
       prefix: `t3-orchestration-v2-codex-${scenario}-`,
     });
+    const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
     const stateDir = path.join(baseDir, "userdata");
     const logsDir = path.join(stateDir, "logs");
     const providerLogsDir = path.join(logsDir, "provider");
@@ -105,6 +106,7 @@ export function makeReplayServerConfig(
       host: undefined,
       cwd: process.cwd(),
       baseDir,
+      ...derivedPaths,
       staticDir: undefined,
       devUrl: undefined,
       devAllowedOrigins: [],
