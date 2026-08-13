@@ -140,6 +140,22 @@ The patch difference between two checkpoints. Query logic lives in [CheckpointDi
 
 The file patch and changed-file summary for one turn. It is usually computed in [CheckpointDiffQuery.ts][20], represented in [the contracts][1], and recorded into thread state by [projector.ts][4].
 
+### Live Voice
+
+#### Live Voice call
+
+An ephemeral realtime speech-to-speech session between a client and OpenAI,
+brokered by one server through a hidden Codex app-server session. Owned by the
+exact client socket that started it and never persisted — see
+[live-voice.md](./live-voice.md).
+
+#### Voice route request
+
+A tool call the hidden voice session sends back through the owning client,
+which executes it against one of its other connected environments
+(`voice.live.tool.execute`). This is how one call acts across every host the
+client can reach.
+
 ## Practical Shortcuts
 
 - If you see `requested`, think "intent recorded".

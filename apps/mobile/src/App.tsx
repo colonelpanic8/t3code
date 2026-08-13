@@ -17,6 +17,7 @@ import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import { VoiceLiveSurface } from "./features/voice/VoiceLiveOverlays";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { OverlayPortalHost } from "./components/OverlayPortal";
@@ -92,6 +93,10 @@ export default function App() {
                 {/* Anchored-menu overlays render here — in-window, so the
                     keyboard stays up while a dropdown is open. */}
                 <OverlayPortalHost />
+                {/* Live Voice call banner + environment picker; above the
+                    navigation container so the active call follows the user
+                    across every screen. */}
+                <VoiceLiveSurface />
               </SafeAreaProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
