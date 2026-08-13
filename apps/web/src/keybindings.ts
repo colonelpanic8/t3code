@@ -2,6 +2,7 @@ import {
   type KeybindingCommand,
   type KeybindingShortcut,
   type KeybindingWhenNode,
+  ProviderInstanceId,
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -50,6 +51,62 @@ const TERMINAL_WORD_FORWARD = "\u001bf";
 const TERMINAL_LINE_START = "\u0001";
 const TERMINAL_LINE_END = "\u0005";
 const TERMINAL_DELETE_TO_LINE_START = "\u0015";
+
+const MODEL_SELECT_COMMAND_PREFIX = "model.select.";
+const REASONING_SELECT_COMMAND_PREFIX = "reasoning.select.";
+
+export interface ModelSelectKeybindingTarget {
+  instanceId: ProviderInstanceId;
+  model: string;
+}
+
+export function modelSelectTargetFromCommand(
+  command: KeybindingCommand | string,
+): ModelSelectKeybindingTarget | null {
+  if (!command.startsWith(MODEL_SELECT_COMMAND_PREFIX)) return null;
+  const target = command.slice(MODEL_SELECT_COMMAND_PREFIX.length);
+  const separatorIndex = target.indexOf(".");
+  if (separatorIndex <= 0 || separatorIndex === target.length - 1) return null;
+  return {
+    instanceId: ProviderInstanceId.make(target.slice(0, separatorIndex)),
+    model: target.slice(separatorIndex + 1),
+  };
+}
+
+export function reasoningEffortFromCommand(command: KeybindingCommand | string): string | null {
+  if (!command.startsWith(REASONING_SELECT_COMMAND_PREFIX)) return null;
+  return command.slice(REASONING_SELECT_COMMAND_PREFIX.length) || null;
+}
+
+export interface ComposerSelectionShortcutTarget {
+  selectModel: (instanceId: ProviderInstanceId, model: string) => void;
+  selectReasoningEffort: (effort: string) => void;
+}
+
+/**
+ * Runs a `model.select.*` or `reasoning.select.*` command against the composer.
+ * Returns true for any command in those families, even when the composer is
+ * missing or cannot apply it, so the caller always consumes the key event
+ * instead of letting it reach the browser (e.g. Cmd+R reloading the app).
+ */
+export function applyComposerSelectionShortcut(
+  command: KeybindingCommand | null,
+  composer: ComposerSelectionShortcutTarget | null | undefined,
+): boolean {
+  if (!command) return false;
+  const modelTarget = modelSelectTargetFromCommand(command);
+  if (modelTarget) {
+    composer?.selectModel(modelTarget.instanceId, modelTarget.model);
+    return true;
+  }
+  const reasoningEffort = reasoningEffortFromCommand(command);
+  if (reasoningEffort) {
+    composer?.selectReasoningEffort(reasoningEffort);
+    return true;
+  }
+  return false;
+}
+
 function resolvePlatform(options: ShortcutMatchOptions | undefined): string {
   return options?.platform ?? navigator.platform;
 }

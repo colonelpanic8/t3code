@@ -19,7 +19,13 @@ import type { ReactNode } from "react";
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
-import { shouldRenderTraitsControls, TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
+import {
+  resolveReasoningEffortChange,
+  shouldRenderTraitsControls,
+  TraitsMenuContent,
+  TraitsPicker,
+  type TraitsSelectChange,
+} from "./TraitsPicker";
 
 export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
@@ -40,6 +46,26 @@ export type ComposerProviderState = {
   composerSurfaceClassName?: string;
   modelPickerIconClassName?: string;
 };
+
+/** Applies a direct reasoning effort shortcut with the same rules as the composer's traits picker. */
+export function selectComposerReasoningEffort(input: {
+  provider: ProviderDriverKind;
+  model: string;
+  models: ReadonlyArray<ServerProviderModel>;
+  modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
+  prompt: string;
+  planModeEnabled: boolean;
+  effort: string;
+}): TraitsSelectChange | null {
+  const { selections } = resolveComposerOptionSelections(
+    input.models,
+    input.model,
+    input.provider,
+    input.modelOptions,
+    input.planModeEnabled,
+  );
+  return resolveReasoningEffortChange({ ...input, modelOptions: selections });
+}
 
 type TraitsRenderInput = {
   provider: ProviderDriverKind;
