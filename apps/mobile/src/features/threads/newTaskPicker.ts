@@ -4,9 +4,10 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { buildProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
-import { groupProjectsByRepository } from "../../lib/repositoryGroups";
+import { scopedProjectKey } from "../../lib/scopedEntities";
 import type { WorkspaceState } from "../../state/workspaceModel";
 
 export interface NewTaskPickerEnvironment {
@@ -183,23 +184,49 @@ export function buildNewTaskProjectItems(input: {
     (thread) => thread.environmentId === input.environmentId,
   );
 
-  return groupProjectsByRepository({
+  const latestThreadActivityByProject = new Map<string, number>();
+  for (const thread of environmentThreads) {
+    const projectKey = scopedProjectKey(thread.environmentId, thread.projectId);
+    const activityAt = Date.parse(thread.updatedAt ?? thread.createdAt);
+    latestThreadActivityByProject.set(
+      projectKey,
+      Math.max(
+        latestThreadActivityByProject.get(projectKey) ?? Number.NEGATIVE_INFINITY,
+        activityAt,
+      ),
+    );
+  }
+
+  return buildProjectGroups({
     projects: environmentProjects,
-    threads: environmentThreads,
-  }).flatMap((group): ReadonlyArray<NewTaskProjectItem> => {
-    const project = group.projects[0]?.project;
-    return project
-      ? [
-          {
-            environmentId: project.environmentId,
-            id: project.id,
-            key: group.key,
-            title: project.title,
-            workspaceRoot: project.workspaceRoot,
-          },
-        ]
-      : [];
-  });
+    settings: {
+      sidebarProjectGroupingMode: "repository",
+      sidebarProjectGroupingOverrides: {},
+    },
+  })
+    .map((group) => {
+      const projectsByActivity = group.members.map(({ project }) => ({
+        project,
+        latestActivityAt:
+          latestThreadActivityByProject.get(scopedProjectKey(project.environmentId, project.id)) ??
+          Date.parse(project.updatedAt),
+      }));
+      const selected = projectsByActivity.reduce((latest, candidate) =>
+        candidate.latestActivityAt > latest.latestActivityAt ? candidate : latest,
+      );
+      return {
+        item: {
+          environmentId: selected.project.environmentId,
+          id: selected.project.id,
+          key: group.key,
+          title: group.label,
+          workspaceRoot: selected.project.workspaceRoot,
+        },
+        latestActivityAt: selected.latestActivityAt,
+      };
+    })
+    .sort((left, right) => right.latestActivityAt - left.latestActivityAt)
+    .map(({ item }) => item);
 }
 
 export function buildNewTaskEnvironmentItems(input: {
