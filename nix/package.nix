@@ -71,7 +71,7 @@
       # Fixed-output hash over the offline dependency closure. When
       # pnpm-lock.yaml changes, replace this with lib.fakeHash, build
       # .#unwrapped, and copy the reported hash here.
-      hash = "sha256-Qiwbg1EPjcVvt8YGc0YYP+1NbgBIxMkwIyTq5f3gtl4=";
+      hash = "sha256-0bZuGGii7xjFvg5a0yxXt3pfdfB2csWiIEEJcSSLPjQ=";
     };
 
     env.APP_VERSION = finalAttrs.version;
@@ -80,6 +80,11 @@
       substituteInPlace package.json \
         --replace-fail '"packageManager": "${rootPackage.packageManager}"' \
                        '"packageManager": "pnpm@${pnpm.version}"'
+      substituteInPlace pnpm-workspace.yaml \
+        --replace-fail 'packages:' $'injectWorkspacePackages: true\n\npackages:'
+      substituteInPlace pnpm-lock.yaml \
+        --replace-fail '  excludeLinksFromLockfile: false' \
+                       $'  excludeLinksFromLockfile: false\n  injectWorkspacePackages: true'
     '';
 
     preBuild = ''
@@ -120,13 +125,33 @@
       ''
         runHook preInstall
 
-        mkdir -p "$out"/libexec/t3code/apps/{desktop,server}
-        cp -r --no-preserve=mode node_modules "$out"/libexec/t3code
-        cp -r --no-preserve=mode apps/server/{node_modules,dist} \
+        serverDeploy="$TMPDIR/t3code-server"
+        desktopDeploy="$TMPDIR/t3code-desktop"
+        pnpm --filter t3 deploy --prod --offline --frozen-lockfile \
+          "$serverDeploy"
+        pnpm --filter @t3tools/desktop deploy \
+          --prod --offline --frozen-lockfile "$desktopDeploy"
+
+        mkdir -p "$out"/libexec/t3code/apps
+        cp -r --no-preserve=mode "$serverDeploy" \
           "$out"/libexec/t3code/apps/server
-        cp -r --no-preserve=mode \
-          apps/desktop/{package.json,node_modules,dist-electron} \
+        cp -r --no-preserve=mode "$desktopDeploy" \
           "$out"/libexec/t3code/apps/desktop
+
+        nodePtyPlatform="$(${lib.getExe nodejs} -p \
+          '`''${process.platform}-''${process.arch}`')"
+        while IFS= read -r nodePtyDir; do
+          if [ -d "$nodePtyDir/build" ]; then
+            find "$nodePtyDir/build" -mindepth 1 -maxdepth 1 \
+              ! -name Release -exec rm -rf -- {} +
+          fi
+          if [ -d "$nodePtyDir/prebuilds" ]; then
+            find "$nodePtyDir/prebuilds" -mindepth 1 -maxdepth 1 \
+              -type d ! -name "$nodePtyPlatform" -exec rm -rf -- {} +
+          fi
+          rm -rf -- "$nodePtyDir/third_party/conpty"
+        done < <(find "$out"/libexec/t3code/apps \
+          -type d -path '*/node_modules/node-pty')
 
         mkdir -p "$out"/libexec/t3code/apps/desktop/prod-resources
         install -m444 ${desktopIcon} \
