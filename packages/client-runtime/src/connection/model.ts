@@ -46,6 +46,17 @@ export const ConnectionTarget = Schema.Union([
 ]);
 export type ConnectionTarget = typeof ConnectionTarget.Type;
 
+const MANAGED_CONNECTION_ID_PREFIX = "managed:";
+
+export function isManagedConnectionTarget(
+  target: ConnectionTarget,
+): target is BearerConnectionTarget {
+  return (
+    target._tag === "BearerConnectionTarget" &&
+    target.connectionId.startsWith(MANAGED_CONNECTION_ID_PREFIX)
+  );
+}
+
 export const PersistedConnectionTarget = Schema.Union([
   BearerConnectionTarget,
   RelayConnectionTarget,
