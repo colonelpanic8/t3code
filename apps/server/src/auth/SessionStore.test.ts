@@ -13,7 +13,9 @@ import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 
 const makeServerConfigLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "managedAccessToken">
+  >,
 ) =>
   Layer.effect(
     ServerConfig.ServerConfig,
@@ -27,7 +29,9 @@ const makeServerConfigLayer = (
   ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-session-test-" })));
 
 const makeSessionStoreLayer = (
-  overrides?: Partial<Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken">>,
+  overrides?: Partial<
+    Pick<ServerConfig.ServerConfig["Service"], "desktopBootstrapToken" | "managedAccessToken">
+  >,
 ) =>
   SessionStore.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
@@ -42,6 +46,7 @@ const repositoryFailure = new PersistenceSqlError({
 
 const failingSessionLookupRepositoryLayer = Layer.succeed(AuthSessions.AuthSessionRepository, {
   create: () => Effect.void,
+  replaceBySubject: () => Effect.void,
   getById: () => Effect.fail(repositoryFailure),
   listActive: () => Effect.succeed([]),
   revoke: () => Effect.fail(repositoryFailure),
@@ -92,6 +97,43 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(error._tag).toBe("MalformedSessionTokenError");
       expect(error.message).toContain("Malformed session token");
     }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+  it.effect("maps the configured managed token to a renewable server session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const verified = yield* sessions.verify("managed-fleet-secret");
+      const websocket = yield* sessions.issueWebSocketToken(verified.sessionId);
+      const websocketSession = yield* sessions.verifyWebSocketToken(websocket.token);
+
+      expect(verified.method).toBe("bearer-access-token");
+      expect(verified.subject).toBe("managed-access");
+      expect(verified.client).toEqual({ label: "Managed fleet", deviceType: "bot" });
+      expect(websocketSession.sessionId).toBe(verified.sessionId);
+      expect(websocketSession.subject).toBe("managed-access");
+    }).pipe(Effect.provide(makeSessionStoreLayer({ managedAccessToken: "managed-fleet-secret" }))),
+  );
+  it.effect("replaces the managed session when the server restarts", () =>
+    Effect.gen(function* () {
+      const firstStore = yield* SessionStore.make;
+      const firstSession = yield* firstStore.verify("managed-fleet-secret");
+      expect(yield* firstStore.listActive()).toHaveLength(1);
+
+      const restartedStore = yield* SessionStore.make;
+      const restartedSession = yield* restartedStore.verify("managed-fleet-secret");
+      const active = yield* restartedStore.listActive();
+
+      expect(restartedSession.sessionId).not.toBe(firstSession.sessionId);
+      expect(active).toHaveLength(1);
+      expect(active[0]?.sessionId).toBe(restartedSession.sessionId);
+      expect(active[0]?.subject).toBe("managed-access");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(AuthSessions.layer, ServerSecretStore.layer).pipe(
+          Layer.provideMerge(SqlitePersistenceMemory),
+          Layer.provideMerge(makeServerConfigLayer({ managedAccessToken: "managed-fleet-secret" })),
+        ),
+      ),
+    ),
   );
   it.effect("preserves repository failures while verifying session and websocket credentials", () =>
     Effect.gen(function* () {
