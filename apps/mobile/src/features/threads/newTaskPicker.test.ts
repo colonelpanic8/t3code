@@ -108,6 +108,38 @@ describe("new task picker", () => {
     ]);
   });
 
+  it("selects the most recently active project from a repository group", () => {
+    const alternateRemoteProject = makeProject({
+      environmentId: remoteEnvironmentId,
+      id: ProjectId.make("project-remote-alternate"),
+      title: "T3 Code alternate worktree",
+      repositoryIdentity,
+    });
+    const alternateRemoteThread = makeThread({
+      environmentId: remoteEnvironmentId,
+      id: ThreadId.make("thread-remote-alternate"),
+      projectId: alternateRemoteProject.id,
+      title: "Recent alternate work",
+      updatedAt: "2026-04-04T00:00:00.000Z",
+    });
+
+    expect(
+      buildNewTaskProjectItems({
+        environmentId: remoteEnvironmentId,
+        projects: [remoteProject, alternateRemoteProject],
+        threads: [alternateRemoteThread],
+      }),
+    ).toEqual([
+      {
+        environmentId: remoteEnvironmentId,
+        id: alternateRemoteProject.id,
+        key: repositoryIdentity.canonicalKey,
+        title: repositoryIdentity.displayName,
+        workspaceRoot: alternateRemoteProject.workspaceRoot,
+      },
+    ]);
+  });
+
   it("lists only environments with projects and counts logical projects per environment", () => {
     const scratchProject = makeProject({
       environmentId: remoteEnvironmentId,
