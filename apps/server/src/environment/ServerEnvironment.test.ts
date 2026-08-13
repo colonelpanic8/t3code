@@ -41,6 +41,8 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
     port: 0,
     host: undefined,
     desktopBootstrapToken: undefined,
+    managedAccessToken: undefined,
+    environmentIdOverride: undefined,
     staticDir: undefined,
     devUrl: undefined,
     devAllowedOrigins: [],
@@ -50,6 +52,32 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
 });
 
 it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
+  it.effect("uses a configured fleet environment ID without persisting a generated ID", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-server-environment-test-",
+      });
+      const config = yield* ServerConfig.ServerConfig.pipe(
+        Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+      );
+      const environment = yield* ServerEnvironment.ServerEnvironment.pipe(
+        Effect.provide(
+          ServerEnvironment.layer.pipe(
+            Layer.provide(
+              ServerConfig.layer({
+                ...config,
+                environmentIdOverride: "fleet:ryzen-shine",
+              }),
+            ),
+          ),
+        ),
+      );
+
+      expect(yield* environment.getEnvironmentId).toBe("fleet:ryzen-shine");
+      expect(yield* fileSystem.exists(config.environmentIdPath)).toBe(false);
+    }).pipe(Effect.scoped),
+  );
   it.effect("persists the environment id across service restarts", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
