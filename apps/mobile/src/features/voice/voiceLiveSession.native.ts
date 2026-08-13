@@ -210,7 +210,12 @@ async function applyAnswer(call: ActiveCall, sdp: string): Promise<void> {
     return;
   }
   try {
-    await call.pc.setRemoteDescription({ type: "answer", sdp });
+    // Older servers trim the answer's trailing CRLF; WebRTC SDP parsers
+    // reject an SDP whose last line is unterminated.
+    await call.pc.setRemoteDescription({
+      type: "answer",
+      sdp: sdp.endsWith("\n") ? sdp : `${sdp}\r\n`,
+    });
     if (!call.finished) {
       voiceLiveStoreActions.callActive();
     }
