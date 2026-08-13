@@ -127,17 +127,17 @@ describe("DesktopConnectionCatalogStore", () => {
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-desktop-managed-connections-test-",
       });
-      const managedConnectionsPath = `${baseDir}/managed-connections.json`;
+      const managedConnectionsDirectory = `${baseDir}/.config/t3code`;
+      const managedConnectionsPath = `${managedConnectionsDirectory}/managed-connections.json`;
+      yield* fileSystem.makeDirectory(managedConnectionsDirectory, {
+        recursive: true,
+      });
       yield* fileSystem.writeFileString(
         managedConnectionsPath,
         '{"version":1,"connections":[{"environmentId":"fleet:ryzen-shine","label":"ryzen-shine","httpBaseUrl":"https://ryzen-shine/","wsBaseUrl":"wss://ryzen-shine/","token":"fleet-secret"}]}',
       );
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
-        Effect.provide(
-          makeLayer(baseDir, true, null, NodeServices.layer, {
-            T3CODE_MANAGED_CONNECTIONS_FILE: managedConnectionsPath,
-          }),
-        ),
+        Effect.provide(makeLayer(baseDir)),
       );
 
       const first = yield* store.get;
