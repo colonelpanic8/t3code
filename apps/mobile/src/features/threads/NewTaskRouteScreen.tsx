@@ -348,7 +348,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           <SymbolView
                             name="chevron.right"
                             size={14}
-                            tintColor={chevronColor}
+                            tintColorClassName={"accent-chevron"}
                             type="monochrome"
                           />
                         </Pressable>
