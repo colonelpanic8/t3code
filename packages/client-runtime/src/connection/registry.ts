@@ -30,6 +30,7 @@ import type {
   NetworkStatus,
   SupervisorConnectionState,
 } from "./model.ts";
+import { isManagedConnectionTarget } from "./model.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionDriver from "./driver.ts";
@@ -249,9 +250,10 @@ export const make = Effect.gen(function* () {
       Effect.uninterruptible(
         Effect.gen(function* () {
           const environmentId = entry.target.environmentId;
+          const initiallyDesired = !isManagedConnectionTarget(entry.target);
           const scope = yield* Scope.make();
           const supervisor = yield* EnvironmentSupervisor.make(entry, {
-            initiallyDesired: false,
+            initiallyDesired,
           }).pipe(
             Effect.provideService(Connectivity.Connectivity, connectivity),
             Effect.provideService(ConnectionDriver.ConnectionDriver, driver),
@@ -259,7 +261,9 @@ export const make = Effect.gen(function* () {
             Scope.provide(scope),
             Effect.onError(() => Scope.close(scope, Exit.void)),
           );
-          yield* supervisor.connect;
+          if (initiallyDesired) {
+            yield* supervisor.connect;
+          }
           yield* SubscriptionRef.update(serviceScopes, (current) => {
             const next = new Map(current);
             next.set(environmentId, { entry, supervisor, scope });
@@ -292,6 +296,7 @@ export const make = Effect.gen(function* () {
   const run: EnvironmentRegistry["Service"]["run"] = Effect.fn("EnvironmentRegistry.run")(
     function* <A, E, R>(environmentId: EnvironmentId, effect: Effect.Effect<A, E, R>) {
       const supervisor = yield* acquireSupervisor(environmentId);
+      yield* supervisor.connect;
       return yield* Effect.provideService(
         effect,
         EnvironmentSupervisor.EnvironmentSupervisor,
@@ -624,7 +629,11 @@ export const make = Effect.gen(function* () {
 
   const retryNow = (environmentId: EnvironmentId) =>
     acquireSupervisor(environmentId).pipe(
-      Effect.flatMap((supervisor) => supervisor.retryNow),
+      Effect.flatMap((supervisor) =>
+        SubscriptionRef.get(supervisor.state).pipe(
+          Effect.flatMap((state) => (state.desired ? supervisor.retryNow : supervisor.connect)),
+        ),
+      ),
       Effect.catchTag("EnvironmentNotRegisteredError", () => Effect.void),
       Effect.withSpan("EnvironmentRegistry.retryNow"),
     );

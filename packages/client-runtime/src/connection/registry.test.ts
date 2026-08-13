@@ -94,6 +94,18 @@ const BEARER_PROFILE = new BearerConnectionProfile({
 const BEARER_CREDENTIAL = new BearerConnectionCredential({
   token: "bearer-token",
 });
+const MANAGED_TARGET = new BearerConnectionTarget({
+  environmentId: EnvironmentId.make("fleet:managed-environment"),
+  label: "Managed environment",
+  connectionId: "managed:fleet:managed-environment",
+});
+const MANAGED_PROFILE = new BearerConnectionProfile({
+  connectionId: MANAGED_TARGET.connectionId,
+  environmentId: MANAGED_TARGET.environmentId,
+  label: MANAGED_TARGET.label,
+  httpBaseUrl: "https://managed.example.test",
+  wsBaseUrl: "wss://managed.example.test",
+});
 
 const SSH_TARGET: DesktopSshEnvironmentTarget = {
   alias: "test",
@@ -481,6 +493,51 @@ describe("EnvironmentRegistry", () => {
         yield* Fiber.join(start);
 
         expect(yield* Ref.get(loadCount)).toBe(2);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect("keeps managed environments idle until explicitly connected", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness(
+        [MANAGED_TARGET],
+        [MANAGED_PROFILE],
+        [[MANAGED_TARGET.connectionId, BEARER_CREDENTIAL]],
+      );
+
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.start;
+
+        expect(yield* registry.state(MANAGED_TARGET.environmentId)).toMatchObject({
+          desired: false,
+          phase: "available",
+        });
+        expect(yield* Ref.get(harness.sessions)).toHaveLength(0);
+
+        const observedState = yield* registry
+          .runStream(
+            MANAGED_TARGET.environmentId,
+            Stream.unwrap(
+              EnvironmentSupervisor.EnvironmentSupervisor.pipe(
+                Effect.flatMap((supervisor) => SubscriptionRef.get(supervisor.state)),
+                Effect.map(Stream.succeed),
+              ),
+            ),
+          )
+          .pipe(Stream.runHead, Effect.map(Option.getOrThrow));
+
+        expect(observedState).toMatchObject({ desired: false, phase: "available" });
+        expect(yield* Ref.get(harness.sessions)).toHaveLength(0);
+
+        yield* registry.retryNow(MANAGED_TARGET.environmentId);
+        yield* awaitConnectionState(
+          registry,
+          MANAGED_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+
+        expect(yield* Ref.get(harness.sessions)).toHaveLength(1);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
