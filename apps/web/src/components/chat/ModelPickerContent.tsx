@@ -542,8 +542,24 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     return mapping.size > 0 ? mapping : EMPTY_MODEL_JUMP_LABELS;
   }, [keybindings, modelJumpCommandByKey, modelJumpShortcutContext]);
   const modelListExtraData = useMemo(
-    () => ({ favoritesSet, modelJumpLabelByKey }),
-    [favoritesSet, modelJumpLabelByKey],
+    () => ({
+      activeInstanceId: props.activeInstanceId,
+      activeModel: props.model,
+      favoritesSet,
+      getModelDisabledReason,
+      isLocked,
+      modelJumpLabelByKey,
+      toggleFavorite,
+    }),
+    [
+      favoritesSet,
+      getModelDisabledReason,
+      isLocked,
+      modelJumpLabelByKey,
+      props.activeInstanceId,
+      props.model,
+      toggleFavorite,
+    ],
   );
 
   useEffect(() => {
@@ -714,29 +730,33 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 <LegendList<string>
                   ref={modelListRef}
                   data={filteredItemKeys}
+                  // Shortcut labels are positional, so cached rows must rerender
+                  // when an unchanged model moves to a different list position.
                   extraData={modelListExtraData}
-                  keyExtractor={(modelKey) => modelKey}
-                  renderItem={({ item: modelKey, index }) => {
-                    if (legacySection?.key === modelKey) {
+                  keyExtractor={(modelKey: string) => modelKey}
+                  renderItem={({ item: modelKey, index }: { item: string; index: number }) => {
+                    const renderedLegacySection =
+                      legacySection?.key === modelKey ? legacySection : null;
+                    if (renderedLegacySection) {
                       return (
                         <ComboboxItem
                           hideIndicator
                           index={index}
                           value={modelKey}
-                          aria-expanded={legacySection.isExpanded}
+                          aria-expanded={renderedLegacySection.isExpanded}
                           className="group w-full cursor-pointer rounded-md px-2 py-2"
                           contentClassName="flex w-full items-center gap-3"
                         >
                           <div className="min-w-0 flex-1 text-left">
                             <div className="text-xs font-medium leading-snug">Legacy models</div>
                             <div className="mt-1 text-xs font-normal leading-snug text-muted-foreground/70">
-                              {legacySection.legacyModels.length} models
+                              {renderedLegacySection.legacyModels.length} models
                             </div>
                           </div>
                           <ChevronRightIcon
                             className={cn(
                               "size-4 transition-transform",
-                              legacySection.isExpanded && "rotate-90",
+                              renderedLegacySection.isExpanded && "rotate-90",
                             )}
                           />
                         </ComboboxItem>
