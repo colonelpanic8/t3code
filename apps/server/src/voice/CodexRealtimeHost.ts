@@ -84,6 +84,11 @@ const voiceError = (message: string, code: string) => (cause: unknown) =>
 const transcriptRole = (role: string): "user" | "assistant" =>
   role === "assistant" ? "assistant" : "user";
 
+/** SDP requires CRLF-terminated lines; restore the terminator the RPC contract trims. */
+export function ensureSdpLineTermination(sdp: string): string {
+  return sdp.endsWith("\n") ? sdp : `${sdp}\r\n`;
+}
+
 /**
  * Spawns the app-server, initializes it, verifies auth and the realtime
  * version floor, and starts the hidden Codex thread. The child process dies
@@ -234,7 +239,10 @@ export const openCodexRealtimeHost = Effect.fn("openCodexRealtimeHost")(function
         threadId: codexThreadId,
         outputModality: "audio",
         version: "v3",
-        transport: { type: "webrtc", sdp: params.offerSdp },
+        // The RPC contract trims the offer, dropping the SDP's trailing CRLF;
+        // OpenAI's parser requires every line terminated and rejects the
+        // unterminated form with "unmarshal SDP: EOF".
+        transport: { type: "webrtc", sdp: ensureSdpLineTermination(params.offerSdp) },
         prompt: params.prompt,
         // The prompt above owns all instructions; Codex's synthesized startup
         // context would compete with it.
