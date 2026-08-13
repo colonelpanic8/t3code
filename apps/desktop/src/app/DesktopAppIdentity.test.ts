@@ -151,7 +151,10 @@ describe("DesktopAppIdentity", () => {
 
         assert.equal(userDataPath, "/Users/alice/Library/Application Support/T3 Code (Alpha)");
       }),
-      { legacyPathExists: true },
+      {
+        legacyPathExists: true,
+        environment: { env: { T3CODE_HOME: "/Users/alice/.t3" } },
+      },
     ),
   );
 
@@ -178,7 +181,10 @@ describe("DesktopAppIdentity", () => {
           `Failed to inspect legacy desktop user-data path at "${legacyPath}".`,
         );
       }),
-      { legacyPathProbeError: cause },
+      {
+        legacyPathProbeError: cause,
+        environment: { env: { T3CODE_HOME: "/Users/alice/.t3" } },
+      },
     );
   });
 
