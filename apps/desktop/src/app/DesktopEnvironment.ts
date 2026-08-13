@@ -75,6 +75,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
     readonly savedEnvironmentRegistryPath: string;
+    readonly managedConnectionsPath: Option.Option<string>;
     readonly serverSettingsPath: string;
     readonly logDir: string;
     readonly browserArtifactsDir: string;
@@ -288,6 +289,20 @@ const make = Effect.fn("desktop.environment.make")(function* (
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
   );
+  let managedConnectionsPath = config.managedConnectionsFile;
+  if (Option.isNone(managedConnectionsPath)) {
+    const defaultManagedConnectionsPath = path.join(
+      Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config")),
+      "t3code",
+      "managed-connections.json",
+    );
+    const defaultManagedConnectionsExists = yield* fileSystem
+      .exists(defaultManagedConnectionsPath)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (defaultManagedConnectionsExists) {
+      managedConnectionsPath = Option.some(defaultManagedConnectionsPath);
+    }
+  }
   const resourcesPath = input.resourcesPath;
 
   return DesktopEnvironment.of({
@@ -312,6 +327,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     desktopSettingsPath: path.join(configDir, "desktop-settings.json"),
     clientSettingsPath: path.join(configDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
+    managedConnectionsPath,
     serverSettingsPath: path.join(configDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(

@@ -31,7 +31,10 @@ import {
   type DesktopWslState,
   type EnvironmentId,
 } from "@t3tools/contracts";
-import { connectionStatusText } from "@t3tools/client-runtime/connection";
+import {
+  connectionStatusText,
+  isManagedConnectionTarget,
+} from "@t3tools/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -1404,6 +1407,7 @@ function SavedBackendListRow({
   const serverUpdateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
+  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
   const metadataBits = [
     environment.displayUrl
       ? environment.entry.target._tag === "SshConnectionTarget"
@@ -1411,6 +1415,7 @@ function SavedBackendListRow({
         : environment.displayUrl
       : null,
     environment.relayManaged ? "T3 Connect" : null,
+    isManagedEnvironment ? "Managed by system configuration" : null,
   ].filter((value): value is string => value !== null);
 
   // The WSL backend is a desktop-managed local backend (it surfaces as a bearer
@@ -1438,11 +1443,11 @@ function SavedBackendListRow({
           {metadataBits.length > 0 ? (
             <p className="text-xs text-muted-foreground">{metadataBits.join(" · ")}</p>
           ) : null}
-          {serverUpdateState.status !== "idle" ? (
+          {!isManagedEnvironment && serverUpdateState.status !== "idle" ? (
             <div className="max-w-md">
               <ServerUpdateProgress state={serverUpdateState} />
             </div>
-          ) : versionMismatch ? (
+          ) : !isManagedEnvironment && versionMismatch ? (
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -1460,7 +1465,7 @@ function SavedBackendListRow({
               </TooltipPopup>
             </Tooltip>
           ) : null}
-          {environment.connection.error && !resumingServerUpdate ? (
+          {environment.connection.error && !resumingServerUpdate && !isManagedEnvironment ? (
             <p className="flex min-w-0 items-center gap-2 text-destructive text-xs">
               <span className="truncate">{connectionStatusText(environment.connection)}</span>
               {errorTraceId ? (
@@ -1485,7 +1490,8 @@ function SavedBackendListRow({
           >
             Rename
           </Button>
-          {versionMismatch &&
+          {!isManagedEnvironment &&
+          versionMismatch &&
           (serverUpdateState.status === "idle" || serverUpdateState.status === "failed") ? (
             <ServerUpdateAction
               environmentId={environmentId}
@@ -1508,6 +1514,15 @@ function SavedBackendListRow({
                 The WSL backend is managed by the WSL setting above — turn it on or off there.
               </TooltipPopup>
             </Tooltip>
+          ) : isManagedEnvironment ? (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={isConnected || isConnecting}
+              onClick={() => void onConnect(environmentId)}
+            >
+              {isConnected ? "Connected" : isConnecting ? "Retrying…" : "Retry"}
+            </Button>
           ) : (
             <>
               {!isConnected ? (
