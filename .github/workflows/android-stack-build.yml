@@ -1,0 +1,230 @@
+name: Android Assembly F-Droid
+
+on:
+  push:
+    branches:
+      - t3code/assembled
+  workflow_dispatch:
+    inputs:
+      release_count:
+        description: How many recent assembly APKs to retain in F-Droid.
+        required: false
+        default: "5"
+        type: string
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: android-assembly-fdroid
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, sign, and publish Android assembly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      APP_VARIANT: assembly
+      EXPO_NO_GIT_STATUS: "1"
+      NODE_OPTIONS: --max-old-space-size=8192
+
+    steps:
+      - name: Check out assembled source
+        uses: actions/checkout@v6
+
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Expose pnpm
+        run: |
+          pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
+          vp_pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin"
+          echo "$vp_pnpm_bin" >> "$GITHUB_PATH"
+          "$vp_pnpm_bin/pnpm" --version
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Cache the Android toolchain
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-android-${{ runner.os }}-${{ hashFiles('flake.nix', 'flake.lock') }}
+          restore-prefixes-first-match: nix-android-${{ runner.os }}-
+          gc-max-store-size-linux: 8G
+          purge: true
+          purge-prefixes: nix-android-${{ runner.os }}-
+          purge-created: 0
+          purge-primary-key: never
+
+      - name: Realise the Android toolchain
+        run: nix develop .#android --command true
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/package.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - id: version
+        name: Derive assembly version
+        run: |
+          set -euo pipefail
+          base_version="$(pnpm --dir apps/mobile exec expo config --type public --json | jq -r .version)"
+          short_sha="$(git rev-parse --short=9 HEAD)"
+          source_tree="$(git rev-parse 'HEAD^{tree}')"
+          version_code="$((100000000 + GITHUB_RUN_NUMBER))"
+          version_name="${base_version}-assembly.${GITHUB_RUN_NUMBER}+${short_sha}"
+          {
+            echo "code=$version_code"
+            echo "name=$version_name"
+            echo "source_tree=$source_tree"
+            echo "tag=android-assembly-${GITHUB_RUN_NUMBER}-${short_sha}"
+            echo "asset=t3code-assembly-${version_name}-arm64-v8a.apk"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prebuild the Android project
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --clean --platform android
+
+      - name: Stamp Android version
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          gradle_file=apps/mobile/android/app/build.gradle
+          sed -i -E "s/^([[:space:]]*)versionCode .*/\1versionCode $VERSION_CODE/" "$gradle_file"
+          sed -i -E "s/^([[:space:]]*)versionName .*/\1versionName \"$VERSION_NAME\"/" "$gradle_file"
+          grep -q "versionCode $VERSION_CODE" "$gradle_file"
+          grep -q "versionName \"$VERSION_NAME\"" "$gradle_file"
+
+      - name: Build and sign arm64 APK
+        env:
+          FDROID_KEYSTORE_BASE64: ${{ secrets.FDROID_KEYSTORE_BASE64 }}
+          FDROID_KEY_ALIAS: ${{ secrets.FDROID_KEY_ALIAS }}
+          FDROID_KEYSTORE_PASSWORD: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
+          FDROID_KEY_PASSWORD: ${{ secrets.FDROID_KEY_PASSWORD }}
+          SIGNED_APK: ${{ runner.temp }}/${{ steps.version.outputs.asset }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/t3code-fdroid.p12"
+          printf '%s' "$FDROID_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          export KEYSTORE="$keystore"
+          NODE_BIN_DIR="$(dirname "$(command -v node)")"
+          export NODE_BIN_DIR
+
+          # shellcheck disable=SC2016
+          nix develop .#android --command bash -c '
+            set -euo pipefail
+            export PATH="$NODE_BIN_DIR:$PATH"
+            cd apps/mobile/android
+            ./gradlew assembleRelease --no-daemon --stacktrace \
+              -PreactNativeArchitectures=arm64-v8a
+
+            unsigned_apk="app/build/outputs/apk/release/app-release.apk"
+            apksigner="$(find -L "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+            "$apksigner" sign \
+              --ks "$KEYSTORE" \
+              --ks-key-alias "$FDROID_KEY_ALIAS" \
+              --ks-pass env:FDROID_KEYSTORE_PASSWORD \
+              --key-pass env:FDROID_KEY_PASSWORD \
+              --out "$SIGNED_APK" \
+              "$unsigned_apk"
+            "$apksigner" verify --verbose --print-certs "$SIGNED_APK"
+          '
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: t3code-assembly-android-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ steps.version.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK release
+        env:
+          ASSET: ${{ steps.version.outputs.asset }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TREE: ${{ steps.version.outputs.source_tree }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            printf "Android build of the locked T3 Code assembly at \`%s\`.\n\n" "$GITHUB_SHA"
+            printf -- "- Source tree: \`%s\`\n" "$SOURCE_TREE"
+            printf -- "- Version: \`%s\` (\`%s\`)\n" "$VERSION_NAME" "$VERSION_CODE"
+            printf -- "- Package: \`com.t3tools.t3code.assembly\`\n"
+            printf -- "- ABI: \`arm64-v8a\` only\n"
+          } > "$notes"
+          apk="$RUNNER_TEMP/$ASSET"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$apk" --clobber
+          else
+            gh release create "$TAG" "$apk" \
+              --title "T3 Code Assembly $VERSION_NAME" \
+              --notes-file "$notes"
+          fi
+
+      - name: Install fdroidserver
+        run: pip install --disable-pip-version-check fdroidserver
+
+      - name: Expose Nix apksigner
+        run: |
+          # shellcheck disable=SC2016
+          apksigner_dir="$(nix develop .#android --command bash -c 'dirname "$(find -L "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"')"
+          echo "$apksigner_dir" >> "$GITHUB_PATH"
+
+      - name: Build signed F-Droid repository
+        env:
+          FDROID_KEYSTORE_BASE64: ${{ secrets.FDROID_KEYSTORE_BASE64 }}
+          FDROID_KEY_ALIAS: ${{ secrets.FDROID_KEY_ALIAS }}
+          FDROID_KEYSTORE_PASSWORD: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
+          FDROID_KEY_PASSWORD: ${{ secrets.FDROID_KEY_PASSWORD }}
+          FDROID_OUT_DIR: ${{ github.workspace }}/target/fdroid
+          FDROID_RELEASE_COUNT: ${{ inputs.release_count || '5' }}
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/fdroid/build-repo.sh
+
+      - name: Assemble Pages site
+        run: |
+          set -euo pipefail
+          mkdir -p site/fdroid
+          cp -r target/fdroid/repo site/fdroid/repo
+          fingerprint="$(cat target/fdroid/fingerprint.txt)"
+          repo_url="$(sed -n 's/^repo_url:[[:space:]]*//p' fdroid/config.yml)"
+          add_url="$repo_url?fingerprint=$fingerprint"
+          cat > site/index.html <<HTML
+          <!doctype html>
+          <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>T3 Code Assembly F-Droid</title><style>:root{color-scheme:light dark}body{font-family:system-ui,sans-serif;max-width:44rem;margin:3rem auto;padding:0 1.25rem;line-height:1.6}code{word-break:break-all}pre{padding:.85rem;border-radius:.5rem;overflow-x:auto;background:rgba(127,127,127,.15)}.note{font-size:.9rem;opacity:.8}</style></head>
+          <body><h1>T3 Code Assembly</h1><p>Source-built Android snapshots of Ivan Malison's locked T3 Code assembly.</p>
+          <h2>Add the repository</h2><pre><code>$add_url</code></pre>
+          <ul><li>Package: <code>com.t3tools.t3code.assembly</code></li><li>ABI: <code>arm64-v8a</code></li><li>Expo OTA updates are disabled; updates come from this repository.</li></ul>
+          <p class="note"><a href="https://github.com/colonelpanic8/t3code-assembly">Assembly recipe and provenance</a></p></body></html>
+          HTML
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy F-Droid Pages site
+        id: deploy
+        uses: actions/deploy-pages@v4
