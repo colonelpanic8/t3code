@@ -8,7 +8,6 @@ import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
-import { useThemeColor } from "../../lib/useThemeColor";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
@@ -33,8 +32,6 @@ export function NewTaskEnvironmentRouteScreen({
   const isFocused = useIsFocused();
   const { layout } = useAdaptiveWorkspaceLayout();
   const insets = useSafeAreaInsets();
-  const chevronColor = useThemeColor("--color-chevron");
-  const accentColor = useThemeColor("--color-icon-muted");
   const { getShare } = useIncomingShare();
   const routeShareId = Array.isArray(route.params?.incomingShareId)
     ? route.params.incomingShareId[0]
@@ -157,7 +154,7 @@ export function NewTaskEnvironmentRouteScreen({
       >
         {environmentItems.length === 0 ? (
           <View collapsable={false} className="items-center gap-3 rounded-[24px] bg-card px-6 py-8">
-            {emptyState.loading ? <ActivityIndicator color={accentColor} /> : null}
+            {emptyState.loading ? <ActivityIndicator colorClassName={"accent-icon-muted"} /> : null}
             <Text className="text-center text-lg font-t3-bold text-foreground">
               {emptyState.title}
             </Text>
@@ -219,7 +216,7 @@ export function NewTaskEnvironmentRouteScreen({
                       <SymbolView
                         name="desktopcomputer"
                         size={20}
-                        tintColor={accentColor}
+                        tintColorClassName={"accent-icon-muted"}
                         type="monochrome"
                       />
                     </View>
@@ -234,7 +231,7 @@ export function NewTaskEnvironmentRouteScreen({
                     <SymbolView
                       name="chevron.right"
                       size={14}
-                      tintColor={chevronColor}
+                      tintColorClassName={"accent-chevron"}
                       type="monochrome"
                     />
                   </View>
