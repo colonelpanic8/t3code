@@ -1,4 +1,5 @@
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
+import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "./environmentPresence";
 import { buildProjectGroups, type ProjectGroupingSettings } from "./logicalProject";
 import type { Project } from "./types";
 
@@ -23,6 +24,10 @@ export interface SidebarProjectSnapshot extends Project {
   memberProjects: readonly SidebarProjectGroupMember[];
   memberProjectRefs: readonly ScopedProjectRef[];
   remoteEnvironmentLabels: readonly string[];
+  // Environments backing `remoteEnvironmentLabels`, in the same order. The
+  // header badge stands for all of them at once, so it can only take on an
+  // accent color when they agree on one.
+  remoteEnvironmentIds: readonly EnvironmentId[];
 }
 
 export interface SidebarProjectPickerEntry {
@@ -35,6 +40,7 @@ export function buildPhysicalToLogicalProjectKeyMap(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
   primaryEnvironmentId: EnvironmentId | null;
+  ownsLocalEnvironment?: boolean;
 }): Map<string, string> {
   const mapping = new Map<string, string>();
   const groups = buildProjectGroups({
@@ -54,6 +60,7 @@ export function buildSidebarProjectSnapshots(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
   primaryEnvironmentId: EnvironmentId | null;
+  ownsLocalEnvironment?: boolean;
   resolveEnvironmentLabel: (environmentId: EnvironmentId) => string | null;
   // Returns true when an env id maps to a desktopLocal saved-env
   // record (today: the WSL backend). Defaults to "false for every
@@ -61,6 +68,10 @@ export function buildSidebarProjectSnapshots(input: {
   // legacy behavior.
   isDesktopLocalEnvironment?: (environmentId: EnvironmentId) => boolean;
 }): SidebarProjectSnapshot[] {
+  const presenceScope: EnvironmentPresenceScope = {
+    primaryEnvironmentId: input.primaryEnvironmentId,
+    ownsLocalEnvironment: input.ownsLocalEnvironment ?? true,
+  };
   return buildProjectGroups({
     projects: input.projects,
     settings: input.settings,
@@ -80,20 +91,19 @@ export function buildSidebarProjectSnapshots(input: {
           member.id === group.representative.id,
       ) ?? members[0]!;
 
-    const hasLocal =
-      input.primaryEnvironmentId !== null &&
-      members.some((member) => member.environmentId === input.primaryEnvironmentId);
-    const hasRemote =
-      input.primaryEnvironmentId !== null
-        ? members.some((member) => member.environmentId !== input.primaryEnvironmentId)
-        : false;
-    const remoteMembers = members.filter(
-      (member) =>
-        input.primaryEnvironmentId !== null && member.environmentId !== input.primaryEnvironmentId,
+    const remoteMembers = members.filter((member) =>
+      isRemoteEnvironmentId(member.environmentId, presenceScope),
     );
+    const hasRemote = remoteMembers.length > 0;
+    const hasLocal = remoteMembers.length < members.length;
     const remoteEnvironmentLabels = remoteMembers
       .flatMap((member) => (member.environmentLabel ? [member.environmentLabel] : []))
       .filter((label, index, labels) => labels.indexOf(label) === index);
+    const remoteEnvironmentIds = remoteMembers
+      .map((member) => member.environmentId)
+      .filter(
+        (environmentId, index, environmentIds) => environmentIds.indexOf(environmentId) === index,
+      );
     const isDesktopLocal = input.isDesktopLocalEnvironment ?? (() => false);
     const allRemoteMembersAreDesktopLocal =
       remoteMembers.length > 0 &&
@@ -110,6 +120,7 @@ export function buildSidebarProjectSnapshots(input: {
       memberProjects: members,
       memberProjectRefs: group.memberProjectRefs,
       remoteEnvironmentLabels,
+      remoteEnvironmentIds,
     };
   });
 }

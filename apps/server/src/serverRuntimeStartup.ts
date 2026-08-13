@@ -21,6 +21,7 @@ import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import { HttpServer } from "effect/unstable/http";
 
 import * as ServerConfig from "./config.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
@@ -41,6 +42,7 @@ import { forkParked, forkParkedFiber } from "./serverActivation.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import { startLocalServerAdvertisement } from "./localServerAdvertisement.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -565,6 +567,8 @@ export const make = (options?: StartupOptions) =>
           if (serverConfig.startupPresentation === "headless") {
             yield* Effect.logDebug("startup phase: headless access info");
             const accessInfo = yield* issueHeadlessServeAccessInfo();
+            const httpServer = yield* HttpServer.HttpServer;
+            yield* startLocalServerAdvertisement({ listeningAddress: httpServer.address });
             yield* runStartupPhase(
               "headless.output",
               Console.log(formatHeadlessServeOutput(accessInfo)),
