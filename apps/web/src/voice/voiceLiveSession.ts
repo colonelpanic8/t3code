@@ -135,7 +135,12 @@ async function applyAnswer(session: ActiveVoiceLiveSession, sdp: string): Promis
     return;
   }
   try {
-    await session.peer.setRemoteDescription({ type: "answer", sdp });
+    // Older servers trim the answer's trailing CRLF; Chrome rejects an SDP
+    // whose last line is unterminated.
+    await session.peer.setRemoteDescription({
+      type: "answer",
+      sdp: sdp.endsWith("\n") ? sdp : `${sdp}\r\n`,
+    });
     useVoiceLiveStore.getState().markActive();
   } catch (error) {
     useVoiceLiveStore.getState().fail(errorMessageOf(error));
