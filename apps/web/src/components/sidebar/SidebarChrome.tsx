@@ -29,6 +29,7 @@ import {
 } from "../ui/sidebar";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
+import { VoiceLiveButton } from "../../voice/VoiceLiveButton";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -166,6 +167,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
       <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarMenu>
+        <VoiceLiveButton />
         {currentFooterPage === "pull-requests" ? (
           <SidebarMenuItem>
             <SidebarMenuButton onClick={handleBackClick}>
