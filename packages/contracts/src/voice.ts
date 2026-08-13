@@ -21,12 +21,20 @@ export type VoiceLiveRouteRequestId = typeof VoiceLiveRouteRequestId.Type;
 /** JSON-safe arguments/results for routed tools. Wire-validated as unknown. */
 export const VoiceLiveJson = Schema.Unknown;
 
+/**
+ * SDP is whitespace-significant: the final line's CRLF terminator must survive
+ * the wire in both directions. OpenAI's realtime endpoint and Chrome's
+ * setRemoteDescription both reject an SDP whose last line is unterminated, so
+ * this deliberately does not trim.
+ */
+export const VoiceLiveSdp = Schema.String.check(Schema.isNonEmpty());
+
 export const VoiceLiveTranscriptRole = Schema.Literals(["user", "assistant"]);
 export type VoiceLiveTranscriptRole = typeof VoiceLiveTranscriptRole.Type;
 
 export const VoiceLiveStartInput = Schema.Struct({
   /** WebRTC offer SDP from the client's RTCPeerConnection (audio + events data channel). */
-  offerSdp: TrimmedNonEmptyString,
+  offerSdp: VoiceLiveSdp,
   /** Realtime voice preset name; the provider default applies when omitted. */
   voice: Schema.optional(TrimmedNonEmptyString),
   /** Codex provider instance that hosts the call. Defaults to the first ready Codex instance. */
@@ -127,7 +135,7 @@ export const VoiceLiveStreamEvent = Schema.Union([
     type: Schema.Literal("answer"),
     seq: Schema.Int,
     liveSessionId: VoiceLiveSessionId,
-    sdp: TrimmedNonEmptyString,
+    sdp: VoiceLiveSdp,
   }),
   Schema.Struct({
     type: Schema.Literal("transcript"),
