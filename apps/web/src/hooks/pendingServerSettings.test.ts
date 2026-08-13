@@ -180,6 +180,13 @@ describe("pendingServerSettings", () => {
   });
 
   it("rebases array deltas onto a missing authoritative array", () => {
+    const currentSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: {
+        ...DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+        options: [],
+      },
+    };
     const failedOptionsBase = {
       ...DEFAULT_SERVER_SETTINGS,
       textGenerationModelSelection: {
@@ -195,7 +202,7 @@ describe("pendingServerSettings", () => {
         ],
       },
     };
-    const settings = applyPendingServerPatches(DEFAULT_SERVER_SETTINGS, [
+    const settings = applyPendingServerPatches(currentSettings, [
       { id: 1, patch, baseSettings: failedOptionsBase },
     ]);
 
@@ -284,7 +291,7 @@ describe("pendingServerSettings", () => {
   });
 
   it("records an early echo while an older successful patch is still awaiting its echo", () => {
-    const firstPatch = { enableAssistantStreaming: false };
+    const firstPatch = { enableLegacyTokenStreaming: false };
     const firstId = retain(firstPatch);
     const secondPatch = { enableProviderUpdateChecks: false };
     const secondId = retain(secondPatch);
@@ -325,10 +332,10 @@ describe("pendingServerSettings", () => {
       notifications += 1;
     });
 
-    const id = retain({ enableAssistantStreaming: false });
+    const id = retain({ enableLegacyTokenStreaming: false });
     settlePendingServerPatch(environmentId, id, null);
     unsubscribe();
-    retain({ enableAssistantStreaming: false });
+    retain({ enableLegacyTokenStreaming: false });
 
     expect(notifications).toBe(2);
   });
