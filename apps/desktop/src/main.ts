@@ -73,6 +73,8 @@ const desktopEnvironmentLayer = Layer.unwrap(
     return DesktopEnvironment.layer({
       dirname: __dirname,
       homeDirectory: NodeOS.homedir(),
+      temporaryDirectory: NodeOS.tmpdir(),
+      ...(process.getuid === undefined ? {} : { userId: process.getuid() }),
       platform,
       processArch,
       ...metadata,
