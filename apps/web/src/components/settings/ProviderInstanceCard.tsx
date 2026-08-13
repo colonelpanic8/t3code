@@ -41,7 +41,7 @@ import type { DriverOption, ProviderEnvironmentFieldDefinition } from "./provide
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
+import { AccentColorPicker } from "./AccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import {
   getProviderVersionAdvisoryPresentation,
@@ -867,7 +867,7 @@ export function ProviderInstanceCard({
             </div>
 
             <div>
-              <ProviderAccentColorPicker
+              <AccentColorPicker
                 displayName={displayName}
                 value={accentColor}
                 onCommit={updateAccentColor}
