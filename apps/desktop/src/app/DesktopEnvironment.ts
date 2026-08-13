@@ -7,6 +7,7 @@ import type {
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -137,8 +138,13 @@ function resolveDesktopRuntimeInfo(input: {
 
 const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
-): Effect.fn.Return<DesktopEnvironment["Service"], Config.ConfigError, Path.Path> {
+): Effect.fn.Return<
+  DesktopEnvironment["Service"],
+  Config.ConfigError,
+  FileSystem.FileSystem | Path.Path
+> {
   const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
   const config = yield* DesktopConfig.DesktopConfig;
   const homeDirectory = input.homeDirectory;
   const devServerUrl = config.devServerUrl;
@@ -175,6 +181,20 @@ const make = Effect.fn("desktop.environment.make")(function* (
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
   );
+  let managedConnectionsPath = config.managedConnectionsFile;
+  if (Option.isNone(managedConnectionsPath)) {
+    const defaultManagedConnectionsPath = path.join(
+      Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config")),
+      "t3code",
+      "managed-connections.json",
+    );
+    const defaultManagedConnectionsExists = yield* fileSystem
+      .exists(defaultManagedConnectionsPath)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (defaultManagedConnectionsExists) {
+      managedConnectionsPath = Option.some(defaultManagedConnectionsPath);
+    }
+  }
   const resourcesPath = input.resourcesPath;
 
   return DesktopEnvironment.of({
@@ -194,7 +214,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
-    managedConnectionsPath: config.managedConnectionsFile,
+    managedConnectionsPath,
     serverSettingsPath: path.join(stateDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
