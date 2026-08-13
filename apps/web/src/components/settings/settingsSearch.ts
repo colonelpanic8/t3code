@@ -1,11 +1,13 @@
 export type SettingsPath =
   | "/settings/general"
+  | "/settings/environment"
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/providers"
   | "/settings/scheduled-tasks"
   | "/settings/source-control"
   | "/settings/connections"
+  | "/settings/diagnostics"
   | "/settings/archived";
 
 export interface SettingsSearchItem {
@@ -21,12 +23,14 @@ export interface SettingsSearchItem {
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
+  "/settings/environment": "Environment",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",
   "/settings/scheduled-tasks": "Schedule Tasks",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
+  "/settings/diagnostics": "Diagnostics",
   "/settings/archived": "Archive",
 };
 
@@ -123,23 +127,23 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "provider-update-checks",
     title: "Provider update checks",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "new-threads",
     title: "New threads",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "start-from-origin",
     title: "Start from origin",
-    to: "/settings/general",
+    to: "/settings/environment",
     targetId: "new-threads",
   },
   {
     id: "add-project-starts-in",
     title: "Add project starts in",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "archive-confirmation",
@@ -154,12 +158,12 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "text-generation-model",
     title: "Text generation model",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "diagnostics",
     title: "Diagnostics",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
   },
   {
     id: "legacy-plan-mode",
@@ -169,7 +173,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "legacy-token-streaming",
     title: "Stream token by token (legacy)",
-    to: "/settings/general",
+    to: "/settings/environment",
   },
   {
     id: "legacy-sidebar",
