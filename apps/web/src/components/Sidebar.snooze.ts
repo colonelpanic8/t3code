@@ -10,9 +10,68 @@ import { formatShortTimestamp, parseTimestampDate } from "../timestampFormat";
 export { snoozeWakeLabel, type SnoozePreset };
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const HOUR_MS = 60 * 60 * 1_000;
+const CUSTOM_TIME_STEP_MINUTES = 15;
+const CUSTOM_TIME_STEP_MS = CUSTOM_TIME_STEP_MINUTES * 60_000;
 
 function timeOfDayLabel(date: Date, timestampFormat: TimestampFormat): string {
   return formatShortTimestamp(date.toISOString(), timestampFormat);
+}
+
+export function formatSnoozeDateTimeLocal(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    "-",
+    pad(date.getMonth() + 1),
+    "-",
+    pad(date.getDate()),
+    "T",
+    pad(date.getHours()),
+    ":",
+    pad(date.getMinutes()),
+  ].join("");
+}
+
+export function defaultCustomSnoozeDateTime(now: Date): string {
+  const minimumWakeTime = now.getTime() + HOUR_MS;
+  const next = new Date(minimumWakeTime);
+  next.setSeconds(0, 0);
+  if (next.getTime() < minimumWakeTime) next.setTime(next.getTime() + 60_000);
+  next.setMinutes(
+    Math.ceil(next.getMinutes() / CUSTOM_TIME_STEP_MINUTES) * CUSTOM_TIME_STEP_MINUTES,
+  );
+
+  for (let attempts = 0; attempts < 24 * (60 / CUSTOM_TIME_STEP_MINUTES); attempts += 1) {
+    const value = formatSnoozeDateTimeLocal(next);
+    const parsed = parseCustomSnoozeDateTime(value, now);
+    if (parsed !== null && new Date(parsed).getTime() >= minimumWakeTime) return value;
+    next.setTime(next.getTime() + CUSTOM_TIME_STEP_MS);
+  }
+  return "";
+}
+
+export function parseCustomSnoozeDateTime(value: string, now: Date): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  if (match === null) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const wakeAt = new Date(year, month - 1, day, hour, minute, 0, 0);
+  if (Number.isNaN(wakeAt.getTime()) || wakeAt.getTime() <= now.getTime()) return null;
+  if (
+    wakeAt.getFullYear() !== year ||
+    wakeAt.getMonth() !== month - 1 ||
+    wakeAt.getDate() !== day ||
+    wakeAt.getHours() !== hour ||
+    wakeAt.getMinutes() !== minute
+  ) {
+    return null;
+  }
+  return wakeAt.toISOString();
 }
 
 export function resolveSnoozePresets(
