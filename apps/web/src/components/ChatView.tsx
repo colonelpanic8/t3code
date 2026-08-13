@@ -273,7 +273,12 @@ import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import {
+  modelSelectTargetFromCommand,
+  reasoningEffortFromCommand,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+} from "../keybindings";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -7318,7 +7323,7 @@ export default function ChatView(props: ChatViewProps) {
         event.stopPropagation();
         return;
       }
-      if (!activeThreadId || isCommandPaletteOpen()) {
+      if (isCommandPaletteOpen()) {
         return;
       }
       const terminalFocusOwner = getTerminalFocusOwner();
@@ -7326,6 +7331,27 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       const shortcutContext = getShortcutContext(event.target);
+
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: shortcutContext,
+      });
+
+      const modelTarget = command ? modelSelectTargetFromCommand(command) : null;
+      if (modelTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        composerRef.current?.selectModel(modelTarget.instanceId, modelTarget.model);
+        return;
+      }
+
+      const reasoningEffort = command ? reasoningEffortFromCommand(command) : null;
+      if (reasoningEffort && composerRef.current?.selectReasoningEffort(reasoningEffort)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (!activeThreadId) return;
 
       if (
         !shortcutContext.terminalFocus &&
@@ -7339,9 +7365,6 @@ export default function ChatView(props: ChatViewProps) {
         }
       }
 
-      const command = resolveShortcutCommand(event, keybindings, {
-        context: shortcutContext,
-      });
       if (!command) return;
 
       if (command === "thread.copyReference") {
