@@ -159,7 +159,12 @@ import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavaila
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import {
+  modelSelectTargetFromCommand,
+  reasoningEffortFromCommand,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+} from "../keybindings";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   AlarmClockIcon,
@@ -4785,6 +4790,21 @@ function ChatViewContent(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         composerRef.current?.toggleModelPicker();
+        return;
+      }
+
+      const modelTarget = modelSelectTargetFromCommand(command);
+      if (modelTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        composerRef.current?.selectModel(modelTarget.instanceId, modelTarget.model);
+        return;
+      }
+
+      const reasoningEffort = reasoningEffortFromCommand(command);
+      if (reasoningEffort && composerRef.current?.selectReasoningEffort(reasoningEffort)) {
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
