@@ -9,10 +9,11 @@ import {
   type OrchestrationV2ProjectedTurnItem,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Thread } from "../types";
-import { makeThreadFixture } from "../test-fixtures";
+import { makeThreadFixture, makeThreadProjectionFixture } from "../test-fixtures";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -25,6 +26,8 @@ import {
   getStartedThreadModelChangeBlockReason,
   hasServerAcknowledgedLocalDispatch,
   isBranchMismatchDismissedForSession,
+  draftServerThreadHasStarted,
+  recoverDraftThreadAfterBootstrap,
   reconcileMountedTerminalThreadIds,
   reconcileRetainedMountedThreadIds,
   resolveBackgroundDraftWorkspaceOptions,
@@ -921,5 +924,66 @@ describe("deriveCommittedServerUserMessageIds", () => {
     expect(deriveCommittedServerUserMessageIds(visibleTurnItems)).toEqual(
       new Set([turnStartId, steerId]),
     );
+  });
+});
+
+describe("draft promotion started signals", () => {
+  const startedShell = makeThreadFixture({ id: threadId, itemCount: 1 });
+  const idleShell = makeThreadFixture({ id: threadId });
+  const startedProjection = {
+    environmentId,
+    projection: {
+      ...makeThreadProjectionFixture(),
+      turnItems: [{} as never],
+    },
+  };
+  const emptyProjection = { environmentId, projection: makeThreadProjectionFixture() };
+
+  it("promotes from the shell stream", () => {
+    expect(draftServerThreadHasStarted({ shell: startedShell, projection: emptyProjection })).toBe(
+      true,
+    );
+  });
+
+  it("promotes from the reserved detail stream when the shell has not published", () => {
+    expect(draftServerThreadHasStarted({ shell: null, projection: startedProjection })).toBe(true);
+  });
+
+  it("waits while neither source reports a started thread", () => {
+    expect(draftServerThreadHasStarted({ shell: idleShell, projection: emptyProjection })).toBe(
+      false,
+    );
+    expect(draftServerThreadHasStarted({ shell: null, projection: null })).toBe(false);
+  });
+});
+
+describe("recoverDraftThreadAfterBootstrap", () => {
+  const threadRef = { environmentId, threadId };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("restarts the reserved thread stream when neither stream hydrates", async () => {
+    vi.spyOn(appAtomRegistry, "get").mockReturnValue(null as never);
+    vi.spyOn(appAtomRegistry, "subscribe").mockReturnValue(() => undefined);
+    const refresh = vi.spyOn(appAtomRegistry, "refresh").mockImplementation(() => undefined);
+
+    await expect(recoverDraftThreadAfterBootstrap(threadRef, 0)).resolves.toBe(false);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a hydrated stream intact", async () => {
+    vi.spyOn(appAtomRegistry, "get").mockReturnValue(
+      makeThreadFixture({ id: threadId, itemCount: 1 }) as never,
+    );
+    const subscribe = vi.spyOn(appAtomRegistry, "subscribe");
+    const refresh = vi.spyOn(appAtomRegistry, "refresh");
+
+    await expect(recoverDraftThreadAfterBootstrap(threadRef, 0)).resolves.toBe(true);
+
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

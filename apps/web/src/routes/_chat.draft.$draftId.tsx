@@ -1,9 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import ChatView from "../components/ChatView";
 import {
+  draftServerThreadHasStarted,
   resolveDraftPromotionNavigationTarget,
-  threadHasStarted,
 } from "../components/ChatView.logic";
 import {
   DraftId,
@@ -13,25 +13,44 @@ import {
 } from "../composerDraftStore";
 import { SidebarInset } from "../components/ui/sidebar";
 import { waitForDraftHeroTransition } from "../components/chat/draftHeroTransition";
-import { buildThreadRouteParams } from "../threadRoutes";
-import { useThreadRefs, useThreadShell } from "../state/entities";
+import { buildThreadRouteParams, resolveDraftThreadSubscriptionRef } from "../threadRoutes";
+import { resolveThreadDetailRef, useThreadProjection, useThreadShell } from "../state/entities";
 
 function DraftChatThreadRouteView() {
   const navigate = useNavigate();
   const { draftId: rawDraftId } = Route.useParams();
   const draftId = DraftId.make(rawDraftId);
   const draftSession = useComposerDraftStore((store) => store.getDraftSession(draftId));
-  const threadRefs = useThreadRefs();
-  const inferredThreadRef = draftSession
-    ? (threadRefs.find(
-        (ref) =>
-          ref.environmentId === draftSession.environmentId &&
-          ref.threadId === draftSession.threadId,
-      ) ?? null)
-    : null;
-  const serverThreadRef = draftSession?.promotedTo ?? inferredThreadRef;
+  // The draft reserves its server thread ref at creation, so promotion can
+  // observe that ref directly instead of waiting for the shell thread list to
+  // publish the bootstrapped thread.
+  const promotedTo = draftSession?.promotedTo ?? null;
+  const draftEnvironmentId = draftSession?.environmentId ?? null;
+  const draftThreadId = draftSession?.threadId ?? null;
+  const serverThreadRef = useMemo(
+    () =>
+      draftEnvironmentId === null || draftThreadId === null
+        ? null
+        : resolveDraftThreadSubscriptionRef({
+            environmentId: draftEnvironmentId,
+            threadId: draftThreadId,
+            promotedTo,
+          }),
+    [draftEnvironmentId, draftThreadId, promotedTo],
+  );
   const serverThread = useThreadShell(serverThreadRef);
-  const serverThreadStarted = threadHasStarted(serverThread);
+  // Once the bootstrap launch has been accepted (`promotedTo` recorded) the
+  // reserved detail stream is an independent promotion signal, so it must not
+  // stay gated behind the shell upsert the way an unsent draft's is.
+  const serverThreadDetailRef = resolveThreadDetailRef(serverThreadRef, {
+    shellExists: serverThread !== null,
+    waitForShell: promotedTo === null,
+  });
+  const serverThreadDetail = useThreadProjection(serverThreadDetailRef);
+  const serverThreadStarted = draftServerThreadHasStarted({
+    shell: serverThread,
+    projection: serverThreadDetail,
+  });
   const backgroundSubmissionPending = useBackgroundDraftSubmissionPending(serverThreadRef);
   const canonicalThreadRef = resolveDraftPromotionNavigationTarget({
     serverThreadRef,
@@ -40,11 +59,11 @@ function DraftChatThreadRouteView() {
   });
 
   useEffect(() => {
-    if (!inferredThreadRef || draftSession?.promotedTo) {
+    if (!serverThreadRef || !serverThreadStarted || promotedTo) {
       return;
     }
-    markPromotedDraftThreadByRef(inferredThreadRef);
-  }, [draftSession?.promotedTo, inferredThreadRef]);
+    markPromotedDraftThreadByRef(serverThreadRef);
+  }, [promotedTo, serverThreadRef, serverThreadStarted]);
 
   useEffect(() => {
     if (!canonicalThreadRef) {
