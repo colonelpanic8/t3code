@@ -420,12 +420,20 @@ function approvalDecisionToLegacyReviewDecision(
     case "accept":
       return "approved";
     case "acceptForSession":
+    case "acceptAlways":
       return "approved_for_session";
     case "decline":
       return "denied";
     case "cancel":
       return "abort";
   }
+}
+
+// Codex has no "always" scope; the widest persistence it models is the session.
+function approvalDecisionToCodexDecision(
+  decision: ProviderApprovalDecision,
+): "accept" | "acceptForSession" | "decline" | "cancel" {
+  return decision === "acceptAlways" ? "acceptForSession" : decision;
 }
 
 function providerRequestKindFromPermissions(
@@ -3702,7 +3710,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               ),
             );
             return {
-              decision: resolved,
+              decision: approvalDecisionToCodexDecision(resolved),
             } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
           }).pipe(Effect.orDie),
         );
@@ -3762,7 +3770,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               ),
             );
             return {
-              decision: resolved,
+              decision: approvalDecisionToCodexDecision(resolved),
             } satisfies CodexSchema.FileChangeRequestApprovalResponse;
           }).pipe(Effect.orDie),
         );

@@ -204,11 +204,12 @@ export function deriveActiveWorkStartedAt(
   latestRun: Pick<ThreadRunSummary, "runId" | "startedAt" | "completedAt" | "status"> | null,
   runtime: Pick<ThreadRuntimeSummary, "status" | "activeRunId"> | null,
   sendStartedAt: string | null,
+  latestUserMessageAt: string | null = null,
 ): string | null {
   if (runtime?.activeRunId !== null && runtime?.activeRunId !== undefined) {
     return latestRun?.runId === runtime.activeRunId
-      ? (latestRun.startedAt ?? sendStartedAt)
-      : sendStartedAt;
+      ? (latestRun.startedAt ?? sendStartedAt ?? latestUserMessageAt)
+      : (sendStartedAt ?? latestUserMessageAt);
   }
   return isLatestRunSettled(latestRun, runtime)
     ? sendStartedAt

@@ -343,6 +343,46 @@ describe("buildThreadFeed", () => {
     ).toBe(false);
   });
 
+  it("keeps the opening assistant message above the fold of a settled run", () => {
+    const openingAssistant: OrchestrationV2TurnItem = {
+      ...base("item-assistant-first", "2026-06-20T00:00:02.000Z", 1),
+      type: "assistant_message",
+      messageId: MessageId.make("message-assistant-first"),
+      text: "Here is the plan",
+      streaming: false,
+    };
+    const feed = buildThreadFeed([
+      projected(userMessage(), 0),
+      projected(openingAssistant, 1),
+      projected(command("2026-06-20T00:00:03.000Z"), 2),
+      projected(assistantMessage("2026-06-20T00:00:04.000Z"), 3),
+    ]);
+
+    const collapsed = deriveThreadFeedPresentation(
+      feed,
+      {
+        runId,
+        status: "completed",
+        startedAt: "2026-06-20T00:00:01.000Z",
+        completedAt: "2026-06-20T00:00:05.000Z",
+      },
+      new Set(),
+    );
+
+    expect(collapsed.map((entry) => entry.type)).toEqual([
+      "message",
+      "message",
+      "run-fold",
+      "message",
+    ]);
+    expect(collapsed.map((entry) => (entry.type === "message" ? entry.id : null))).toEqual([
+      "message-user",
+      "message-assistant-first",
+      null,
+      "message-assistant",
+    ]);
+  });
+
   it("folds settled V2 run work while keeping the terminal assistant message visible", () => {
     const feed = buildThreadFeed([
       projected(userMessage(), 0),

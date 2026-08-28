@@ -2459,6 +2459,7 @@ export class OrchestrationV2DispatchCommandError extends Schema.TaggedErrorClass
     commandType: Schema.String,
     message: Schema.String,
     detail: Schema.optional(Schema.String),
+    bootstrapThreadDisposition: Schema.optional(Schema.Literal("deleted")),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}

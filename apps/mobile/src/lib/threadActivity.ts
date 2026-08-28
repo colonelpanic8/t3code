@@ -493,9 +493,13 @@ function deriveThreadFeedRunFolds(
   feed: ReadonlyArray<ThreadFeedEntry>,
   latestRun: ThreadFeedLatestRun | null,
 ): ReadonlyMap<string, ThreadFeedRunFold> {
+  const firstAssistantMessageIdByRun = new Map<RunId, string>();
   const terminalAssistantMessageIdByRun = new Map<RunId, string>();
   for (const entry of feed) {
     if (entry.type === "message" && entry.message.role === "assistant" && entry.message.runId) {
+      if (!firstAssistantMessageIdByRun.has(entry.message.runId)) {
+        firstAssistantMessageIdByRun.set(entry.message.runId, entry.id);
+      }
       terminalAssistantMessageIdByRun.set(entry.message.runId, entry.id);
     }
   }
@@ -535,11 +539,13 @@ function deriveThreadFeedRunFolds(
     ) {
       continue;
     }
+    const firstAssistantId = firstAssistantMessageIdByRun.get(runId);
     const terminalAssistantId = terminalAssistantMessageIdByRun.get(runId);
     const hiddenEntryIds = new Set(
       group.entries
         .filter(
           (entry) =>
+            entry.id !== firstAssistantId &&
             entry.id !== terminalAssistantId &&
             !(
               entry.type === "activity-group" &&
@@ -549,8 +555,12 @@ function deriveThreadFeedRunFolds(
         .map((entry) => entry.id),
     );
     const firstEntry = group.entries[0];
+    // Anchor the fold at the first entry it actually hides so a run that opens
+    // with a visible assistant message does not get its answer pushed below the
+    // fold row.
+    const firstHiddenEntry = group.entries.find((entry) => hiddenEntryIds.has(entry.id));
     const lastEntry = group.entries.at(-1);
-    if (hiddenEntryIds.size === 0 || !firstEntry || !lastEntry) continue;
+    if (hiddenEntryIds.size === 0 || !firstEntry || !firstHiddenEntry || !lastEntry) continue;
     const terminalEntry = terminalAssistantId
       ? group.entries.find((entry) => entry.id === terminalAssistantId)
       : null;
@@ -570,9 +580,9 @@ function deriveThreadFeedRunFolds(
     const duration = elapsedMs === null ? null : formatDuration(elapsedMs);
     const interrupted =
       latestRunMatches && (latestRun.status === "interrupted" || latestRun.status === "cancelled");
-    foldsByAnchorId.set(firstEntry.id, {
+    foldsByAnchorId.set(firstHiddenEntry.id, {
       runId,
-      createdAt: firstEntry.createdAt,
+      createdAt: firstHiddenEntry.createdAt,
       hiddenEntryIds,
       label: interrupted
         ? duration

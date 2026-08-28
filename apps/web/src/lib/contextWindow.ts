@@ -82,6 +82,7 @@ export function deriveLatestContextWindowSnapshot(
       toolUses: null,
       durationMs: null,
       compactsAutomatically: true,
+      autoCompactThreshold: null,
       updatedAt: DateTime.formatIso(payload.startedAt ?? payload.updatedAt),
     };
   }
