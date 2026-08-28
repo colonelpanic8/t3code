@@ -51,9 +51,9 @@ describe("voice live router", () => {
     Effect.die(new Error("executeTool must not run for this request"));
 
   it("classifies unknown, offline, and unsupported targets", () => {
-    expect(classifyVoiceLiveExecuteTarget(HOSTS, EnvironmentId.make("environment-x"))).toMatchObject(
-      { ok: false, errorCode: "unknown_host" },
-    );
+    expect(
+      classifyVoiceLiveExecuteTarget(HOSTS, EnvironmentId.make("environment-x")),
+    ).toMatchObject({ ok: false, errorCode: "unknown_host" });
     expect(classifyVoiceLiveExecuteTarget(HOSTS, ENV_B)).toMatchObject({
       ok: false,
       errorCode: "host_offline",
@@ -72,7 +72,8 @@ describe("voice live router", () => {
         { listHosts: Effect.succeed(HOSTS), executeTool: executeToolUnused },
       );
       expect(outcome).toEqual({ ok: true, result: { kind: "list_hosts", hosts: HOSTS } });
-    }));
+    }),
+  );
 
   it.effect("fails execute_tool without running the tool when the target is not eligible", () =>
     Effect.gen(function* () {
@@ -89,7 +90,8 @@ describe("voice live router", () => {
         executeTool: executeToolUnused,
       });
       expect(outcome).toMatchObject({ ok: false, errorCode: "host_offline" });
-    }));
+    }),
+  );
 
   it.effect("returns the tool result for an eligible target", () =>
     Effect.gen(function* () {
@@ -117,7 +119,8 @@ describe("voice live router", () => {
           isError: false,
         },
       });
-    }));
+    }),
+  );
 
   it.effect("maps a failing target request to target_request_failed", () =>
     Effect.gen(function* () {
@@ -140,7 +143,8 @@ describe("voice live router", () => {
         errorCode: "target_request_failed",
         errorMessage: "socket closed",
       });
-    }));
+    }),
+  );
 
   it.effect("maps a target timeout to target_request_failed", () =>
     Effect.gen(function* () {
@@ -161,7 +165,8 @@ describe("voice live router", () => {
       yield* TestClock.adjust("100 millis");
       const outcome = yield* Fiber.join(fiber);
       expect(outcome).toMatchObject({ ok: false, errorCode: "target_request_failed" });
-    }));
+    }),
+  );
 });
 
 function event(partial: VoiceLiveStreamEvent): VoiceLiveStreamEvent {
@@ -235,7 +240,8 @@ describe("runVoiceLiveCall", () => {
       expect(transcripts).toEqual([{ role: "assistant", text: "hello" }]);
       expect(closes).toEqual(["hangup"]);
       expect(end).toEqual({ type: "closed", reason: "hangup" });
-    }));
+    }),
+  );
 
   it.effect("answers route requests through the router back to the owning environment", () =>
     Effect.gen(function* () {
@@ -289,7 +295,8 @@ describe("runVoiceLiveCall", () => {
         ok: false,
         errorCode: "unknown_host",
       });
-    }));
+    }),
+  );
 
   it.effect("stop interrupts the stream and fires voice.live.stop best-effort", () =>
     Effect.gen(function* () {
@@ -317,7 +324,8 @@ describe("runVoiceLiveCall", () => {
       );
       expect(end).toEqual({ type: "stopped" });
       expect(stops).toEqual([{ liveSessionId: "session-3" }]);
-    }));
+    }),
+  );
 
   it.effect("surfaces stream failures as a failed end and onError", () =>
     Effect.gen(function* () {
@@ -333,5 +341,6 @@ describe("runVoiceLiveCall", () => {
       );
       expect(end).toEqual({ type: "failed", message: "codex_too_old" });
       expect(errors).toEqual(["codex_too_old"]);
-    }));
+    }),
+  );
 });

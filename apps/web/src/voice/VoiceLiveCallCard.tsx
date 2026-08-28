@@ -10,11 +10,7 @@ import { memo, useMemo, useState } from "react";
 
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
-import {
-  resumeVoiceLiveAudio,
-  setVoiceLiveMuted,
-  stopVoiceLiveCall,
-} from "./voiceLiveSession";
+import { resumeVoiceLiveAudio, setVoiceLiveMuted, stopVoiceLiveCall } from "./voiceLiveSession";
 import { useVoiceLiveStore, type VoiceLiveTranscriptEntry } from "./voiceLiveStore";
 
 function transcriptRoleLabel(entry: VoiceLiveTranscriptEntry): string {
@@ -103,7 +99,12 @@ export const VoiceLiveCallCard = memo(function VoiceLiveCallCard() {
             >
               {muted ? <MicOffIcon className="text-destructive-foreground" /> : <MicIcon />}
             </Button>
-            <Button aria-label="End call" onClick={stopVoiceLiveCall} size="icon-xs" variant="ghost">
+            <Button
+              aria-label="End call"
+              onClick={stopVoiceLiveCall}
+              size="icon-xs"
+              variant="ghost"
+            >
               <PhoneOffIcon />
             </Button>
           </>

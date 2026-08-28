@@ -261,7 +261,12 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
                 onPress={voiceLiveStoreActions.openPicker}
                 className="size-11 items-center justify-center rounded-full bg-subtle"
               >
-                <SymbolView name="waveform" size={17} tintColor={iconColor} type="monochrome" />
+                <SymbolView
+                  name="waveform"
+                  size={17}
+                  tintColorClassName={"accent-icon"}
+                  type="monochrome"
+                />
               </Pressable>
             ) : null}
             {/* Built identically to the filter button so the two circles
