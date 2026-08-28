@@ -1367,15 +1367,23 @@ const makeWsRpcLayer = (
                   ...result,
                   projection: projectThreadProjectionForWire(result.projection),
                 })),
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationV2ThreadLaunchError({
-                      commandId: input.commandId,
-                      projectId: input.projectId,
-                      message: "Failed to launch thread",
-                      cause,
-                    }),
-                ),
+                Effect.mapError((cause) => {
+                  // Tells the client its reserved thread id was consumed and
+                  // released, so a retry must mint a fresh one.
+                  const bootstrapThreadDisposition =
+                    cause._tag === "ThreadLaunchError"
+                      ? cause.bootstrapThreadDisposition
+                      : undefined;
+                  return new OrchestrationV2ThreadLaunchError({
+                    commandId: input.commandId,
+                    projectId: input.projectId,
+                    message: "Failed to launch thread",
+                    ...(bootstrapThreadDisposition === undefined
+                      ? {}
+                      : { bootstrapThreadDisposition }),
+                    cause,
+                  });
+                }),
               ),
             {
               "rpc.aggregate": "orchestration",

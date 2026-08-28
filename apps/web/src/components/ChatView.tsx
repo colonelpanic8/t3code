@@ -5727,7 +5727,10 @@ function ChatViewContent(props: ChatViewProps) {
         const error = squashAtomCommandFailure(failure);
         if (isLocalDraftThread && draftId && wasBootstrapThreadDeleted(error)) {
           const failedDraftSession = getDraftSession(draftId);
-          if (failedDraftSession?.threadId === threadIdForSend) {
+          // Reminting is only safe while the draft still owns the id the
+          // server just released; a concurrent promotion or a later identity
+          // change means some other send now owns it.
+          if (failedDraftSession?.threadId === threadIdForSend && !failedDraftSession.promotedTo) {
             setLogicalProjectDraftThreadId(
               failedDraftSession.logicalProjectKey,
               scopeProjectRef(failedDraftSession.environmentId, failedDraftSession.projectId),
