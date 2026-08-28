@@ -11,7 +11,7 @@ import {
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
 } from "@t3tools/shared/model";
-import type { ReactNode } from "react";
+import type { ReactElement } from "react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
@@ -48,6 +48,7 @@ type TraitsRenderInput = {
   prompt: string;
   onPromptChange: (prompt: string) => void;
   planModeEnabled: boolean;
+  onSelectionComplete?: () => void;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -92,7 +93,7 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
 function renderTraitsControl(
   Component: typeof TraitsMenuContent | typeof TraitsPicker,
   input: TraitsRenderInput,
-): ReactNode {
+): ReactElement | null {
   const {
     provider,
     instanceId,
@@ -104,6 +105,7 @@ function renderTraitsControl(
     prompt,
     onPromptChange,
     planModeEnabled,
+    onSelectionComplete,
   } = input;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   if (
@@ -131,14 +133,15 @@ function renderTraitsControl(
       prompt={prompt}
       onPromptChange={onPromptChange}
       planModeEnabled={planModeEnabled}
+      {...(onSelectionComplete ? { onSelectionComplete } : {})}
     />
   );
 }
 
-export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
+export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactElement | null {
   return renderTraitsControl(TraitsMenuContent, input);
 }
 
-export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
+export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactElement | null {
   return renderTraitsControl(TraitsPicker, input);
 }
