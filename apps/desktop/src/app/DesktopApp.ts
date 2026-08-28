@@ -1,5 +1,6 @@
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -65,6 +66,23 @@ const { logInfo: logBootstrapInfo, logWarning: logBootstrapWarning } =
 
 const { logInfo: logStartupInfo, logError: logStartupError } =
   DesktopObservability.makeComponentLogger("desktop-startup");
+
+export const configureElectronStoragePaths = Effect.fn(
+  "desktop.startup.configureElectronStoragePaths",
+)(function* (input: {
+  readonly userDataPath: string;
+  readonly storageLayout: DesktopEnvironment.DesktopEnvironment["Service"]["storageLayout"];
+  readonly electronCachePath: string;
+}) {
+  const electronApp = yield* ElectronApp.ElectronApp;
+  const fileSystem = yield* FileSystem.FileSystem;
+
+  yield* electronApp.setPath("userData", input.userDataPath);
+  if (input.storageLayout === "split") {
+    yield* fileSystem.makeDirectory(input.electronCachePath, { recursive: true });
+    yield* electronApp.setPath("cache", input.electronCachePath);
+  }
+});
 
 const resolveDesktopBackendPort = Effect.fn("resolveDesktopBackendPort")(function* (
   configuredPort: Option.Option<number>,
@@ -254,7 +272,11 @@ const startup = Effect.gen(function* () {
     }
   }
   const userDataPath = yield* appIdentity.resolveUserDataPath;
-  yield* electronApp.setPath("userData", userDataPath);
+  yield* configureElectronStoragePaths({
+    userDataPath,
+    storageLayout: environment.storageLayout,
+    electronCachePath: environment.electronCachePath,
+  });
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   yield* desktopSettings.load;
 
