@@ -1,0 +1,250 @@
+{
+  "entries": [
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4259",
+      "commit": "565234098b3acfb7af803db8825367ac436c8364",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4259",
+      "note": "Picker commit only. The branch's four stale Codex app-server commits were dropped: they revert the toolchain to bun/tsdown, leave Layers/CodexProvider.ts syntactically invalid, and add ~163 typecheck errors on this base. They were never in a published assembly.",
+      "pr": 4259,
+      "status": "merged",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4257",
+      "commit": "904ff9763951f3931ab3049ee3161ac8902028ec",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4257",
+      "pr": 4257,
+      "status": "merged",
+      "summary": "Directory-path Tab completion"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4324",
+      "commit": "c4a2eec8cdad8fdf04dd20e349c546efe4c1c80e",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4324",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar-v2 project icons"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4394",
+      "commit": "3f4851d975f1fd04fa2a6ae68b57421cd29f5978",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4394",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N and Ctrl-P"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4405",
+      "commit": "0d6c2ae4807399a58ec28e5705e9cb501aa87e2f",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4405",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Harden thread-detail loading and subscriptions"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4602",
+      "commit": "fca5457cdc87363333b4f25dedb070ba8a769ab5",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4602",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4447",
+      "commit": "02382d6cc233d73458de3071c08811851ea461b9",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4447",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task flow on mobile"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4701",
+      "commit": "1d9dafe7cb6113abb6ced9d33ddfcc09637c0ee6",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4701",
+      "pr": 4701,
+      "status": "merged",
+      "summary": "Render shortcuts with Apple glyphs"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4439",
+      "commit": "8659dcac88db71181fd913b645035add7584cd30",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4439",
+      "note": "Rebased port with obsolete orchestration-v1 files removed.",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configurable worktree placement"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4437",
+      "commit": "b1089993f173527dd11c6a8099b7bb43d515721a",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4437",
+      "note": "Rebased port with the obsolete orchestration-v1 documentation removed.",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "XDG storage layout"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4494",
+      "commit": "1f05dfac5d5582cd7882704511d58de56445ce72",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4494",
+      "pr": 4494,
+      "status": "merged",
+      "summary": "Keep rapid provider-settings edits from reverting"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4487",
+      "commit": "7e6af3d159881529fe1dfe4349b6863abb6fb9d4",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4487",
+      "note": "Still open upstream; neither main nor the v2 branch filters these models. Patches parseCodexModelListResponse in provider/Layers/CodexProvider.ts.",
+      "pr": 4487,
+      "status": "merged",
+      "summary": "Filter non-interactive Codex models"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/client-environment-suite",
+      "commit": "1234cb014a10cd4ba481b206e1a08fffba040929",
+      "fixup": "patches/orchestration-v2-main-client-environment-suite.patch",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/client-environment-suite",
+      "note": "Canonical v2-native replacement for the overlapping #4444, #4474, #4486, #4496, #4505, #4538, #4548, #4559, and #4567 branches. Their individual shadow refs remain available but are not replayed twice.",
+      "status": "merged",
+      "summary": "Orchestration-v2 client, environment, discovery, and pairing suite"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4677",
+      "commit": "89c9d93e046c563ca97029baca4e0b99fc5bfb53",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4677",
+      "pr": 4677,
+      "status": "merged",
+      "summary": "Custom snooze times"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4593",
+      "commit": "0974262742750c46384ed05d7088e164dd463766",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4593",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state after a settle does not land"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/managed-fleet",
+      "commit": "612d9ab6908482812912c05eb9651cf377f18365",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/managed-fleet",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/desktop-clerk-startup",
+      "commit": "cecd3b59b22aa43a2a6179c266a24026e11a6bf8",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/desktop-clerk-startup",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/migration-schema-repair",
+      "commit": "995768bdb26c374c272cfeb707bb9a66195b5082",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/migration-schema-repair",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4699",
+      "commit": "1e531795dbe88f08aaae5bd2cd7199de8b56a637",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4699",
+      "note": "Closed upstream as an unsupported distribution system. Load-bearing: this is how NixOS builds the assembly.",
+      "pr": 4699,
+      "status": "merged",
+      "summary": "Self-contained Nix flake"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/live-voice",
+      "commit": "1efc6e7de6b59806996333a3638632f3ae9bfd12",
+      "fixup": "patches/live-voice-pnpm-deps-hash.patch",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/live-voice",
+      "status": "merged",
+      "summary": "Cross-host live voice calls over Codex realtime"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/fdroid-distribution",
+      "commit": "cfd6fd063d9444ff316cdfe4b585f44bafd6ed8a",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/fdroid-distribution",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4318",
+      "commit": "92b09ca2727ecac01c45a905a090c40fb34f8d39",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4318",
+      "note": "Closed because the v2 rewrite moved the files, not on merit. Re-expressed against v2: subscribes to the ref the draft reserved instead of inferring from the shell list.",
+      "pr": 4318,
+      "status": "merged",
+      "summary": "Recover stalled draft thread promotion"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4420",
+      "commit": "3d009426105a9aab76b06e992af694c74665b2c8",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4420",
+      "note": "Closed without comment. Re-ported; the PR's busy_timeout half already reached the base through upstream main and is not duplicated.",
+      "pr": 4420,
+      "status": "merged",
+      "summary": "Refuse startup when another server owns the state dir"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4484",
+      "commit": "a0df23db239e6b7333087ebfbe31cc73ca57ccc5",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4484",
+      "note": "The base already carried the client half, but dead: nothing set bootstrapThreadDisposition and launch failures arrive as OrchestrationV2ThreadLaunchError. Deletes the provisional thread on a failed owned launch and propagates the disposition.",
+      "pr": 4484,
+      "status": "merged",
+      "summary": "Recover draft thread IDs after failed bootstrap"
+    },
+    {
+      "commit": "fc164f702ad2f285e3637c98db6da9581d192451",
+      "kind": "patch",
+      "label": "managed-fleet-settings-controls",
+      "status": "applied"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-6507",
+      "commit": "a6a1ac5fcf421583ce494c8da4e63207699bd389",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-6507",
+      "note": "Rebased port of the upstream PR onto the orchestration-v2 base.",
+      "pr": 6507,
+      "status": "merged",
+      "summary": "Direct model and reasoning keybindings"
+    }
+  ],
+  "fork": {
+    "branch": "t3code/assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "2c3a3a913f744bc414313e2e757d977833143b6a",
+    "date": "2026-08-27T19:11:17-07:00",
+    "ref": "t3code/orchestration-v2-main/base",
+    "remote": "https://github.com/colonelpanic8/t3code",
+    "subject": "fix(web): align two merged test fixtures with the v2 thread model"
+  }
+}
