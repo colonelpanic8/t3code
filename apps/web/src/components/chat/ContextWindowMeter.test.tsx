@@ -1,4 +1,4 @@
-import { EventId, TurnId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -16,13 +16,26 @@ vi.mock("../ui/popover", () => ({
 
 const usage = deriveLatestContextWindowSnapshot([
   {
-    id: EventId.make("activity-1"),
-    tone: "info",
-    kind: "context-window.updated",
-    summary: "Context updated",
-    payload: { usedTokens: 100_000, maxTokens: 1_000_000 },
-    turnId: TurnId.make("turn-1"),
-    createdAt: "2026-08-24T12:00:00.000Z",
+    item: {
+      id: "compaction-1" as never,
+      threadId: "thread-1" as never,
+      runId: null,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed",
+      title: null,
+      startedAt: null,
+      completedAt: null,
+      updatedAt: DateTime.makeUnsafe("2026-08-24T12:00:00.000Z"),
+      type: "compaction",
+      driver: null,
+      beforeTokenCount: 1_000_000,
+      afterTokenCount: 100_000,
+    },
   },
 ]);
 

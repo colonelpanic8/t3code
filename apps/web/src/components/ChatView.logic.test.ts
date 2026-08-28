@@ -685,16 +685,16 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
 
   it("keeps a follow-up active while its provider session is starting", () => {
     const localDispatch = createLocalDispatchSnapshot(
-      makeThread({ latestTurn: completedTurn, session: readySession }),
+      makeThread({ latestRun: completedTurn, runtime: readySession }),
     );
 
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
         phase: "connecting",
-        latestTurn: completedTurn,
+        latestRun: completedTurn,
         latestUserMessageId: MessageId.make("message-followup"),
-        session: {
+        runtime: {
           ...readySession,
           status: "starting",
           updatedAt: "2026-03-29T00:01:00.000Z",
