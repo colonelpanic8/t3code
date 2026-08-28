@@ -9,12 +9,9 @@ import {
 import { memo, useMemo, useState } from "react";
 
 import { Button } from "../components/ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { cn } from "../lib/utils";
-import {
-  resumeVoiceLiveAudio,
-  setVoiceLiveMuted,
-  stopVoiceLiveCall,
-} from "./voiceLiveSession";
+import { resumeVoiceLiveAudio, setVoiceLiveMuted, stopVoiceLiveCall } from "./voiceLiveSession";
 import { useVoiceLiveStore, type VoiceLiveTranscriptEntry } from "./voiceLiveStore";
 
 function transcriptRoleLabel(entry: VoiceLiveTranscriptEntry): string {
@@ -70,15 +67,20 @@ export const VoiceLiveCallCard = memo(function VoiceLiveCallCard() {
           <div className="truncate text-sm font-medium">
             Live Voice{environmentLabel ? ` · ${environmentLabel}` : ""}
           </div>
-          <div
-            className={cn(
-              "truncate text-xs",
-              status === "error" ? "text-destructive-foreground" : "text-muted-foreground",
-            )}
-            title={status === "error" ? (errorMessage ?? undefined) : undefined}
-          >
-            {statusLine}
-          </div>
+          {status === "error" ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className="truncate text-xs text-destructive-foreground">{statusLine}</div>
+                }
+              />
+              <TooltipPopup side="top" className="max-w-80">
+                {statusLine}
+              </TooltipPopup>
+            </Tooltip>
+          ) : (
+            <div className="truncate text-xs text-muted-foreground">{statusLine}</div>
+          )}
         </div>
         {status === "error" ? (
           <Button aria-label="Dismiss" onClick={stopVoiceLiveCall} size="icon-xs" variant="ghost">
@@ -103,7 +105,12 @@ export const VoiceLiveCallCard = memo(function VoiceLiveCallCard() {
             >
               {muted ? <MicOffIcon className="text-destructive-foreground" /> : <MicIcon />}
             </Button>
-            <Button aria-label="End call" onClick={stopVoiceLiveCall} size="icon-xs" variant="ghost">
+            <Button
+              aria-label="End call"
+              onClick={stopVoiceLiveCall}
+              size="icon-xs"
+              variant="ghost"
+            >
               <PhoneOffIcon />
             </Button>
           </>

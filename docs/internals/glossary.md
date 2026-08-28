@@ -14,7 +14,7 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Worktree       | A separate Git checkout a thread can use instead of the project's main checkout.                  |
 | Thread         | The durable conversation and work history for a project. It survives provider process exits.      |
 | Turn           | One user-to-agent work cycle. Provider work can finish before checkpoint and diff work settles.   |
-| Activity       | A non-message timeline item, such as a tool action, approval, or failure.                          |
+| Activity       | A non-message timeline item, such as a tool action, approval, or failure.                         |
 | T3 home        | The base data directory. Runtime state normally lives under its `userdata` directory.             |
 
 ## Orchestration
@@ -40,7 +40,7 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Provider instance   | One configured provider, with its own settings and lifecycle. Multiple instances can use the same driver.    |
 | Adapter             | The boundary translating a provider's native protocol into T3 Code operations and events.                    |
 | Session             | The provider runtime attached to a thread. A session can be stopped and resumed without deleting the thread. |
-| Runtime mode        | The thread's permission policy. See [permission modes](../user/permission-modes.md).                          |
+| Runtime mode        | The thread's permission policy. See [permission modes](../user/permission-modes.md).                         |
 | Interaction mode    | How the agent approaches the task, such as planning. Separate from permission policy.                        |
 | Checkpoint          | A saved workspace state used for diffs and restore, stored as a hidden Git ref.                              |
 | Checkpoint baseline | The workspace state captured before the work being compared.                                                 |
@@ -48,7 +48,7 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 ## Live voice
 
-| Term                | Meaning                                                                                                                                                                                 |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Term                | Meaning                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Live voice call     | An ephemeral speech-to-speech session between a client and OpenAI, brokered by one server through a hidden Codex app-server session and owned by the client socket that started it.      |
 | Voice route request | A tool call sent by the hidden voice session through its owning client for execution against another connected environment. See [live voice](./live-voice.md) for the routing lifecycle. |
