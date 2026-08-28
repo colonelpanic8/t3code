@@ -48,29 +48,28 @@ type VoiceMcpAuthMiddleware = (
 >;
 
 const makeVoiceMcpAuthMiddleware = VoiceLiveService.pipe(
-  Effect.map(
-    (voiceLive): VoiceMcpAuthMiddleware =>
-      Effect.fn("VoiceMcpServer.authenticateRequest")(function* (httpEffect) {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const authorization = request.headers.authorization;
-        const token =
-          authorization?.startsWith("Bearer ") === true
-            ? authorization.slice("Bearer ".length).trim()
-            : "";
-        const credential = yield* voiceLive.resolveVoiceCredential(token);
-        if (!credential) {
-          yield* Effect.logWarning("rejected voice MCP request with an unusable credential", {
-            reason: token.length === 0 ? "missing_bearer_token" : "unknown_or_revoked_token",
-          });
-          return unauthorized;
-        }
-        return yield* httpEffect.pipe(
-          Effect.provideService(VoiceMcpInvocationContext.VoiceMcpInvocationContext, {
-            liveSessionId: credential.liveSessionId,
-          }),
-          Effect.map(normalizeMcpHttpResponse),
-        );
-      }),
+  Effect.map((voiceLive): VoiceMcpAuthMiddleware =>
+    Effect.fn("VoiceMcpServer.authenticateRequest")(function* (httpEffect) {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const authorization = request.headers.authorization;
+      const token =
+        authorization?.startsWith("Bearer ") === true
+          ? authorization.slice("Bearer ".length).trim()
+          : "";
+      const credential = yield* voiceLive.resolveVoiceCredential(token);
+      if (!credential) {
+        yield* Effect.logWarning("rejected voice MCP request with an unusable credential", {
+          reason: token.length === 0 ? "missing_bearer_token" : "unknown_or_revoked_token",
+        });
+        return unauthorized;
+      }
+      return yield* httpEffect.pipe(
+        Effect.provideService(VoiceMcpInvocationContext.VoiceMcpInvocationContext, {
+          liveSessionId: credential.liveSessionId,
+        }),
+        Effect.map(normalizeMcpHttpResponse),
+      );
+    }),
   ),
   Effect.withSpan("VoiceMcpServer.makeAuthMiddleware"),
 );

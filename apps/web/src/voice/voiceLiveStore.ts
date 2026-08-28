@@ -44,8 +44,7 @@ export const useVoiceLiveStore = create<VoiceLiveStoreState>()((set) => ({
   ...IDLE_STATE,
   beginConnecting: (environmentId, environmentLabel) =>
     set({ ...IDLE_STATE, status: "connecting", environmentId, environmentLabel }),
-  markActive: () =>
-    set((state) => (state.status === "connecting" ? { status: "active" } : state)),
+  markActive: () => set((state) => (state.status === "connecting" ? { status: "active" } : state)),
   appendTranscript: (role, text) =>
     set((state) => {
       const entry: VoiceLiveTranscriptEntry = { id: nextTranscriptId++, role, text };

@@ -17,7 +17,7 @@ import * as Stream from "effect/Stream";
 import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
 import type { EnvironmentPresentation } from "../connection/presentation.ts";
-import type { EnvironmentNotRegisteredError, EnvironmentRegistry } from "../connection/registry.ts";
+import { EnvironmentRegistry, type EnvironmentNotRegisteredError } from "../connection/registry.ts";
 import {
   request,
   runStream,
@@ -28,7 +28,6 @@ import {
 import {
   createRuntimeCommand,
   runAtomCommand,
-  runInEnvironment,
   runStreamInEnvironment,
   type AtomCommandResult,
 } from "./runtime.ts";
@@ -89,9 +88,7 @@ export type VoiceLiveCallEnd =
 
 export interface VoiceLiveCallDeps<R = never, E = never> extends VoiceLiveRouterDeps<R, E> {
   /** Runs the `voice.live.start` stream in the owning environment. */
-  readonly runCallStream: (
-    input: VoiceLiveStartInput,
-  ) => Stream.Stream<VoiceLiveStreamEvent, E, R>;
+  readonly runCallStream: (input: VoiceLiveStartInput) => Stream.Stream<VoiceLiveStreamEvent, E, R>;
   /** Answers a `routeRequest` back to the owning environment. */
   readonly respondRoute: (response: VoiceLiveRouteResponse) => Effect.Effect<unknown, E, R>;
   /** Best-effort `voice.live.stop` against the owning environment. */
@@ -241,6 +238,15 @@ export type EnvironmentVoiceLiveError =
   | EnvironmentRpcUnavailableError
   | EnvironmentNotRegisteredError;
 
+function runVoiceEffectInEnvironment<A, E, R>(
+  environmentId: EnvironmentId,
+  effect: Effect.Effect<A, E, R>,
+) {
+  return EnvironmentRegistry.pipe(
+    Effect.flatMap((registry) => registry.run(environmentId, effect)),
+  );
+}
+
 export function makeEnvironmentVoiceLiveCallDeps(input: {
   readonly environmentId: EnvironmentId;
   readonly listHosts: () => ReadonlyArray<VoiceLiveHost>;
@@ -249,12 +255,21 @@ export function makeEnvironmentVoiceLiveCallDeps(input: {
     runCallStream: (startInput) =>
       runStreamInEnvironment(input.environmentId, runStream(WS_METHODS.voiceLiveStart, startInput)),
     respondRoute: (response) =>
-      runInEnvironment(input.environmentId, request(WS_METHODS.voiceLiveRouteRespond, response)),
+      runVoiceEffectInEnvironment(
+        input.environmentId,
+        request(WS_METHODS.voiceLiveRouteRespond, response),
+      ),
     stopCall: (stopInput) =>
-      runInEnvironment(input.environmentId, request(WS_METHODS.voiceLiveStop, stopInput)),
+      runVoiceEffectInEnvironment(
+        input.environmentId,
+        request(WS_METHODS.voiceLiveStop, stopInput),
+      ),
     listHosts: Effect.sync(input.listHosts),
     executeTool: (targetEnvironmentId: EnvironmentId, toolInput: VoiceLiveToolExecuteInput) =>
-      runInEnvironment(targetEnvironmentId, request(WS_METHODS.voiceLiveToolExecute, toolInput)),
+      runVoiceEffectInEnvironment(
+        targetEnvironmentId,
+        request(WS_METHODS.voiceLiveToolExecute, toolInput),
+      ),
   };
 }
 

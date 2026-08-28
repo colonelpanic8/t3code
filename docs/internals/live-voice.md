@@ -18,7 +18,7 @@ experimental realtime API, so it uses the user's existing ChatGPT-subscription
   RPC + in-memory state, like preview automation.
 - Codex 0.145.0 is the floor for `realtime_conversation` and the v3 WebRTC
   transport. Older binaries fail the call with `code: "codex_too_old"`; the
-  capability flag below keeps older *servers* from being probed at all.
+  capability flag below keeps older _servers_ from being probed at all.
 
 ## Wire protocol (`packages/contracts/src/voice.ts`, `rpc.ts`)
 
@@ -63,15 +63,15 @@ tools cannot recursively acquire Live Voice.
 The routed tool catalog is defined server-side
 (`apps/server/src/voice/VoiceLiveToolExecutor.ts`) and deliberately curated:
 
-| tool | kind | backing |
-| --- | --- | --- |
-| `list_projects` | read | project registry |
-| `list_threads` | read | thread shells (status, title, activity) |
-| `read_thread` | read | bounded conversation tail |
-| `thread_status` | read | run/turn status for one thread |
-| `start_thread` | act | `ThreadLaunchService.launch` (like scheduled tasks) |
-| `send_message` | act | `ThreadManagementService.sendToThread` |
-| `interrupt_thread` | act | `ThreadManagementService.interruptThread` |
+| tool               | kind | backing                                             |
+| ------------------ | ---- | --------------------------------------------------- |
+| `list_projects`    | read | project registry                                    |
+| `list_threads`     | read | thread shells (status, title, activity)             |
+| `read_thread`      | read | bounded conversation tail                           |
+| `thread_status`    | read | run/turn status for one thread                      |
+| `start_thread`     | act  | `ThreadLaunchService.launch` (like scheduled tasks) |
+| `send_message`     | act  | `ThreadManagementService.sendToThread`              |
+| `interrupt_thread` | act  | `ThreadManagementService.interruptThread`           |
 
 Reads may fan out; mutations run on one named host only, so a spoken request
 never mutates several machines at once.
