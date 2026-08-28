@@ -14,6 +14,8 @@ import { HOME_HORIZONTAL_INSET } from "../../lib/layoutMetrics";
 import { resolveMobileStageLabel } from "../../lib/mobileBranding";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
+import { useVoiceLiveTargets } from "../voice/useVoiceLive";
+import { voiceLiveStoreActions } from "../voice/voiceLiveStore";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import {
@@ -69,6 +71,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
   const insets = useSafeAreaInsets();
   const iconColor = useThemeColor("--color-icon");
   const mutedColor = useThemeColor("--color-foreground-muted");
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   const stageLabel = resolveMobileStageLabel(Constants.expoConfig?.extra?.appVariant);
   // Thread List v2 lays the list out in fixed creation order, so the
   // sort/group filter controls would be silently ignored — hide them and
@@ -253,6 +256,16 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
                 />
               </Pressable>
             </ControlPillMenu>
+            {voiceLiveAvailable ? (
+              <Pressable
+                accessibilityLabel="Start Live Voice"
+                accessibilityRole="button"
+                onPress={voiceLiveStoreActions.openPicker}
+                className="size-11 items-center justify-center rounded-full bg-subtle"
+              >
+                <SymbolView name="waveform" size={17} tintColor={iconColor} type="monochrome" />
+              </Pressable>
+            ) : null}
             {/* Built identically to the filter button so the two circles
                 match exactly (ControlPill sizes via Tailwind classes and
                 resolves to a different box). */}
@@ -301,6 +314,7 @@ function AndroidHomeHeader(props: HomeHeaderProps) {
 function IosHomeHeader(props: HomeHeaderProps) {
   const searchBarRef = useRef<SearchBarCommands>(null);
   const iconColor = useThemeColor("--color-icon");
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   // Thread List v2 lays the list out in fixed creation order, so the
   // sort/group filter controls would be silently ignored — hide them and
   // key the "customized" icon state off the environment filter alone.
@@ -321,7 +335,7 @@ function IosHomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[filterMenu.items, voiceLiveAvailable]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
@@ -329,6 +343,18 @@ function IosHomeHeader(props: HomeHeaderProps) {
           unstable_headerRightItems:
             Platform.OS === "ios"
               ? () => [
+                  ...(voiceLiveAvailable
+                    ? [
+                        withNativeGlassHeaderItem({
+                          accessibilityLabel: "Start Live Voice",
+                          icon: { name: "waveform", type: "sfSymbol" } as const,
+                          identifier: "home-voice-live",
+                          label: "",
+                          onPress: voiceLiveStoreActions.openPicker,
+                          type: "button",
+                        }),
+                      ]
+                    : []),
                   withNativeGlassHeaderItem({
                     accessibilityLabel: "Open settings",
                     icon: { name: "ellipsis", type: "sfSymbol" } as const,
