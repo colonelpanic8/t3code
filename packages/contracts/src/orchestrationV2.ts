@@ -2487,6 +2487,12 @@ export class OrchestrationV2ThreadLaunchError extends Schema.TaggedErrorClass<Or
     commandId: CommandId,
     projectId: ProjectId,
     message: Schema.String,
+    /**
+     * Set only when the launch created a provisional thread and then removed it
+     * again. It tells the client the reserved thread id is spent, so a retry
+     * must mint a new one instead of recreating the id the server consumed.
+     */
+    bootstrapThreadDisposition: Schema.optional(Schema.Literal("deleted")),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}

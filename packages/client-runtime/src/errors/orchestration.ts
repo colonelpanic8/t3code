@@ -1,10 +1,13 @@
-import { OrchestrationV2DispatchCommandError } from "@t3tools/contracts";
+import {
+  OrchestrationV2DispatchCommandError,
+  OrchestrationV2ThreadLaunchError,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
-const isOrchestrationDispatchCommandError = Schema.is(OrchestrationV2DispatchCommandError);
+const isBootstrapThreadError = Schema.is(
+  Schema.Union([OrchestrationV2DispatchCommandError, OrchestrationV2ThreadLaunchError]),
+);
 
 export function wasBootstrapThreadDeleted(error: unknown): boolean {
-  return (
-    isOrchestrationDispatchCommandError(error) && error.bootstrapThreadDisposition === "deleted"
-  );
+  return isBootstrapThreadError(error) && error.bootstrapThreadDisposition === "deleted";
 }
