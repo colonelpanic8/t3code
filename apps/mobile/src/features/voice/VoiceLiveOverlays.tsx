@@ -119,10 +119,7 @@ function VoiceLiveBanner() {
           >
             <View className="flex-row items-center gap-2.5">
               <StatusPill {...tone} size="compact" />
-              <Text
-                className="flex-1 text-sm font-t3-medium text-foreground"
-                numberOfLines={1}
-              >
+              <Text className="flex-1 text-sm font-t3-medium text-foreground" numberOfLines={1}>
                 {state.environmentLabel ?? "Live Voice"}
               </Text>
             </View>
@@ -214,8 +211,8 @@ function VoiceLivePicker() {
               </Pressable>
             </View>
             <Text className="mt-1 text-sm text-foreground-muted">
-              Talk to an agent that can see and act on all of your connected environments. Pick
-              the environment that hosts the call.
+              Talk to an agent that can see and act on all of your connected environments. Pick the
+              environment that hosts the call.
             </Text>
             <View className="mt-3 gap-2">
               {targets.length === 0 ? (
@@ -232,7 +229,12 @@ function VoiceLivePicker() {
                     onPress={() => handleSelect(target)}
                     className="min-h-12 flex-row items-center gap-3 rounded-2xl bg-subtle px-4 py-3"
                   >
-                    <SymbolView name="server.rack" size={16} tintColor={iconColor} type="monochrome" />
+                    <SymbolView
+                      name="server.rack"
+                      size={16}
+                      tintColor={iconColor}
+                      type="monochrome"
+                    />
                     <Text className="flex-1 text-base text-foreground" numberOfLines={1}>
                       {target.label}
                     </Text>
