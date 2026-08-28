@@ -1,9 +1,4 @@
-import {
-  EnvironmentId,
-  ProjectId,
-  VoiceLiveError,
-  type VoiceLiveHost,
-} from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, VoiceLiveError, type VoiceLiveHost } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
@@ -217,9 +212,7 @@ const handlers = {
       for (const { host, result } of outcome.successes) {
         const listing = yield* decodeProjectListing(result).pipe(Effect.option);
         if (listing._tag === "None") {
-          erroredHosts.push(
-            toHostReport(host, "returned a project list this call could not read"),
-          );
+          erroredHosts.push(toHostReport(host, "returned a project list this call could not read"));
           continue;
         }
         searchedHosts.push({ environmentId: host.environmentId, label: host.label });

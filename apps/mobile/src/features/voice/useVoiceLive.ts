@@ -4,11 +4,7 @@ import { useMemo, useSyncExternalStore } from "react";
 
 import { useEnvironments } from "../../state/environments";
 import { environmentServerConfigsAtom } from "../../state/server";
-import {
-  getVoiceLiveState,
-  subscribeVoiceLiveState,
-  type VoiceLiveState,
-} from "./voiceLiveStore";
+import { getVoiceLiveState, subscribeVoiceLiveState, type VoiceLiveState } from "./voiceLiveStore";
 
 export function useVoiceLiveState(): VoiceLiveState {
   return useSyncExternalStore(subscribeVoiceLiveState, getVoiceLiveState);

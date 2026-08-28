@@ -104,13 +104,10 @@ export function routeVoiceLiveRequest<R, E>(
 ): Effect.Effect<VoiceLiveRouteOutcome, never, R> {
   switch (routeRequest.kind) {
     case "list_hosts":
-      return Effect.map(
-        deps.listHosts,
-        (hosts): VoiceLiveRouteOutcome => ({
-          ok: true,
-          result: { kind: "list_hosts", hosts },
-        }),
-      );
+      return Effect.map(deps.listHosts, (hosts): VoiceLiveRouteOutcome => ({
+        ok: true,
+        result: { kind: "list_hosts", hosts },
+      }));
     case "execute_tool":
       return Effect.flatMap(deps.listHosts, (hosts) => {
         const target = classifyVoiceLiveExecuteTarget(hosts, routeRequest.targetEnvironmentId);

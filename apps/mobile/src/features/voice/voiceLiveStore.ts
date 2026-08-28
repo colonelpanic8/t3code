@@ -7,12 +7,7 @@ import type { EnvironmentId } from "@t3tools/contracts";
  * follow the call across navigation.
  */
 
-export type VoiceLiveStatus =
-  | "idle"
-  | "requesting-permission"
-  | "connecting"
-  | "active"
-  | "ending";
+export type VoiceLiveStatus = "idle" | "requesting-permission" | "connecting" | "active" | "ending";
 
 export interface VoiceLiveTranscriptLine {
   readonly id: number;
