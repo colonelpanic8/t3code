@@ -84,9 +84,7 @@ function rebaseArrayByValue(
   }
 
   const unmatchedOriginal = [...original];
-  const added = intended.filter(
-    (value) => !removeFirstStructurallyEqual(unmatchedOriginal, value),
-  );
+  const added = intended.filter((value) => !removeFirstStructurallyEqual(unmatchedOriginal, value));
   const rebased = [...current];
   for (const value of removed) {
     removeFirstStructurallyEqual(rebased, value);
@@ -248,11 +246,7 @@ export function applyPendingServerPatches(
   patches: ReadonlyArray<PendingServerPatch>,
 ): ServerSettings {
   return patches.reduce((current, pending) => {
-    const rebasedPatch = rebaseServerSettingsPatch(
-      pending.patch,
-      pending.baseSettings,
-      current,
-    );
+    const rebasedPatch = rebaseServerSettingsPatch(pending.patch, pending.baseSettings, current);
     return applyServerSettingsPatch(current, rebasedPatch);
   }, settings);
 }
@@ -297,9 +291,7 @@ export function settlePendingServerPatch(
   if (!state) return;
   const settledIndex = state.patches.findIndex((entry) => entry.id === id);
   const settingsWereAlreadyObserved =
-    settings !== null &&
-    settledIndex >= 0 &&
-    structurallyEqual(state.observedSettings, settings);
+    settings !== null && settledIndex >= 0 && structurallyEqual(state.observedSettings, settings);
   const patches =
     settings === null
       ? state.patches.filter((entry) => entry.id !== id)

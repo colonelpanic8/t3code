@@ -548,10 +548,7 @@ export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
 
 export function useUpdatePrimarySettings() {
   const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
-  return useUpdateSettingsTarget(
-    environmentId,
-    useAtomValue(primaryServerSettingsAtom),
-  );
+  return useUpdateSettingsTarget(environmentId, useAtomValue(primaryServerSettingsAtom));
 }
 
 export function useUpdateClientSettings() {
