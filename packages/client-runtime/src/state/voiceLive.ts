@@ -89,9 +89,7 @@ export type VoiceLiveCallEnd =
 
 export interface VoiceLiveCallDeps<R = never, E = never> extends VoiceLiveRouterDeps<R, E> {
   /** Runs the `voice.live.start` stream in the owning environment. */
-  readonly runCallStream: (
-    input: VoiceLiveStartInput,
-  ) => Stream.Stream<VoiceLiveStreamEvent, E, R>;
+  readonly runCallStream: (input: VoiceLiveStartInput) => Stream.Stream<VoiceLiveStreamEvent, E, R>;
   /** Answers a `routeRequest` back to the owning environment. */
   readonly respondRoute: (response: VoiceLiveRouteResponse) => Effect.Effect<unknown, E, R>;
   /** Best-effort `voice.live.stop` against the owning environment. */
