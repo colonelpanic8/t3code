@@ -2186,9 +2186,9 @@ function OpenCommandPaletteDialog(props: {
       }
 
       const completion = resolveBrowseTabCompletion({
-        allowFirstEntryFallback: browseFilterQuery.length > 0,
+        allowFirstEntryFallback: browsePath.filterQuery.length > 0,
         exactEntry: exactBrowseEntry,
-        filteredEntries: filteredBrowseEntries,
+        filteredEntries: visibleBrowseEntries,
         highlightedItemValue,
       });
       if (completion?.kind === "up") {

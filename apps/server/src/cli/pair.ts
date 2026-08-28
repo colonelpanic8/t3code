@@ -271,7 +271,6 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       const derivedPaths = yield* ServerConfig.deriveServerPaths(
         baseDir,
         variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-        {},
       );
       const statePath = derivedPaths.serverRuntimeStatePath;
       checkedStatePaths.push(statePath);
@@ -319,7 +318,6 @@ const makePairServerConfig = Effect.fn(function* (input: {
   const derivedPaths = yield* ServerConfig.deriveServerPaths(
     baseDir,
     variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-    {},
   );
   return ServerConfig.make({
     logLevel: input.logLevel,
