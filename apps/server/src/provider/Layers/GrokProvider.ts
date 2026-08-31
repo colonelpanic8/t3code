@@ -39,7 +39,6 @@ import { discoverGrokSkills } from "../Drivers/GrokSkills.ts";
 const GROK_PRESENTATION = {
   displayName: "Grok",
   showInteractionModeToggle: false,
-  requiresNewThreadForModelChange: true,
 } as const;
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
