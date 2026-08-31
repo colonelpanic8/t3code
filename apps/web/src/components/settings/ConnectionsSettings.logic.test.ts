@@ -1,10 +1,80 @@
-import type { AdvertisedEndpoint, DesktopWslState } from "@t3tools/contracts";
+import {
+  BearerConnectionProfile,
+  BearerConnectionTarget,
+  SshConnectionProfile,
+  SshConnectionTarget,
+  type ConnectionCatalogEntry,
+} from "@t3tools/client-runtime/connection";
+import {
+  EnvironmentId,
+  type AdvertisedEndpoint,
+  type DesktopWslState,
+  type LocalServerAdvertisement,
+} from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyWslEnableSelection,
+  environmentPairingBaseUrl,
   isQrShareableEndpoint,
+  selectLocalServerPairingCandidates,
   selectQrEndpointOption,
 } from "./ConnectionsSettings.logic";
+
+const savedEnvironmentId = EnvironmentId.make("saved-environment");
+
+function connectionEntry(
+  target: ConnectionCatalogEntry["target"],
+  profile?: ConnectionCatalogEntry["profile"] extends Option.Option<infer A> ? A : never,
+): ConnectionCatalogEntry {
+  return {
+    target,
+    profile: profile === undefined ? Option.none() : Option.some(profile),
+  };
+}
+
+describe("environmentPairingBaseUrl", () => {
+  it("uses the reachable origin from a bearer environment profile", () => {
+    expect(
+      environmentPairingBaseUrl(
+        connectionEntry(
+          new BearerConnectionTarget({
+            environmentId: savedEnvironmentId,
+            label: "headless",
+            connectionId: "bearer:saved-environment",
+          }),
+          new BearerConnectionProfile({
+            connectionId: "bearer:saved-environment",
+            environmentId: savedEnvironmentId,
+            label: "headless",
+            httpBaseUrl: "https://box.tail.ts.net/",
+            wsBaseUrl: "wss://box.tail.ts.net/",
+          }),
+        ),
+      ),
+    ).toBe("https://box.tail.ts.net/");
+  });
+
+  it("does not share an SSH tunnel's client-local address", () => {
+    expect(
+      environmentPairingBaseUrl(
+        connectionEntry(
+          new SshConnectionTarget({
+            environmentId: savedEnvironmentId,
+            label: "box",
+            connectionId: "ssh:box",
+          }),
+          new SshConnectionProfile({
+            connectionId: "ssh:box",
+            environmentId: savedEnvironmentId,
+            label: "box",
+            target: { alias: "box", hostname: "box", username: "ivan", port: 22 },
+          }),
+        ),
+      ),
+    ).toBeNull();
+  });
+});
 
 const baseWslState: DesktopWslState = {
   enabled: false,
@@ -161,5 +231,32 @@ describe("selectQrEndpointOption", () => {
     const loopbackOnly = options.slice(0, 1);
     expect(selectQrEndpointOption(loopbackOnly, null, null)?.id).toBe("desktop-loopback:4780");
     expect(selectQrEndpointOption([], "anything", "anything")).toBeNull();
+  });
+});
+
+describe("selectLocalServerPairingCandidates", () => {
+  const advertisement = {
+    version: 1,
+    instanceId: "instance-local",
+    pid: 1234,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    httpBaseUrl: "http://127.0.0.1:3773/",
+    environmentId: EnvironmentId.make("environment-local"),
+    label: "Local server",
+  } satisfies LocalServerAdvertisement;
+
+  it("suppresses connected servers and retains reconnecting servers for pairing", () => {
+    expect(
+      selectLocalServerPairingCandidates(
+        [advertisement],
+        [{ environmentId: advertisement.environmentId, connection: { phase: "connected" } }],
+      ),
+    ).toEqual([]);
+    expect(
+      selectLocalServerPairingCandidates(
+        [advertisement],
+        [{ environmentId: advertisement.environmentId, connection: { phase: "reconnecting" } }],
+      ),
+    ).toEqual([{ advertisement, pairAgain: true }]);
   });
 });
