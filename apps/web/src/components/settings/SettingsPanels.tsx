@@ -2064,6 +2064,28 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
             />
 
             <SettingsRow
+              title="Large project icons"
+              description="Show larger project icons in sidebar thread rows."
+              resetAction={
+                settings.sidebarV2LargeIcons ? (
+                  <SettingResetButton
+                    label="large project icons"
+                    onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.sidebarV2LargeIcons}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+                  }
+                  aria-label="Large project icons"
+                />
+              }
+            />
+
+            <SettingsRow
               {...searchableSetting("auto-settle-inactive-threads")}
               description="Sidebar threads with no activity for this long settle automatically. Threads on merged or closed PRs always settle."
               resetAction={
@@ -2437,6 +2459,40 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
                 }
               />
             ) : null}
+
+            <SettingsRow
+              {...searchableSetting("worktree-path")}
+              description="Template for new worktrees. Relative paths start at the repository root. Variables: {repoRoot}, {repoName}, {branch}, and {worktreesDir}."
+              resetAction={
+                settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate ? (
+                  <SettingResetButton
+                    label="worktree path"
+                    disabled={!canConfigureServer}
+                    onClick={() =>
+                      updateSettings({
+                        worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <DraftInput
+                  className="w-full sm:w-96"
+                  disabled={!canConfigureServer}
+                  value={settings.worktreePathTemplate}
+                  onCommit={(next) => {
+                    const trimmed = next.trim();
+                    if (trimmed.length > 0) {
+                      updateSettings({ worktreePathTemplate: trimmed });
+                    }
+                  }}
+                  placeholder="{repoRoot}/.worktrees/{branch}"
+                  spellCheck={false}
+                  aria-label="Worktree path template"
+                />
+              }
+            />
 
             <SettingsRow
               {...searchableSetting("add-project-starts-in")}
