@@ -262,6 +262,10 @@
     "./claudeCompaction": {
       "types": "./src/claudeCompaction.ts",
       "import": "./src/claudeCompaction.ts"
+    },
+    "./localServerDiscovery": {
+      "types": "./src/localServerDiscovery.ts",
+      "import": "./src/localServerDiscovery.ts"
     }
   },
   "scripts": {

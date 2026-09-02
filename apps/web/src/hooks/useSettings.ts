@@ -46,7 +46,7 @@ import {
 } from "~/themePalette";
 import * as Struct from "effect/Struct";
 import { primaryServerSettingsAtom, serverEnvironment } from "~/state/server";
-import { usePrimaryEnvironment } from "~/state/environments";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useTheme } from "./useTheme";
 
@@ -127,7 +127,10 @@ async function hydrateClientSettings(): Promise<void> {
         return;
       }
       if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
+        replaceClientSettingsSnapshot({
+          ...DEFAULT_CLIENT_SETTINGS,
+          ...persistedSettings,
+        });
       }
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, {
@@ -172,6 +175,17 @@ function usePendingServerPatches(
     getSnapshot,
     () => NO_PENDING_SERVER_PATCHES,
   );
+}
+
+function updateClientSettings(deriveSettings: (settings: ClientSettings) => ClientSettings): void {
+  if (!clientSettingsHydrated) {
+    void hydrateClientSettings().then(() => {
+      updateClientSettings(deriveSettings);
+    });
+    return;
+  }
+
+  persistClientSettings(deriveSettings(getClientSettingsSnapshot()));
 }
 
 // ── Key sets for routing patches ─────────────────────────────────────
@@ -328,10 +342,10 @@ export function useLegacySidebarEnabled(): boolean {
 
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const serverSettings = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings;
   return useMergedSettings(environmentId, serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -339,7 +353,7 @@ export function useEnvironmentSettings<T = UnifiedSettings>(
 export function usePrimarySettings<T = UnifiedSettings>(
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
   return useMergedSettings(environmentId, useAtomValue(primaryServerSettingsAtom), selector);
 }
 
@@ -401,10 +415,10 @@ function useUpdateSettingsTarget(
         }
       }
       if (Object.keys(clientPatch).length > 0) {
-        persistClientSettings({
-          ...getClientSettingsSnapshot(),
+        updateClientSettings((settings) => ({
+          ...settings,
           ...clientPatch,
-        });
+        }));
       }
     },
     [environmentId, persistServerSettings, serverSettings],
@@ -413,23 +427,42 @@ function useUpdateSettingsTarget(
   return updateSettings;
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
+export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null) {
   const serverSettings =
-    useAtomValue(serverEnvironment.settingsValueAtom(environmentId)) ?? DEFAULT_SERVER_SETTINGS;
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings ??
+    DEFAULT_SERVER_SETTINGS;
   return useUpdateSettingsTarget(environmentId, serverSettings);
 }
 
 export function useUpdatePrimarySettings() {
-  const environmentId = usePrimaryEnvironment()?.environmentId ?? null;
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
   return useUpdateSettingsTarget(environmentId, useAtomValue(primaryServerSettingsAtom));
 }
 
 export function useUpdateClientSettings() {
   return useCallback((patch: ClientSettingsPatch) => {
-    persistClientSettings({
-      ...getClientSettingsSnapshot(),
+    updateClientSettings((settings) => ({
+      ...settings,
       ...patch,
-    });
+    }));
+  }, []);
+}
+
+/**
+ * Client-settings updater whose patch is derived from the settings in effect at
+ * call time rather than at render time.
+ *
+ * Use it whenever the new value is computed from the old one — merging one key
+ * into a record, toggling a flag. Deriving from a render-time snapshot loses
+ * writes when two updates run before React re-renders, because both start from
+ * the same stale value and the second overwrites the first.
+ */
+export function useUpdateClientSettingsWith() {
+  return useCallback((derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
+    updateClientSettings((settings) => ({
+      ...settings,
+      ...derivePatch(settings),
+    }));
   }, []);
 }
 
