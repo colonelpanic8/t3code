@@ -586,8 +586,43 @@ it.effect("does not update a reused thread title when the initial message is rej
       const projection = yield* threads.getThreadProjection(threadId);
       assert.equal(projection.thread.title, "Original title");
       assert.isUndefined(projection.thread.titleRegeneration);
+      // A reused thread belongs to the caller, so a failed launch must neither
+      // delete it nor claim its id is spent.
+      assert.isNull(projection.thread.deletedAt);
       assert.isEmpty(projection.messages);
       assert.isEmpty(yield* outbox.listByCommandId(CommandId.make(`${commandId}:initial-message`)));
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("releases the provisional thread when a bootstrap launch fails", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness();
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = ThreadId.make("thread:launch:bootstrap-cleanup");
+
+      const failure = yield* launches
+        .launch({
+          ...launchInput({
+            command: "command:launch:bootstrap-cleanup",
+            thread: threadId,
+            message: "First prompt",
+          }),
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("missing-provider"),
+            model: "missing-model",
+          },
+        })
+        .pipe(Effect.flip);
+
+      assert.equal(failure.operation, "dispatch-message");
+      // The client reserved this thread id for its draft. Without the delete
+      // and the disposition it retries into the id the launch consumed.
+      assert.equal(failure.bootstrapThreadDisposition, "deleted");
+      const projection = yield* threads.getThreadProjection(threadId);
+      assert.isNotNull(projection.thread.deletedAt);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
