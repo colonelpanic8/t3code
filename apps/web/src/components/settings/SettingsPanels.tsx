@@ -635,6 +635,7 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
       settings.sidebarThreadPreviewCount,
+      settings.sidebarV2LargeIcons,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.wordWrap,
@@ -667,6 +668,7 @@ export function useSettingsRestore(ownership: SettingsOwnership, onRestored?: ()
         providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
         defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
         newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+        worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
         addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
         textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       });
@@ -2072,6 +2074,28 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
             />
 
             <SettingsRow
+              title="Large project icons"
+              description="Show larger project icons in sidebar thread rows."
+              resetAction={
+                settings.sidebarV2LargeIcons ? (
+                  <SettingResetButton
+                    label="large project icons"
+                    onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.sidebarV2LargeIcons}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+                  }
+                  aria-label="Large project icons"
+                />
+              }
+            />
+
+            <SettingsRow
               {...searchableSetting("time-format")}
               description="System default follows your browser or OS clock preference."
               resetAction={
@@ -2483,6 +2507,40 @@ function OwnershipSettingsPanel({ ownership }: { ownership: SettingsOwnership })
                 }
               />
             ) : null}
+
+            <SettingsRow
+              {...searchableSetting("worktree-path")}
+              description="Template for new worktrees. Relative paths start at the repository root. Variables: {repoRoot}, {repoName}, {branch}, and {worktreesDir}."
+              resetAction={
+                settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate ? (
+                  <SettingResetButton
+                    label="worktree path"
+                    disabled={!canConfigureServer}
+                    onClick={() =>
+                      updateSettings({
+                        worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <DraftInput
+                  className="w-full sm:w-96"
+                  disabled={!canConfigureServer}
+                  value={settings.worktreePathTemplate}
+                  onCommit={(next) => {
+                    const trimmed = next.trim();
+                    if (trimmed.length > 0) {
+                      updateSettings({ worktreePathTemplate: trimmed });
+                    }
+                  }}
+                  placeholder="{repoRoot}/.worktrees/{branch}"
+                  spellCheck={false}
+                  aria-label="Worktree path template"
+                />
+              }
+            />
 
             <SettingsRow
               {...searchableSetting("add-project-starts-in")}
