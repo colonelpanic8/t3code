@@ -172,6 +172,14 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  managedAccessToken: Config.string("T3CODE_MANAGED_ACCESS_TOKEN").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  environmentIdOverride: Config.string("T3CODE_ENVIRONMENT_ID").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -636,6 +644,8 @@ export const resolveServerConfig = (
       () => mode === "desktop",
     );
     const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
+    const managedAccessToken = env.managedAccessToken?.trim() || undefined;
+    const environmentIdOverride = env.environmentIdOverride?.trim() || undefined;
     const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
     const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
     const resourceMonitorPath = bootstrap?.resourceMonitorPath;
@@ -712,6 +722,8 @@ export const resolveServerConfig = (
       noBrowser,
       startupPresentation,
       desktopBootstrapToken,
+      managedAccessToken,
+      environmentIdOverride,
       desktopTelemetryFd,
       desktopTelemetryControlFd,
       resourceMonitorPath,
