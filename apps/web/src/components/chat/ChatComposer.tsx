@@ -155,6 +155,7 @@ import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
+  selectComposerReasoningEffort,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { resolveContextWindowModelDisplayName } from "./ContextWindowMeter.logic";
@@ -588,6 +589,8 @@ export interface ChatComposerHandle {
   toggleModelPicker: () => void;
   isModelPickerOpen: () => boolean;
   compactContext: () => void;
+  selectModel: (instanceId: ProviderInstanceId, model: string) => void;
+  selectReasoningEffort: (effort: string) => boolean;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -940,6 +943,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const clearComposerDraftPromptAndImages = useComposerDraftStore(
     (store) => store.clearComposerPromptAndImages,
   );
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const syncComposerDraftPersistedAttachments = useComposerDraftStore(
     (store) => store.syncPersistedAttachments,
   );
@@ -3404,6 +3408,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       compactContext: compactThreadContext,
       isModelPickerOpen: () => isComposerModelPickerOpen,
+      selectModel: (instanceId: ProviderInstanceId, model: string) => {
+        onProviderModelSelect(instanceId, model);
+      },
+      selectReasoningEffort: (effort: string) => {
+        const nextOptions = selectComposerReasoningEffort({
+          provider: selectedProvider,
+          model: selectedModel,
+          models: selectedProviderModels,
+          modelOptions: selectedModelOptionsForDispatch,
+          effort,
+        });
+        if (nextOptions === null) return false;
+        setProviderModelOptions(composerDraftTarget, selectedProvider, nextOptions, {
+          instanceId: selectedInstanceId,
+          model: selectedModel,
+          persistSticky: true,
+        });
+        return true;
+      },
       readSnapshot: () => {
         return readComposerSnapshot();
       },
@@ -3517,6 +3540,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedProvider,
       selectedProviderModels,
       compactThreadContext,
+      selectedInstanceId,
+      setProviderModelOptions,
+      onProviderModelSelect,
     ],
   );
 
