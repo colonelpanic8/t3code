@@ -26,7 +26,7 @@ import type {
 } from "./review.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type { AssetCreateUrlInput, AssetCreateUrlResult } from "./assets.ts";
-import type { LocalServerAdvertisement, LocalServerPairingResult } from "./localServerDiscovery.ts";
+import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 import type {
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -167,6 +167,7 @@ export type DesktopTheme = "light" | "dark" | "system";
 export type DesktopUpdateChannel = "latest" | "nightly";
 export type DesktopAppStageLabel = "Alpha" | "Dev" | "Nightly";
 export type DesktopBackendMode = "managed" | "client-only";
+export type DesktopBackendModeSource = "settings" | "cli" | "existing-server";
 
 export const DesktopUpdateStatusSchema = Schema.Literals([
   "disabled",
@@ -183,17 +184,24 @@ export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Dev", "Nightly"]);
 export const DesktopBackendModeSchema = Schema.Literals(["managed", "client-only"]);
+export const DesktopBackendModeSourceSchema = Schema.Literals([
+  "settings",
+  "cli",
+  "existing-server",
+]);
 
 export interface DesktopBackendModeState {
   effectiveMode: DesktopBackendMode;
   configuredMode: DesktopBackendMode;
   cliOverride: DesktopBackendMode | null;
+  source: DesktopBackendModeSource;
 }
 
 export const DesktopBackendModeStateSchema = Schema.Struct({
   effectiveMode: DesktopBackendModeSchema,
   configuredMode: DesktopBackendModeSchema,
   cliOverride: Schema.NullOr(DesktopBackendModeSchema),
+  source: DesktopBackendModeSourceSchema,
 });
 
 export interface DesktopAppBranding {
@@ -1077,8 +1085,8 @@ export interface DesktopBridge {
   // The primary backend is identified by id === PRIMARY_LOCAL_ENVIRONMENT_ID.
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   getLocalEnvironmentBearerToken: () => Promise<string>;
-  discoverLocalServers?: () => Promise<readonly LocalServerAdvertisement[]>;
-  pairLocalServer?: (instanceId: string) => Promise<LocalServerPairingResult>;
+  discoverLocalServers?: () => Promise<readonly RunningLocalServer[]>;
+  pairLocalServer?: (environmentId: EnvironmentId) => Promise<LocalServerPairingResult>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog?: () => Promise<string | null>;

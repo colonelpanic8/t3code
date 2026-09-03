@@ -31,7 +31,6 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
-import { LocalServerPairingChallenge, LocalServerPairingResult } from "./localServerDiscovery.ts";
 import {
   ClientOrchestrationCommand,
   DispatchResult,
@@ -427,16 +426,6 @@ export class EnvironmentAuthHttpApi extends HttpApiGroup.make("auth")
     HttpApiEndpoint.post("browserSession", "/api/auth/browser-session", {
       payload: AuthBrowserSessionRequest,
       success: AuthBrowserSessionResult,
-      error: EnvironmentSessionCreationErrors,
-    }),
-  )
-  .add(
-    // Unauthenticated by design: this is how a same-user local client bootstraps
-    // its first credential. Authorization is filesystem proof (see the handler
-    // in apps/server/src/auth/localPairing.ts), not a bearer token.
-    HttpApiEndpoint.post("localPair", "/api/auth/local-pair", {
-      payload: LocalServerPairingChallenge,
-      success: LocalServerPairingResult,
       error: EnvironmentSessionCreationErrors,
     }),
   )

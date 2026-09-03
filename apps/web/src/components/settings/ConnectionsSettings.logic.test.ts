@@ -9,7 +9,7 @@ import {
   EnvironmentId,
   type AdvertisedEndpoint,
   type DesktopWslState,
-  type LocalServerAdvertisement,
+  type RunningLocalServer,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -255,28 +255,29 @@ describe("selectQrEndpointOption", () => {
 });
 
 describe("selectLocalServerPairingCandidates", () => {
-  const advertisement = {
-    version: 1,
-    instanceId: "instance-local",
+  const server = {
+    statePath: "/home/user/.t3/userdata/server-runtime.json",
+    baseDir: "/home/user/.t3",
+    variant: "userdata",
     pid: 1234,
     startedAt: "2026-01-01T00:00:00.000Z",
     httpBaseUrl: "http://127.0.0.1:3773/",
     environmentId: EnvironmentId.make("environment-local"),
     label: "Local server",
-  } satisfies LocalServerAdvertisement;
+  } satisfies RunningLocalServer;
 
-  it("suppresses connected servers and retains reconnecting servers for pairing", () => {
+  it("marks connected servers as paired and reconnecting servers for pairing again", () => {
     expect(
       selectLocalServerPairingCandidates(
-        [advertisement],
-        [{ environmentId: advertisement.environmentId, connection: { phase: "connected" } }],
+        [server],
+        [{ environmentId: server.environmentId, connection: { phase: "connected" } }],
       ),
-    ).toEqual([]);
+    ).toEqual([{ server, pairAgain: false, alreadyPaired: true }]);
     expect(
       selectLocalServerPairingCandidates(
-        [advertisement],
-        [{ environmentId: advertisement.environmentId, connection: { phase: "reconnecting" } }],
+        [server],
+        [{ environmentId: server.environmentId, connection: { phase: "reconnecting" } }],
       ),
-    ).toEqual([{ advertisement, pairAgain: true }]);
+    ).toEqual([{ server, pairAgain: true, alreadyPaired: false }]);
   });
 });

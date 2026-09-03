@@ -4,7 +4,7 @@ import type {
   DesktopBridge,
   DesktopWslState,
   EnvironmentId,
-  LocalServerAdvertisement,
+  RunningLocalServer,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
@@ -25,23 +25,28 @@ export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
 
 export interface LocalServerPairingCandidate {
-  readonly advertisement: LocalServerAdvertisement;
+  readonly server: RunningLocalServer;
   readonly pairAgain: boolean;
+  readonly alreadyPaired: boolean;
 }
 
 export function selectLocalServerPairingCandidates(
-  advertisements: ReadonlyArray<LocalServerAdvertisement>,
+  servers: ReadonlyArray<RunningLocalServer>,
   environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly connection: { readonly phase: string };
   }>,
 ): ReadonlyArray<LocalServerPairingCandidate> {
-  return advertisements.flatMap((advertisement) => {
+  return servers.map((server) => {
     const savedEnvironment = environments.find(
-      (environment) => environment.environmentId === advertisement.environmentId,
+      (environment) => environment.environmentId === server.environmentId,
     );
-    if (savedEnvironment?.connection.phase === "connected") return [];
-    return [{ advertisement, pairAgain: savedEnvironment !== undefined }];
+    return {
+      server,
+      pairAgain:
+        savedEnvironment !== undefined && savedEnvironment.connection.phase !== "connected",
+      alreadyPaired: savedEnvironment?.connection.phase === "connected",
+    };
   });
 }
 

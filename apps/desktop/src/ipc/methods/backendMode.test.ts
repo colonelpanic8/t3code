@@ -44,6 +44,7 @@ describe("backend mode IPC", () => {
         effectiveMode: "managed",
         configuredMode: "client-only",
         cliOverride: null,
+        source: "settings",
       });
       assert.deepEqual(relaunchReasons, ["backendMode=client-only"]);
       assert.equal((yield* settings.get).backendMode, "client-only");

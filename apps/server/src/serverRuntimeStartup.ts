@@ -24,7 +24,6 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
-import { HttpServer } from "effect/unstable/http";
 
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -43,7 +42,6 @@ import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReape
 import { forkParked } from "./serverActivation.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
-import { startLocalServerAdvertisement } from "./localServerAdvertisement.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -822,8 +820,6 @@ export const make = (options?: StartupOptions) =>
           );
           if (serverConfig.startupPresentation === "headless") {
             const accessInfo = yield* issueHeadlessServeAccessInfo();
-            const httpServer = yield* HttpServer.HttpServer;
-            yield* startLocalServerAdvertisement({ listeningAddress: httpServer.address });
             yield* runStartupPhase(
               "headless.output",
               Console.log(formatHeadlessServeOutput(accessInfo)),

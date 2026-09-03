@@ -286,6 +286,7 @@ describe("environmentBootstrap", () => {
           effectiveMode: "client-only",
           configuredMode: "client-only",
           cliOverride: null,
+          source: "settings",
         }),
         getLocalEnvironmentBootstraps: () => [],
       },

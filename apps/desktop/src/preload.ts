@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         effectiveMode: "client-only",
         configuredMode: "client-only",
         cliOverride: null,
+        source: "settings",
       };
     }
     return result as ReturnType<DesktopBridge["getBackendModeState"]>;
@@ -68,8 +69,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   getLocalEnvironmentBearerToken: () =>
     ipcRenderer.invoke(IpcChannels.GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL),
   discoverLocalServers: () => ipcRenderer.invoke(IpcChannels.DISCOVER_LOCAL_SERVERS_CHANNEL),
-  pairLocalServer: (instanceId) =>
-    ipcRenderer.invoke(IpcChannels.PAIR_LOCAL_SERVER_CHANNEL, instanceId),
+  pairLocalServer: (environmentId) =>
+    ipcRenderer.invoke(IpcChannels.PAIR_LOCAL_SERVER_CHANNEL, environmentId),
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),
