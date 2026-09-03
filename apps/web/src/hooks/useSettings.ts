@@ -138,7 +138,10 @@ async function hydrateClientSettings(): Promise<void> {
         return;
       }
       if (persistedSettings) {
-        replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
+        replaceClientSettingsSnapshot({
+          ...DEFAULT_CLIENT_SETTINGS,
+          ...persistedSettings,
+        });
       }
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, {
@@ -183,6 +186,17 @@ function usePendingServerPatches(
     getSnapshot,
     () => NO_PENDING_SERVER_PATCHES,
   );
+}
+
+function updateClientSettings(deriveSettings: (settings: ClientSettings) => ClientSettings): void {
+  if (!clientSettingsHydrated) {
+    void hydrateClientSettings().then(() => {
+      updateClientSettings(deriveSettings);
+    });
+    return;
+  }
+
+  persistClientSettings(deriveSettings(getClientSettingsSnapshot()));
 }
 
 // ── Key sets for routing patches ─────────────────────────────────────
@@ -339,10 +353,10 @@ export function useLegacySidebarEnabled(): boolean {
 
 /** Read current settings for one environment, merged with client-local preferences. */
 export function useEnvironmentSettings<T = UnifiedSettings>(
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   selector?: (settings: UnifiedSettings) => T,
 ): T {
-  const serverSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const serverSettings = useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings;
   return useMergedSettings(environmentId, serverSettings ?? DEFAULT_SERVER_SETTINGS, selector);
 }
 
@@ -474,10 +488,10 @@ function useUpdateSettingsTarget(
         }
       }
       if (Object.keys(clientPatch).length > 0) {
-        persistClientSettings({
-          ...getClientSettingsSnapshot(),
+        updateClientSettings((settings) => ({
+          ...settings,
           ...clientPatch,
-        });
+        }));
       }
     },
     [connectedEnvironmentIds, environmentId, persistServerSettings, serverSettings],
@@ -540,9 +554,9 @@ export function useSharedSettingsSync() {
   return { mismatches, applyToAll };
 }
 
-export function useUpdateEnvironmentSettings(environmentId: EnvironmentId) {
+export function useUpdateEnvironmentSettings(environmentId: EnvironmentId | null) {
   const serverSettings =
-    useAtomValue(serverEnvironment.settingsValueAtom(environmentId)) ?? DEFAULT_SERVER_SETTINGS;
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.settings ?? DEFAULT_SERVER_SETTINGS;
   return useUpdateSettingsTarget(environmentId, serverSettings);
 }
 
@@ -553,9 +567,19 @@ export function useUpdatePrimarySettings() {
 
 export function useUpdateClientSettings() {
   return useCallback((patch: ClientSettingsPatch) => {
-    persistClientSettings({
-      ...getClientSettingsSnapshot(),
+    updateClientSettings((settings) => ({
+      ...settings,
       ...patch,
-    });
+    }));
+  }, []);
+}
+
+/** Derive a client-settings patch from the latest persisted snapshot. */
+export function useUpdateClientSettingsWith() {
+  return useCallback((derivePatch: (settings: ClientSettings) => ClientSettingsPatch) => {
+    updateClientSettings((settings) => ({
+      ...settings,
+      ...derivePatch(settings),
+    }));
   }, []);
 }
