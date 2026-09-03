@@ -287,10 +287,9 @@ export function SettingResetButton({
             variant="ghost-muted"
             aria-label={`Reset ${label} to default`}
             disabled={disabled}
-            className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
-              if (!disabled) onClick();
+              onClick();
             }}
           >
             <Undo2Icon className="size-3" />
@@ -315,12 +314,7 @@ export function SettingsPageContainer({
   const hash = useLocation({ select: (location) => location.hash });
   const targetId = hash.replace(/^#/, "") || null;
   const clearTargetHash = useCallback(() => {
-    void navigate({
-      hash: "",
-      replace: true,
-      resetScroll: false,
-      hashScrollIntoView: false,
-    });
+    void navigate({ hash: "", replace: true, resetScroll: false, hashScrollIntoView: false });
   }, [navigate]);
 
   return (

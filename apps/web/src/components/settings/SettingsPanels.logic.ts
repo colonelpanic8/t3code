@@ -1,3 +1,4 @@
+import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import type {
   BackgroundActivityProfile,
   BackgroundActivitySettings,
@@ -20,6 +21,12 @@ import {
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 
+/**
+ * The environment whose server settings the settings panels address. An
+ * explicit pick wins; otherwise the client's own environment, then the one the
+ * user is working in, then whatever is connected. A pick that leaves the
+ * catalog falls back without being erased, so it is restored on reconnect.
+ */
 export function resolveSettingsEnvironmentId(input: {
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly primaryEnvironmentId: EnvironmentId | null;
@@ -37,6 +44,43 @@ export function resolveSettingsEnvironmentId(input: {
     return input.activeEnvironmentId;
   }
   return input.availableEnvironmentIds[0] ?? null;
+}
+
+/**
+ * Why the settings environment cannot be read or written right now, or null
+ * once it is usable. Shared by every panel scoped to one environment so they
+ * all describe the same states the same way.
+ */
+export function settingsEnvironmentNotice(input: {
+  readonly isReady: boolean;
+  readonly label: string | null;
+  readonly phase: EnvironmentConnectionPhase | null;
+  readonly hasServerConfig: boolean;
+  readonly error: string | null;
+}): string | null {
+  if (input.label === null || input.phase === null) {
+    return input.isReady ? "No environment is connected." : "Loading environments...";
+  }
+  switch (input.phase) {
+    case "connected":
+      // Settings only exist once the environment has published its config;
+      // until then a panel would render schema defaults as if they were saved.
+      return input.hasServerConfig ? null : `Loading ${input.label}...`;
+    case "connecting":
+      return `Connecting to ${input.label}...`;
+    case "reconnecting":
+      return input.error
+        ? `Reconnecting to ${input.label}... Reason: ${input.error}`
+        : `Reconnecting to ${input.label}...`;
+    case "offline":
+      return `${input.label} is offline.`;
+    case "available":
+      return `${input.label} is not connected.`;
+    case "error":
+      return input.error
+        ? `Could not connect to ${input.label}. Reason: ${input.error}`
+        : `Could not connect to ${input.label}.`;
+  }
 }
 
 export function isProjectGroupingEnabled(mode: SidebarProjectGroupingMode): boolean {

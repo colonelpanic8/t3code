@@ -30,6 +30,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -71,27 +72,31 @@ export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   icon: SETTINGS_SECTION_ICONS[to],
 }));
 
-const SETTINGS_NAV_GROUPS: ReadonlyArray<{
-  readonly label: string;
-  readonly paths: ReadonlyArray<SettingsPath>;
-}> = [
-  {
-    label: "Client",
-    paths: ["/settings/general", "/settings/appearance"],
-  },
-  {
-    label: "Environments",
-    paths: [
-      "/settings/connections",
-      "/settings/environment",
-      "/settings/keybindings",
-      "/settings/providers",
-      "/settings/source-control",
-      "/settings/diagnostics",
-    ],
-  },
-  { label: "Other", paths: ["/settings/archived"] },
-];
+const SETTINGS_NAV_GROUP_LABELS = ["Client", "Environments", "Other"] as const;
+type SettingsNavGroupLabel = (typeof SETTINGS_NAV_GROUP_LABELS)[number];
+
+/**
+ * Which heading each section sits under. Typed as a total record so a new
+ * settings section cannot compile without being placed in a group, and
+ * sections keep the order they are declared in within their group.
+ */
+const SETTINGS_SECTION_GROUPS: Readonly<Record<SettingsPath, SettingsNavGroupLabel>> = {
+  "/settings/general": "Client",
+  "/settings/appearance": "Client",
+  "/settings/connections": "Environments",
+  "/settings/environment": "Environments",
+  "/settings/keybindings": "Environments",
+  "/settings/providers": "Environments",
+  "/settings/integrations": "Environments",
+  "/settings/source-control": "Environments",
+  "/settings/diagnostics": "Environments",
+  "/settings/archived": "Other",
+};
+
+const SETTINGS_NAV_GROUPS = SETTINGS_NAV_GROUP_LABELS.map((label) => ({
+  label,
+  items: SETTINGS_NAV_ITEMS.filter((item) => SETTINGS_SECTION_GROUPS[item.to] === label),
+}));
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
@@ -178,12 +183,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         scrollToSettingsTarget(targetId);
         return;
       }
-      void navigate({
-        to: item.to,
-        hash: targetId,
-        replace: true,
-        hashScrollIntoView: false,
-      });
+      void navigate({ to: item.to, hash: targetId, replace: true, hashScrollIntoView: false });
     },
     [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
   );
@@ -304,11 +304,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 ))
               : SETTINGS_NAV_GROUPS.map((group) => (
                   <Fragment key={group.label}>
-                    <SidebarMenuItem className="pointer-events-none mt-2 px-2 pt-1 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted-foreground/60 first:mt-0">
-                      {group.label}
-                    </SidebarMenuItem>
-                    {group.paths.map((path) => {
-                      const item = SETTINGS_NAV_ITEMS.find((candidate) => candidate.to === path)!;
+                    <SidebarGroupLabel className="mt-2 first:mt-0">{group.label}</SidebarGroupLabel>
+                    {group.items.map((item) => {
                       const Icon = item.icon;
                       const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
                       return (
