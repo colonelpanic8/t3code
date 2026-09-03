@@ -1,0 +1,244 @@
+{
+  "entries": [
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4259",
+      "commit": "4d6452741b8feb7cf9fa0e89870a4484ebb4a01d",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4259",
+      "note": "Picker commit only. The branch's four stale Codex app-server commits were dropped: they revert the toolchain to bun/tsdown, leave Layers/CodexProvider.ts syntactically invalid, and add ~163 typecheck errors on this base. They were never in a published assembly.",
+      "pr": 4259,
+      "status": "merged",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4257",
+      "commit": "05a232a93af54b10c041e11bbff6899c85d29fc2",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4257",
+      "pr": 4257,
+      "status": "merged",
+      "summary": "Directory-path Tab completion"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4324",
+      "commit": "1722612cd5af8824c990c172765fd62414378dca",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4324",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar-v2 project icons"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4394",
+      "commit": "3000ccf0834f1e3100a29765f2f5d5e5adddb64b",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4394",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N and Ctrl-P"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4405",
+      "commit": "a733c6802addda99cb033e059c52f2d18110731a",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4405",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Harden thread-detail loading and subscriptions"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4602",
+      "commit": "50d60155f0d5aeddde64fc9216b41afd7169912f",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4602",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4447",
+      "commit": "ce03fea37ae0d73382cc14be53e21508a0bd2102",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4447",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task flow on mobile"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4701",
+      "commit": "656bf9b9f50ea600622d69360b217bf2ae4ae986",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4701",
+      "pr": 4701,
+      "status": "merged",
+      "summary": "Render shortcuts with Apple glyphs"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4439",
+      "commit": "6c60d3adf37860a6217873f6b2d57c5f21c903c1",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4439",
+      "note": "Rebased port with obsolete orchestration-v1 files removed.",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configurable worktree placement"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4437",
+      "commit": "e732b96ad7423b5d6a641090aa5caf1cdb56769e",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4437",
+      "note": "Rebased port with the obsolete orchestration-v1 documentation removed.",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "XDG storage layout"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4494",
+      "commit": "86f09862747ed4ac67344884ef94e87bd459e82b",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4494",
+      "pr": 4494,
+      "status": "merged",
+      "summary": "Keep rapid provider-settings edits from reverting"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4487",
+      "commit": "71b213bca284fe2d504781a8ac45e0addd3d0edb",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4487",
+      "note": "Still open upstream; neither main nor the v2 branch filters these models. Patches parseCodexModelListResponse in provider/Layers/CodexProvider.ts.",
+      "pr": 4487,
+      "status": "merged",
+      "summary": "Filter non-interactive Codex models"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/client-environment-suite",
+      "commit": "82443106f8503bb8f3ad53fa8c2fcf9723ba6f45",
+      "fixup": "patches/orchestration-v2-main-client-environment-suite.patch",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/client-environment-suite",
+      "note": "This branch IS the head of upstream PR #9376 (against #2829's branch t3code/codex-turn-mapping; #9361 was the same change before its head branch was renamed). It superseded #4444 and folded in #4496 and #4559 (and earlier #4474, #4486, #4548, #4567). Discovery reads server-runtime.json and pairs through the bundled `t3 pair --json`; a packaged desktop attaches to a running server instead of spawning a second backend. Per-environment accent colors and display names (#4505, #4538) were dropped from the suite on 2026-09-02 and live on fork:t3code/environment-accent-and-names, which is not carried. Split-layout (XDG) runtime state is not yet discovered: both the desktop and `t3 pair` derive legacy paths, which is fine for this install's legacy layout.",
+      "status": "merged",
+      "summary": "Client-only desktop, local server discovery and pairing, environment-scoped settings (#9376)"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4677",
+      "commit": "b6af31a8e25d07cb9d0b241ae3495937c1368ea2",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4677",
+      "pr": 4677,
+      "status": "merged",
+      "summary": "Custom snooze times"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4593",
+      "commit": "d53deed8c19871313b20cfa8c5cbc4975d67f9d3",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4593",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state after a settle does not land"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/managed-fleet",
+      "commit": "788dce53eb3c6107c0bdb4c1e68f52ab2ccb19b9",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/managed-fleet",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/desktop-clerk-startup",
+      "commit": "1e18fbe66cb36746c93c868904eb2093e687a6f9",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/desktop-clerk-startup",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/migration-schema-repair",
+      "commit": "ab47c2ac6fcd37845ff5a3b53a580566dd553a47",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/migration-schema-repair",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4699",
+      "commit": "c989b2f580e568a79a1615077f5299fc38f4598e",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4699",
+      "note": "Closed upstream as an unsupported distribution system. Load-bearing: this is how NixOS builds the assembly.",
+      "pr": 4699,
+      "status": "merged",
+      "summary": "Self-contained Nix flake"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/live-voice",
+      "commit": "440538b0c938b6c4c5ef66ef475da6b9c575048d",
+      "fixup": "patches/live-voice-pnpm-deps-hash.patch",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/live-voice",
+      "status": "merged",
+      "summary": "Cross-host live voice calls over Codex realtime"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/fdroid-distribution",
+      "commit": "bf884821c5237375aabf483e71201a04cfab4ec2",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/fdroid-distribution",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4318",
+      "commit": "b4af068aa499da581cce6496fd3da0b13dd03f23",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4318",
+      "note": "Closed because the v2 rewrite moved the files, not on merit. Re-expressed against v2: subscribes to the ref the draft reserved instead of inferring from the shell list.",
+      "pr": 4318,
+      "status": "merged",
+      "summary": "Recover stalled draft thread promotion"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4420",
+      "commit": "008f6c6b0fa3345d63844cc936e9e47b445116f7",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4420",
+      "note": "Closed without comment. Re-ported; the PR's busy_timeout half already reached the base through upstream main and is not duplicated.",
+      "pr": 4420,
+      "status": "merged",
+      "summary": "Refuse startup when another server owns the state dir"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-4484",
+      "commit": "5ccf935cdea4b2947498ab1ce20f6d891e291935",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-4484",
+      "note": "The base already carried the client half, but dead: nothing set bootstrapThreadDisposition and launch failures arrive as OrchestrationV2ThreadLaunchError. Deletes the provisional thread on a failed owned launch and propagates the disposition.",
+      "pr": 4484,
+      "status": "merged",
+      "summary": "Recover draft thread IDs after failed bootstrap"
+    },
+    {
+      "branch": "t3code/orchestration-v2-main/pr-6507",
+      "commit": "438be45d3ad1b588c2200a3cccf8d969b6e0d8f4",
+      "kind": "branch",
+      "label": "t3code/orchestration-v2-main/pr-6507",
+      "note": "Rebased port of the upstream PR onto the orchestration-v2 base.",
+      "pr": 6507,
+      "status": "merged",
+      "summary": "Direct model and reasoning keybindings"
+    }
+  ],
+  "fork": {
+    "branch": "t3code/assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "d2f1f511f4cc833bc930d6c355cd0f9b61e835a0",
+    "date": "2026-09-02T11:06:50-07:00",
+    "ref": "t3code/orchestration-v2-main/base",
+    "remote": "https://github.com/colonelpanic8/t3code",
+    "subject": "fix: reconcile main's round-20 features after the rebase"
+  }
+}
