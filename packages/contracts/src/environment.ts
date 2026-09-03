@@ -118,6 +118,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       desktop servers whose app predates the remote trigger, where clients
       must keep telling the user to update the app on that machine. */
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
+  /** Server can host Live Voice calls (voice.live.start/stop/respond).
+      Absent on older servers, so clients hide the launcher for them. */
+  voiceLive: Schema.optionalKey(Schema.Boolean),
+  /** Server executes routed Live Voice tools (voice.live.tool.execute).
+      Checked per target host before a client routes a tool call there. */
+  voiceLiveToolExecution: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
