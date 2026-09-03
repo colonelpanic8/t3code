@@ -219,6 +219,7 @@ import {
 import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   composerDraftHasUserContent,
+  markPromotedDraftThreadByRef,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -350,6 +351,7 @@ import {
   resolveFileAttachmentUrl,
   isVideoPreviewRequestCurrent,
   reconcileMountedTerminalThreadIds,
+  recoverDraftThreadAfterBootstrap,
   resolveEffectiveInteractionMode,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
@@ -6462,6 +6464,16 @@ function ChatViewContent(props: ChatViewProps) {
         turnStartSucceeded = true;
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
+        }
+        if (isLocalDraftThread) {
+          // The launch succeeded, so the server thread exists whether or not
+          // the shell stream has published it yet. Record the promotion from
+          // that authoritative result and restart the reserved detail stream if
+          // neither source hydrates, so the draft never strands on /draft/<id>
+          // and retry the bootstrap against an already-consumed thread id.
+          const promotedDraftRef = scopeThreadRef(activeThread.environmentId, threadIdForSend);
+          markPromotedDraftThreadByRef(promotedDraftRef);
+          void recoverDraftThreadAfterBootstrap(promotedDraftRef);
         }
         acknowledgeActiveThreadWoke();
       }
