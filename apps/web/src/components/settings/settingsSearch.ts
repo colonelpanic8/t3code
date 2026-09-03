@@ -3,12 +3,14 @@ import { isMacPlatform, isWindowsPlatform, normalizeSearchText } from "~/lib/uti
 
 export type SettingsPath =
   | "/settings/general"
+  | "/settings/environment"
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/providers"
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/connections"
+  | "/settings/diagnostics"
   | "/settings/archived";
 
 export interface SettingsSearchItem {
@@ -48,12 +50,14 @@ export interface SettingsSearchAvailability {
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
+  "/settings/environment": "Environment",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/connections": "Connections",
+  "/settings/diagnostics": "Diagnostics",
   "/settings/archived": "Archive",
 };
 
@@ -153,21 +157,21 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["sidebar inactivity days no activity automatically"],
     requiresThreadAutoSettlement: true,
   },
   {
     id: "auto-settle-merged-threads",
     title: "Auto-settle merged threads",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["pull request merge closed automatically sidebar"],
     requiresThreadAutoSettlement: true,
   },
   {
     id: "days-before-auto-settle",
     title: "Days of inactivity before auto-settle",
-    to: "/settings/general",
+    to: "/settings/environment",
     targetId: "auto-settle-inactive-threads",
     searchTerms: ["thread timeout activity sidebar"],
     requiresThreadAutoSettlement: true,
@@ -205,7 +209,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "provider-update-checks",
     title: "Provider update checks",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["installed cli versions newer available codex claude cursor grok opencode"],
   },
   {
@@ -217,7 +221,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "background-activity",
     title: "Background activity",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: [
       "balanced performance battery saver advanced git fetch provider health refresh host power monitor idle policy",
     ],
@@ -225,20 +229,20 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "new-threads",
     title: "New threads",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["default workspace mode draft local worktree"],
   },
   {
     id: "start-from-origin",
     title: "Start from origin",
-    to: "/settings/general",
+    to: "/settings/environment",
     targetId: "new-threads",
     searchTerms: ["new worktrees latest matching remote branch local"],
   },
   {
     id: "add-project-starts-in",
     title: "Add project starts in",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["base directory folder browser path home"],
   },
   {
@@ -269,13 +273,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "text-generation-model",
     title: "Text generation model",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
     id: "diagnostics",
     title: "Diagnostics",
-    to: "/settings/general",
+    to: "/settings/diagnostics",
     searchTerms: ["logs traces processes resource history failures spans cpu memory"],
   },
   {
@@ -293,7 +297,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "legacy-token-streaming",
     title: "Stream token by token (legacy)",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["response output old compatibility"],
   },
   {
