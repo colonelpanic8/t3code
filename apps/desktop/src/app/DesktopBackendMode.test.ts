@@ -1,4 +1,4 @@
-import { assert, describe, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 
 import * as DesktopBackendMode from "./DesktopBackendMode.ts";
 
@@ -17,6 +17,7 @@ describe("DesktopBackendMode", () => {
       effectiveMode: "client-only",
       configuredMode: "client-only",
       cliOverride: null,
+      source: "settings",
     });
   });
 
@@ -30,6 +31,7 @@ describe("DesktopBackendMode", () => {
         effectiveMode: "client-only",
         configuredMode: "managed",
         cliOverride: "client-only",
+        source: "cli",
       },
     );
   });
@@ -39,6 +41,36 @@ describe("DesktopBackendMode", () => {
       DesktopBackendMode.parseDesktopBackendModeOverride(["electron", "--backend-mode", "managed"]),
       "managed",
     );
+  });
+
+  it("uses client-only for a packaged launch when the userdata server is already running", () => {
+    expect(
+      DesktopBackendMode.resolveDesktopBackendModeForExistingServer(
+        DesktopBackendMode.resolveDesktopBackendModeState([], "managed"),
+        { isDevelopment: false, hasRunningUserdataServer: true },
+      ),
+    ).toEqual({
+      effectiveMode: "client-only",
+      configuredMode: "managed",
+      cliOverride: null,
+      source: "existing-server",
+    });
+  });
+
+  it("keeps managed mode in development and when no userdata server is running", () => {
+    const state = DesktopBackendMode.resolveDesktopBackendModeState([], "managed");
+    expect(
+      DesktopBackendMode.resolveDesktopBackendModeForExistingServer(state, {
+        isDevelopment: true,
+        hasRunningUserdataServer: true,
+      }),
+    ).toBe(state);
+    expect(
+      DesktopBackendMode.resolveDesktopBackendModeForExistingServer(state, {
+        isDevelopment: false,
+        hasRunningUserdataServer: false,
+      }),
+    ).toBe(state);
   });
 
   it.each([

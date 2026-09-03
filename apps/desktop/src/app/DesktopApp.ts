@@ -26,6 +26,7 @@ import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopObservability from "./DesktopObservability.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import * as DesktopRunningLocalServers from "./DesktopRunningLocalServers.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -351,12 +352,32 @@ const startup = Effect.gen(function* () {
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   const settings = yield* desktopSettings.load;
-  const launchMode = yield* latchDesktopBackendModeForStartup(settings.backendMode);
+  const latchedLaunchMode = yield* latchDesktopBackendModeForStartup(settings.backendMode);
+  const existingServer =
+    latchedLaunchMode.effectiveMode === "managed" && !environment.isDevelopment
+      ? (yield* (yield* DesktopRunningLocalServers.DesktopRunningLocalServers).discover).find(
+          (server) => server.variant === "userdata",
+        )
+      : undefined;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+  const launchMode = yield* backendMode.resolveExistingServer({
+    isDevelopment: environment.isDevelopment,
+    hasRunningUserdataServer: existingServer !== undefined,
+  });
   yield* logStartupInfo("desktop backend mode selected", {
     effectiveMode: launchMode.effectiveMode,
     configuredMode: launchMode.configuredMode,
+    source: launchMode.source,
     ...(launchMode.cliOverride === null ? {} : { cliOverride: launchMode.cliOverride }),
   });
+  if (launchMode.source === "existing-server" && existingServer !== undefined) {
+    yield* logStartupInfo("using existing local server instead of starting managed backend", {
+      environmentId: existingServer.environmentId,
+      origin: existingServer.httpBaseUrl,
+      pid: existingServer.pid,
+      statePath: existingServer.statePath,
+    });
+  }
 
   if (linuxElectronOptions !== null) {
     yield* logStartupInfo("linux password store configured", {

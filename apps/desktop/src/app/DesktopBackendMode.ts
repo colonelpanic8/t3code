@@ -86,6 +86,24 @@ export function resolveDesktopBackendModeState(
     effectiveMode: cliOverride ?? configuredMode,
     configuredMode,
     cliOverride,
+    source: cliOverride === null ? "settings" : "cli",
+  };
+}
+
+export function resolveDesktopBackendModeForExistingServer(
+  state: DesktopBackendModeState,
+  input: {
+    readonly isDevelopment: boolean;
+    readonly hasRunningUserdataServer: boolean;
+  },
+): DesktopBackendModeState {
+  if (input.isDevelopment || !input.hasRunningUserdataServer || state.effectiveMode !== "managed") {
+    return state;
+  }
+  return {
+    ...state,
+    effectiveMode: "client-only",
+    source: "existing-server",
   };
 }
 
@@ -96,6 +114,10 @@ export class DesktopBackendMode extends Context.Service<
       configuredMode: DesktopBackendModeValue,
     ) => Effect.Effect<DesktopBackendModeState, DesktopBackendModeArgumentError>;
     readonly get: Effect.Effect<DesktopBackendModeState>;
+    readonly resolveExistingServer: (input: {
+      readonly isDevelopment: boolean;
+      readonly hasRunningUserdataServer: boolean;
+    }) => Effect.Effect<DesktopBackendModeState>;
   }
 >()("@t3tools/desktop/app/DesktopBackendMode") {}
 
@@ -104,6 +126,7 @@ export const make = Effect.fn("desktop.backendMode.make")(function* (argv: reado
     effectiveMode: "managed",
     configuredMode: "managed",
     cliOverride: null,
+    source: "settings",
   });
 
   return DesktopBackendMode.of({
@@ -119,6 +142,10 @@ export const make = Effect.fn("desktop.backendMode.make")(function* (argv: reado
               }),
       }).pipe(Effect.tap((state) => Ref.set(stateRef, state))),
     get: Ref.get(stateRef),
+    resolveExistingServer: (input) =>
+      Ref.updateAndGet(stateRef, (state) =>
+        resolveDesktopBackendModeForExistingServer(state, input),
+      ),
   });
 });
 
