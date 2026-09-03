@@ -1,8 +1,12 @@
+import { ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import {
-  type PersistedServerRuntimeState,
+  PersistedServerRuntimeState,
   ServerRuntimeStateError,
 } from "@t3tools/shared/serverRuntimeState";
 
@@ -82,3 +86,189 @@ export const clearPersistedServerRuntimeState = (path: string) =>
       }),
     );
   });
+
+const decodePersistedServerRuntimeState = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(PersistedServerRuntimeState),
+);
+export class ServerStateDirConflictError extends Schema.TaggedErrorClass<ServerStateDirConflictError>()(
+  "ServerStateDirConflictError",
+  {
+    stateDir: Schema.String,
+    statePath: Schema.String,
+    pid: Schema.Int,
+    port: Schema.Int,
+    origin: Schema.String,
+  },
+) {
+  override get message(): string {
+    return (
+      `Another T3 server (pid ${this.pid}) already owns the state directory ${this.stateDir} ` +
+      `and is listening at ${this.origin} (port ${this.port}). ` +
+      `Refusing to start a second server against the same state directory, since two servers ` +
+      `sharing one state directory corrupt shared SQLite/discovery state. ` +
+      `Stop the other server, or start this one with a different --base-dir / T3CODE_HOME.`
+    );
+  }
+}
+
+/**
+ * Returns whether a pid refers to a live process. `process.kill(pid, 0)` does not
+ * send a signal; it only checks for the process' existence and our permission to
+ * signal it. EPERM means the process exists but is owned by another user, which we
+ * still treat as alive.
+ */
+export const isPidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+export type ServerRuntimeStartupDecision =
+  | { readonly _tag: "proceed" }
+  | { readonly _tag: "conflict"; readonly state: PersistedServerRuntimeState };
+
+const RUNTIME_OWNER_PROBE_TIMEOUT_MS = 1_000;
+const isExecutionEnvironmentDescriptor = Schema.is(ExecutionEnvironmentDescriptor);
+
+const probeRuntimeOwner = Effect.fn("serverRuntimeState.probeRuntimeOwner")(
+  function* (state: PersistedServerRuntimeState) {
+    const client = yield* HttpClient.HttpClient;
+    const response = yield* client.get(
+      new URL("/.well-known/t3/environment", state.origin).toString(),
+    );
+    if (response.status < 200 || response.status >= 300) {
+      return false;
+    }
+    const body = yield* response.json;
+    return isExecutionEnvironmentDescriptor(body);
+  },
+  Effect.timeout(RUNTIME_OWNER_PROBE_TIMEOUT_MS),
+  Effect.orElseSucceed(() => false),
+  Effect.provide(FetchHttpClient.layer),
+);
+
+/**
+ * Pure decision for whether it is safe to start a server against a state directory
+ * given whatever discovery file it currently holds. Proceed when the file is absent,
+ * when it records our own pid (a same-process restart path must not self-block), or
+ * when the recorded pid is dead or no T3 server responds at the recorded origin
+ * (stale/reused pid). Otherwise report a conflict.
+ */
+export const decideServerRuntimeStartup = (input: {
+  readonly existing: Option.Option<PersistedServerRuntimeState>;
+  readonly ownPid: number;
+  readonly isPidAlive: (pid: number) => boolean;
+  readonly isRuntimeOwnerResponsive: (state: PersistedServerRuntimeState) => boolean;
+}): ServerRuntimeStartupDecision => {
+  if (Option.isNone(input.existing)) {
+    return { _tag: "proceed" };
+  }
+  const state = input.existing.value;
+  if (state.pid === input.ownPid) {
+    return { _tag: "proceed" };
+  }
+  return input.isPidAlive(state.pid) && input.isRuntimeOwnerResponsive(state)
+    ? { _tag: "conflict", state }
+    : { _tag: "proceed" };
+};
+
+/**
+ * Best-effort single-instance guard on a state directory. Reads any existing
+ * discovery file and fails startup when a live process already owns it. This does
+ * NOT close the race between two servers that start simultaneously (both may read an
+ * empty/stale file before either writes) — it only rejects a startup when a
+ * previously-recorded, still-live server already owns the directory.
+ */
+export const ensureExclusiveStateDir = (input: {
+  readonly statePath: string;
+  readonly stateDir: string;
+  readonly ownPid?: number;
+  readonly isPidAlive?: (pid: number) => boolean;
+  readonly probeRuntimeOwner?: (
+    state: PersistedServerRuntimeState,
+  ) => Effect.Effect<boolean, never, never>;
+}) =>
+  Effect.gen(function* () {
+    const existing = yield* readPersistedServerRuntimeStateForStartup(input.statePath);
+    const ownPid = input.ownPid ?? process.pid;
+    const checkPidAlive = input.isPidAlive ?? isPidAlive;
+    const state = Option.getOrUndefined(existing);
+    const runtimeOwnerResponsive =
+      state !== undefined && state.pid !== ownPid && checkPidAlive(state.pid)
+        ? yield* (input.probeRuntimeOwner ?? probeRuntimeOwner)(state)
+        : false;
+    const decision = decideServerRuntimeStartup({
+      existing,
+      ownPid,
+      isPidAlive: checkPidAlive,
+      isRuntimeOwnerResponsive: () => runtimeOwnerResponsive,
+    });
+    if (decision._tag === "conflict") {
+      return yield* new ServerStateDirConflictError({
+        stateDir: input.stateDir,
+        statePath: input.statePath,
+        pid: decision.state.pid,
+        port: decision.state.port,
+        origin: decision.state.origin,
+      });
+    }
+  });
+
+const logAndIgnoreRuntimeStateError = (error: ServerRuntimeStateError) =>
+  Effect.logWarning(error.message).pipe(
+    Effect.annotateLogs({
+      operation: error.operation,
+      statePath: error.statePath,
+      cause: error,
+    }),
+    Effect.as(Option.none<PersistedServerRuntimeState>()),
+  );
+
+const readPersistedServerRuntimeStateForStartup = (path: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const raw = yield* fs.readFileString(path).pipe(
+      Effect.matchEffect({
+        onFailure: (cause) =>
+          cause.reason._tag === "NotFound"
+            ? Effect.succeed(Option.none<string>())
+            : Effect.fail(
+                new ServerRuntimeStateError({
+                  operation: "read",
+                  statePath: path,
+                  cause,
+                }),
+              ),
+        onSuccess: (contents) => Effect.succeed(Option.some(contents)),
+      }),
+    );
+    if (Option.isNone(raw)) {
+      return Option.none<PersistedServerRuntimeState>();
+    }
+
+    const trimmed = raw.value.trim();
+    if (trimmed.length === 0) {
+      return Option.none<PersistedServerRuntimeState>();
+    }
+
+    return yield* decodePersistedServerRuntimeState(trimmed).pipe(
+      Effect.map(Option.some),
+      Effect.mapError(
+        (cause) =>
+          new ServerRuntimeStateError({
+            operation: "decode",
+            statePath: path,
+            cause,
+          }),
+      ),
+    );
+  }).pipe(
+    Effect.catchTags({
+      ServerRuntimeStateError: (error) =>
+        error.operation === "decode" ? logAndIgnoreRuntimeStateError(error) : Effect.fail(error),
+    }),
+  );
+
