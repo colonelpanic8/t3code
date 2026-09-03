@@ -717,6 +717,9 @@ function useEnvironmentSettingsRestore(onRestored?: () => void): SettingsRestore
       DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
         ? ["New worktrees start from origin"]
         : []),
+      ...(settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate
+        ? ["Worktree path"]
+        : []),
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
@@ -750,6 +753,7 @@ function useEnvironmentSettingsRestore(onRestored?: () => void): SettingsRestore
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+      worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       // Re-granted like any other default. The confirmation dialog lists it by
@@ -1998,6 +2002,28 @@ export function GeneralSettingsPanel() {
                 });
               }}
               aria-label="Project grouping"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Large project icons"
+          description="Show larger project icons in sidebar thread rows."
+          resetAction={
+            settings.sidebarV2LargeIcons ? (
+              <SettingResetButton
+                label="large project icons"
+                onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarV2LargeIcons}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+              }
+              aria-label="Large project icons"
             />
           }
         />
