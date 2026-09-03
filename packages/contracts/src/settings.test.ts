@@ -198,6 +198,10 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettingsPatch({ confirmThreadUnpin: true }).confirmThreadUnpin).toBe(true);
     expect(() => decodeClientSettingsPatch({ confirmThreadUnpin: "yes" })).toThrow();
   });
+
+  it("defaults large thread-row icons off", () => {
+    expect(decodeClientSettings({}).sidebarV2LargeIcons).toBe(false);
+  });
 });
 
 describe("ServerSettings thread settlement", () => {
