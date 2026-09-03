@@ -14,6 +14,8 @@ import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo, useRef } from "react";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
+import { requestResync } from "../lib/resyncRequests";
+import { confirmSettleConverged as confirmSettleConvergedWith } from "../lib/settleConvergence";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { terminalEnvironment } from "../state/terminal";
 import { threadEnvironment } from "../state/threads";
@@ -507,6 +509,17 @@ export function useThreadActions() {
     ],
   );
 
+  const confirmSettleConverged = useCallback(async (target: ScopedThreadRef) => {
+    await confirmSettleConvergedWith({
+      readSettled: () => {
+        const shell = readThreadShell(target);
+        return shell === null ? null : shell.settledOverride === "settled";
+      },
+      requestResync: () => requestResync(),
+      delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    });
+  }, []);
+
   const settleThread = useCallback(
     async (target: ScopedThreadRef) => {
       // Version skew: never send the command to a server that predates it —
@@ -534,9 +547,18 @@ export function useThreadActions() {
       if (result._tag === "Success" && wokeAt !== null) {
         markThreadVisited(scopedThreadKey(target), wokeAt);
       }
+      // A settle the server accepts always publishes an authoritative
+      // thread-upserted, so the local view should show it settled shortly
+      // after. When it does not, the client is working from a view the server
+      // no longer agrees with: every further click succeeds as an idempotent
+      // no-op and silently changes nothing, which reads as a dead control.
+      // Reconcile instead of stranding the user until they restart.
+      if (result._tag === "Success") {
+        void confirmSettleConverged(target);
+      }
       return result;
     },
-    [markThreadVisited, resolveThreadTarget, settleThreadMutation],
+    [confirmSettleConverged, markThreadVisited, resolveThreadTarget, settleThreadMutation],
   );
 
   const unsettleThread = useCallback(
