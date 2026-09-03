@@ -6,11 +6,13 @@ import {
   useMemo,
   useRef,
   useState,
+  Fragment,
   type ComponentType,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import {
+  ActivityIcon,
   ArchiveIcon,
   BlocksIcon,
   BotIcon,
@@ -35,6 +37,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -73,6 +76,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
+  "/settings/environment": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/projects": PanelsTopLeftIcon,
   "/settings/keybindings": KeyboardIcon,
@@ -81,6 +85,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/scheduled-tasks": CalendarClockIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/connections": Link2Icon,
+  "/settings/diagnostics": ActivityIcon,
   "/settings/archived": ArchiveIcon,
 };
 
@@ -100,11 +105,15 @@ const SETTINGS_PAGE_SECTIONS: Partial<
   "/settings/general": [
     { label: "Organization", targetId: "organization" },
     { label: "Behavior", targetId: "behavior" },
-    { label: "Projects & threads", targetId: "projects-and-threads" },
     { label: "Confirmations", targetId: "confirmations" },
-    { label: "Text generation", targetId: "text-generation" },
     { label: "About", targetId: "about" },
     { label: "Legacy features", targetId: "legacy-features" },
+  ],
+  "/settings/environment": [
+    { label: "Workspace", targetId: "environment-workspace" },
+    { label: "Projects & threads", targetId: "projects-and-threads" },
+    { label: "Text generation", targetId: "text-generation" },
+    { label: "Diagnostics", targetId: "environment-diagnostics" },
   ],
   "/settings/appearance": [
     { label: "Colors & themes", targetId: "appearance" },
@@ -121,6 +130,34 @@ const SETTINGS_PAGE_SECTIONS: Partial<
     { label: "Remote environments", targetId: "remote-environments" },
   ],
 };
+
+const SETTINGS_NAV_GROUP_LABELS = ["Client", "Environments", "Other"] as const;
+type SettingsNavGroupLabel = (typeof SETTINGS_NAV_GROUP_LABELS)[number];
+
+/**
+ * Which heading each section sits under. Typed as a total record so a new
+ * settings section cannot compile without being placed in a group, and
+ * sections keep the order they are declared in within their group.
+ */
+const SETTINGS_SECTION_GROUPS: Readonly<Record<SettingsPath, SettingsNavGroupLabel>> = {
+  "/settings/general": "Client",
+  "/settings/appearance": "Client",
+  "/settings/connections": "Environments",
+  "/settings/environment": "Environments",
+  "/settings/projects": "Environments",
+  "/settings/keybindings": "Environments",
+  "/settings/providers": "Environments",
+  "/settings/integrations": "Environments",
+  "/settings/source-control": "Environments",
+  "/settings/scheduled-tasks": "Environments",
+  "/settings/diagnostics": "Environments",
+  "/settings/archived": "Other",
+};
+
+const SETTINGS_NAV_GROUPS = SETTINGS_NAV_GROUP_LABELS.map((label) => ({
+  label,
+  items: SETTINGS_NAV_ITEMS.filter((item) => SETTINGS_SECTION_GROUPS[item.to] === label),
+}));
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
@@ -416,45 +453,52 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             </SidebarMenu>
           ) : (
             <SidebarMenu className="ps-px">
-              {SETTINGS_NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const pageSections = SETTINGS_PAGE_SECTIONS[item.to];
-                const isActive = activeSettingsPath === item.to;
-                return (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => handleSectionClick(item.to)}
-                    >
-                      <Icon />
-                      <span className="truncate">{item.label}</span>
-                    </SidebarMenuButton>
-                    {pageSections ? (
-                      <SettingsSubmenuCollapse open={isActive}>
-                        <SidebarMenuSub className="border-l-0">
-                          {pageSections.map((section) => (
-                            <SidebarMenuSubItem key={section.targetId}>
-                              <SidebarMenuSubButton
-                                render={<button type="button" />}
-                                size="sm"
-                                data-visible={visiblePageSectionIds.has(section.targetId)}
-                                className={cn(
-                                  "w-full text-sidebar-muted-foreground/65",
-                                  visiblePageSectionIds.has(section.targetId) &&
-                                    "font-medium text-sidebar-foreground",
-                                )}
-                                onClick={() => handlePageSectionClick(item.to, section.targetId)}
-                              >
-                                <span className="ms-0.5">{section.label}</span>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      </SettingsSubmenuCollapse>
-                    ) : null}
-                  </SidebarMenuItem>
-                );
-              })}
+              {SETTINGS_NAV_GROUPS.map((group) => (
+                <Fragment key={group.label}>
+                  <SidebarGroupLabel className="mt-2 first:mt-0">{group.label}</SidebarGroupLabel>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    const pageSections = SETTINGS_PAGE_SECTIONS[item.to];
+                    const isActive = activeSettingsPath === item.to;
+                    return (
+                      <SidebarMenuItem key={item.to}>
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          onClick={() => handleSectionClick(item.to)}
+                        >
+                          <Icon />
+                          <span className="truncate">{item.label}</span>
+                        </SidebarMenuButton>
+                        {pageSections ? (
+                          <SettingsSubmenuCollapse open={isActive}>
+                            <SidebarMenuSub className="border-l-0">
+                              {pageSections.map((section) => (
+                                <SidebarMenuSubItem key={section.targetId}>
+                                  <SidebarMenuSubButton
+                                    render={<button type="button" />}
+                                    size="sm"
+                                    data-visible={visiblePageSectionIds.has(section.targetId)}
+                                    className={cn(
+                                      "w-full text-sidebar-muted-foreground/65",
+                                      visiblePageSectionIds.has(section.targetId) &&
+                                        "font-medium text-sidebar-foreground",
+                                    )}
+                                    onClick={() =>
+                                      handlePageSectionClick(item.to, section.targetId)
+                                    }
+                                  >
+                                    <span className="ms-0.5">{section.label}</span>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))}
+                            </SidebarMenuSub>
+                          </SettingsSubmenuCollapse>
+                        ) : null}
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </SidebarMenu>
           )}
         </SidebarGroup>
