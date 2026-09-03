@@ -16,6 +16,7 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -95,6 +96,11 @@ export class ThreadLaunchError extends Schema.TaggedErrorClass<ThreadLaunchError
     commandId: CommandId,
     projectId: ProjectId,
     threadId: Schema.optional(ThreadId),
+    /**
+     * Set when the launch created a provisional thread and then removed it
+     * again, so callers can tell a client its reserved thread id is spent.
+     */
+    bootstrapThreadDisposition: Schema.optional(Schema.Literal("deleted")),
     cause: Schema.Defect(),
   },
 ) {
@@ -403,6 +409,34 @@ export const make = Effect.gen(function* () {
             ),
           );
 
+  /**
+   * Removes a thread this launch created before it failed. A launch that
+   * returns an error must not leave the client holding a thread id the server
+   * already consumed: the reserved id is never reusable (a later
+   * `thread.create` on it resurrects the abandoned aggregate), so the client
+   * has to mint a new one, and only a confirmed delete makes that safe to say.
+   */
+  const cleanupProvisionalThread = (
+    input: ThreadLaunchInput,
+    threadId: ThreadId,
+  ): Effect.Effect<boolean> =>
+    threads
+      .dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make(`${input.commandId}:bootstrap-cleanup`),
+        threadId,
+      })
+      .pipe(
+        Effect.as(true),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Failed to clean up provisional launch thread", {
+            commandId: input.commandId,
+            threadId,
+            cause,
+          }).pipe(Effect.as(false)),
+        ),
+      );
+
   const reservePreparation = (commandId: CommandId) =>
     Ref.modify(scheduledLaunches, (scheduled) => {
       if (scheduled.has(commandId)) return [false, scheduled] as const;
@@ -502,83 +536,114 @@ export const make = Effect.gen(function* () {
         const threadId =
           claimed.storedEvents.find((stored) => stored.event.type.startsWith("thread."))?.event
             .threadId ?? candidateThreadId;
-        if (project.id !== input.projectId) {
-          return yield* mapError(input, "resolve-project", threadId)("Project identity changed.");
-        }
+        // Only this call's own `thread.create` produced a provisional thread.
+        // A reused thread belongs to the caller, and a replayed command's
+        // thread predates this attempt; neither may be cleaned up on failure.
+        const ownsProvisionalThread =
+          input.reuseExistingThread !== true && Option.isNone(launchReceipt);
 
-        let runId: RunId | null = null;
-        let messageWasAlreadyAccepted = false;
-        if (input.initialMessage !== undefined) {
-          const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
-          const messageReceipt = yield* readReceipt(input, messageCommandId);
-          messageWasAlreadyAccepted = Option.isSome(messageReceipt);
-          const messageId =
-            input.initialMessage.messageId ??
-            (yield* ids.allocate
-              .message({ threadId, ordinal: 1 })
-              .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId))));
-          const dispatched = yield* threads
-            .dispatch({
-              type: "message.dispatch",
-              commandId: messageCommandId,
-              threadId,
-              messageId,
-              text: input.initialMessage.text,
-              attachments: input.initialMessage.attachments,
-              ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
-              modelSelection: input.modelSelection,
-              dispatchMode: { type: "defer_start" },
-              createdBy: input.createdBy,
-              creationSource: input.creationSource,
-            })
-            .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)));
-          const runCreated = dispatched.storedEvents.find(
-            (stored) => stored.event.type === "run.created",
-          );
-          runId = runCreated?.event.type === "run.created" ? runCreated.event.payload.id : null;
-          if (runId === null) {
-            return yield* mapError(
-              input,
-              "dispatch-message",
-              threadId,
-            )("Initial message was accepted without a durable run.");
+        return yield* Effect.gen(function* () {
+          if (project.id !== input.projectId) {
+            return yield* mapError(input, "resolve-project", threadId)("Project identity changed.");
           }
-        }
 
-        const projection = yield* threads
-          .getThreadProjection(threadId)
-          .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
-        const runIsPreparing =
-          runId !== null &&
-          projection.runs.some((run) => run.id === runId && run.status === "preparing");
-        const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : runIsPreparing;
-        if (shouldSchedule) {
-          const ownsPreparation = yield* reservePreparation(input.commandId);
-          if (ownsPreparation) {
-            yield* Effect.gen(function* () {
-              const preparationStillRequired =
-                runId === null
-                  ? true
-                  : yield* threads.getThreadProjection(threadId).pipe(
-                      Effect.map((current) =>
-                        current.runs.some((run) => run.id === runId && run.status === "preparing"),
-                      ),
-                      Effect.mapError(mapError(input, "update-thread", threadId)),
-                    );
-              if (preparationStillRequired) {
-                yield* schedulePreparation(input, threadId, runId);
-              } else {
-                yield* releasePreparation(input.commandId);
-              }
-            }).pipe(Effect.onError(() => releasePreparation(input.commandId)));
+          let runId: RunId | null = null;
+          let messageWasAlreadyAccepted = false;
+          if (input.initialMessage !== undefined) {
+            const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
+            const messageReceipt = yield* readReceipt(input, messageCommandId);
+            messageWasAlreadyAccepted = Option.isSome(messageReceipt);
+            const messageId =
+              input.initialMessage.messageId ??
+              (yield* ids.allocate
+                .message({ threadId, ordinal: 1 })
+                .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId))));
+            const dispatched = yield* threads
+              .dispatch({
+                type: "message.dispatch",
+                commandId: messageCommandId,
+                threadId,
+                messageId,
+                text: input.initialMessage.text,
+                attachments: input.initialMessage.attachments,
+                ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
+                modelSelection: input.modelSelection,
+                dispatchMode: { type: "defer_start" },
+                createdBy: input.createdBy,
+                creationSource: input.creationSource,
+              })
+              .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)));
+            const runCreated = dispatched.storedEvents.find(
+              (stored) => stored.event.type === "run.created",
+            );
+            runId = runCreated?.event.type === "run.created" ? runCreated.event.payload.id : null;
+            if (runId === null) {
+              return yield* mapError(
+                input,
+                "dispatch-message",
+                threadId,
+              )("Initial message was accepted without a durable run.");
+            }
           }
-        }
 
-        return {
-          threadId,
-          projection,
-          resumed: Option.isSome(launchReceipt) || messageWasAlreadyAccepted,
-        };
+          const projection = yield* threads
+            .getThreadProjection(threadId)
+            .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
+          const runIsPreparing =
+            runId !== null &&
+            projection.runs.some((run) => run.id === runId && run.status === "preparing");
+          const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : runIsPreparing;
+          if (shouldSchedule) {
+            const ownsPreparation = yield* reservePreparation(input.commandId);
+            if (ownsPreparation) {
+              yield* Effect.gen(function* () {
+                const preparationStillRequired =
+                  runId === null
+                    ? true
+                    : yield* threads.getThreadProjection(threadId).pipe(
+                        Effect.map((current) =>
+                          current.runs.some(
+                            (run) => run.id === runId && run.status === "preparing",
+                          ),
+                        ),
+                        Effect.mapError(mapError(input, "update-thread", threadId)),
+                      );
+                if (preparationStillRequired) {
+                  yield* schedulePreparation(input, threadId, runId);
+                } else {
+                  yield* releasePreparation(input.commandId);
+                }
+              }).pipe(Effect.onError(() => releasePreparation(input.commandId)));
+            }
+          }
+
+          return {
+            threadId,
+            projection,
+            resumed: Option.isSome(launchReceipt) || messageWasAlreadyAccepted,
+          };
+        }).pipe(
+          ownsProvisionalThread
+            ? Effect.catch((error: ThreadLaunchError) =>
+                cleanupProvisionalThread(input, threadId).pipe(
+                  Effect.flatMap((deleted) =>
+                    Effect.fail(
+                      deleted
+                        ? new ThreadLaunchError({
+                            operation: error.operation,
+                            commandId: error.commandId,
+                            projectId: error.projectId,
+                            ...(error.threadId === undefined ? {} : { threadId: error.threadId }),
+                            bootstrapThreadDisposition: "deleted",
+                            cause: error.cause,
+                          })
+                        : error,
+                    ),
+                  ),
+                ),
+              )
+            : identity,
+        );
       });
     },
   );
