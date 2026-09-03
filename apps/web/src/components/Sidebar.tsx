@@ -213,6 +213,7 @@ import {
   type ComposerThreadDraftState,
   type DraftSessionState,
 } from "../composerDraftStore";
+import { environmentAccentStyle, useEnvironmentAccentColor } from "../environmentAccentColors";
 
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
@@ -802,6 +803,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     variant,
     variantAction,
   } = props;
+  const environmentAccentColor = useEnvironmentAccentColor(thread.environmentId);
   const threadRef = useMemo(
     () => scopeThreadRef(thread.environmentId, thread.id),
     [thread.environmentId, thread.id],
@@ -1607,7 +1609,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
               >
                 {isRemote ? (
-                  <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+                  <span
+                    className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70"
+                    style={environmentAccentStyle(environmentAccentColor)}
+                  >
                     <EnvironmentMachineIcon
                       aria-hidden
                       kind={props.environmentMachine}
