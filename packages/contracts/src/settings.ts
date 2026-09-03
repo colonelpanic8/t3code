@@ -2,12 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
-import {
-  EnvironmentId,
-  ForwardCompatibleNullable,
-  TrimmedNonEmptyString,
-  TrimmedString,
-} from "./baseSchemas.ts";
+import { ForwardCompatibleNullable, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
 import {
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -254,17 +249,6 @@ export const ClientSettingsSchema = Schema.Struct({
   diffLayout: DiffLayout.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_DIFF_LAYOUT))),
   environmentIdentificationMode: EnvironmentIdentificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE)),
-  ),
-  // Per-environment accent colors, keyed by environment id. Client-local
-  // rather than server-backed: the color identifies an environment from *this*
-  // client's point of view, so it has to be readable even while that
-  // environment is disconnected, and it should not be dictated to other
-  // clients by whichever backend happens to be primary.
-  environmentAccentColors: Schema.Record(EnvironmentId, TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
-  ),
-  environmentDisplayNames: Schema.Record(EnvironmentId, TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed({})),
   ),
   glassOpacity: GlassOpacity.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_GLASS_OPACITY)),
@@ -1030,7 +1014,6 @@ export const ClientSettingsPatch = Schema.Struct({
   diffIgnoreWhitespace: Schema.optionalKey(Schema.Boolean),
   diffLayout: Schema.optionalKey(DiffLayout),
   environmentIdentificationMode: Schema.optionalKey(EnvironmentIdentificationMode),
-  environmentDisplayNames: Schema.optionalKey(Schema.Record(EnvironmentId, TrimmedNonEmptyString)),
   glassOpacity: Schema.optionalKey(GlassOpacity),
   fontSizeInterface: Schema.optionalKey(InterfaceFontSize),
   fontSizePrompt: Schema.optionalKey(PromptFontSize),
@@ -1067,7 +1050,6 @@ export const ClientSettingsPatch = Schema.Struct({
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
   legacySidebarEnabled: Schema.optionalKey(Schema.Boolean),
-  environmentAccentColors: Schema.optionalKey(Schema.Record(EnvironmentId, TrimmedNonEmptyString)),
   sidebarProjectGroupingMode: Schema.optionalKey(SidebarProjectGroupingMode),
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),

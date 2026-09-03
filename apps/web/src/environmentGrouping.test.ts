@@ -328,7 +328,6 @@ describe("environment grouping", () => {
         environmentId === remoteEnvironmentId ? "ryzen-shine" : null,
     });
 
-    expect(group?.remoteEnvironmentIds).toEqual([remoteEnvironmentId]);
     expect(group?.remoteEnvironmentLabels).toEqual(["ryzen-shine"]);
   });
 

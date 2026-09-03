@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { EnvironmentId } from "./baseSchemas.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -119,30 +118,6 @@ describe("ClientSettings browser recording frame rate", () => {
   it.each([24, 59, 120])("rejects an unsupported frame rate: %s", (frameRate) => {
     expect(() => decodeClientSettings({ browserRecordingFrameRate: frameRate })).toThrow();
     expect(() => decodeClientSettingsPatch({ browserRecordingFrameRate: frameRate })).toThrow();
-  });
-});
-
-describe("ClientSettings environment display names", () => {
-  const environmentId = EnvironmentId.make("environment-1");
-
-  it("defaults to no client-local overrides", () => {
-    expect(decodeClientSettings({}).environmentDisplayNames).toEqual({});
-  });
-
-  it("trims saved overrides", () => {
-    expect(
-      decodeClientSettings({
-        environmentDisplayNames: { [environmentId]: "  Workstation  " },
-      }).environmentDisplayNames,
-    ).toEqual({ [environmentId]: "Workstation" });
-  });
-
-  it("rejects empty overrides", () => {
-    expect(() =>
-      decodeClientSettingsPatch({
-        environmentDisplayNames: { [environmentId]: "   " },
-      }),
-    ).toThrow();
   });
 });
 
