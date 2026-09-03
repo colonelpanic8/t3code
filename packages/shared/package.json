@@ -251,9 +251,9 @@
       "types": "./src/nodeSqliteClient.ts",
       "import": "./src/nodeSqliteClient.ts"
     },
-    "./localServerDiscovery": {
-      "types": "./src/localServerDiscovery.ts",
-      "import": "./src/localServerDiscovery.ts"
+    "./serverRuntimeState": {
+      "types": "./src/serverRuntimeState.ts",
+      "import": "./src/serverRuntimeState.ts"
     }
   },
   "scripts": {
