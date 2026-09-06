@@ -219,6 +219,8 @@ import {
   type DraftSessionState,
 } from "../composerDraftStore";
 
+const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new Map();
+
 // Settled-tail paging: recent history is the common lookup; the deep tail
 // stays behind an explicit Show more.
 const SETTLED_TAIL_INITIAL_COUNT = 10;
@@ -4179,5 +4181,4 @@ export default function Sidebar() {
       <SidebarChromeFooter />
     </>
   );
-  const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new Map();
 }
