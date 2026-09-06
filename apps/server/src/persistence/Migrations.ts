@@ -10,6 +10,7 @@
 
 import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -71,6 +72,7 @@ import Migration0056 from "./Migrations/056_LegacyV1ImportState.ts";
 import Migration0057 from "./Migrations/057_ApplicationEventSequenceIndexes.ts";
 import Migration0058 from "./Migrations/058_OrchestrationV2RecoveryIndexes.ts";
 import Migration0059 from "./Migrations/059_OrchestrationV2ShellIndexes.ts";
+import Migration0060 from "./Migrations/060_ProjectionThreadSchemaCompatibility.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -142,6 +144,7 @@ export const migrationEntries = [
   [57, "ApplicationEventSequenceIndexes", Migration0057],
   [58, "OrchestrationV2RecoveryIndexes", Migration0058],
   [59, "OrchestrationV2ShellIndexes", Migration0059],
+  [60, "ProjectionThreadSchemaCompatibility", Migration0060],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -161,6 +164,62 @@ export const makeMigrationLoader = (throughId?: number) =>
  */
 const run = Migrator.make({});
 
+const runWithLegacyNumbering = Effect.fn("runWithLegacyNumbering")(function* (
+  toMigrationInclusive: number | undefined,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) {
+    return yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+  }
+  const applied = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+    readonly created_at: string;
+  }>`SELECT migration_id, name, created_at FROM effect_sql_migrations ORDER BY migration_id`;
+  if (!applied.some((row) => row.migration_id === 39 && row.name === "OrchestrationV2")) {
+    return yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+  }
+
+  const canonicalIds = new Map<string, number>(migrationManifest.map(([id, name]) => [name, id]));
+  if (
+    applied.some((row) => !canonicalIds.has(row.name)) ||
+    (toMigrationInclusive !== undefined &&
+      applied.some((row) => canonicalIds.get(row.name)! > toMigrationInclusive))
+  ) {
+    return yield* new Migrator.MigrationError({
+      kind: "BadState",
+      message: "Legacy migration numbering requires an upgrade covering every applied migration.",
+    });
+  }
+
+  // Early v2 assemblies used slots 39 onward before main allocated those IDs.
+  // Replay the ledger by name, applying only missing migrations, in one transaction.
+  const appliedNames = new Set(applied.map((row) => row.name));
+  yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 39`;
+  const executed = yield* run({
+    loader: Migrator.fromRecord(
+      Object.fromEntries(
+        migrationEntries
+          .filter(([id]) => toMigrationInclusive === undefined || id <= toMigrationInclusive)
+          .map(([id, name, migration]) => [
+            `${id}_${name}`,
+            appliedNames.has(name) ? Effect.void : migration,
+          ]),
+      ),
+    ),
+  });
+  for (const row of applied) {
+    yield* sql`
+      UPDATE effect_sql_migrations SET created_at = ${row.created_at}
+      WHERE migration_id = ${canonicalIds.get(row.name)!}
+    `;
+  }
+  return executed.filter(([, name]) => !appliedNames.has(name));
+});
+
 export interface RunMigrationsOptions {
   readonly toMigrationInclusive?: number | undefined;
 }
@@ -178,7 +237,10 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
-  const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+  const sql = yield* SqlClient.SqlClient;
+  const executedMigrations = yield* sql.withTransaction(
+    runWithLegacyNumbering(toMigrationInclusive),
+  );
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
