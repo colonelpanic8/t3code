@@ -28,6 +28,7 @@ import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useDefaultThemeAdoption } from "../hooks/useDefaultTheme";
 import { useEnvironmentThemeSync } from "../hooks/useEnvironmentTheme";
+import { VoiceLiveCallCard } from "../voice/VoiceLiveCallCard";
 import { Button } from "../components/ui/button";
 import {
   AnchoredToastProvider,
@@ -192,6 +193,9 @@ function RootRouteView() {
           {/* Above the router: a theme draft is judged by walking the app, so the
               editor has to survive navigation away from settings. */}
           <ThemeEditorHost />
+          {/* Above the router for the same reason: an active call keeps its
+              surface while the user navigates anywhere in the app. */}
+          <VoiceLiveCallCard />
         </FirstRunGate>
       </AnchoredToastProvider>
     </ToastProvider>
