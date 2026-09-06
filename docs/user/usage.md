@@ -36,7 +36,10 @@ your app understands. Update the app to include newly supported providers.
 
 On web and desktop, use the environment dropdown to filter costs, tokens, and limits. All
 environments are selected by default. The dropdown shows which environments are still scanning;
-results appear as each one responds.
+results appear as each one responds. Environments that are disconnected or cannot report usage
+are listed separately; their last reported usage stays in the totals when available. If no
+selected environment can report usage, the page says usage is unavailable instead of showing zero
+activity.
 
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
