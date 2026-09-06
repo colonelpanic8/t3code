@@ -506,6 +506,17 @@ export function UsagePage() {
                   </p>
                 ))}
               </div>
+            ) : selectedEnvironments.every(
+                (environment) =>
+                  environment.summary === null ||
+                  merged.contractMismatches.some(
+                    (mismatch) => mismatch.environmentId === environment.environmentId,
+                  ),
+              ) ? (
+              <p role="status" className="py-12 text-center text-sm text-muted-foreground">
+                Usage is unavailable for the selected environments. Check their connection status
+                above or try refreshing.
+              </p>
             ) : (
               <>
                 {sourceMessages.map((message) => (
@@ -1073,8 +1084,11 @@ function UsageCoverageNotice({
   return (
     <div className="flex flex-col gap-1 border-t border-border px-2 py-2 text-xs text-muted-foreground">
       {failed.map((environment) => (
-        <span key={environment.label}>
+        <span key={environment.environmentId}>
           {environment.label}: {environment.error}
+          {environment.summary !== null && !mismatchByEnvironment.has(environment.environmentId)
+            ? " (totals include its last reported usage)."
+            : " (excluded from totals)."}
         </span>
       ))}
       {incompatible.map(({ environment, mismatch }) => (
