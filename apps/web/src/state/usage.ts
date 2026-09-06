@@ -7,6 +7,7 @@
  * @module state/usage
  */
 import { useAtomValue } from "@effect/atom-react";
+import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import {
   AuthDiagnosticsReadScope,
   USAGE_CONTRACT_VERSION,
@@ -46,7 +47,7 @@ export interface EnvironmentUsageStatus {
  * cache, and so each environment's query is shared with any other reader of the
  * same window.
  */
-const usageByWindowAtom = Atom.family((windowKey: string) =>
+export const usageByWindowAtom = Atom.family((windowKey: string) =>
   Atom.make((get): readonly EnvironmentUsageStatus[] => {
     const input = JSON.parse(windowKey) as UsageSummaryInput;
     const presentations = get(environmentPresentations.presentationsAtom);
@@ -76,10 +77,16 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
       statuses.push({
         environmentId,
         label: presentation.entry.target.label,
-        isPending: result.waiting,
+        isPending: isConnected && result.waiting,
         canReadDiagnostics: true,
         isConnected,
-        error: result._tag === "Failure" ? "This environment could not report usage." : null,
+        error: !isConnected
+          ? presentation.connection.phase === "available"
+            ? "This environment is not connected."
+            : connectionStatusTitle(presentation.connection)
+          : result._tag === "Failure"
+            ? "This environment could not report usage."
+            : null,
         summary,
         needsCursorKeychainAccess: needsCursorKeychainAccess(
           summary,
