@@ -7,7 +7,7 @@ import {
   type EnvironmentThreadState,
   createThreadEnvironmentAtoms,
 } from "@t3tools/client-runtime/state/threads";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -17,6 +17,9 @@ import { environmentSnapshotAtom } from "./shell";
 
 export const threadEnvironment = createThreadEnvironmentAtoms(connectionAtomRuntime);
 const environmentThreads = createEnvironmentThreadStateAtoms(connectionAtomRuntime);
+export function environmentThreadStateAtom(ref: ScopedThreadRef) {
+  return environmentThreads.stateAtom(ref.environmentId, ref.threadId);
+}
 export const environmentThreadDetails = createEnvironmentThreadDetailAtoms(
   environmentThreads.stateAtom,
 );

@@ -24,13 +24,14 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { type EnvironmentThread, presentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { deriveLatestThreadRun } from "@t3tools/client-runtime/state/thread-execution";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   appendCodexArtifactTemplateUsePrompt,
   codexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
 } from "@t3tools/client-runtime/codex-artifact-templates";
-import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   type ChatMessage,
   isImageAttachment,
@@ -41,7 +42,11 @@ import {
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { environmentThreadShells } from "../state/threads";
+import {
+  environmentThreadDetails,
+  environmentThreadShells,
+  environmentThreadStateAtom,
+} from "../state/threads";
 import { waitForAtomValue } from "../state/waitForAtomValue";
 import {
   filterTerminalContextsWithText,
@@ -234,12 +239,18 @@ export function resolveDraftHeroState(input: {
 export function resolveDraftPromotionNavigationTarget(input: {
   serverThreadRef: ScopedThreadRef | null;
   serverThread: Pick<Thread, "latestRun"> | null | undefined;
+  serverThreadProjection?: EnvironmentThread | null | undefined;
   backgroundSubmissionPending: boolean;
 }): ScopedThreadRef | null {
   if (input.backgroundSubmissionPending) {
     return null;
   }
-  const latestRun = input.serverThread?.latestRun ?? null;
+  const latestRun =
+    (input.serverThreadProjection
+      ? deriveLatestThreadRun(input.serverThreadProjection.projection)
+      : null) ??
+    input.serverThread?.latestRun ??
+    null;
   const runStarted = latestRun?.startedAt != null;
   const startupStopped =
     latestRun?.status === "failed" ||
@@ -759,6 +770,25 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(thread && (thread.latestRun !== null || thread.itemCount > 0 || thread.runtime));
 }
 
+/**
+ * Started-ness read from the authoritative per-thread detail stream. The shell
+ * stream is a separate subscription that can lag or miss the upsert for a
+ * freshly bootstrapped thread, so a draft must not depend on it alone.
+ */
+export function threadProjectionHasStarted(thread: EnvironmentThread | null | undefined): boolean {
+  const projection = thread?.projection;
+  return (
+    projection !== undefined && (projection.runs.length > 0 || projection.turnItems.length > 0)
+  );
+}
+
+export function draftServerThreadHasStarted(input: {
+  shell: Thread | null | undefined;
+  projection: EnvironmentThread | null | undefined;
+}): boolean {
+  return threadHasStarted(input.shell) || threadProjectionHasStarted(input.projection);
+}
+
 // Imported history has no session until its first prompt. Resolve its instance
 // through the environment's provider catalog before locking to a driver.
 export function deriveLockedProvider(input: {
@@ -848,6 +878,40 @@ export async function waitForStartedServerThread(
     predicate: threadHasStarted,
     timeoutMs,
   });
+}
+
+function readDraftServerThreadStarted(threadRef: ScopedThreadRef): boolean {
+  return draftServerThreadHasStarted({
+    shell: appAtomRegistry.get(environmentThreadShells.threadShellAtom(threadRef)),
+    projection: appAtomRegistry.get(environmentThreadDetails.threadAtom(threadRef)),
+  });
+}
+
+/**
+ * A draft reserves its server thread id before the bootstrap launch creates
+ * that thread. Normally the shell upsert and the reserved detail stream both
+ * hydrate as soon as creation commits. If neither has after a launch the server
+ * already accepted, restart only that thread's detail stream so the draft can
+ * promote without a reload.
+ */
+export async function recoverDraftThreadAfterBootstrap(
+  threadRef: ScopedThreadRef,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  if (await waitForStartedServerThread(threadRef, timeoutMs)) {
+    return true;
+  }
+
+  // Hydration can land after the timeout callback unsubscribes but before this
+  // continuation runs, and the detail stream is not covered by the wait above.
+  // Re-read both authoritative sources before tearing down a stream that has
+  // already recovered.
+  if (readDraftServerThreadStarted(threadRef)) {
+    return true;
+  }
+
+  appAtomRegistry.refresh(environmentThreadStateAtom(threadRef));
+  return false;
 }
 
 export interface LocalDispatchSnapshot {
