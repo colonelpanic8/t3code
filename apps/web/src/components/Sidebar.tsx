@@ -80,6 +80,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { isElectron } from "../env";
+import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
+import { isRemoteEnvironmentId } from "../environmentPresence";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -113,7 +115,12 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useAppOwnsLocalEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import {
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
@@ -769,7 +776,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   isActive: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
-  currentEnvironmentId: string | null;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   projectCwd: string | null;
@@ -801,6 +807,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   ) => void;
 }) {
   const largeIcons = useClientSettings((s) => s.sidebarV2LargeIcons);
+  const environmentPresenceScope = useEnvironmentPresenceScope();
   const {
     isRenaming,
     changeRequestSnapshot,
@@ -1005,11 +1012,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
 
-  // The local environment is "this machine" and needs no marker; every other
-  // one gets its machine glyph. With no local environment (the hosted app)
-  // that is every thread, which is the point: the glyph is what tells rows on
-  // different machines apart.
-  const isRemote = thread.environmentId !== props.currentEnvironmentId;
+  const isRemote = isRemoteEnvironmentId(thread.environmentId, environmentPresenceScope);
 
   const detailsTooltip = (
     <SidebarThreadTooltip
@@ -1934,6 +1937,7 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -2005,11 +2009,20 @@ export default function Sidebar() {
         projects: sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
+        isDesktopLocalEnvironment: (environmentId) =>
+          environments.some(
+            (environment) =>
+              environment.environmentId === environmentId &&
+              isDesktopLocalConnectionTarget(environment.entry.target),
+          ),
       }),
     [
       environmentLabelById,
+      environments,
       orderedProjects,
+      ownsLocalEnvironment,
       primaryEnvironmentId,
       projectGroupingSettings,
       projects,
@@ -4016,7 +4029,6 @@ export default function Sidebar() {
                         isActive={routeThreadKey === threadKey}
                         openPullRequestsInRightPanel={routeThreadRef !== null}
                         jumpLabel={showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null}
-                        currentEnvironmentId={primaryEnvironmentId}
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                         environmentMachine={
                           environmentMachineById.get(thread.environmentId) ?? "server"
