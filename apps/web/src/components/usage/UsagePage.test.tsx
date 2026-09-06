@@ -205,3 +205,53 @@ describe("UsagePage model breakdown", () => {
     ]);
   });
 });
+
+describe("UsagePage unavailable environments", () => {
+  it("shows available totals while another environment is still answering", () => {
+    const available = testState.useUsage.getMockImplementation()!();
+    const pending = {
+      ...environments[0]!,
+      environmentId: EnvironmentId.make("slow"),
+      summary: null,
+      isPending: true,
+    };
+    testState.useUsage.mockReturnValue({
+      ...available,
+      selectedEnvironments: [...environments, pending],
+      environments: [...environments, pending],
+      isPartial: true,
+    });
+    const markup = renderToStaticMarkup(<UsagePage />);
+    expect(markup).toContain("$11.00");
+    expect(markup).not.toContain("Usage is unavailable");
+  });
+
+  it("reports unavailable usage instead of presenting missing data as zero activity", () => {
+    const unavailable = [{ ...environments[0]!, summary: null, error: "Reconnecting" }];
+    testState.useUsage.mockReturnValue({
+      merged: mergeUsage([], USAGE_CONTRACT_VERSION),
+      environments: unavailable,
+      selectedEnvironments: unavailable,
+      isPending: false,
+      isPartial: false,
+      refresh: vi.fn(),
+    });
+    const markup = renderToStaticMarkup(<UsagePage />);
+    expect(markup).toContain("Usage is unavailable for the selected environments");
+    expect(markup).not.toContain("No activity in this window");
+    expect(markup).not.toContain("$0.00");
+  });
+
+  it("keeps cached totals visible when their environment disconnects", () => {
+    const available = testState.useUsage.getMockImplementation()!();
+    const cached = [{ ...environments[0]!, error: "Offline" }];
+    testState.useUsage.mockReturnValue({
+      ...available,
+      environments: cached,
+      selectedEnvironments: cached,
+    });
+    const markup = renderToStaticMarkup(<UsagePage />);
+    expect(markup).toContain("$11.00");
+    expect(markup).not.toContain("Usage is unavailable");
+  });
+});

@@ -352,6 +352,15 @@ export function UsagePage() {
               <UsageLimitsSection selectedEnvironmentIds={selectedEnvironmentIds} />
             ) : isPending ? (
               <UsageSkeleton />
+            ) : selectedEnvironments.every(
+                (environment) =>
+                  environment.summary === null ||
+                  merged.staleEnvironments.includes(environment.environmentId),
+              ) ? (
+              <p role="status" className="py-12 text-center text-sm text-muted-foreground">
+                Usage is unavailable for the selected environments. Check their connection status
+                above or try refreshing.
+              </p>
             ) : (
               <>
                 <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
@@ -642,10 +651,15 @@ function UsageCoverageNotice({
   return (
     <div className="flex flex-col gap-1 border-t border-border px-2 py-2 text-xs text-muted-foreground">
       {failed.map((environment) => (
-        <span key={environment.label}>{environment.label} could not report usage.</span>
+        <span key={environment.environmentId}>
+          {environment.label}: {environment.error}
+          {environment.summary !== null && !staleEnvironments.includes(environment.environmentId)
+            ? " (totals include its last reported usage)."
+            : " (excluded from totals)."}
+        </span>
       ))}
       {stale.map((environment) => (
-        <span key={environment.label}>
+        <span key={environment.environmentId}>
           {environment.label} runs an older server version and is excluded from totals.
         </span>
       ))}
