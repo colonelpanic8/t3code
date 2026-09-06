@@ -73,3 +73,7 @@ account and choose **Use reset** to redeem one. No hub plugin is required.
 This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.
+
+On web and desktop, usage appears as environments respond. Unavailable environments are identified separately; their
+last reported usage remains included when available. If no environment can report usage for the
+chosen period, the page reports that usage is unavailable rather than showing zero activity.
