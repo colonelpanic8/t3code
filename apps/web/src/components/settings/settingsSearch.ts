@@ -268,7 +268,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "worktree-path",
     title: "Worktree path",
-    to: "/settings/general",
+    to: "/settings/environment",
     searchTerms: ["template location directory repository branch"],
   },
   {

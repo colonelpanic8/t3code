@@ -764,6 +764,9 @@ function useEnvironmentSettingsRestore(onRestored?: () => void): SettingsRestore
       DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
         ? ["New worktrees start from origin"]
         : []),
+      ...(settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate
+        ? ["Worktree path"]
+        : []),
       ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
         ? ["Add project base directory"]
         : []),
@@ -794,6 +797,7 @@ function useEnvironmentSettingsRestore(onRestored?: () => void): SettingsRestore
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+      worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
     });
@@ -2140,6 +2144,28 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="behavior" title="Behavior">
+        <SettingsRow
+          title="Large project icons"
+          description="Show larger project icons in sidebar thread rows."
+          resetAction={
+            settings.sidebarV2LargeIcons ? (
+              <SettingResetButton
+                label="large project icons"
+                onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarV2LargeIcons}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+              }
+              aria-label="Large project icons"
+            />
+          }
+        />
+
         <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
