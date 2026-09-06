@@ -27,7 +27,7 @@ import {
 } from "./ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-export const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
+const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
 
 interface BranchToolbarEnvModeSelectorProps {
   envLocked: boolean;

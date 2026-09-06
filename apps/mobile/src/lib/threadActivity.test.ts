@@ -19,6 +19,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildThreadFeed,
   deriveThreadFeedPresentation,
+  LIVE_ACTIVITY_ROW_ID,
   threadFeedActivityIsVisible,
   threadFeedRunIsUnsettled,
   type ThreadFeedActivity,
@@ -27,6 +28,7 @@ import {
   setPendingUserInputCustomAnswer,
   isPendingUserInputOptionSelected,
   buildPendingUserInputAnswers,
+  workEntryRowLabel,
 } from "./threadActivity";
 
 const threadId = ThreadId.make("thread-1");
@@ -207,10 +209,18 @@ describe("buildThreadFeed", () => {
 
   it("keeps prominent activity visible while it is running", () => {
     expect(
-      threadFeedActivityIsVisible({ prominent: true, status: "neutral", toolLike: true }),
+      threadFeedActivityIsVisible({
+        prominent: true,
+        status: "neutral",
+        toolLike: true,
+      }),
     ).toBe(true);
     expect(
-      threadFeedActivityIsVisible({ prominent: false, status: "neutral", toolLike: true }),
+      threadFeedActivityIsVisible({
+        prominent: false,
+        status: "neutral",
+        toolLike: true,
+      }),
     ).toBe(false);
   });
 
@@ -652,7 +662,9 @@ describe("buildThreadFeed", () => {
       "message",
       "message",
     ]);
-    expect(expanded[4]).toMatchObject({ message: { id: middle.messageId, text: middle.text } });
+    expect(expanded[4]).toMatchObject({
+      message: { id: middle.messageId, text: middle.text },
+    });
   });
 
   it("does not fold a response that only has opening and final messages", () => {
@@ -728,7 +740,7 @@ describe("buildThreadFeed", () => {
     const collapsed = deriveThreadFeedPresentation(feed, null, new Set());
     expect(collapsed.map((entry) => entry.type)).toEqual([
       "message",
-      "activity-group",
+      "agent-spawn",
       "activity-group",
       "run-fold",
       "activity-group",
@@ -740,9 +752,11 @@ describe("buildThreadFeed", () => {
     });
     expect(
       collapsed.flatMap((entry) =>
-        entry.type === "activity-group"
-          ? entry.activities.map((activity) => activity.projectedItem)
-          : [],
+        entry.type === "agent-spawn"
+          ? [entry.activity.projectedItem]
+          : entry.type === "activity-group"
+            ? entry.activities.map((activity) => activity.projectedItem)
+            : [],
       ),
     ).toEqual(projectedResources);
   });
@@ -803,6 +817,81 @@ describe("buildThreadFeed", () => {
     const presented = deriveThreadFeedPresentation([], null, new Set(), new Set(), startedAt);
 
     expect(presented).toEqual([]);
+  });
+
+  it("shows one stable Thinking row while an active run has no live tool row", () => {
+    const feed = buildThreadFeed([projected(userMessage(), 0)]);
+    const latestRun = {
+      runId,
+      status: "running" as const,
+      startedAt: "2026-06-20T00:00:01.000Z",
+      completedAt: null,
+    };
+    const rows = deriveThreadFeedPresentation(
+      feed,
+      latestRun,
+      new Set(),
+      new Set(),
+      latestRun.startedAt,
+    );
+
+    expect(rows.map((entry) => entry.type)).toEqual(["message", "thinking"]);
+    expect(rows[1]).toMatchObject({ id: LIVE_ACTIVITY_ROW_ID, runId });
+    expect(
+      deriveThreadFeedPresentation(feed, latestRun, new Set(), new Set(), latestRun.startedAt)[1],
+    ).toBe(rows[1]);
+  });
+
+  it("keeps successful trailing work shimmering and hands failures off to Thinking", () => {
+    const latestRun = {
+      runId,
+      status: "running" as const,
+      startedAt: "2026-06-20T00:00:01.000Z",
+      completedAt: null,
+    };
+    const present = (item: OrchestrationV2TurnItem) =>
+      deriveThreadFeedPresentation(
+        buildThreadFeed([projected(item, 0)]),
+        latestRun,
+        new Set(),
+        new Set(),
+        latestRun.startedAt,
+      );
+
+    const successful = present(command());
+    expect(successful).toMatchObject([
+      { type: "work-toggle", id: LIVE_ACTIVITY_ROW_ID, shimmer: true },
+    ]);
+
+    const failed = present({ ...command(), status: "failed" });
+    expect(failed.map((entry) => entry.type)).toEqual(["work-toggle", "thinking"]);
+    expect(failed[0]).toMatchObject({ shimmer: false, hasFailure: true });
+    expect(failed[1]).toMatchObject({ id: LIVE_ACTIVITY_ROW_ID });
+  });
+
+  it("only expands V2 work rows when their body adds to the collapsed label", () => {
+    const rows = buildThreadFeed([
+      projected(
+        {
+          ...base("single-line-notice", "2026-06-20T00:00:02.000Z", 1),
+          type: "system_notice",
+          message: "Provider switched models",
+        },
+        0,
+      ),
+      projected(
+        {
+          ...base("multi-line-notice", "2026-06-20T00:00:03.000Z", 2),
+          type: "system_notice",
+          message: "Provider warning\nRetrying now",
+        },
+        1,
+      ),
+      projected(command("2026-06-20T00:00:04.000Z"), 2),
+    ]).flatMap((entry) => (entry.type === "activity-group" ? entry.activities : []));
+
+    expect(workEntryRowLabel(rows[0]!.workEntry)).toBe("Provider switched models");
+    expect(rows.map((row) => row.canExpand)).toEqual([false, true, true]);
   });
 
   it("keeps expanded work in one group with stable row identities", () => {
@@ -914,7 +1003,10 @@ describe("buildThreadFeed", () => {
               type: "dynamic_tool" as const,
               toolName,
               input: { threadId: `thread-${index}`, message: "Continue" },
-              output: { threadId: `thread-${index}`, messageId: `message-${index}` },
+              output: {
+                threadId: `thread-${index}`,
+                messageId: `message-${index}`,
+              },
             },
             index + 1,
           ),
@@ -971,7 +1063,11 @@ describe("retained v2 feed presentation", () => {
       rows[0]!,
       rows[1]!,
       projected(
-        { ...assistantMessage("2026-06-20T00:00:04.000Z"), text: "Still working", streaming: true },
+        {
+          ...assistantMessage("2026-06-20T00:00:04.000Z"),
+          text: "Still working",
+          streaming: true,
+        },
         2,
       ),
     ]);
@@ -1073,7 +1169,12 @@ describe("retained v2 feed presentation", () => {
       ),
     );
     const feed = buildThreadFeed(rows);
-    const latestRun = { runId, status: "running" as const, startedAt: null, completedAt: null };
+    const latestRun = {
+      runId,
+      status: "running" as const,
+      startedAt: null,
+      completedAt: null,
+    };
     const collapsed = deriveThreadFeedPresentation(feed, latestRun, new Set());
     const toggle = collapsed[0];
     if (toggle?.type !== "work-toggle") throw new Error("Expected a collapsed work group");
@@ -1119,14 +1220,88 @@ describe("retained v2 feed presentation", () => {
       ]);
       const rows = deriveThreadFeedPresentation(
         feed,
-        { runId, status: "running", startedAt: "2026-06-20T00:00:01.000Z", completedAt: null },
+        {
+          runId,
+          status: "running",
+          startedAt: "2026-06-20T00:00:01.000Z",
+          completedAt: null,
+        },
         new Set(),
         new Set(),
         "2026-06-20T00:00:01.000Z",
       );
-      expect(rows[0]).toMatchObject({ type: "work-toggle", summary, hasFailure, shimmer: false });
+      expect(rows[0]).toMatchObject({
+        type: "work-toggle",
+        summary,
+        hasFailure,
+        shimmer: false,
+      });
     },
   );
+
+  it("folds adjacent V2 subagents into one stable live batch card", () => {
+    const subagent = (
+      id: string,
+      title: string,
+      status: "running" | "completed",
+      progress: string,
+      second: number,
+    ): OrchestrationV2TurnItem => ({
+      ...base(id, `2026-06-20T00:00:0${second}.000Z`, second),
+      type: "subagent",
+      status,
+      subagentId: NodeId.make(id),
+      origin: "provider_native",
+      driver: ProviderDriverKind.make("codex"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      childThreadId: null,
+      title,
+      prompt: `Prompt for ${title}`,
+      progress,
+      result: status === "completed" ? `${title} finished` : null,
+    });
+    const feed = buildThreadFeed([
+      projected(subagent("agent-a", "Agent A", "completed", "Done", 2), 0),
+      projected(subagent("agent-b", "Agent B", "running", "Grepping", 3), 1),
+    ]);
+    expect(feed).toHaveLength(1);
+
+    const latestRun = {
+      runId,
+      status: "running" as const,
+      startedAt: "2026-06-20T00:00:01.000Z",
+      completedAt: null,
+    };
+    const rows = deriveThreadFeedPresentation(
+      feed,
+      latestRun,
+      new Set(),
+      new Set(),
+      latestRun.startedAt,
+    );
+    expect(rows.map((entry) => entry.type)).toEqual(["agent-spawn"]);
+    expect(rows[0]).toMatchObject({
+      id: `agent-spawn:${runId}:root`,
+      summary: {
+        title: "2 subagents",
+        status: "Grepping",
+        tone: "working",
+        members: [
+          { title: "Agent A", status: "completed", tone: "completed" },
+          { title: "Agent B", status: "working", tone: "working" },
+        ],
+      },
+    });
+
+    const expanded = deriveThreadFeedPresentation(
+      feed,
+      latestRun,
+      new Set(),
+      new Set([`agent-spawn:${runId}:root`]),
+      latestRun.startedAt,
+    );
+    expect(expanded[0]).toMatchObject({ type: "agent-spawn", expanded: true });
+  });
 
   it("shows an idle native subagent without claiming completion", () => {
     const rows = buildThreadFeed([
@@ -1152,7 +1327,7 @@ describe("retained v2 feed presentation", () => {
       activities: [{ status: "neutral", lifecycleStatus: "idle", prominent: true }],
     });
     expect(deriveThreadFeedPresentation(rows, null, new Set())).toMatchObject([
-      { type: "activity-group", activities: [{ lifecycleStatus: "idle" }] },
+      { type: "agent-spawn", summary: { status: "stopped", tone: "stopped" } },
     ]);
   });
 });
@@ -1208,7 +1383,10 @@ describe("pending user input answers", () => {
       undefined,
       "  Orders  ",
     );
-    expect(paddedOrders).toEqual({ customAnswer: "", selectedOptionValues: ["Orders"] });
+    expect(paddedOrders).toEqual({
+      customAnswer: "",
+      selectedOptionValues: ["Orders"],
+    });
     expect(
       togglePendingUserInputOptionSelection(multiSelectQuestion, paddedOrders, "  Orders  "),
     ).toEqual({ customAnswer: "" });
@@ -1277,14 +1455,21 @@ describe("provider question values", () => {
   it("rejects arbitrary text when the provider only accepts offered options", () => {
     expect(setPendingUserInputCustomAnswer(question, undefined, "Other")).toEqual({});
     expect(
-      buildPendingUserInputAnswers([question], { runtime: { customAnswer: "Other" } }),
-    ).toBeNull();
-    expect(
-      buildPendingUserInputAnswers([question], { runtime: { selectedOptionValues: ["unknown"] } }),
+      buildPendingUserInputAnswers([question], {
+        runtime: { customAnswer: "Other" },
+      }),
     ).toBeNull();
     expect(
       buildPendingUserInputAnswers([question], {
-        runtime: { selectedOptionValues: ["second"], customAnswer: "stale draft" },
+        runtime: { selectedOptionValues: ["unknown"] },
+      }),
+    ).toBeNull();
+    expect(
+      buildPendingUserInputAnswers([question], {
+        runtime: {
+          selectedOptionValues: ["second"],
+          customAnswer: "stale draft",
+        },
       }),
     ).toEqual({ runtime: "second" });
   });

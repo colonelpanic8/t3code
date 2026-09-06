@@ -15,6 +15,7 @@ import type {
   RuntimeRequestId,
   ServerConfig as T3ServerConfig,
   ThreadId,
+  UsageLimitsReport,
 } from "@t3tools/contracts";
 import {
   appendCodexArtifactTemplateUsePrompt,
@@ -57,6 +58,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import type { StatusTone } from "../../components/StatusPill";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
@@ -72,6 +74,7 @@ import type {
   ThreadFeedLatestRun,
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
+import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
@@ -367,6 +370,68 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const [collapsedUserInputRequestId, setCollapsedUserInputRequestId] =
     useState<RuntimeRequestId | null>(null);
   const activeUserInputRequestId = props.activePendingUserInput?.requestId ?? null;
+  // The open /usage-limits panel for this thread, model and turn. Only the open
+  // moment is stored: the rows read live provider data, so a redeemed reset
+  // credit or refreshed probe shows through. Anything that spends quota closes
+  // it: a new turn from any source, or the agent resuming after an approval or
+  // answered question.
+  const [usageLimitsPanel, setUsageLimitsPanel] = useState<{
+    readonly key: string;
+    readonly threadKey: string;
+    readonly now: number;
+  } | null>(null);
+  // A pending approval or question is part of the key: once it is answered,
+  // from this client or any other, the agent resumes and spends quota.
+  const usageLimitsKey = [
+    selectedThreadKey,
+    props.selectedThread.modelSelection.instanceId,
+    props.selectedThread.latestRun?.runId ?? "",
+    props.activePendingApproval?.requestId ?? props.activePendingUserInput?.requestId ?? "",
+  ].join(":");
+  // Drop the snapshot as soon as the key changes so it cannot resurface stale.
+  if (usageLimitsPanel !== null && usageLimitsPanel.key !== usageLimitsKey) {
+    setUsageLimitsPanel(null);
+  }
+  const usageLimitsReport = useMemo(
+    () =>
+      usageLimitsPanel !== null && usageLimitsPanel.key === usageLimitsKey
+        ? collectProviderUsageLimits(
+            props.selectedThread.modelSelection.instanceId,
+            props.serverConfig?.providers ?? [],
+            props.serverConfig?.usageLimitSources ?? [],
+            usageLimitsPanel.now,
+          )
+        : null,
+    [
+      props.selectedThread.modelSelection.instanceId,
+      props.serverConfig,
+      usageLimitsKey,
+      usageLimitsPanel,
+    ],
+  );
+  const showUsageLimits = useCallback(
+    (report: UsageLimitsReport | null) =>
+      setUsageLimitsPanel(
+        report === null
+          ? null
+          : {
+              key: usageLimitsKey,
+              threadKey: selectedThreadKey,
+              now: Date.parse(report.createdAt),
+            },
+      ),
+    [selectedThreadKey, usageLimitsKey],
+  );
+  const dismissUsageLimits = useCallback(() => setUsageLimitsPanel(null), []);
+  // A send may resolve after navigating away, so only the originating
+  // thread's panel is cleared; a panel opened elsewhere in the meantime stays.
+  const clearUsageLimitsFor = useCallback(
+    (threadKey: string) =>
+      setUsageLimitsPanel((current) =>
+        current !== null && current.threadKey === threadKey ? null : current,
+      ),
+    [],
+  );
   const userInputCollapsed =
     activeUserInputRequestId !== null && collapsedUserInputRequestId === activeUserInputRequestId;
   // The card's height RESERVES keyboard space at all times instead of
@@ -472,7 +537,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         if (!endFollowEnabledRef.current) {
           return;
         }
-        void scrollMessageToEnd({ animated: false, closeKeyboard: false }).catch(() => {
+        void scrollMessageToEnd({
+          animated: false,
+          closeKeyboard: false,
+        }).catch(() => {
           freeze.set(false);
         });
       }, delayMs);
@@ -559,7 +627,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     setComposerFocused(false);
   }, [selectedThreadKey, showContent]);
 
-  const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
+  const visitThread = useAtomCommand(threadEnvironment.visit, {
+    reportFailure: false,
+  });
   const lastDispatchedVisitRef = useRef<string | null>(null);
   const selectedThreadId = props.selectedThread.id;
   const selectedThreadUpdatedAt = props.selectedThread.updatedAt;
@@ -664,6 +734,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       return messageId;
     }
 
+    // A sent message makes the snapshot stale; a refused send leaves it in place.
+    clearUsageLimitsFor(targetThreadKey);
+
     setSubmittedMessageId(messageId);
     setAnchorMessageId(
       resolveThreadFeedSubmissionAnchor({
@@ -678,6 +751,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     return messageId;
   }, [
     anchorMessageId,
+    clearUsageLimitsFor,
     props.onSendMessage,
     props.selectedThread.latestRun,
     props.selectedThreadQueueCount,
@@ -699,7 +773,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       }
       requestAnimationFrame(() => {
         composerEditorRef.current?.focus();
-        composerEditorRef.current?.setSelection({ start: nextDraft.length, end: nextDraft.length });
+        composerEditorRef.current?.setSelection({
+          start: nextDraft.length,
+          end: nextDraft.length,
+        });
       });
     },
     [props.onChangeDraftMessage],
@@ -830,7 +907,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   environmentId={props.environmentId}
                   threadId={props.selectedThread.id}
                 />
-
+                {usageLimitsReport && activeUserInputRequestId === null ? (
+                  <Animated.View
+                    className="shrink-0 px-4 pb-3"
+                    entering={FadeInDown.duration(220)}
+                    exiting={FadeOut.duration(140)}
+                  >
+                    <ComposerUsageLimits
+                      report={usageLimitsReport}
+                      environmentId={props.environmentId}
+                      onClose={dismissUsageLimits}
+                    />
+                  </Animated.View>
+                ) : null}
                 {props.activePendingApproval || props.activePendingUserInput ? (
                   <Animated.View
                     className="shrink-0 gap-3 px-4 pb-3"
@@ -901,6 +990,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   onRemoveDraftImage={props.onRemoveDraftImage}
                   onStopThread={props.onStopThread}
                   onSendMessage={handleSendMessage}
+                  onShowUsageLimits={showUsageLimits}
                   onReconnectEnvironment={props.onReconnectEnvironment}
                   onUpdateModelSelection={props.onUpdateThreadModelSelection}
                   onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}

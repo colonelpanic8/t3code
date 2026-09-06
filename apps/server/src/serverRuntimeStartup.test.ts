@@ -1,22 +1,21 @@
-import { assert, it } from "@effect/vitest";
-import { DEFAULT_MODEL, ProviderInstanceId } from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it, vi } from "@effect/vitest";
+import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 
 import * as ServerConfig from "./config.ts";
+import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "./project/ProjectService.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
-
-it("uses the canonical Codex model for auto-bootstrap", () => {
-  assert.deepEqual(ServerRuntimeStartup.getAutoBootstrapThreadModelSelection(), {
-    instanceId: ProviderInstanceId.make("codex"),
-    model: DEFAULT_MODEL,
-  });
-});
+import * as ServerSettings from "./serverSettings.ts";
 
 it.effect("runs projection repair, recovery, worker startup, and bootstrap in order", () =>
   Effect.gen(function* () {
@@ -164,7 +163,11 @@ it.effect("automatic pull only updates enabled, behind, clean default-branch che
         }),
     } as unknown as GitVcsDriver.GitVcsDriver["Service"];
     const project = (workspaceRoot: string, autoPull = true) =>
-      ({ workspaceRoot, autoPull }) as never;
+      ({
+        id: ProjectId.make(workspaceRoot),
+        workspaceRoot,
+        autoPull,
+      }) as never;
 
     yield* ServerRuntimeStartup.autoPullProjects([
       project("/clean"),
@@ -176,5 +179,130 @@ it.effect("automatic pull only updates enabled, behind, clean default-branch che
     ]).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
 
     assert.deepStrictEqual(pulled, ["/clean"]);
+
+    pulled.length = 0;
+    yield* ServerRuntimeStartup.autoPullProjects(
+      [project("/inherited", false), project("/opted-out"), project("/dirty", false)],
+      {
+        defaultAutoPull: true,
+        projectAutoPullOverrides: { [ProjectId.make("/opted-out")]: false },
+      },
+    ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
+
+    assert.deepStrictEqual(pulled, ["/inherited"]);
+  }),
+);
+
+it.effect("auto-bootstrap uses machine defaults and reports what it created", () => {
+  const projectId = ProjectId.make("project:auto-bootstrap-v2");
+  const threadId = ThreadId.make("thread:auto-bootstrap-v2");
+  const machineSelection = {
+    instanceId: ProviderInstanceId.make("claude-code"),
+    model: "claude-sonnet-4-6",
+  };
+  const launch = vi.fn((_input: ThreadLaunch.ThreadLaunchInput) =>
+    Effect.succeed({ threadId, projection: {}, resumed: false } as never),
+  );
+  const project = {
+    id: projectId,
+    title: "Startup Project",
+    workspaceRoot: "/tmp/startup-project",
+    repositoryIdentity: null,
+    faviconPath: null,
+    defaultModelSelection: null,
+    scripts: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    deletedAt: null,
+  };
+  const layer = Layer.mergeAll(
+    NodeServices.layer,
+    ServerSettings.layerTest({ defaultModelSelection: machineSelection }),
+    Layer.succeed(ServerConfig.ServerConfig, {
+      cwd: project.workspaceRoot,
+      autoBootstrapProjectFromCwd: true,
+    } as never),
+    Layer.mock(ProjectService.ProjectService)({
+      bootstrap: () => Effect.succeed({ project, created: true }),
+    }),
+    Layer.mock(ThreadManagement.ThreadManagementService)({
+      getShellSnapshot: () => Effect.succeed({ threads: [] } as never),
+    }),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({ launch }),
+  );
+
+  return Effect.gen(function* () {
+    const targets = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets;
+    assert.deepStrictEqual(targets, {
+      bootstrapProjectId: projectId,
+      bootstrapThreadId: threadId,
+      bootstrapProjectCreated: true,
+      bootstrapThreadCreated: true,
+    });
+    assert.deepStrictEqual(launch.mock.calls[0]?.[0].modelSelection, machineSelection);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("auto-bootstrap preserves a project created before thread launch fails", () => {
+  const projectId = ProjectId.make("project:auto-bootstrap-thread-failure");
+  const project = {
+    id: projectId,
+    title: "Startup Project",
+    workspaceRoot: "/tmp/startup-project",
+    repositoryIdentity: null,
+    faviconPath: null,
+    defaultModelSelection: null,
+    scripts: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    deletedAt: null,
+  };
+  const layer = Layer.mergeAll(
+    NodeServices.layer,
+    ServerSettings.layerTest(),
+    Layer.succeed(ServerConfig.ServerConfig, {
+      cwd: project.workspaceRoot,
+      autoBootstrapProjectFromCwd: true,
+    } as never),
+    Layer.mock(ProjectService.ProjectService)({
+      bootstrap: () => Effect.succeed({ project, created: true }),
+    }),
+    Layer.mock(ThreadManagement.ThreadManagementService)({
+      getShellSnapshot: () => Effect.succeed({ threads: [] } as never),
+    }),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({
+      launch: () => Effect.die("thread launch failed"),
+    }),
+  );
+
+  return Effect.gen(function* () {
+    const targets = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets;
+    assert.deepStrictEqual(targets, {
+      bootstrapProjectId: projectId,
+      bootstrapProjectCreated: true,
+    });
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("completeAutoBootstrapWelcome settles bootstrap failures", () =>
+  Effect.gen(function* () {
+    const completion = yield* ServerRuntimeStartup.completeAutoBootstrapWelcome(
+      Effect.die("bootstrap failed"),
+    );
+    assert.deepStrictEqual(completion, { bootstrapStatus: "complete" });
+  }),
+);
+
+it.effect("completeAutoBootstrapWelcome preserves successful targets", () =>
+  Effect.gen(function* () {
+    const completion = yield* ServerRuntimeStartup.completeAutoBootstrapWelcome(
+      Effect.succeed({
+        bootstrapProjectId: ProjectId.make("project:existing"),
+      }),
+    );
+    assert.deepStrictEqual(completion, {
+      bootstrapProjectId: ProjectId.make("project:existing"),
+      bootstrapStatus: "complete",
+    });
   }),
 );

@@ -12,7 +12,7 @@ import {
   buildCursorProviderSnapshot,
   buildInitialCursorProviderSnapshot,
   checkCursorProviderStatus,
-  getCursorFallbackModels,
+  makeCursorModelDiscovery,
 } from "./CursorProvider.ts";
 import { CursorSdkCatalogError, makeCursorSdkCatalogTestLayer } from "./CursorSdkCatalog.ts";
 
@@ -93,16 +93,6 @@ const sdkParameterizedModel = {
   ],
 } satisfies SDKModel;
 
-describe("getCursorFallbackModels", () => {
-  it("does not publish any built-in cursor models before SDK discovery", () => {
-    expect(
-      getCursorFallbackModels({
-        customModels: ["internal/cursor-model"],
-      }).map((model) => model.slug),
-    ).toEqual(["internal/cursor-model"]);
-  });
-});
-
 describe("buildInitialCursorProviderSnapshot", () => {
   it.effect("uses SDK-specific pending status copy", () =>
     Effect.gen(function* () {
@@ -138,6 +128,34 @@ describe("buildCursorProviderSnapshot", () => {
 });
 
 describe("Cursor SDK model discovery", () => {
+  it.effect("reuses successful discovery until the API key changes", () =>
+    Effect.gen(function* () {
+      let requests = 0;
+      const discover = yield* makeCursorModelDiscovery().pipe(
+        Effect.provide(
+          makeCursorSdkCatalogTestLayer(() => {
+            requests += 1;
+            return Effect.succeed({
+              user: {
+                apiKeyName: "test-key",
+                userEmail: "cursor@example.com",
+                createdAt: "2026-01-01T00:00:00.000Z",
+              },
+              models: [sdkParameterizedModel],
+            });
+          }),
+        ),
+      );
+
+      const first = yield* discover("first-key");
+      expect(yield* discover("first-key")).toEqual(first);
+      expect(requests).toBe(1);
+
+      yield* discover("second-key");
+      expect(requests).toBe(2);
+    }),
+  );
+
   it("maps native SDK parameter ids and default variant values to model capabilities", () => {
     expect(buildCursorCapabilitiesFromSdkModel(sdkParameterizedModel)).toEqual(
       createModelCapabilities({

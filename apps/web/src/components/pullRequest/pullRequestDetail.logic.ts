@@ -190,13 +190,6 @@ export function isStackedPullRequestBase(
   return defaultBranch !== baseBranch;
 }
 
-/** Plain-language state, shown beside the author. Conflicts are a merge signal, not a state. */
-export function describePullRequestState(state: PullRequestState, isDraft: boolean): string {
-  if (state === "merged") return "Merged";
-  if (state === "closed") return "Closed";
-  return isDraft ? "Draft" : "Ready for review";
-}
-
 /** The slice of a detail that decides which actions it offers. */
 export type PullRequestActionableDetail = Pick<
   PullRequestDetail,
@@ -320,7 +313,6 @@ export function resolveThreadPanelPullRequestAction(
     ? "merge"
     : null;
 }
-
 /** Chronological ascending, oldest to newest — reversed for the "newest" reading order. */
 export function orderPullRequestComments<T extends { readonly createdAt: string }>(
   comments: ReadonlyArray<T>,

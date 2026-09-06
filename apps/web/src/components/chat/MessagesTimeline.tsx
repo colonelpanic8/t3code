@@ -13,7 +13,6 @@ import {
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
-import { CHAT_TIMELINE_ANCHOR_OFFSET } from "./timelineScrollAnchoring";
 import {
   resolveWorkEntryToolPresentation,
   resolveViewedImageAsset,
@@ -118,6 +117,10 @@ import {
 } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
+import {
+  CHAT_TIMELINE_ANCHOR_OFFSET,
+  timelineContentOverflowsViewport,
+} from "./timelineScrollAnchoring";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { AssistantSelectionToolbar } from "./AssistantSelectionToolbar";
@@ -353,6 +356,11 @@ interface MessagesTimelineProps {
    * scroll-mode refs whenever the user drifts near the bottom.
    */
   liveFollowEnabled: boolean;
+  /**
+   * Whether the real rows extend past the viewport above the composer.
+   * Reported after scrolls, row size changes, and viewport resizes.
+   */
+  onContentOverflowChange?: (overflows: boolean) => void;
   onToolOutputCollapsedAtEnd?: () => void;
   onManualNavigation: () => void;
   hideEmptyPlaceholder?: boolean;
@@ -407,6 +415,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   contentInsetEndAdjustment,
   onIsAtEndChange,
   liveFollowEnabled,
+  onContentOverflowChange,
   onToolOutputCollapsedAtEnd,
   onManualNavigation,
   hideEmptyPlaceholder = false,
@@ -658,12 +667,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [anchoredEndSpace, contentInsetEndAdjustment],
   );
 
+  const measureContentOverflow = useCallback(
+    () =>
+      timelineContentOverflowsViewport(listRef.current?.getState?.(), {
+        composerInset: contentInsetEndAdjustment,
+        anchorOffset: CHAT_TIMELINE_ANCHOR_OFFSET,
+      }),
+    [contentInsetEndAdjustment, listRef],
+  );
+  // LegendList lays rows out from layout effects, so a read on the next frame
+  // sees the settled positions. One frame is shared across bursts of size
+  // changes.
+  const contentOverflowFrameRef = useRef<number | null>(null);
+  const cancelContentOverflowFrame = useCallback(() => {
+    if (contentOverflowFrameRef.current !== null) {
+      cancelAnimationFrame(contentOverflowFrameRef.current);
+      contentOverflowFrameRef.current = null;
+    }
+  }, []);
+  const reportContentOverflow = useCallback(() => {
+    if (!onContentOverflowChange || contentOverflowFrameRef.current !== null) return;
+    contentOverflowFrameRef.current = requestAnimationFrame(() => {
+      contentOverflowFrameRef.current = null;
+      onContentOverflowChange(measureContentOverflow());
+    });
+  }, [measureContentOverflow, onContentOverflowChange]);
+  useEffect(() => cancelContentOverflowFrame, [cancelContentOverflowFrame]);
+  // The list's own layout effects have already run here, so estimated row
+  // positions are in place. Reporting before the first paint lets a thread
+  // open in its final composer layout instead of correcting it a frame later.
+  // A frame scheduled with the previous inset would overwrite this read, so
+  // it is dropped first.
+  useLayoutEffect(() => {
+    cancelContentOverflowFrame();
+    onContentOverflowChange?.(measureContentOverflow());
+  }, [cancelContentOverflowFrame, measureContentOverflow, onContentOverflowChange, rows.length]);
+
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
     const isAtEnd = resolveTimelineIsAtEnd(state);
     if (isAtEnd !== undefined && !citationPositioning) {
       onIsAtEndChange(isAtEnd);
     }
+    reportContentOverflow();
     if (!state || minimapItems.length === 0) {
       return;
     }
@@ -691,7 +737,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         strip.dataset.inView = next;
       }
     }
-  }, [citationPositioning, listRef, minimapItems, minimapStripMap, onIsAtEndChange]);
+  }, [
+    citationPositioning,
+    listRef,
+    minimapItems,
+    minimapStripMap,
+    onIsAtEndChange,
+    reportContentOverflow,
+  ]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(handleScroll);
@@ -710,6 +763,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         current === nextHasPersistentGutter ? current : nextHasPersistentGutter,
       );
       setMinimapHitStripWidth(resolveTimelineMinimapHitStripWidth(viewportWidth));
+      reportContentOverflow();
     };
 
     const frame = requestAnimationFrame(measure);
@@ -721,7 +775,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [timelineViewportElement, rows.length]);
+  }, [timelineViewportElement, rows.length, reportContentOverflow]);
 
   const sharedState = useMemo<TimelineRowSharedState>(
     () => ({
@@ -904,6 +958,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             }
             maintainScrollAtEndThreshold={1}
             onScroll={handleScroll}
+            onItemSizeChanged={reportContentOverflow}
             className={cn(
               "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain px-3 [overflow-anchor:none] sm:px-5",
               topFadeEnabled && "topbar-scroll-fade",
@@ -3761,10 +3816,10 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             )}
             aria-hidden
           >
-            <ChevronDownIcon
+            <ChevronRightIcon
               className={cn(
                 "size-3 shrink-0 text-icon-muted opacity-70 transition-transform duration-200",
-                expanded && "rotate-180",
+                expanded && "rotate-90",
               )}
             />
           </span>
@@ -3782,7 +3837,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             alt={viewedImage.alt}
             srcFragment={viewedImage.srcFragment}
             workspaceRoot={workspaceRoot}
-            style={{ maxHeight: "16rem" }}
+            maxHeightRem={16}
             onImageExpand={onImageExpand}
           />
         </div>

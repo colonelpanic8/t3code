@@ -104,6 +104,7 @@ import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as DesktopAppUpdate from "./desktopUpdate/DesktopAppUpdate.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
+import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as DesktopTelemetryReceiver from "./resourceTelemetry/DesktopTelemetryReceiver.ts";
@@ -196,6 +197,7 @@ const BackgroundLayerLive = BackgroundPolicy.layer.pipe(
 const UsageLayerLive = UsageService.layer.pipe(Layer.provide(ServerSettingsLayerLive));
 
 const ResourceDiagnosticsLayerLive = Layer.mergeAll(
+  HostResources.layer,
   ResourceTelemetryLayerLive,
   ProcessDiagnostics.layer.pipe(Layer.provide(ResourceTelemetryLayerLive)),
   ProcessResourceMonitor.layer.pipe(Layer.provide(ResourceTelemetryLayerLive)),
@@ -288,7 +290,9 @@ const PullRequestServiceLive = PullRequestService.layer.pipe(
 );
 
 const GitManagerLayerLive = GitManager.layer.pipe(
-  Layer.provideMerge(ProjectSetupScriptRunnerLayerLive),
+  Layer.provideMerge(
+    ProjectSetupScriptRunnerLayerLive.pipe(Layer.provide(ServerSettingsLayerLive)),
+  ),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(SourceControlProviderRegistryLayerLive),
   Layer.provideMerge(TextGeneration.layer),
@@ -324,12 +328,10 @@ const VcsLayerLive = Layer.empty.pipe(
   Layer.provideMerge(
     VcsStatusBroadcaster.layer.pipe(
       Layer.provide(GitWorkflowLayerLive),
-      // Auto-pull reads the projected project row. The orchestration runtime
-      // also consumes the broadcaster (run finalization), so the policy gets
-      // its own snapshot-query build instead of the runtime-level one.
       Layer.provide(
         VcsStatusBroadcaster.autoPullPolicyLayer.pipe(
           Layer.provide(OrchestrationInfrastructureLayerLive),
+          Layer.provide(ServerSettingsLayerLive),
         ),
       ),
     ),
@@ -601,14 +603,18 @@ export const makeServerLayer = Layer.unwrap(
             state,
           }).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to persist server runtime state", { cause }),
+              Effect.logWarning("Failed to persist server runtime state", {
+                cause,
+              }),
             ),
           );
         }),
         () =>
           clearPersistedServerRuntimeState(config.serverRuntimeStatePath).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to clear server runtime state", { cause }),
+              Effect.logWarning("Failed to clear server runtime state", {
+                cause,
+              }),
             ),
           ),
       ),
@@ -649,7 +655,9 @@ export const makeServerLayer = Layer.unwrap(
             }),
             (configured) =>
               configured
-                ? disableTailscaleServe({ servePort: configured.servePort }).pipe(
+                ? disableTailscaleServe({
+                    servePort: configured.servePort,
+                  }).pipe(
                     Effect.tap(() =>
                       Effect.logInfo("Tailscale Serve disabled", {
                         servePort: configured.servePort,
@@ -680,7 +688,9 @@ export const makeServerLayer = Layer.unwrap(
           Effect.catchCause((cause) =>
             Effect.logWarning(
               "Failed to release the managed tunnel on shutdown; the next link reuses it",
-              { errors: Cause.prettyErrors(cause).map((error) => error.message) },
+              {
+                errors: Cause.prettyErrors(cause).map((error) => error.message),
+              },
             ),
           ),
           Effect.asVoid,

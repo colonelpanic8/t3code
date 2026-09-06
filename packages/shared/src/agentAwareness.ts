@@ -28,7 +28,7 @@ export interface AgentAwarenessState {
   readonly deepLink: string;
 }
 
-export function buildAgentAwarenessDeepLink(input: {
+function buildAgentAwarenessDeepLink(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }): string {
@@ -75,7 +75,10 @@ export function projectThreadAwarenessV2(
     ...(detail === undefined ? {} : { detail }),
     modelTitle: thread.modelSelection.model,
     updatedAt: DateTime.formatIso(thread.updatedAt),
-    deepLink: buildAgentAwarenessDeepLink({ environmentId, threadId: thread.id }),
+    deepLink: buildAgentAwarenessDeepLink({
+      environmentId,
+      threadId: thread.id,
+    }),
   };
 }
 

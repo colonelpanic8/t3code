@@ -137,10 +137,6 @@ export function agentAwarenessPublishIdentity(state: RelayAgentActivityState | n
   return JSON.stringify(meaningfulState);
 }
 
-export function isAgentActivityPublishingEnabled(value: string | null): boolean {
-  return isAgentActivityPublishingEnabledValue(value);
-}
-
 export function resolveAgentActivityPublishingStartupState(input: {
   readonly relayConfigured: boolean;
   readonly publishEnabled: boolean;
@@ -244,7 +240,10 @@ const makePublishProof = Effect.fn("makePublishProof")(function* (input: {
     threadId: input.threadId,
     state: input.state,
   } satisfies RelayAgentActivityPublishProofPayload;
-  return yield* signRelayAgentActivityPublishProof({ privateKey: input.privateKey, payload });
+  return yield* signRelayAgentActivityPublishProof({
+    privateKey: input.privateKey,
+    payload,
+  });
 });
 
 // Compact, log-safe view of the fields the awareness phase ladder reads.
@@ -358,7 +357,7 @@ export const make = Effect.gen(function* () {
   });
 
   const readPublishAgentActivityEnabled = readSecretString(PUBLISH_AGENT_ACTIVITY_SECRET).pipe(
-    Effect.map(isAgentActivityPublishingEnabled),
+    Effect.map(isAgentActivityPublishingEnabledValue),
   );
 
   const makeRelayClient = (relayConfig: {
@@ -390,7 +389,9 @@ export const make = Effect.gen(function* () {
     if (retry?.timer !== undefined) yield* Fiber.interrupt(retry.timer);
   });
   const cancelPublishRetries = Effect.suspend(() =>
-    Effect.forEach([...publishRetries.keys()], cancelPublishRetry, { discard: true }),
+    Effect.forEach([...publishRetries.keys()], cancelPublishRetry, {
+      discard: true,
+    }),
   );
   let schedulePublishRetry: (threadId: ThreadId) => Effect.Effect<void> = () => Effect.void;
   const resetPublishedConnection = Effect.gen(function* () {
@@ -666,7 +667,9 @@ export const make = Effect.gen(function* () {
     yield* Effect.logInfo("publishing active agent activity snapshot", {
       count: activeThreadIds.length,
     });
-    yield* Effect.forEach(activeThreadIds, enqueueThreadPublish, { discard: true });
+    yield* Effect.forEach(activeThreadIds, enqueueThreadPublish, {
+      discard: true,
+    });
     yield* worker.drain;
     return true;
   });

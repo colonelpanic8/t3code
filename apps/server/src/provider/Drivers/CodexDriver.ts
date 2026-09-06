@@ -33,7 +33,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { makeCodexTextGeneration } from "../../textGeneration/CodexTextGeneration.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
-import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
+import { expandHomePath } from "../../pathExpansion.ts";
 import {
   createCodexAdapterV2,
   type CodexAdapterV2DriverEnv,
@@ -50,6 +50,7 @@ import {
   probeCodexSkillsForCwd,
   withCodexAppServerClient,
 } from "../Layers/CodexProvider.ts";
+import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { resolveCodexLaunchArgs } from "../Layers/codexLaunchArgs.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import * as ModelManifest from "../ModelManifest.ts";
@@ -160,6 +161,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
       const effectiveConfig = {
         ...config,
         enabled,
+        binaryPath: expandHomePath(config.binaryPath),
         homePath: homeLayout.effectiveHomePath ?? "",
       } satisfies CodexSettings;
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(

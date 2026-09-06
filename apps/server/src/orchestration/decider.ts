@@ -1323,6 +1323,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.history.import":
+      return yield* new OrchestrationCommandInvariantError({
+        commandType: command.type,
+        detail: "Thread history import is unavailable with orchestration v2.",
+      });
+
     case "thread.proposed-plan.upsert": {
       yield* requireThread({
         readModel,

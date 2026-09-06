@@ -66,7 +66,10 @@ it.effect("computes V2 run diffs from projected checkpoint scopes", () => {
   const diffCheckpoints = vi.fn((_input: CheckpointStore.DiffCheckpointsInput) =>
     Effect.succeed("diff --git a/file b/file"),
   );
-  const layer = makeLayer({ projection: Effect.succeed(makeProjection()), diffCheckpoints });
+  const layer = makeLayer({
+    projection: Effect.succeed(makeProjection()),
+    diffCheckpoints,
+  });
 
   return Effect.gen(function* () {
     const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;

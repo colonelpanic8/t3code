@@ -1,6 +1,5 @@
 import {
   type AssetResource,
-  ProviderDriverKind,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2PlanArtifact,
   type OrchestrationV2ProjectedTurnItem,
@@ -35,38 +34,7 @@ import * as DateTime from "effect/DateTime";
 import * as Equal from "effect/Equal";
 import { shallow } from "zustand/vanilla/shallow";
 
-export { formatDuration, formatElapsed } from "@t3tools/shared/orchestrationTiming";
-
-export type ProviderPickerKind = ProviderDriverKind;
-
-export const PROVIDER_OPTIONS: Array<{
-  value: ProviderPickerKind;
-  label: string;
-  available: boolean;
-  pickerSidebarBadge?: "new" | "soon";
-}> = [
-  { value: ProviderDriverKind.make("codex"), label: "Codex", available: true },
-  { value: ProviderDriverKind.make("claudeAgent"), label: "Claude", available: true },
-  {
-    value: ProviderDriverKind.make("opencode"),
-    label: "OpenCode",
-    available: true,
-    pickerSidebarBadge: "new",
-  },
-  {
-    value: ProviderDriverKind.make("cursor"),
-    label: "Cursor",
-    available: true,
-    pickerSidebarBadge: "new",
-  },
-  { value: ProviderDriverKind.make("grok"), label: "Grok", available: true },
-  {
-    value: ProviderDriverKind.make("antigravity"),
-    label: "Antigravity",
-    available: true,
-    pickerSidebarBadge: "new",
-  },
-];
+export { formatDuration } from "@t3tools/shared/orchestrationTiming";
 
 export type WorkLogToolLifecycleStatus =
   | "idle"

@@ -15,7 +15,6 @@ export {
   normalizeCompactToolLabel,
   summarizeToolGroup,
   toolGroupAction,
-  workLogEntryIsLocalCodeSearch,
 } from "@t3tools/client-runtime/work-log/presentation";
 import {
   formatDuration,
@@ -131,11 +130,11 @@ export function workEntryIsVisibleInGroup(
     !workEntryIndicatesToolNeutralStatus(entry)
   );
 }
-export const TIMELINE_MINIMAP_ITEM_SPACING = 8;
+const TIMELINE_MINIMAP_ITEM_SPACING = 8;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
-export const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
-export const TIMELINE_CONTENT_MAX_WIDTH = 768;
-export const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
+const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
+const TIMELINE_CONTENT_MAX_WIDTH = 768;
+const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 
 export interface WorkGroupScrollAnchor {
   readonly entryId: string;
@@ -179,7 +178,7 @@ export interface TimelineEndState {
  * while streaming content grows under the viewport, so follow re-arms within
  * this distance of the real content bottom instead.
  */
-export const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
+const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
 
 export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boolean | undefined {
   if (!state) {
@@ -241,9 +240,9 @@ export function resolveTimelineMinimapHasPersistentGutter(viewportWidth: number)
   return sideGutter >= TIMELINE_MINIMAP_PERSISTENT_GUTTER;
 }
 
-export const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
-export const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
-export const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
+const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
+const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
+const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
 
 /**
  * The minimap overlays the viewport's left edge while the content column is

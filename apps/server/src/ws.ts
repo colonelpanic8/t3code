@@ -1,3 +1,7 @@
+import {
+  sameUsageLimitCommandCoverage,
+  withUsageLimitsCommands,
+} from "@t3tools/shared/usageLimits";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Encoding from "effect/Encoding";
@@ -13,6 +17,7 @@ import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
+  AgentSessionScanError,
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
   type AuthEnvironmentScope,
@@ -58,6 +63,7 @@ import {
   type RelayClientInstallProgressEvent,
   type ServerSelfUpdateError,
   type ServerSelfUpdateProgressEvent,
+  type ServerLifecycleStreamEvent,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
@@ -166,7 +172,9 @@ import { requiredScopeForRpcMethod } from "./auth/RpcAuthorization.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
+import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
+import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -607,6 +615,7 @@ const makeWsRpcLayer = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
+      const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -662,6 +671,7 @@ const makeWsRpcLayer = (
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
+      const hostResources = yield* HostResources.HostResources;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const relayClient = yield* RelayClient.RelayClient;
@@ -731,59 +741,67 @@ const makeWsRpcLayer = (
           ),
         );
 
-      const loadServerConfig = Effect.gen(function* () {
-        const keybindingsConfig = yield* keybindings.loadConfigState;
-        const providers = yield* providerRegistry.getProviders;
-        const settings = ServerSettings.redactServerSettingsForClient(
-          yield* serverSettings.getSettings,
-        );
-        const environment = yield* serverEnvironment.getDescriptor;
-        const auth = yield* serverAuth.getDescriptor();
-        const availableEditors: ReadonlyArray<EditorId> = yield* resolveAvailableEditorsForConfig(
-          externalLauncher.resolveAvailableEditors(),
-        );
-        const fileManagerRevealKind = availableEditors.includes("file-manager")
-          ? yield* resolveFileManagerRevealKindForConfig(
-              externalLauncher.resolveFileManagerRevealKind(),
-            )
-          : undefined;
+      // Only clients that answer /usage-limits themselves see it in the catalogs;
+      // an older client would send the injected command to the provider.
+      const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
+        Effect.gen(function* () {
+          const keybindingsConfig = yield* keybindings.loadConfigState;
+          const currentProviders = yield* providerRegistry.getProviders;
+          const providers = options.usageLimitsCommand
+            ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
+            : currentProviders;
+          const settings = ServerSettings.redactServerSettingsForClient(
+            yield* serverSettings.getSettings,
+          );
+          const environment = yield* serverEnvironment.getDescriptor;
+          const auth = yield* serverAuth.getDescriptor();
+          const availableEditors: ReadonlyArray<EditorId> = yield* resolveAvailableEditorsForConfig(
+            externalLauncher.resolveAvailableEditors(),
+          );
+          const fileManagerRevealKind = availableEditors.includes("file-manager")
+            ? yield* resolveFileManagerRevealKindForConfig(
+                externalLauncher.resolveFileManagerRevealKind(),
+              )
+            : undefined;
 
-        return {
-          environment,
-          auth,
-          cwd: config.cwd,
-          keybindingsConfigPath: config.keybindingsConfigPath,
-          keybindings: keybindingsConfig.keybindings,
-          issues: keybindingsConfig.issues,
-          providers,
-          availableEditors,
-          // Same discovery-with-timeout treatment as editors: a slow probe
-          // must not stall server.getConfig, so it degrades to no targets.
-          remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
-            remoteOpenTargets.resolveTargets(),
-          ),
-          observability: {
-            logsDirectoryPath: config.logsDir,
-            localTracingEnabled: true,
-            ...(config.otlpTracesUrl !== undefined ? { otlpTracesUrl: config.otlpTracesUrl } : {}),
-            otlpTracesEnabled: config.otlpTracesUrl !== undefined,
-            ...(config.otlpMetricsUrl !== undefined
-              ? { otlpMetricsUrl: config.otlpMetricsUrl }
-              : {}),
-            otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
-          },
-          settings,
-          shellResumeCompletionMarker: true,
-          ...(fileManagerRevealKind === undefined
-            ? {}
-            : {
-                shellRevealInFileManager: true,
-                shellRevealInFileManagerKind: fileManagerRevealKind,
-              }),
-          threadResumeCompletionMarker: true,
-          threadSnapshotPagination: true,
-        };
-      });
+          return {
+            environment,
+            auth,
+            cwd: config.cwd,
+            keybindingsConfigPath: config.keybindingsConfigPath,
+            keybindings: keybindingsConfig.keybindings,
+            issues: keybindingsConfig.issues,
+            providers,
+            availableEditors,
+            // Same discovery-with-timeout treatment as editors: a slow probe
+            // must not stall server.getConfig, so it degrades to no targets.
+            remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
+              remoteOpenTargets.resolveTargets(),
+            ),
+            observability: {
+              logsDirectoryPath: config.logsDir,
+              localTracingEnabled: true,
+              ...(config.otlpTracesUrl !== undefined
+                ? { otlpTracesUrl: config.otlpTracesUrl }
+                : {}),
+              otlpTracesEnabled: config.otlpTracesUrl !== undefined,
+              ...(config.otlpMetricsUrl !== undefined
+                ? { otlpMetricsUrl: config.otlpMetricsUrl }
+                : {}),
+              otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
+            },
+            settings,
+            shellResumeCompletionMarker: true,
+            ...(fileManagerRevealKind === undefined
+              ? {}
+              : {
+                  shellRevealInFileManager: true,
+                  shellRevealInFileManagerKind: fileManagerRevealKind,
+                }),
+            threadResumeCompletionMarker: true,
+            threadSnapshotPagination: true,
+          };
+        });
 
       const refreshGitStatus = (cwd: string) =>
         vcsStatusBroadcaster
@@ -1001,7 +1019,9 @@ const makeWsRpcLayer = (
             const base = yield* sql.withTransaction(
               Effect.gen(function* () {
                 const projects = yield* projectionSnapshotQuery.getProjectShellsWithoutEnrichment();
-                const threads = yield* threadManagement.getShellSnapshot({ location: "active" });
+                const threads = yield* threadManagement.getShellSnapshot({
+                  location: "active",
+                });
                 return buildActiveShellSnapshot({
                   projects,
                   threads,
@@ -1011,7 +1031,10 @@ const makeWsRpcLayer = (
             );
             const enriched = yield* enrichProjectShells(base.projects);
             return {
-              snapshot: { ...base, projects: enriched.projects } as OrchestrationV2ShellSnapshot,
+              snapshot: {
+                ...base,
+                projects: enriched.projects,
+              } as OrchestrationV2ShellSnapshot,
               resolvedRepositoryIdentityRoots: enriched.resolvedRepositoryIdentityRoots,
             };
           });
@@ -1204,7 +1227,9 @@ const makeWsRpcLayer = (
         .withTransaction(
           Effect.gen(function* () {
             const projects = yield* projectionSnapshotQuery.getProjectShellsWithoutEnrichment();
-            const threads = yield* threadManagement.getShellSnapshot({ location: "archive" });
+            const threads = yield* threadManagement.getShellSnapshot({
+              location: "archive",
+            });
             return {
               schemaVersion: threads.schemaVersion,
               snapshotSequence: yield* applicationEvents.latestApplicationSequence,
@@ -1240,13 +1265,14 @@ const makeWsRpcLayer = (
               Effect.forEach(
                 coalesceStoredThreadEvents(Array.from(events)),
                 (stored) =>
-                  threadManagement
-                    .getThreadShell(stored.event.threadId)
-                    .pipe(
-                      Effect.map((shell) =>
-                        archivedShellStreamItemFromThreadShell({ stored, shell }),
-                      ),
+                  threadManagement.getThreadShell(stored.event.threadId).pipe(
+                    Effect.map((shell) =>
+                      archivedShellStreamItemFromThreadShell({
+                        stored,
+                        shell,
+                      }),
                     ),
+                  ),
                 { concurrency: 8 },
               ),
             ),
@@ -1274,7 +1300,9 @@ const makeWsRpcLayer = (
               workspaceRoot: mutation.workspaceRoot,
               ...(mutation.createWorkspaceRootIfMissing === undefined
                 ? {}
-                : { createWorkspaceRootIfMissing: mutation.createWorkspaceRootIfMissing }),
+                : {
+                    createWorkspaceRootIfMissing: mutation.createWorkspaceRootIfMissing,
+                  }),
               ...(mutation.defaultModelSelection === undefined
                 ? {}
                 : { defaultModelSelection: mutation.defaultModelSelection }),
@@ -1374,7 +1402,9 @@ const makeWsRpcLayer = (
                     ? command.parentThreadId
                     : command.threadId,
               ...(command.type === "thread.fork" || command.type === "thread.merge_back"
-                ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
+                ? {
+                    "orchestration_v2.source_thread_id": command.sourceThreadId,
+                  }
                 : {}),
             },
           ),
@@ -1486,7 +1516,10 @@ const makeWsRpcLayer = (
                   ? undefined
                   : claimed === null
                     ? input.initialMessage
-                    : { ...input.initialMessage, attachments: claimed.attachments };
+                    : {
+                        ...input.initialMessage,
+                        attachments: claimed.attachments,
+                      };
               return yield* startup
                 .enqueueCommand(
                   threadLaunch.launch({
@@ -1613,9 +1646,11 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverGetConfig]: (_input) =>
-          observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {
-            "rpc.aggregate": "server",
-          }),
+          observeRpcEffect(
+            WS_METHODS.serverGetConfig,
+            loadServerConfig({ usageLimitsCommand: false }),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,
@@ -1866,6 +1901,10 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.serverGetProcessDiagnostics]: (_input) =>
           observeRpcEffect(WS_METHODS.serverGetProcessDiagnostics, processDiagnostics.read, {
+            "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.serverGetHostResources]: (_input) =>
+          observeRpcEffect(WS_METHODS.serverGetHostResources, hostResources.read, {
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverGetProcessResourceHistory]: (input) =>
@@ -2220,6 +2259,28 @@ const makeWsRpcLayer = (
             deletePendingAttachment(input.attachmentId),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.agentSessionsScan]: () =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsScan,
+            Effect.fail(
+              new AgentSessionScanError({
+                operation: "read-projects",
+                cause: "Agent session import is unavailable under orchestration v2.",
+              }),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.agentSessionsImport]: () =>
+          observeRpcEffect(
+            WS_METHODS.agentSessionsImport,
+            Effect.fail(
+              new AgentSessionScanError({
+                operation: "read-projects",
+                cause: "Agent session import is unavailable under orchestration v2.",
+              }),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.assetsCreateUrl]: (input) =>
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,
@@ -2548,6 +2609,8 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             WS_METHODS.subscribeServerConfig,
             Effect.gen(function* () {
+              const usageLimitsCommand = input.usageLimitsCommand === true;
+              const config = yield* loadServerConfig({ usageLimitsCommand });
               const keybindingsUpdates = keybindings.streamChanges.pipe(
                 Stream.map((event) => ({
                   version: 1 as const,
@@ -2558,7 +2621,26 @@ const makeWsRpcLayer = (
                   },
                 })),
               );
-              const providerStatuses = providerRegistry.streamChanges.pipe(
+              const providerStatuses = Stream.zipLatestWith(
+                // Seed both sides with their current values so a source refresh
+                // can update the catalog before the registry emits a change.
+                Stream.concat(
+                  Stream.fromEffect(providerRegistry.getProviders),
+                  providerRegistry.streamChanges,
+                ),
+                usageLimitSources.streamChanges.pipe(
+                  Stream.changesWith(
+                    usageLimitsCommand ? sameUsageLimitCommandCoverage : () => true,
+                  ),
+                ),
+                (providers, sources) =>
+                  usageLimitsCommand ? withUsageLimitsCommands(providers, sources) : providers,
+              ).pipe(
+                (updates) => Stream.concat(Stream.make(config.providers), updates),
+                Stream.changesWith(
+                  (previous, next) => JSON.stringify(previous) === JSON.stringify(next),
+                ),
+                Stream.drop(1),
                 Stream.map((providers) => ({
                   version: 1 as const,
                   type: "providerStatuses" as const,
@@ -2608,7 +2690,7 @@ const makeWsRpcLayer = (
                 Stream.make({
                   version: 1 as const,
                   type: "snapshot" as const,
-                  config: yield* loadServerConfig,
+                  config,
                 }),
                 liveUpdates,
               );
@@ -2619,11 +2701,18 @@ const makeWsRpcLayer = (
           observeRpcStreamEffect(
             WS_METHODS.subscribeServerLifecycle,
             Effect.gen(function* () {
+              const liveBuffer = yield* Queue.unbounded<ServerLifecycleStreamEvent>();
+              yield* Effect.forkScoped(
+                lifecycleEvents.stream.pipe(
+                  Stream.runForEach((event) => Queue.offer(liveBuffer, event)),
+                ),
+                { startImmediately: true },
+              );
               const snapshot = yield* lifecycleEvents.snapshot;
               const snapshotEvents = Array.from(snapshot.events).toSorted(
                 (left, right) => left.sequence - right.sequence,
               );
-              const liveEvents = lifecycleEvents.stream.pipe(
+              const liveEvents = Stream.fromQueue(liveBuffer).pipe(
                 Stream.filter((event) => event.sequence > snapshot.sequence),
               );
               return Stream.concat(Stream.fromIterable(snapshotEvents), liveEvents);

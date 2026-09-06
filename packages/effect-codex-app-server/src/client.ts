@@ -161,7 +161,9 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     if (schema) {
       return decodeNotificationPayload(notification.method, schema, notification.params).pipe(
         Effect.flatMap((decoded) =>
-          Effect.forEach(handlers, (handler) => handler(decoded), { discard: true }),
+          Effect.forEach(handlers, (handler) => handler(decoded), {
+            discard: true,
+          }),
         ),
         Effect.catch(() => Effect.void),
       );
@@ -259,11 +261,6 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
       }),
   });
 });
-
-export const layer = (
-  stdio: Stdio.Stdio,
-  options: CodexAppServerClientOptions = {},
-): Layer.Layer<CodexAppServerClient> => Layer.effect(CodexAppServerClient, make(stdio, options));
 
 export const layerChildProcess = (
   handle: ChildProcessSpawner.ChildProcessHandle,

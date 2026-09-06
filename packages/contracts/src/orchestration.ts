@@ -493,6 +493,7 @@ const ThreadCreateCommand = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
+  historyImport: Schema.optional(Schema.Literal(true)),
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -815,6 +816,20 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadHistoryImportCommand = Schema.Struct({
+  type: Schema.Literal("thread.history.import"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messages: Schema.Array(
+    Schema.Struct({
+      messageId: MessageId,
+      role: Schema.Literals(["user", "assistant"]),
+      text: Schema.String,
+      createdAt: IsoDateTime,
+    }),
+  ).check(Schema.isNonEmpty()),
+});
+
 const ThreadProposedPlanUpsertCommand = Schema.Struct({
   type: Schema.Literal("thread.proposed-plan.upsert"),
   commandId: CommandId,
@@ -866,6 +881,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
+  ThreadHistoryImportCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
@@ -1115,7 +1131,10 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
-export const OrchestrationEventMetadata = ApplicationEventMetadata;
+export const OrchestrationEventMetadata = Schema.Struct({
+  ...ApplicationEventMetadata.fields,
+  historyImport: Schema.optional(Schema.Boolean),
+});
 export type OrchestrationEventMetadata = typeof OrchestrationEventMetadata.Type;
 
 const EventBaseFields = {

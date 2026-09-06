@@ -47,7 +47,7 @@ const EMPTY_THREAD_HISTORY_ATOM = Atom.make<ThreadHistoryMeta>(EMPTY_THREAD_HIST
   Atom.withLabel("web-thread-history:empty"),
 );
 
-export const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
+const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("web-active-environment-id"),
 );

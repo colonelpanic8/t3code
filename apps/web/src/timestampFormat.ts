@@ -1,6 +1,6 @@
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 
-export function getTimestampFormatOptions(
+function getTimestampFormatOptions(
   timestampFormat: TimestampFormat,
   includeSeconds: boolean,
 ): Intl.DateTimeFormatOptions {
@@ -87,7 +87,7 @@ export function formatTimestamp(isoDate: string, timestampFormat: TimestampForma
 // Deliberately not the host locale: the tooltip's ordinal suffix and
 // day-before-month order below are English, so a localized month alone would
 // read "4th Juni 2026". Localizing the whole label is a separate change.
-const monthNameFormatter = new Intl.DateTimeFormat(undefined, { month: "long" });
+const monthNameFormatter = new Intl.DateTimeFormat("en-US", { month: "long" });
 
 function ordinalSuffix(day: number): string {
   const lastTwo = day % 100;

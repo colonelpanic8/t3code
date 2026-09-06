@@ -46,12 +46,19 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
     projectId: PROJECT_ID,
     title: "Thread",
     providerInstanceId: ProviderInstanceId.make("codex"),
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "test-model" },
+    modelSelection: {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "test-model",
+    },
     runtimeMode: "full-access",
     interactionMode: "default",
     worktreePath: null,
     activeProviderThreadId: null,
-    lineage: { rootThreadId: THREAD_ID, parentThreadId: null, relationshipToParent: null },
+    lineage: {
+      rootThreadId: THREAD_ID,
+      parentThreadId: null,
+      relationshipToParent: null,
+    },
     forkedFrom: null,
     createdBy: "user",
     creationSource: "web",
@@ -85,7 +92,9 @@ function shell(overrides: Partial<OrchestrationV2ThreadShell> = {}): Orchestrati
   };
 }
 
-const PublishPayload = Schema.Struct({ state: Schema.NullOr(RelayAgentActivityState) });
+const PublishPayload = Schema.Struct({
+  state: Schema.NullOr(RelayAgentActivityState),
+});
 const decodePublishPayload = Schema.decodeUnknownSync(Schema.fromJsonString(PublishPayload));
 const unused = () => Effect.die("Unexpected test dependency call");
 
@@ -108,7 +117,10 @@ const makeTestRelay = Effect.fnUntraced(function* (
         secretReads.push(name);
         if (options.failSecretRead?.(name)) {
           return Effect.fail(
-            new SecretStoreReadError({ resource: name, cause: "temporary read failure" }),
+            new SecretStoreReadError({
+              resource: name,
+              cause: "temporary read failure",
+            }),
           );
         }
         return Effect.succeed(Option.fromUndefinedOr(values.get(name)));
@@ -159,7 +171,11 @@ const makeTestRelay = Effect.fnUntraced(function* (
       );
       publications.push({
         url: String(input),
-        authorization: new Headers(init?.headers).get("authorization"),
+        authorization: (
+          new Headers(init?.headers) as unknown as {
+            get(name: string): string | null;
+          }
+        ).get("authorization"),
         state: payload.state,
       });
       return Promise.resolve(
@@ -199,7 +215,14 @@ const makeTestRelay = Effect.fnUntraced(function* (
     Effect.provideService(FetchHttpClient.Fetch, fetch),
     Effect.provide(NodeCrypto.layer),
   );
-  return { relay, secrets, secretReads, currentShell, shellReads, publications };
+  return {
+    relay,
+    secrets,
+    secretReads,
+    currentShell,
+    shellReads,
+    publications,
+  };
 });
 
 describe("AgentAwarenessRelay", () => {

@@ -26,7 +26,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { makeClaudeTextGeneration } from "../../textGeneration/ClaudeTextGeneration.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
-import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
+import { expandHomePath } from "../../pathExpansion.ts";
 import {
   createClaudeAdapterV2,
   type ClaudeAdapterV2DriverEnv,
@@ -39,6 +39,7 @@ import {
   makePendingClaudeProvider,
   probeClaudeCapabilities,
 } from "../Layers/ClaudeProvider.ts";
+import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import { resolveClaudeModelCatalog } from "../ClaudeModelCatalog.ts";
@@ -122,7 +123,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         driverKind: DRIVER_KIND,
         instanceId,
       });
-      const effectiveConfig = { ...config, enabled } satisfies ClaudeSettings;
+      const effectiveConfig = {
+        ...config,
+        enabled,
+        binaryPath: expandHomePath(config.binaryPath),
+      } satisfies ClaudeSettings;
       const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
         resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
           binaryPath: effectiveConfig.binaryPath,
