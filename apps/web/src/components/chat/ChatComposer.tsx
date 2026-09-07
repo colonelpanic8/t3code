@@ -940,6 +940,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   hidden?: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onSelectionComplete: () => void;
 }) {
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
@@ -1003,7 +1004,10 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           open={open}
           onOpenChange={setOpen}
           value={props.runtimeMode}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
+          onValueChange={(value) => {
+            props.onRuntimeModeChange(value!);
+            props.onSelectionComplete();
+          }}
         >
           <TooltipTrigger
             render={
@@ -1011,6 +1015,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
                 size={size}
                 className={size === "xs" ? undefined : "font-medium"}
                 aria-label="Runtime mode"
+                data-chat-runtime-mode-picker="true"
               />
             }
           >
@@ -2146,6 +2151,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     prompt,
     onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
+    onSelectionComplete: scheduleComposerFocus,
   });
   const providerTraitsPickerInput = {
     provider: selectedProvider,
@@ -2159,6 +2165,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onPromptChange: setPromptFromTraits,
     planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
+    onSelectionComplete: scheduleComposerFocus,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
   const {
@@ -3982,6 +3989,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           hidden={composerControlsHidden || restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
+          onSelectionComplete={scheduleComposerFocus}
         />
       ),
     },
@@ -4051,6 +4059,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         getModelDisabledReason={getModelDisabledReason}
         onInstanceModelChange={onProviderModelSelect}
         onOpenProviderSetup={onOpenProviderSetup}
+        onSelectionComplete={scheduleComposerFocus}
       />
 
       {composerControlsCompact ? (
@@ -4061,6 +4070,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           traitsMenuContent={providerTraitsMenuContent}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
+          onSelectionComplete={scheduleComposerFocus}
         />
       ) : (
         <>
@@ -4107,6 +4117,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 }
                 onToggleInteractionMode={toggleInteractionMode}
                 onRuntimeModeChange={handleRuntimeModeChange}
+                onSelectionComplete={scheduleComposerFocus}
               />
             </div>
           ) : null}
