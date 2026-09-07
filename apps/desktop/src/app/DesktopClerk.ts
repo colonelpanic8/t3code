@@ -76,6 +76,10 @@ function createDesktopClerkBridge(stateDir: string, isDevelopment: boolean) {
   return createClerkBridge({
     storage: storage({ path: stateDir }),
     passkeys: true,
+    // T3 Code registers both renderer schemes during the pre-ready bootstrap.
+    // Clerk can be initialized after Electron's `ready` event, so it must not
+    // repeat the privileged-scheme registration here.
+    registerRendererScheme: false,
     renderer: {
       scheme: ElectronProtocol.getDesktopScheme(isDevelopment),
       host: ElectronProtocol.DESKTOP_HOST,
