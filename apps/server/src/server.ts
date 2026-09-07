@@ -127,6 +127,7 @@ import * as RunFinalizationService from "./orchestration-v2/RunFinalizationServi
 import * as ProjectionStoreV2 from "./orchestration-v2/ProjectionStore.ts";
 import {
   clearPersistedServerRuntimeState,
+  ensureExclusiveStateDir,
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
 } from "./serverRuntimeState.ts";
@@ -583,6 +584,15 @@ export const makeServerLayer = Layer.unwrap(
     const cloudLinkParked = yield* Deferred.make<void>();
     const routesReady = yield* Deferred.make<void>();
     const launcherLayer = ServiceLauncherClient.layer;
+
+    // Refuse startup (before binding or writing the discovery file) when another
+    // live T3 server already owns this state directory. Platform services are
+    // provided locally so this guard does not leak a FileSystem requirement past
+    // the "only ServerConfig" boundary below.
+    yield* ensureExclusiveStateDir({
+      statePath: config.serverRuntimeStatePath,
+      stateDir: config.stateDir,
+    }).pipe(Effect.provide(PlatformServicesLive));
 
     yield* fixPath();
 
