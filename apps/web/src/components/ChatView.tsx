@@ -198,7 +198,12 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { BranchToolbar } from "./BranchToolbar";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import {
+  modelSelectTargetFromCommand,
+  reasoningEffortFromCommand,
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+} from "../keybindings";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
@@ -6269,7 +6274,7 @@ export default function ChatView(props: ChatViewProps) {
         event.stopPropagation();
         return;
       }
-      if (!activeThreadId || isCommandPaletteOpen()) {
+      if (isCommandPaletteOpen()) {
         return;
       }
       const terminalFocusOwner = getTerminalFocusOwner();
@@ -6281,6 +6286,27 @@ export default function ChatView(props: ChatViewProps) {
         terminalOpen: Boolean(terminalUiState.terminalOpen),
         modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
       };
+
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: shortcutContext,
+      });
+
+      const modelTarget = command ? modelSelectTargetFromCommand(command) : null;
+      if (modelTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        composerRef.current?.selectModel(modelTarget.instanceId, modelTarget.model);
+        return;
+      }
+
+      const reasoningEffort = command ? reasoningEffortFromCommand(command) : null;
+      if (reasoningEffort && composerRef.current?.selectReasoningEffort(reasoningEffort)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      if (!activeThreadId) return;
 
       if (
         !shortcutContext.terminalFocus &&
@@ -6294,9 +6320,6 @@ export default function ChatView(props: ChatViewProps) {
         }
       }
 
-      const command = resolveShortcutCommand(event, keybindings, {
-        context: shortcutContext,
-      });
       if (!command) return;
 
       if (command === "thread.copyReference") {
