@@ -3,6 +3,7 @@ import {
   CommandId,
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationV2CheckpointUnavailableError,
+  OrchestrationV2DispatchCommandError,
   WS_METHODS,
   type ChatAttachment,
   type MessageId,
@@ -179,6 +180,10 @@ export interface RespondToThreadApprovalInput extends ThreadCommandInput {
 export interface RespondToThreadUserInputInput extends ThreadCommandInput {
   readonly requestId: RuntimeRequestId;
   readonly answers: ProviderUserInputAnswers;
+}
+
+export interface DismissThreadUserInputInput extends ThreadCommandInput {
+  readonly requestId: RuntimeRequestId;
 }
 
 export interface RevertThreadCheckpointInput extends ThreadCommandInput {
@@ -734,6 +739,40 @@ export const respondToThreadUserInput = Effect.fn("EnvironmentCommands.respondTo
       threadId: input.threadId,
       requestId: input.requestId,
       answers: input.answers,
+    });
+  },
+);
+
+export const dismissThreadUserInput = Effect.fn("EnvironmentCommands.dismissThreadUserInput")(
+  function* (input: DismissThreadUserInputInput) {
+    const commandId = yield* allocateCommandId(input);
+    const projection = yield* getProjection(input.threadId);
+    const request = projection.runtimeRequests.find(
+      (candidate) =>
+        candidate.id === input.requestId &&
+        candidate.kind === "user_input" &&
+        candidate.status === "pending",
+    );
+    if (request === undefined) {
+      return yield* new OrchestrationV2DispatchCommandError({
+        commandId,
+        commandType: "runtime-request.respond",
+        message: "This question has already been answered.",
+      });
+    }
+    if (request.responseCapability.type !== "message") {
+      return yield* new OrchestrationV2DispatchCommandError({
+        commandId,
+        commandType: "runtime-request.respond",
+        message: "This question needs an answer. Answer it or stop the run.",
+      });
+    }
+    return yield* dispatch({
+      type: "runtime-request.respond",
+      commandId,
+      threadId: input.threadId,
+      requestId: input.requestId,
+      decision: "cancel",
     });
   },
 );

@@ -22,9 +22,19 @@ worktree**, each background submission creates its own worktree.
 
 ## Pin and reorder threads
 
-Pin a thread from its menu to keep it above your active work. Drag pinned threads
-to reorder them on web and desktop, or use **Move up** and **Move down** on mobile.
-The order syncs across devices.
+Pin a thread from its menu to keep it above your active work. On web and desktop,
+you can also drag a thread into the pinned section, drag a pinned thread into the
+active list to unpin it, drag a thread onto **Settled** to settle it, or drag a
+settled or snoozed thread back into the active list to un-settle or wake it.
+
+While a thread crosses sections, its badge names the action the drop performs:
+**Pin**, **Unpin**, **Settle**, **Un-settle**, or **Wake**. The other rows slide
+aside to show the destination, and section labels remain visible. Threads cannot
+be dragged into the snoozed shelf because snoozing requires a wake time.
+
+Drag within the pinned section to reorder it on web and desktop, or use **Move up**
+and **Move down** on mobile. The pinned order syncs across devices. Section changes
+made from thread menus also animate and respect reduced-motion settings.
 
 Pinning does not prevent automatic settlement. Settling a thread removes its pin.
 

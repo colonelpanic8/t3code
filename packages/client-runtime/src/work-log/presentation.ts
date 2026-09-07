@@ -325,6 +325,32 @@ export function workLogEntryIsToolLike(entry: WorkLogPresentationEntry): boolean
   return entry.itemType !== undefined && isToolLifecycleItemType(entry.itemType);
 }
 
+/** Maps v2 item and task status to the status shown on a work-log row. */
+export function extractWorkLogToolLifecycleStatus(
+  payloadValue: unknown,
+): WorkLogToolLifecycleStatus | undefined {
+  const payload = asRecord(payloadValue);
+  switch (payload?.status) {
+    case "pending":
+    case "running":
+    case "waiting":
+      return "inProgress";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
+    case "idle":
+      return payload.taskType === "subagent_batch" ? "stopped" : undefined;
+    case "inProgress":
+    case "completed":
+    case "failed":
+    case "declined":
+    case "stopped":
+      return payload.status;
+    default:
+      return undefined;
+  }
+}
+
 function toolDetailTextLooksLikeFailure(text: string): boolean {
   const normalized = text.toLowerCase();
   return (
@@ -345,7 +371,10 @@ function toolDetailTextLooksLikeFailure(text: string): boolean {
   );
 }
 
-export function workEntryDisplayIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
+function workEntryIndicatesToolFailureFromOutput(
+  entry: WorkLogPresentationEntry,
+  includeCommand: boolean,
+): boolean {
   if (
     entry.tone === "error" ||
     entry.toolLifecycleStatus === "failed" ||
@@ -353,10 +382,32 @@ export function workEntryDisplayIndicatesToolFailure(entry: WorkLogPresentationE
   ) {
     return true;
   }
+  if (!workLogEntryIsToolLike(entry)) return false;
+  const output = includeCommand
+    ? [entry.detail, entry.command].filter(Boolean).join("\n")
+    : (entry.detail ?? "");
+  return output.length > 0 && toolDetailTextLooksLikeFailure(output);
+}
+
+/** Includes legacy activities that stored error output in the command field. */
+export function workEntryIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
+  return workEntryIndicatesToolFailureFromOutput(entry, true);
+}
+
+/** Checks rendered output without treating the user's command as an error. */
+export function workEntryDisplayIndicatesToolFailure(entry: WorkLogPresentationEntry): boolean {
+  return workEntryIndicatesToolFailureFromOutput(entry, false);
+}
+
+/** Decides whether the row can show a success marker. */
+export function workEntryIndicatesToolSuccess(entry: WorkLogPresentationEntry): boolean {
   return (
     workLogEntryIsToolLike(entry) &&
-    entry.detail !== undefined &&
-    toolDetailTextLooksLikeFailure(entry.detail)
+    !workEntryIndicatesToolFailure(entry) &&
+    entry.tone !== "thinking" &&
+    entry.toolLifecycleStatus !== "inProgress" &&
+    entry.toolLifecycleStatus !== "stopped" &&
+    entry.toolLifecycleStatus !== "idle"
   );
 }
 

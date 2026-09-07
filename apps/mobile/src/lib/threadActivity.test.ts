@@ -24,6 +24,7 @@ import {
   threadFeedRunIsUnsettled,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
+  type ThreadFeedMessage,
   togglePendingUserInputOptionSelection,
   setPendingUserInputCustomAnswer,
   isPendingUserInputOptionSelected,
@@ -119,16 +120,28 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
   };
 }
 
+function localMessage(id: string, role: "user" | "assistant"): ThreadFeedMessage {
+  return {
+    id: MessageId.make(id),
+    role,
+    text: id,
+    attachments: [],
+    runId: null,
+    streaming: false,
+    visibility: "local",
+    sourceThreadId: threadId,
+    createdAt: "2026-08-29T00:00:03.000Z",
+    updatedAt: "2026-08-29T00:00:03.000Z",
+  };
+}
+
 describe("buildThreadFeed", () => {
-  it("adds local feedback messages to an otherwise server-authored feed", () => {
+  it("adds local messages to an otherwise server-authored feed", () => {
     const feed = buildThreadFeed([], {
       localMessages: [
         {
-          id: MessageId.make("feedback-local"),
-          role: "assistant",
+          ...localMessage("feedback-local", "assistant"),
           text: "Feedback sent to OpenAI.\n\nThread ID: `codex-thread-1`",
-          turnId: null,
-          streaming: false,
           createdAt: "2026-08-29T00:00:00.000Z",
           updatedAt: "2026-08-29T00:00:00.000Z",
         },
@@ -146,7 +159,7 @@ describe("buildThreadFeed", () => {
     });
   });
 
-  it("anchors feedback before later committed turns and appends true optimistic messages", () => {
+  it("anchors local messages before later committed turns and appends optimistic messages", () => {
     const laterUser = {
       ...userMessage("2026-08-29T00:00:05.000Z"),
       id: TurnItemId.make("item-later-user"),
@@ -161,15 +174,6 @@ describe("buildThreadFeed", () => {
       ordinal: 3,
       text: "Later assistant turn",
     };
-    const localMessage = (id: string, role: "user" | "assistant") => ({
-      id: MessageId.make(id),
-      role,
-      text: id,
-      turnId: null,
-      streaming: false,
-      createdAt: "2026-08-29T00:00:03.000Z",
-      updatedAt: "2026-08-29T00:00:03.000Z",
-    });
     const feed = buildThreadFeed(
       [
         projected(userMessage("2026-08-29T00:00:01.000Z"), 0),
@@ -869,7 +873,7 @@ describe("buildThreadFeed", () => {
     expect(failed[1]).toMatchObject({ id: LIVE_ACTIVITY_ROW_ID });
   });
 
-  it("only expands V2 work rows when their body adds to the collapsed label", () => {
+  it("lets V2 work rows expand even when a single line may only be width-truncated", () => {
     const rows = buildThreadFeed([
       projected(
         {
@@ -891,7 +895,9 @@ describe("buildThreadFeed", () => {
     ]).flatMap((entry) => (entry.type === "activity-group" ? entry.activities : []));
 
     expect(workEntryRowLabel(rows[0]!.workEntry)).toBe("Provider switched models");
-    expect(rows.map((row) => row.canExpand)).toEqual([false, true, true]);
+    expect(workEntryRowLabel(rows[0]!.workEntry, true)).toBe("Provider switched models");
+    expect(workEntryRowLabel(rows[2]!.workEntry, true)).toBe("Command");
+    expect(rows.map((row) => row.canExpand)).toEqual([true, true, true]);
   });
 
   it("keeps expanded work in one group with stable row identities", () => {

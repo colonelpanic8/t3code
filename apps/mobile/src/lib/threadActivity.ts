@@ -28,7 +28,6 @@ import type {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2ExecutionNode,
-  OrchestrationMessage,
   OrchestrationV2ProjectedTurnItem,
   OrchestrationV2RunAttempt,
   OrchestrationV2RunStatus,
@@ -198,7 +197,7 @@ const projectedEntriesCache = new WeakMap<
   }
 >();
 const localMessageEntriesCache = new WeakMap<
-  OrchestrationMessage,
+  ThreadFeedMessage,
   Extract<RawThreadFeedEntry, { readonly type: "message" }>
 >();
 const activityGroupsCache = new WeakMap<ThreadFeedActivity, ThreadFeedActivityGroup>();
@@ -605,30 +604,25 @@ function workEntryPreview(
     : `${firstPath} +${entry.changedFiles!.length - 1} more`;
 }
 
-/** The one-line text shown by a collapsed work row. */
-export function workEntryRowLabel(entry: WorkLogPresentationEntry): string {
+/** Expanded rows retain detail formatting; commands stay in the separate body. */
+export function workEntryRowLabel(entry: WorkLogPresentationEntry, expanded = false): string {
   const presentation = resolveWorkEntryToolPresentation(entry);
   if (presentation) return presentation.displayName;
+  if (expanded && entry.command?.trim()) return "Command";
   const preview = workEntryPreview(entry);
+  if (expanded) return preview?.trim() || capitalizePhrase(entry.toolTitle ?? entry.label);
   const compactPreview = preview === null ? null : collapseWhitespace(stripShellWrapper(preview));
   return compactPreview || capitalizePhrase(entry.toolTitle ?? entry.label);
 }
 
-function workEntryHasExpandedBody(
+function workEntryCanExpand(
   entry: WorkLogPresentationEntry,
-  collapsedText: string,
   row: OrchestrationV2ProjectedTurnItem,
 ): boolean {
   if (entry.itemType === "dynamic_tool" && entry.toolData !== undefined) return true;
   if (entry.changedFiles?.some((path) => path.trim().length > 0)) return true;
   if (row.visibility !== "local") return true;
-  const parts = [entry.rawCommand ?? entry.command, entry.detail]
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value));
-  if (parts.length === 0) return false;
-  if (parts.length > 1 && new Set(parts).size > 1) return true;
-  const only = parts[0]!;
-  return only.includes("\n") || collapseWhitespace(only) !== collapseWhitespace(collapsedText);
+  return Boolean((entry.rawCommand ?? entry.command)?.trim() || entry.detail?.trim());
 }
 
 function buildWorkEntryExpandedBody(
@@ -636,9 +630,12 @@ function buildWorkEntryExpandedBody(
   row: OrchestrationV2ProjectedTurnItem,
 ): string | null {
   const blocks: string[] = [];
+  const visibleLabel = workEntryRowLabel(entry, true).trim();
   const appendBlock = (value: string | null | undefined) => {
     const trimmed = value?.trim();
-    if (trimmed && !blocks.includes(trimmed)) blocks.push(trimmed);
+    if (trimmed && (entry.command || (trimmed !== visibleLabel && !blocks.includes(trimmed)))) {
+      blocks.push(trimmed);
+    }
   };
   if (entry.itemType === "dynamic_tool" && entry.toolData !== undefined) {
     appendBlock(`Tool call\n${JSON.stringify(entry.toolData, null, 2)}`);
@@ -664,7 +661,6 @@ function toFeedActivity(
   const detail = itemPreview(item);
   const createdAt = DateTime.formatIso(item.startedAt ?? item.updatedAt);
   const workEntry = toWorkLogEntry(item, createdAt, summary, detail);
-  const collapsedText = workEntryRowLabel(workEntry);
   const getFullDetail = memoizeValue(() => {
     const expandedBody = buildWorkEntryExpandedBody(workEntry, row);
     const projectedItem = JSON.stringify(
@@ -694,7 +690,7 @@ function toFeedActivity(
     attemptId,
     summary,
     detail,
-    canExpand: workEntryHasExpandedBody(workEntry, collapsedText, row),
+    canExpand: workEntryCanExpand(workEntry, row),
     getFullDetail,
     getCopyText,
     icon: workEntry.toolSurface ?? itemIcon(item),
@@ -1481,8 +1477,8 @@ export function buildPendingUserInputAnswers(
 export function buildThreadFeed(
   visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
   options?: {
-    readonly localMessages?: ReadonlyArray<OrchestrationMessage>;
-    readonly anchoredMessages?: ReadonlyArray<OrchestrationMessage>;
+    readonly localMessages?: ReadonlyArray<ThreadFeedMessage>;
+    readonly anchoredMessages?: ReadonlyArray<ThreadFeedMessage>;
     readonly attempts?: ReadonlyArray<OrchestrationV2RunAttempt>;
     readonly nodes?: ReadonlyArray<OrchestrationV2ExecutionNode>;
   },
@@ -1569,25 +1565,14 @@ export function buildThreadFeed(
   const retainedMessageIds = new Set(
     entries.flatMap((entry) => (entry.type === "message" ? [entry.id] : [])),
   );
-  const appendLocalMessage = (message: OrchestrationMessage): RawThreadFeedEntry => {
+  const appendLocalMessage = (message: ThreadFeedMessage): RawThreadFeedEntry => {
     const cached = localMessageEntriesCache.get(message);
     if (cached) return cached;
     const entry: Extract<RawThreadFeedEntry, { readonly type: "message" }> = {
       type: "message",
       id: message.id,
       createdAt: message.createdAt,
-      message: {
-        id: message.id,
-        role: message.role === "assistant" ? "assistant" : "user",
-        text: message.text,
-        attachments: message.attachments ?? [],
-        runId: null,
-        streaming: message.streaming,
-        visibility: "local",
-        sourceThreadId: ThreadId.make("local-feedback"),
-        createdAt: message.createdAt,
-        updatedAt: message.updatedAt,
-      },
+      message,
     };
     localMessageEntriesCache.set(message, entry);
     return entry;

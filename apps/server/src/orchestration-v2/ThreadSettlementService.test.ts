@@ -25,7 +25,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
-import { GitManager } from "../git/GitManager.ts";
+import { GitManager, type GitBranchPullRequest } from "../git/GitManager.ts";
 import {
   PullRequestService,
   type PullRequestMergeEvent,
@@ -354,6 +354,22 @@ function makePullRequestSummary(input: {
   };
 }
 
+function makeBranchPullRequest(
+  state: "open" | "closed" | "merged",
+  headRef = "feature",
+): GitBranchPullRequest {
+  return {
+    number: 42,
+    title: "Pull request",
+    url: "https://example.test/owner/repository/pull/42",
+    baseRef: "main",
+    headRef,
+    state,
+    repositoryKey: "owner/repository",
+    updatedAt: NOW,
+  };
+}
+
 interface HarnessOptions {
   readonly snapshot: OrchestrationV2ShellSnapshot;
   readonly settings?: ServerSettings;
@@ -514,7 +530,7 @@ describe("ThreadSettlementServiceV2 worker", () => {
         const fixture = yield* makeHarness({
           snapshot: makeSnapshot([thread]),
           settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 2 },
-          branchPullRequest: () => Effect.succeed({ state: "open", updatedAt: NOW }),
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("open")),
         });
         yield* Effect.gen(function* () {
           const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
@@ -556,10 +572,10 @@ describe("ThreadSettlementServiceV2 worker", () => {
             Ref.updateAndGet(branchLookupCount, (count) => count + 1).pipe(
               Effect.flatMap((count) =>
                 count === 1
-                  ? Effect.succeed({ state: "open" as const, updatedAt: NOW })
+                  ? Effect.succeed(makeBranchPullRequest("open", "another-feature"))
                   : Deferred.succeed(periodicLookupStarted, undefined).pipe(
                       Effect.andThen(Deferred.await(releasePeriodicLookup)),
-                      Effect.as({ state: "open" as const, updatedAt: NOW }),
+                      Effect.as(makeBranchPullRequest("open", "another-feature")),
                     ),
               ),
             ),
@@ -603,7 +619,9 @@ describe("ThreadSettlementServiceV2 worker", () => {
             ]),
             branchPullRequest: () =>
               Ref.get(state).pipe(
-                Effect.map((pullRequestState) => ({ state: pullRequestState, updatedAt: NOW })),
+                Effect.map((pullRequestState) =>
+                  makeBranchPullRequest(pullRequestState, "saved-feature"),
+                ),
               ),
             onDispatch: () => Deferred.succeed(mergedThreadSettled, undefined),
           });

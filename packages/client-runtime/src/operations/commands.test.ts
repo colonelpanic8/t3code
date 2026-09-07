@@ -11,6 +11,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   WS_METHODS,
   type OrchestrationV2Command,
@@ -38,6 +39,7 @@ import { v2Now, v2Projection, v2ThreadId } from "../state/orchestrationV2TestFix
 import {
   archiveThread,
   createProject,
+  dismissThreadUserInput,
   updateProject,
   interruptThreadTurn,
   forkThreadFromRun,
@@ -585,6 +587,49 @@ describe("V2 environment commands", () => {
           commandId: "unsettle-command",
           threadId: "thread-1",
           reason: "user",
+        },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("dismisses an asynchronous question through the v2 runtime request command", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const requestId = RuntimeRequestId.make("async-question");
+      const supervisor = yield* makeSupervisor({
+        commands,
+        projects: [],
+        projection: {
+          ...v2Projection,
+          runtimeRequests: [
+            {
+              id: requestId,
+              nodeId: NodeId.make("async-question-node"),
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "user_input",
+              status: "pending",
+              responseCapability: { type: "message" },
+              createdAt: v2Now,
+              resolvedAt: null,
+            },
+          ],
+        },
+      });
+
+      yield* dismissThreadUserInput({
+        commandId: CommandId.make("dismiss-command"),
+        threadId: v2ThreadId,
+        requestId,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        {
+          type: "runtime-request.respond",
+          commandId: "dismiss-command",
+          threadId: v2ThreadId,
+          requestId,
+          decision: "cancel",
         },
       ]);
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
