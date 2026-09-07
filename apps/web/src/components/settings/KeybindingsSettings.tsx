@@ -34,7 +34,7 @@ import {
 
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
-import { formatShortcutLabel } from "../../keybindings";
+import { formatShortcutLabel, formatShortcutTokenLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import {
   primaryServerAvailableEditorsAtom,
@@ -86,21 +86,7 @@ function KeybindingPill({ value }: { value: string }) {
     <KbdGroup className="bg-transparent p-0 shadow-none">
       {parts.map(({ part, key }) => (
         <Kbd key={key} className="min-w-6 justify-center px-1.5">
-          {part === "mod"
-            ? navigator.platform.toLowerCase().includes("mac")
-              ? "⌘"
-              : "Ctrl"
-            : part === "shift"
-              ? "⇧"
-              : part === "alt"
-                ? navigator.platform.toLowerCase().includes("mac")
-                  ? "⌥"
-                  : "Alt"
-                : part === "ctrl"
-                  ? "⌃"
-                  : part.length === 1
-                    ? part.toUpperCase()
-                    : part}
+          {formatShortcutTokenLabel(part)}
         </Kbd>
       ))}
     </KbdGroup>
