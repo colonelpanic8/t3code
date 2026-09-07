@@ -1,3 +1,6 @@
+# Keep transitive React and HTTP declarations reachable through local hoisting.
+enableGlobalVirtualStore: false
+
 packages:
   - apps/*
   - infra/*
