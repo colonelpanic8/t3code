@@ -5,9 +5,14 @@ also lists the command IDs and defaults available in your version.
 
 ## Edit the configuration file
 
-Keybindings live on the environment's machine, in
-`~/.t3/userdata/keybindings.json` by default. You can edit this file directly.
-It is a JSON array of rules:
+Keybindings live on the environment's machine. You can edit the active file directly:
+
+- `$XDG_CONFIG_HOME/t3code/keybindings.json` (normally `~/.config/t3code/keybindings.json`) for a
+  new installation
+- `~/.t3/userdata/keybindings.json` while using the legacy layout
+
+The exact active path is shown under **Settings → Diagnostics → Storage Locations**. The file is a
+JSON array of rules:
 
 ```json
 [
