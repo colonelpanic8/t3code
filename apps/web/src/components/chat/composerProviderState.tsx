@@ -13,7 +13,7 @@ import {
   normalizeModelSlug,
 } from "@t3tools/shared/model";
 import type { VariantProps } from "class-variance-authority";
-import type { ReactNode } from "react";
+import type { ReactElement } from "react";
 
 import type { buttonVariants } from "../ui/button";
 import type { DraftId } from "../../composerDraftStore";
@@ -57,6 +57,7 @@ type TraitsRenderInput = {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   isComposerOwned?: boolean;
+  onSelectionComplete?: () => void;
 };
 
 export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
@@ -119,7 +120,7 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
 function renderTraitsControl(
   Component: typeof TraitsMenuContent | typeof TraitsPicker,
   input: TraitsRenderInput,
-): ReactNode {
+): ReactElement | null {
   const {
     provider,
     instanceId,
@@ -136,6 +137,7 @@ function renderTraitsControl(
     triggerVariant,
     triggerClassName,
     isComposerOwned,
+    onSelectionComplete,
   } = input;
   const hasTarget = threadRef !== undefined || draftId !== undefined;
   if (
@@ -168,14 +170,15 @@ function renderTraitsControl(
       {...(triggerVariant !== undefined ? { triggerVariant } : {})}
       {...(triggerClassName !== undefined ? { triggerClassName } : {})}
       {...(isComposerOwned ? { isComposerOwned } : {})}
+      {...(onSelectionComplete ? { onSelectionComplete } : {})}
     />
   );
 }
 
-export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {
+export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactElement | null {
   return renderTraitsControl(TraitsMenuContent, input);
 }
 
-export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactNode {
+export function renderProviderTraitsPicker(input: TraitsRenderInput): ReactElement | null {
   return renderTraitsControl(TraitsPicker, input);
 }

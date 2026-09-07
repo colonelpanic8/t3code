@@ -1,5 +1,5 @@
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
-import { memo, type ReactNode } from "react";
+import { cloneElement, memo, type ReactElement, useCallback } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
   Menu,
@@ -17,7 +17,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   showInteractionModeToggle: boolean;
-  traitsMenuContent?: ReactNode;
+  traitsMenuContent?: ReactElement | null | undefined;
   size?: "sm" | "xs";
   /**
    * The resting strip keeps this menu mounted out of flow while every block
@@ -27,10 +27,20 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   hidden?: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onSelectionComplete: () => void;
 }) {
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
-
+  const { onSelectionComplete } = props;
+  const completeSelection = useCallback(() => {
+    setOpen(false);
+    onSelectionComplete();
+  }, [onSelectionComplete, setOpen]);
+  const traitsMenuContent = props.traitsMenuContent
+    ? cloneElement(props.traitsMenuContent as ReactElement<{ onSelectionComplete?: () => void }>, {
+        onSelectionComplete: completeSelection,
+      })
+    : null;
   return (
     <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger
@@ -46,9 +56,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
       <MenuPopup align="start" {...composerFloatingLayerProps}>
-        {props.traitsMenuContent ? (
+        {traitsMenuContent ? (
           <>
-            {props.traitsMenuContent}
+            {traitsMenuContent}
             <MenuDivider />
           </>
         ) : null}
@@ -58,12 +68,19 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             <MenuRadioGroup
               value={props.interactionMode}
               onValueChange={(value) => {
-                if (!value || value === props.interactionMode) return;
-                props.onToggleInteractionMode();
+                if (!value) return;
+                if (value !== props.interactionMode) {
+                  props.onToggleInteractionMode();
+                }
+                completeSelection();
               }}
             >
-              <MenuRadioItem value="default">Chat</MenuRadioItem>
-              <MenuRadioItem value="plan">Plan</MenuRadioItem>
+              <MenuRadioItem closeOnClick value="default">
+                Chat
+              </MenuRadioItem>
+              <MenuRadioItem closeOnClick value="plan">
+                Plan
+              </MenuRadioItem>
             </MenuRadioGroup>
             <MenuDivider />
           </>
@@ -72,14 +89,25 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         <MenuRadioGroup
           value={props.runtimeMode}
           onValueChange={(value) => {
-            if (!value || value === props.runtimeMode) return;
-            props.onRuntimeModeChange(value as RuntimeMode);
+            if (!value) return;
+            if (value !== props.runtimeMode) {
+              props.onRuntimeModeChange(value as RuntimeMode);
+            }
+            completeSelection();
           }}
         >
-          <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
-          <MenuRadioItem value="auto-accept-edits">Auto-accept edits</MenuRadioItem>
-          <MenuRadioItem value="auto">Auto</MenuRadioItem>
-          <MenuRadioItem value="full-access">Full access</MenuRadioItem>
+          <MenuRadioItem closeOnClick value="approval-required">
+            Supervised
+          </MenuRadioItem>
+          <MenuRadioItem closeOnClick value="auto-accept-edits">
+            Auto-accept edits
+          </MenuRadioItem>
+          <MenuRadioItem closeOnClick value="auto">
+            Auto
+          </MenuRadioItem>
+          <MenuRadioItem closeOnClick value="full-access">
+            Full access
+          </MenuRadioItem>
         </MenuRadioGroup>
       </MenuPopup>
     </Menu>
