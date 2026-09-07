@@ -6,13 +6,41 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { migrationEntries, migrationManifest, runMigrations } from "./Migrations.ts";
 
+const legacyCompatibilityName = "ProjectionThreadSchemaCompatibility" as const;
+const legacyCompatibilityMigration = Effect.gen(function* () {
+  for (const migrationId of [34, 35, 36] as const) {
+    const [, , migration] = migrationEntries.find(([id]) => id === migrationId)!;
+    yield* migration;
+  }
+});
+
 const seedLegacyDatabase = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 38 });
   // Released private assemblies, including repeated schema repair migrations.
-  const legacyOrder = [48, 49, 50, 51, 52, 53, 54, 55, 56, 39, 40, 60, 42, 43, 60, 60];
+  const legacyOrder = [
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    39,
+    40,
+    legacyCompatibilityName,
+    42,
+    43,
+    legacyCompatibilityName,
+    legacyCompatibilityName,
+  ] as const;
   for (const [index, canonicalId] of legacyOrder.entries()) {
-    const [, name, migration] = migrationEntries.find(([id]) => id === canonicalId)!;
+    const [, name, migration] =
+      canonicalId === legacyCompatibilityName
+        ? ([60, legacyCompatibilityName, legacyCompatibilityMigration] as const)
+        : migrationEntries.find(([id]) => id === canonicalId)!;
     yield* migration;
     yield* sql`
       INSERT INTO effect_sql_migrations (migration_id, name, created_at)

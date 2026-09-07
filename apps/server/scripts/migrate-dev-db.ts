@@ -342,7 +342,12 @@ const verifyMigrationSlots = Effect.fn("verifyMigrationSlots")(function* () {
   const appliedById = new Map(applied.map((row) => [Number(row.migration_id), row.name]));
   for (const [slot, codeName] of migrationManifest) {
     const appliedName = appliedById.get(slot);
-    if (appliedName !== undefined && appliedName !== codeName) {
+    const isCompletedCompatibilityRepair =
+      slot === 60 &&
+      codeName === "ProjectionThreadBranchPullRequest" &&
+      appliedName === "ProjectionThreadSchemaCompatibility" &&
+      appliedById.get(62) === "ProjectionThreadSchemaCompatibility";
+    if (appliedName !== undefined && appliedName !== codeName && !isCompletedCompatibilityRepair) {
       return yield* new MigrateDevDbSlotCollisionError({ slot, codeName, appliedName });
     }
   }

@@ -44,4 +44,36 @@ layer("062_ProjectionThreadSchemaCompatibility", (it) => {
       assert.equal(migration[0]?.name, "ProjectionThreadSchemaCompatibility");
     }),
   );
+
+  it.effect("repairs new columns after the old compatibility migration occupied slot 60", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* runMigrations({ toMigrationInclusive: 59 });
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES (60, 'ProjectionThreadSchemaCompatibility')
+      `;
+
+      const before = yield* sql<{ readonly name: string }>`
+        PRAGMA table_info(projection_threads)
+      `;
+      const beforeNames = new Set(before.map((column) => column.name));
+      assert.ok(!beforeNames.has("branch_pull_request_json"));
+      assert.ok(!beforeNames.has("active_order_key"));
+
+      const executed = yield* runMigrations({ toMigrationInclusive: 62 });
+      assert.deepStrictEqual(
+        executed.map(([id]) => id),
+        [61, 62],
+      );
+
+      const after = yield* sql<{ readonly name: string }>`
+        PRAGMA table_info(projection_threads)
+      `;
+      const afterNames = new Set(after.map((column) => column.name));
+      assert.ok(afterNames.has("branch_pull_request_json"));
+      assert.ok(afterNames.has("active_order_key"));
+    }),
+  );
 });
