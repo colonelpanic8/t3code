@@ -45,3 +45,10 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Checkpoint          | A saved workspace state used for diffs and restore, stored as a hidden Git ref.                              |
 | Checkpoint baseline | The workspace state captured before the work being compared.                                                 |
 | Turn diff           | The workspace changes attributed to one turn.                                                                |
+
+## Live voice
+
+| Term                | Meaning                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live voice call     | An ephemeral speech-to-speech session between a client and OpenAI, brokered by one server through a hidden Codex app-server session and owned by the client socket that started it.      |
+| Voice route request | A tool call sent by the hidden voice session through its owning client for execution against another connected environment. See [live voice](./live-voice.md) for the routing lifecycle. |
