@@ -38,6 +38,7 @@ interface BranchToolbarEnvModeSelectorProps {
   displayMode?: "toolbar" | "panel";
   previousWorktreeLabel?: string | null;
   onUsePreviousWorktree?: () => void;
+  onSelectionComplete?: () => void;
 }
 
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
@@ -49,6 +50,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   displayMode = "toolbar",
   previousWorktreeLabel,
   onUsePreviousWorktree,
+  onSelectionComplete,
 }: BranchToolbarEnvModeSelectorProps) {
   const workspacePath = displayMode === "panel" ? (activeWorktreePath ?? workspaceRoot) : null;
   const workspaceDisplayName = resolveWorkspaceDisplayName(workspacePath);
@@ -114,9 +116,11 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       onValueChange={(value: string | null) => {
         if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
           onUsePreviousWorktree?.();
+          onSelectionComplete?.();
           return;
         }
         onEnvModeChange(value as EnvMode);
+        onSelectionComplete?.();
       }}
       items={envModeItems}
     >
