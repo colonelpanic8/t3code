@@ -132,6 +132,45 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     }),
   );
 
+  it.effect("accepts a completed compatibility repair recorded in slot 60", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-compat-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "migrate-dev-db-compat-dest-",
+      });
+      const source = yield* createFixtureSource(sourceDir);
+      yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE effect_sql_migrations
+            SET name = 'ProjectionThreadSchemaCompatibility' WHERE migration_id = 60`;
+        }),
+      );
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 10 },
+        { sharedHome: sourceDir },
+      );
+      const compatibilityRecords = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ migration_id: number; name: string }>`
+            SELECT migration_id, name
+            FROM effect_sql_migrations
+            WHERE name = 'ProjectionThreadSchemaCompatibility'
+            ORDER BY migration_id`;
+        }),
+      );
+      assert.deepStrictEqual(compatibilityRecords, [
+        { migration_id: 60, name: "ProjectionThreadSchemaCompatibility" },
+        { migration_id: 62, name: "ProjectionThreadSchemaCompatibility" },
+      ]);
+    }),
+  );
+
   it.effect("refuses while a dev server holds the destination", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
