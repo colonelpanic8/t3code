@@ -520,6 +520,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
+      ...(settings.sidebarV2LargeIcons !== DEFAULT_UNIFIED_SETTINGS.sidebarV2LargeIcons
+        ? ["Large project icons"]
+        : []),
       ...(settings.sidebarProjectGroupingMode !==
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
@@ -716,6 +719,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      sidebarV2LargeIcons: DEFAULT_UNIFIED_SETTINGS.sidebarV2LargeIcons,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -2163,6 +2167,28 @@ export function GeneralSettingsPanel() {
                 });
               }}
               aria-label="Project grouping"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Large project icons"
+          description="Show larger project icons in sidebar thread rows."
+          resetAction={
+            settings.sidebarV2LargeIcons ? (
+              <SettingResetButton
+                label="large project icons"
+                onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarV2LargeIcons}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+              }
+              aria-label="Large project icons"
             />
           }
         />
