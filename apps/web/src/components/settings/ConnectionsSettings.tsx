@@ -3,6 +3,7 @@ import {
   EllipsisIcon,
   PlusIcon,
   QrCodeIcon,
+  RefreshCwIcon,
   TerminalIcon,
 } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
@@ -35,6 +36,7 @@ import {
   type AuthPairingCredentialResult,
   type AdvertisedEndpoint,
   type DesktopDiscoveredSshHost,
+  type RunningLocalServer,
   type DesktopSshEnvironmentTarget,
   type DesktopServerExposureState,
   type DesktopWslState,
@@ -56,8 +58,10 @@ import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestam
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   applyWslEnableSelection,
+  environmentPairingBaseUrl,
   isQrShareableEndpoint,
   isWslSettingsRowVisible,
+  selectLocalServerPairingCandidates,
   selectQrEndpointOption,
 } from "./ConnectionsSettings.logic";
 import {
@@ -153,6 +157,7 @@ import {
   connectSshEnvironment as connectSshEnvironmentAtom,
 } from "~/connection/onboarding";
 import { useEnvironmentQuery } from "~/state/query";
+import { useEnvironmentSessionState } from "~/state/session";
 import {
   desktopNetworkAccessStateAtom,
   refreshDesktopNetworkAccessState,
@@ -187,6 +192,7 @@ import {
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
 const EMPTY_DISCOVERED_SSH_HOSTS: ReadonlyArray<DesktopDiscoveredSshHost> = [];
+const EMPTY_RUNNING_LOCAL_SERVERS: ReadonlyArray<RunningLocalServer> = [];
 
 // Sentinels for the consolidated WSL backend picker. The colon is
 // rejected by DISTRO_NAME_PATTERN (validated on the desktop side) so
@@ -1046,17 +1052,20 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
 });
 
 type AuthorizedClientsHeaderActionProps = {
-  onPairingLinkCreated: (result: AuthPairingCredentialResult) => void;
   clientSessions: ReadonlyArray<ServerClientSessionRecord>;
   isRevokingOtherClients: boolean;
   onRevokeOtherClients: () => void;
+  onCreatePairingLink: (input: {
+    readonly label: string;
+    readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+  }) => Promise<void>;
 };
 
 const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
-  onPairingLinkCreated,
   clientSessions,
   isRevokingOtherClients,
   onRevokeOtherClients,
+  onCreatePairingLink,
 }: AuthorizedClientsHeaderActionProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
@@ -1068,11 +1077,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
   const handleCreatePairingLink = useCallback(async () => {
     setIsCreatingPairingLink(true);
     try {
-      const created = await createServerPairingCredential({
-        label: pairingLabel,
-        scopes: pairingScopes,
-      });
-      onPairingLinkCreated(created);
+      await onCreatePairingLink({ label: pairingLabel, scopes: pairingScopes });
       setPairingLabel("");
       setPairingScopes([...AuthStandardClientScopes]);
       setDialogOpen(false);
@@ -1088,7 +1093,7 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     } finally {
       setIsCreatingPairingLink(false);
     }
-  }, [onPairingLinkCreated, pairingLabel, pairingScopes]);
+  }, [onCreatePairingLink, pairingLabel, pairingScopes]);
 
   const togglePairingScope = useCallback((scope: AuthEnvironmentScope, checked: boolean) => {
     setPairingScopes((current) =>
@@ -1827,8 +1832,19 @@ function CloudRemoteEnvironmentRows({
 export function ConnectionsSettings() {
   const desktopBridge = window.desktopBridge;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const [runningLocalServers, setRunningLocalServers] = useState<ReadonlyArray<RunningLocalServer>>(
+    EMPTY_RUNNING_LOCAL_SERVERS,
+  );
+  const [activeLocalServerDiscoveryCount, setActiveLocalServerDiscoveryCount] = useState(0);
+  const isDiscoveringLocalServers = activeLocalServerDiscoveryCount > 0;
+  const [pairingLocalServerEnvironmentId, setPairingLocalServerEnvironmentId] =
+    useState<EnvironmentId | null>(null);
+  const [localServerDiscoveryError, setLocalServerDiscoveryError] = useState<string | null>(null);
+  const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
+  const [selectedAccessEnvironmentId, setSelectedAccessEnvironmentId] =
+    useState<EnvironmentId | null>(null);
   const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
   const connectSshEnvironment = useAtomCommand(connectSshEnvironmentAtom, {
     reportFailure: false,
@@ -1837,6 +1853,19 @@ export function ConnectionsSettings() {
   const setEnvironmentEnabled = useAtomCommand(environmentCatalog.setEnabled, {
     reportFailure: false,
   });
+  const createEnvironmentPairingLink = useAtomCommand(authEnvironment.createPairingCredential, {
+    reportFailure: false,
+  });
+  const revokeEnvironmentPairingLink = useAtomCommand(authEnvironment.revokePairingLink, {
+    reportFailure: false,
+  });
+  const revokeEnvironmentClientSession = useAtomCommand(authEnvironment.revokeClientSession, {
+    reportFailure: false,
+  });
+  const revokeOtherEnvironmentClientSessions = useAtomCommand(
+    authEnvironment.revokeOtherClientSessions,
+    { reportFailure: false },
+  );
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const primarySessionState = usePrimarySessionState();
   const currentSessionScopes = desktopBridge
@@ -1854,6 +1883,23 @@ export function ConnectionsSettings() {
       ),
     [environments],
   );
+  // Pairing links and client sessions can be managed on any connected
+  // environment this client holds access:write on, not only this machine.
+  const accessEnvironments = useMemo(
+    () =>
+      environments.filter(
+        (environment) => !isDesktopLocalConnectionTarget(environment.entry.target),
+      ),
+    [environments],
+  );
+  const accessEnvironment =
+    accessEnvironments.find(
+      (environment) => environment.environmentId === selectedAccessEnvironmentId,
+    ) ??
+    accessEnvironments.find((environment) => environment.environmentId === primaryEnvironmentId) ??
+    accessEnvironments[0] ??
+    null;
+  const accessEnvironmentId = accessEnvironment?.environmentId ?? null;
   // The WSL backend is managed from the WSL row under this machine, so it has
   // no row of its own in the list.
   const listedEnvironments = useMemo(
@@ -1921,6 +1967,82 @@ export function ConnectionsSettings() {
     ],
     [primaryEnvironment, savedEnvironments],
   );
+  const localServerPairingCandidates = useMemo(
+    () => selectLocalServerPairingCandidates(runningLocalServers, environments),
+    [environments, runningLocalServers],
+  );
+  const hasLocalServerDiscoveryContent =
+    isDiscoveringLocalServers ||
+    localServerPairingCandidates.length > 0 ||
+    localServerDiscoveryError !== null;
+  const refreshRunningLocalServers = useCallback(async () => {
+    const discoverLocalServers = desktopBridge?.discoverLocalServers;
+    if (!discoverLocalServers) {
+      setRunningLocalServers(EMPTY_RUNNING_LOCAL_SERVERS);
+      return EMPTY_RUNNING_LOCAL_SERVERS;
+    }
+    setActiveLocalServerDiscoveryCount((count) => count + 1);
+    try {
+      const discovered = await discoverLocalServers();
+      setRunningLocalServers(discovered);
+      setLocalServerDiscoveryError(null);
+      return discovered;
+    } catch (error) {
+      setRunningLocalServers(EMPTY_RUNNING_LOCAL_SERVERS);
+      setLocalServerDiscoveryError(
+        error instanceof Error ? error.message : "Could not scan for local T3 Code servers.",
+      );
+      return EMPTY_RUNNING_LOCAL_SERVERS;
+    } finally {
+      setActiveLocalServerDiscoveryCount((count) => Math.max(0, count - 1));
+    }
+  }, [desktopBridge]);
+
+  useEffect(() => {
+    void refreshRunningLocalServers();
+  }, [refreshRunningLocalServers]);
+
+  const handlePairLocalServer = useCallback(
+    async (server: RunningLocalServer, pairAgain: boolean) => {
+      const pairLocalServer = desktopBridge?.pairLocalServer;
+      if (!pairLocalServer) return;
+      setPairingLocalServerEnvironmentId(server.environmentId);
+      setLocalServerDiscoveryError(null);
+      try {
+        const { pairingUrl } = await pairLocalServer(server.environmentId);
+
+        const result = await connectPairing({ pairingUrl });
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) {
+            setPairingLocalServerEnvironmentId(null);
+            return;
+          }
+          throw squashAtomCommandFailure(result);
+        }
+
+        setAddBackendDialogOpen(false);
+        toastManager.add({
+          type: "success",
+          title: pairAgain ? "Environment paired again" : "Environment paired",
+          description: `${server.label} is saved and will reconnect on app startup.`,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Could not pair the local T3 Code server.";
+        setLocalServerDiscoveryError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not pair local server",
+            description: message,
+          }),
+        );
+      } finally {
+        setPairingLocalServerEnvironmentId(null);
+      }
+    },
+    [connectPairing, desktopBridge],
+  );
   const savedDesktopSshEnvironmentKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const environment of savedEnvironments) {
@@ -1958,7 +2080,6 @@ export function ConnectionsSettings() {
     string | null
   >(null);
   const [isRevokingOtherDesktopClients, setIsRevokingOtherDesktopClients] = useState(false);
-  const [addBackendDialogOpen, setAddBackendDialogOpen] = useState(false);
   const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
@@ -2024,10 +2145,25 @@ export function ConnectionsSettings() {
     !isLocalEnvironmentDisabled() &&
     (currentSessionScopes?.includes(AuthAccessWriteScope) ?? false);
   const canManageRelay = currentSessionScopes?.includes(AuthRelayWriteScope) ?? false;
+  const isAccessEnvironmentPrimary =
+    accessEnvironmentId !== null && accessEnvironmentId === primaryEnvironmentId;
+  const accessEnvironmentSession = useEnvironmentSessionState(
+    isAccessEnvironmentPrimary ? null : accessEnvironmentId,
+  );
+  const accessSessionScopes = isAccessEnvironmentPrimary
+    ? currentSessionScopes
+    : accessEnvironmentSession.data?.authenticated
+      ? (accessEnvironmentSession.data.scopes ?? null)
+      : null;
+  const canManageEnvironmentAccess = accessSessionScopes?.includes(AuthAccessWriteScope) ?? false;
+  const accessEnvironmentPairingBaseUrl =
+    isAccessEnvironmentPrimary || accessEnvironment === null
+      ? null
+      : environmentPairingBaseUrl(accessEnvironment.entry);
   const authAccessChanges = useEnvironmentQuery(
-    canManageLocalBackend && primaryEnvironmentId !== null
+    canManageEnvironmentAccess && accessEnvironmentId !== null
       ? authEnvironment.accessChanges({
-          environmentId: primaryEnvironmentId,
+          environmentId: accessEnvironmentId,
           input: null,
         })
       : null,
@@ -2228,32 +2364,83 @@ export function ConnectionsSettings() {
     setDisableTailscaleServeDialogOpen(true);
   }, []);
 
-  const handleRevokeDesktopPairingLink = useCallback(async (id: string) => {
-    setRevokingDesktopPairingLinkId(id);
-    setDesktopAccessManagementMutationError(null);
-    try {
-      await revokeServerPairingLink(id);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to revoke pairing link.";
-      setDesktopAccessManagementMutationError(message);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not revoke pairing link",
-          description: message,
-        }),
-      );
-    } finally {
-      setRevokingDesktopPairingLinkId(null);
-    }
-  }, []);
+  const handleCreateAccessPairingLink = useCallback(
+    async (input: {
+      readonly label: string;
+      readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
+    }) => {
+      if (isAccessEnvironmentPrimary || accessEnvironmentId === null) {
+        handlePairingLinkCreated(await createServerPairingCredential(input));
+        return;
+      }
+      const result = await createEnvironmentPairingLink({
+        environmentId: accessEnvironmentId,
+        input,
+      });
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        throw squashAtomCommandFailure(result);
+      }
+      if (result._tag === "Success") {
+        handlePairingLinkCreated(result.value);
+      }
+    },
+    [
+      accessEnvironmentId,
+      createEnvironmentPairingLink,
+      handlePairingLinkCreated,
+      isAccessEnvironmentPrimary,
+    ],
+  );
+
+  const handleRevokeDesktopPairingLink = useCallback(
+    async (id: string) => {
+      setRevokingDesktopPairingLinkId(id);
+      setDesktopAccessManagementMutationError(null);
+      try {
+        if (isAccessEnvironmentPrimary || accessEnvironmentId === null) {
+          await revokeServerPairingLink(id);
+        } else {
+          const result = await revokeEnvironmentPairingLink({
+            environmentId: accessEnvironmentId,
+            input: { id },
+          });
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            throw squashAtomCommandFailure(result);
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to revoke pairing link.";
+        setDesktopAccessManagementMutationError(message);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not revoke pairing link",
+            description: message,
+          }),
+        );
+      } finally {
+        setRevokingDesktopPairingLinkId(null);
+      }
+    },
+    [accessEnvironmentId, isAccessEnvironmentPrimary, revokeEnvironmentPairingLink],
+  );
 
   const handleRevokeDesktopClientSession = useCallback(
     async (sessionId: ServerClientSessionRecord["sessionId"]) => {
       setRevokingDesktopClientSessionId(sessionId);
       setDesktopAccessManagementMutationError(null);
       try {
-        await revokeServerClientSession(sessionId);
+        if (isAccessEnvironmentPrimary || accessEnvironmentId === null) {
+          await revokeServerClientSession(sessionId);
+        } else {
+          const result = await revokeEnvironmentClientSession({
+            environmentId: accessEnvironmentId,
+            input: { sessionId },
+          });
+          if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+            throw squashAtomCommandFailure(result);
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to revoke client access.";
         setDesktopAccessManagementMutationError(message);
@@ -2268,14 +2455,27 @@ export function ConnectionsSettings() {
         setRevokingDesktopClientSessionId(null);
       }
     },
-    [],
+    [accessEnvironmentId, isAccessEnvironmentPrimary, revokeEnvironmentClientSession],
   );
 
   const handleRevokeOtherDesktopClients = useCallback(async () => {
     setIsRevokingOtherDesktopClients(true);
     setDesktopAccessManagementMutationError(null);
     try {
-      const revokedCount = await revokeOtherServerClientSessions();
+      const revokedCount =
+        isAccessEnvironmentPrimary || accessEnvironmentId === null
+          ? await revokeOtherServerClientSessions()
+          : await (async () => {
+              const result = await revokeOtherEnvironmentClientSessions({
+                environmentId: accessEnvironmentId,
+                input: null,
+              });
+              if (result._tag === "Failure") {
+                if (isAtomCommandInterrupted(result)) return 0;
+                throw squashAtomCommandFailure(result);
+              }
+              return result.value.revokedCount;
+            })();
       toastManager.add({
         type: "success",
         title: revokedCount === 1 ? "Revoked 1 other client" : `Revoked ${revokedCount} clients`,
@@ -2294,14 +2494,14 @@ export function ConnectionsSettings() {
     } finally {
       setIsRevokingOtherDesktopClients(false);
     }
-  }, []);
+  }, [accessEnvironmentId, isAccessEnvironmentPrimary, revokeOtherEnvironmentClientSessions]);
 
   // Shared by manual SSH submission and discovered-host selection.
   const connectSavedBackendSshTarget = useCallback(
     async (target: DesktopSshEnvironmentTarget) => {
       setIsAddingSavedBackend(true);
       setSavedBackendError(null);
-      const result = await connectSshEnvironment({ target, label: "" });
+      const result = await connectSshEnvironment({ target, label: target.alias });
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
           setSavedBackendError(formatDesktopSshConnectionError(squashAtomCommandFailure(result)));
@@ -2701,6 +2901,48 @@ export function ConnectionsSettings() {
         <PlusIcon className="size-3.5" />
         {isAddingSavedBackend ? "Adding…" : "Add environment"}
       </Button>
+    </div>
+  );
+  const renderLocalServerPairingCandidates = () => (
+    <div className="space-y-2">
+      {isDiscoveringLocalServers && localServerPairingCandidates.length === 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Spinner className="size-3" />
+          Scanning for local T3 Code servers…
+        </p>
+      ) : null}
+      {localServerPairingCandidates.map(({ server, pairAgain, alreadyPaired }) => (
+        <div
+          key={server.environmentId}
+          className="flex items-center gap-3 rounded-lg border border-border/70 bg-background p-3"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
+            <TerminalIcon aria-hidden className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-foreground">
+              {server.label}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {server.httpBaseUrl} · process {server.pid}
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pairingLocalServerEnvironmentId !== null || alreadyPaired}
+            onClick={() => void handlePairLocalServer(server, pairAgain)}
+          >
+            {pairingLocalServerEnvironmentId === server.environmentId ? (
+              <Spinner className="size-3.5" />
+            ) : null}
+            {alreadyPaired ? "Paired" : pairAgain ? "Pair again" : "Pair"}
+          </Button>
+        </div>
+      ))}
+      {localServerDiscoveryError ? (
+        <p className="text-xs text-destructive">{localServerDiscoveryError}</p>
+      ) : null}
     </div>
   );
   const renderSshFields = () => (
@@ -3196,29 +3438,113 @@ export function ConnectionsSettings() {
       }
     />
   );
-  const renderAuthorizedClients = (presentation: AccessSectionPresentation) => (
-    <>
-      {desktopAccessManagementError ? (
-        <div className={accessRowClassName(presentation)}>
-          <p className="text-xs text-destructive">{desktopAccessManagementError}</p>
-        </div>
-      ) : null}
-      <PairingClientsList
-        endpointUrl={desktopServerExposureState?.endpointUrl}
-        endpoints={visibleDesktopAdvertisedEndpoints}
-        defaultEndpointKey={defaultDesktopAdvertisedEndpointKey}
-        presentation={presentation}
-        isLoading={isLoadingDesktopAccessManagement}
-        pairingLinks={visibleDesktopPairingLinks}
-        createdPairingCredentials={createdPairingCredentials}
-        clientSessions={desktopClientSessions}
-        revokingPairingLinkId={revokingDesktopPairingLinkId}
-        revokingClientSessionId={revokingDesktopClientSessionId}
-        onRevokePairingLink={handleRevokeDesktopPairingLink}
-        onRevokeClientSession={handleRevokeDesktopClientSession}
-      />
-    </>
-  );
+  const accessEnvironmentConnected = accessEnvironment?.connection.phase === "connected";
+  const accessEnvironmentSessionLoading =
+    !isAccessEnvironmentPrimary &&
+    !accessEnvironmentSession.hasError &&
+    accessEnvironmentSession.data === null;
+  const accessEndpointUrl = isAccessEnvironmentPrimary
+    ? desktopServerExposureState?.endpointUrl
+    : accessEnvironmentPairingBaseUrl;
+  const accessEndpoints = isAccessEnvironmentPrimary
+    ? visibleDesktopAdvertisedEndpoints
+    : EMPTY_ADVERTISED_ENDPOINTS;
+  const accessDefaultEndpointKey = isAccessEnvironmentPrimary
+    ? defaultDesktopAdvertisedEndpointKey
+    : null;
+  const showAccessManagement =
+    accessEnvironment !== null &&
+    (!isAccessEnvironmentPrimary ||
+      isLocalBackendRemotelyReachable ||
+      accessEnvironments.length > 1);
+  const renderAccessEnvironmentSelector = () =>
+    accessEnvironmentId === null || accessEnvironments.length < 2 ? null : (
+      <Select
+        value={accessEnvironmentId}
+        onValueChange={(value) => setSelectedAccessEnvironmentId(value as EnvironmentId)}
+      >
+        <SelectTrigger size="sm" className="w-36 sm:w-48" aria-label="Environment">
+          <SelectValue>{accessEnvironment?.label ?? "Select environment"}</SelectValue>
+        </SelectTrigger>
+        <SelectPopup align="end" alignItemWithTrigger={false}>
+          {accessEnvironments.map((environment) => (
+            <SelectItem
+              hideIndicator
+              key={environment.environmentId}
+              value={environment.environmentId}
+            >
+              {environment.label}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+    );
+  const renderAccessManagement = () =>
+    !showAccessManagement || accessEnvironment === null ? null : (
+      <FoldedSettingsSection
+        id="authorized-clients"
+        title="Authorized clients"
+        summary={
+          canManageEnvironmentAccess
+            ? summarizeAuthorizedClients(desktopClientSessions, visibleDesktopPairingLinks)
+            : null
+        }
+        control={
+          <div className="flex items-center gap-2">
+            {renderAccessEnvironmentSelector()}
+            {canManageEnvironmentAccess ? (
+              <AuthorizedClientsHeaderAction
+                clientSessions={desktopClientSessions}
+                isRevokingOtherClients={isRevokingOtherDesktopClients}
+                onRevokeOtherClients={handleRevokeOtherDesktopClients}
+                onCreatePairingLink={handleCreateAccessPairingLink}
+              />
+            ) : null}
+          </div>
+        }
+      >
+        {!accessEnvironmentConnected ? (
+          <SettingsRow
+            title={accessEnvironment.label}
+            description="Connect this environment to manage its pairing links and clients."
+          />
+        ) : accessEnvironmentSessionLoading ? (
+          <SettingsRow title="Checking administrative access" description="Loading permissions…" />
+        ) : !canManageEnvironmentAccess ? (
+          <SettingsRow
+            title="Administrative access required"
+            description="Pairing links and client-session management require the access:write scope for this environment."
+          />
+        ) : (
+          <ScrollArea
+            scrollFade
+            chainVerticalScroll
+            className="max-h-[22.5rem]"
+            data-testid="authorized-clients-scroll-area"
+          >
+            {desktopAccessManagementError ? (
+              <div className={accessRowClassName("current")}>
+                <p className="text-xs text-destructive">{desktopAccessManagementError}</p>
+              </div>
+            ) : null}
+            <PairingClientsList
+              endpointUrl={accessEndpointUrl}
+              endpoints={accessEndpoints}
+              defaultEndpointKey={accessDefaultEndpointKey}
+              presentation="current"
+              isLoading={isLoadingDesktopAccessManagement}
+              pairingLinks={visibleDesktopPairingLinks}
+              createdPairingCredentials={createdPairingCredentials}
+              clientSessions={desktopClientSessions}
+              revokingPairingLinkId={revokingDesktopPairingLinkId}
+              revokingClientSessionId={revokingDesktopClientSessionId}
+              onRevokePairingLink={handleRevokeDesktopPairingLink}
+              onRevokeClientSession={handleRevokeDesktopClientSession}
+            />
+          </ScrollArea>
+        )}
+      </FoldedSettingsSection>
+    );
   const renderNetworkAccessRow = () => (
     <SettingsRow
       title={searchableSetting("network-access").title}
@@ -3386,33 +3712,6 @@ export function ConnectionsSettings() {
             ) : null}
           </SettingsSection>
 
-          {isLocalBackendRemotelyReachable ? (
-            <FoldedSettingsSection
-              id="authorized-clients"
-              title="Authorized clients"
-              summary={summarizeAuthorizedClients(
-                desktopClientSessions,
-                visibleDesktopPairingLinks,
-              )}
-              control={
-                <AuthorizedClientsHeaderAction
-                  onPairingLinkCreated={handlePairingLinkCreated}
-                  clientSessions={desktopClientSessions}
-                  isRevokingOtherClients={isRevokingOtherDesktopClients}
-                  onRevokeOtherClients={handleRevokeOtherDesktopClients}
-                />
-              }
-            >
-              <ScrollArea
-                scrollFade
-                chainVerticalScroll
-                className="max-h-[22.5rem]"
-                data-testid="authorized-clients-scroll-area"
-              >
-                {renderAuthorizedClients("current")}
-              </ScrollArea>
-            </FoldedSettingsSection>
-          ) : null}
           <AlertDialog
             open={isDesktopServerExposureDialogOpen}
             onOpenChange={(open) => {
@@ -3696,6 +3995,37 @@ export function ConnectionsSettings() {
   return (
     <SettingsPageContainer width="wide">
       {primarySettings}
+      {renderAccessManagement()}
+      {hasLocalServerDiscoveryContent ? (
+        <SettingsSection
+          title="Available on this computer"
+          headerAction={
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={isDiscoveringLocalServers}
+              onClick={() => void refreshRunningLocalServers()}
+            >
+              {isDiscoveringLocalServers ? (
+                <Spinner className="size-3" />
+              ) : (
+                <RefreshCwIcon className="size-3" />
+              )}
+              Scan again
+            </Button>
+          }
+        >
+          {localServerPairingCandidates.length > 0 ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              These servers are running from this app&apos;s local data directory. Pairing uses the
+              bundled T3 command to create a one-time credential, then saves the connection; this
+              desktop will not manage the server process.
+            </p>
+          ) : null}
+          {renderLocalServerPairingCandidates()}
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection
         {...searchableSetting("remote-environments")}
         title="Environments"
@@ -3708,6 +4038,9 @@ export function ConnectionsSettings() {
               open={addBackendDialogOpen}
               onOpenChange={(open) => {
                 setAddBackendDialogOpen(open);
+                if (open) {
+                  void refreshRunningLocalServers();
+                }
                 if (!open) {
                   setSavedBackendError(null);
                 }
@@ -3735,6 +4068,30 @@ export function ConnectionsSettings() {
                 </DialogHeader>
                 <DialogPanel>
                   <div className="space-y-4">
+                    {hasLocalServerDiscoveryContent ? (
+                      <div
+                        className={cn(
+                          "space-y-2 rounded-lg border p-3",
+                          localServerPairingCandidates.length > 0
+                            ? "border-primary/20 bg-primary/5"
+                            : localServerDiscoveryError
+                              ? "border-destructive/30 bg-destructive/5"
+                              : "border-border/70 bg-muted/20",
+                        )}
+                      >
+                        {localServerPairingCandidates.length > 0 ? (
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              A local T3 Code server is running
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Pair explicitly to save it without copying its URL.
+                            </p>
+                          </div>
+                        ) : null}
+                        {renderLocalServerPairingCandidates()}
+                      </div>
+                    ) : null}
                     <div className="grid gap-3 sm:grid-cols-2">
                       {renderConnectionModeCard({
                         mode: "remote",

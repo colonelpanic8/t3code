@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
 import * as DesktopShutdown from "../../app/DesktopShutdown.ts";
@@ -32,10 +33,14 @@ describe("local environment IPC", () => {
   it.effect("relaunches only when the setting changes and keeps other settings", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: true,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: true,
+          }),
+        ),
+      ),
       Layer.mock(DesktopLifecycle.DesktopLifecycle, {
         relaunch: (reason) =>
           Effect.sync(() => {

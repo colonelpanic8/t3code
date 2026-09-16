@@ -205,3 +205,9 @@ history, and saved connections are kept, and you keep working through pairing, T
 
 Switch **Local environment** back on in the same place to restart with your previous local
 settings.
+
+If a T3 Code server started with `t3 serve` is already running on this computer with the same T3
+home, the desktop app attaches to it for that launch instead of starting a second server. Running
+local servers appear under **Available on this computer** in **Settings → Connections**; choose
+**Pair** to save the connection. To pick the mode for a single launch, start the desktop app with
+`--backend-mode=client-only` or `--backend-mode=managed`.

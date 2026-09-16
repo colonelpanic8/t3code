@@ -17,10 +17,15 @@ import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 // Toggling relaunches the desktop app, so the switch only reflects the value
-// this process started with; there is no live state to keep in sync.
+// this process started with; there is no live state to keep in sync. A launch
+// argument or an already running local server can turn the local environment
+// off for one launch, so the switch shows the saved setting, not this launch.
 export function LocalEnvironmentSetting() {
   const setEnabled = window.desktopBridge?.setLocalEnvironmentEnabled;
-  const [enabled] = useState(() => !isLocalEnvironmentDisabled());
+  const [launchMode] = useState(() => window.desktopBridge?.getBackendModeState?.() ?? null);
+  const [enabled] = useState(() =>
+    launchMode ? launchMode.configuredMode === "managed" : !isLocalEnvironmentDisabled(),
+  );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +50,20 @@ export function LocalEnvironmentSetting() {
           enabled
             ? "Run agents on this computer. Turn off to use T3 Code only with remote environments."
             : "Turned off. Agents only run in remote environments."
+        }
+        status={
+          launchMode?.source === "existing-server" ? (
+            <span className="block text-muted-foreground">
+              A T3 Code server is already running for this app&apos;s data directory, so this launch
+              connects to it instead of starting another. Pair it under Environments to save the
+              connection.
+            </span>
+          ) : launchMode?.cliOverride ? (
+            <span className="block text-muted-foreground">
+              This launch uses --backend-mode={launchMode.cliOverride}. The setting applies when
+              launched without that flag.
+            </span>
+          ) : null
         }
         control={
           <Switch
