@@ -7,7 +7,7 @@
   desktopPackage = builtins.fromJSON (builtins.readFile ../apps/desktop/package.json);
   rootPackage = builtins.fromJSON (builtins.readFile ../package.json);
   appName = desktopPackage.productName;
-  electron = pkgs.electron_41;
+  electron = pkgs.electron_44;
   nodejs = pkgs.nodejs_24;
   pnpm = pkgs.pnpm_11;
   # Client-only mode is supplied by its own topic/PR. Keep this flake
