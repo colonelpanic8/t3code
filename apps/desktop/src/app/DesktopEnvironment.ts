@@ -274,10 +274,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
     path.join(legacyRoots.stateDir, "secrets"),
     path.join(legacyRoots.stateDir, "saved-environments.json"),
   ];
-  const legacyStorageInitialized = (yield* Effect.forEach(
-    legacyArtifacts,
-    (artifact) => fileSystem.exists(artifact),
-    { concurrency: "unbounded" },
+  // Sequential and synchronous: this runs before Electron is ready (see main.ts).
+  const legacyStorageInitialized = (yield* Effect.forEach(legacyArtifacts, (artifact) =>
+    fileSystem.exists(artifact),
   )).some(Boolean);
   const storageRoots = selectT3StorageRoots({
     ...(Option.isNone(explicitLegacyRoots)
