@@ -12,7 +12,7 @@
     };
   };
   lib = pkgs.lib;
-  buildToolsVersion = "36.0.0";
+  buildToolsVersion = "37.0.0";
   commandLineToolsVersion = "8.0";
   ndkVersion = "27.1.12297006";
   expoNdkVersion = "27.0.12077973";
@@ -20,8 +20,8 @@
     cmdLineToolsVersion = commandLineToolsVersion;
     toolsVersion = "26.1.1";
     platformToolsVersion = "37.0.1";
-    buildToolsVersions = [buildToolsVersion "35.0.0" "34.0.0"];
-    platformVersions = ["35" "36"];
+    buildToolsVersions = [buildToolsVersion "36.0.0" "35.0.0"];
+    platformVersions = ["35" "36" "37"];
     includeSources = false;
     abiVersions = ["x86_64"];
     includeNDK = true;
