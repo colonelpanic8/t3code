@@ -3106,29 +3106,13 @@ const layerWsRpc = (
             ),
           ),
         [WS_METHODS.voiceLiveStart]: (input, metadata) =>
-          observeRpcStreamEffect(
-            WS_METHODS.voiceLiveStart,
-            voiceLive.start(input, voiceLiveOwner(metadata.client.id)),
-            { "rpc.aggregate": "voice" },
-          ),
+          Stream.unwrap(voiceLive.start(input, voiceLiveOwner(metadata.client.id))),
         [WS_METHODS.voiceLiveStop]: (input, metadata) =>
-          observeRpcEffect(
-            WS_METHODS.voiceLiveStop,
-            voiceLive.stop(input.liveSessionId, voiceLiveOwner(metadata.client.id)),
-            { "rpc.aggregate": "voice" },
-          ),
+          voiceLive.stop(input.liveSessionId, voiceLiveOwner(metadata.client.id)),
         [WS_METHODS.voiceLiveRouteRespond]: (input, metadata) =>
-          observeRpcEffect(
-            WS_METHODS.voiceLiveRouteRespond,
-            voiceLive.respond(input, voiceLiveOwner(metadata.client.id)),
-            { "rpc.aggregate": "voice" },
-          ),
+          voiceLive.respond(input, voiceLiveOwner(metadata.client.id)),
         [WS_METHODS.voiceLiveToolExecute]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.voiceLiveToolExecute,
-            voiceLiveTools.execute(input.toolName, input.arguments),
-            { "rpc.aggregate": "voice" },
-          ),
+          voiceLiveTools.execute(input.toolName, input.arguments),
       });
       return handlers;
     }),

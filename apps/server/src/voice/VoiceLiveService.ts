@@ -29,12 +29,13 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
-import { HttpServer } from "effect/unstable/http";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ServerConfig from "../config.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import {
   openCodexRealtimeHost,
@@ -148,16 +149,11 @@ const sameOwner = (left: VoiceLiveOwner, right: VoiceLiveOwner): boolean =>
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const getVoiceMcpEndpointHost = (hostname: string): string => {
-  const normalized = hostname.toLowerCase();
-  const endpointHostname =
-    normalized === "0.0.0.0" || normalized === "::" || normalized === "[::]"
-      ? "127.0.0.1"
-      : hostname;
-  return endpointHostname.includes(":") && !endpointHostname.startsWith("[")
-    ? `[${endpointHostname}]`
-    : endpointHostname;
-};
+// A wildcard bind is reachable on loopback, where the hidden Codex session runs.
+const getVoiceMcpEndpointHost = (address: NetAddress.IpAddress): string =>
+  NetAddress.isUnspecified(address)
+    ? "127.0.0.1"
+    : NetAddress.formatUrlHostString(NetAddress.formatIp(address));
 
 const decodeCodexSettings = Schema.decodeUnknownEffect(CodexSettings);
 const CODEX_DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -169,17 +165,16 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
   const config = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettingsService;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
-  const snapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const projectStore = yield* ProjectStore.ProjectStoreV2;
   const httpServer = yield* HttpServer.HttpServer;
   const state = yield* SynchronizedRef.make<VoiceLiveState>({
     calls: new Map(),
     owners: new Map(),
     tokens: new Map(),
   });
-  const endpoint =
-    httpServer.address._tag === "TcpAddress"
-      ? `http://${getVoiceMcpEndpointHost(httpServer.address.hostname)}:${httpServer.address.port}/mcp/voice`
-      : "http://127.0.0.1/mcp/voice";
+  const endpoint = NetAddress.isInetAddress(httpServer.address)
+    ? `http://${getVoiceMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}/mcp/voice`
+    : "http://127.0.0.1/mcp/voice";
 
   const hashToken = (token: string) =>
     crypto
@@ -334,7 +329,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
         const prompt = VoiceLivePrompt.buildVoiceLivePrompt({ crossHostRouting });
         const initialItems = yield* VoiceLivePrompt.buildVoiceLiveInitialItems().pipe(
           Effect.provideService(ThreadManagementService.ThreadManagementService, threadManagement),
-          Effect.provideService(ProjectionSnapshotQuery.ProjectionSnapshotQuery, snapshotQuery),
+          Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
         );
         yield* host.start({
           offerSdp: input.offerSdp,

@@ -2,7 +2,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import type { CodexRealtimeInitialItem } from "./CodexRealtimeHost.ts";
 
 /**
@@ -73,18 +73,15 @@ export const buildVoiceLiveInitialItems = Effect.fn("VoiceLivePrompt.buildInitia
   function* (): Effect.fn.Return<
     ReadonlyArray<CodexRealtimeInitialItem>,
     never,
-    | ThreadManagementService.ThreadManagementService
-    | ProjectionSnapshotQuery.ProjectionSnapshotQuery
+    ThreadManagementService.ThreadManagementService | ProjectStore.ProjectStoreV2
   > {
     return yield* Effect.gen(function* () {
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
-      const snapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-      const projects = yield* snapshotQuery.getShellSnapshotWithoutEnrichment();
+      const projectStore = yield* ProjectStore.ProjectStoreV2;
+      const projects = yield* projectStore.listShells();
       const shells = yield* threadManagement.getShellSnapshot();
 
-      const projectTitles = new Map(
-        projects.projects.map((project) => [project.id, project.title]),
-      );
+      const projectTitles = new Map(projects.map((project) => [project.id, project.title]));
       const threads = shells.threads
         .toSorted(
           (left, right) =>
@@ -95,8 +92,8 @@ export const buildVoiceLiveInitialItems = Effect.fn("VoiceLivePrompt.buildInitia
       const lines: string[] = [
         "Snapshot of this environment at call start. It goes stale as work happens: verify with the routed read tools before acting on it.",
         "",
-        `Projects (${projects.projects.length}):`,
-        ...projects.projects.map((project) => `- ${project.title} (projectId ${project.id})`),
+        `Projects (${projects.length}):`,
+        ...projects.map((project) => `- ${project.title} (projectId ${project.id})`),
         "",
         `Active threads (${shells.threads.length}${shells.threads.length > threads.length ? `, newest ${threads.length} shown` : ""}):`,
         ...threads.map((thread) => {

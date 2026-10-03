@@ -14,7 +14,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
-import { Atom, type AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, type AtomRegistry } from "effect/reactivity";
 
 import type { EnvironmentPresentation } from "../connection/presentation.ts";
 import { EnvironmentRegistry, type EnvironmentNotRegisteredError } from "../connection/registry.ts";

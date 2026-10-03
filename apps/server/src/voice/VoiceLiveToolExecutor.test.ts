@@ -12,7 +12,7 @@ import * as Ref from "effect/Ref";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as VoiceLiveToolExecutor from "./VoiceLiveToolExecutor.ts";
 
 const threadId = ThreadId.make("thread:voice-1");
@@ -22,7 +22,7 @@ const withExecutor = <A, E>(
   dependencies: Layer.Layer<
     | ThreadManagementService.ThreadManagementService
     | ThreadLaunchService.ThreadLaunchService
-    | ProjectionSnapshotQuery.ProjectionSnapshotQuery
+    | ProjectStore.ProjectStoreV2
   >,
   body: (executor: VoiceLiveToolExecutor.VoiceLiveToolExecutor["Service"]) => Effect.Effect<A, E>,
 ) =>
@@ -40,7 +40,7 @@ const withExecutor = <A, E>(
 const emptyMocks = Layer.mergeAll(
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
-  Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({}),
+  Layer.mock(ProjectStore.ProjectStoreV2)({}),
 );
 
 describe("VoiceLiveToolExecutor", () => {
@@ -100,7 +100,7 @@ describe("VoiceLiveToolExecutor", () => {
           getThreadProjection: () => Effect.succeed(projection),
         }),
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({}),
+        Layer.mock(ProjectStore.ProjectStoreV2)({}),
       );
       yield* withExecutor(dependencies, (executor) =>
         Effect.gen(function* () {
@@ -154,7 +154,7 @@ describe("VoiceLiveToolExecutor", () => {
             ),
         }),
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({}),
+        Layer.mock(ProjectStore.ProjectStoreV2)({}),
       );
       yield* withExecutor(dependencies, (executor) =>
         Effect.gen(function* () {

@@ -18,7 +18,7 @@ import * as Schema from "effect/Schema";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 
 /**
  * The curated catalog of tools a Live Voice call may run on this host via
@@ -109,7 +109,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
-  const snapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const projectStore = yield* ProjectStore.ProjectStoreV2;
 
   const decodeArgs = <S extends Schema.Top>(schema: S, args: unknown) =>
     Schema.decodeUnknownEffect(schema)(args ?? {}).pipe(
@@ -134,11 +134,11 @@ const make = Effect.gen(function* () {
   });
 
   const listProjects = Effect.fn("VoiceLiveToolExecutor.listProjects")(function* () {
-    const snapshot = yield* snapshotQuery
-      .getShellSnapshotWithoutEnrichment()
+    const projects = yield* projectStore
+      .listShells()
       .pipe(Effect.mapError((error) => errorResult(errorMessage(error))));
     return okResult({
-      projects: snapshot.projects.map((project) => ({
+      projects: projects.map((project) => ({
         projectId: project.id,
         title: project.title,
         workspaceRoot: project.workspaceRoot,
@@ -243,8 +243,8 @@ const make = Effect.gen(function* () {
     readonly prompt: string;
     readonly title?: string | undefined;
   }) {
-    const project = yield* snapshotQuery
-      .getProjectShellById(args.projectId)
+    const project = yield* projectStore
+      .getShell(args.projectId)
       .pipe(Effect.mapError((error) => errorResult(errorMessage(error))));
     if (Option.isNone(project)) {
       return yield* Effect.fail(errorResult(`No project ${args.projectId} on this host.`));

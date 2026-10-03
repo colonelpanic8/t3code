@@ -6,7 +6,6 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
 import { GlassSurface } from "../../components/GlassSurface";
 import { StatusPill, type StatusTone } from "../../components/StatusPill";
-import { useThemeColor } from "../../lib/useThemeColor";
 import { useVoiceLiveState, useVoiceLiveTargets, type VoiceLiveTarget } from "./useVoiceLive";
 import { startVoiceCall, stopVoiceCall, toggleVoiceMute } from "./voiceLiveSession.native";
 import { voiceLiveStoreActions, type VoiceLiveStatus } from "./voiceLiveStore";
@@ -35,18 +34,18 @@ export function VoiceLiveSurface() {
 const STATUS_TONES: Record<Exclude<VoiceLiveStatus, "idle">, StatusTone> = {
   "requesting-permission": {
     label: "Starting",
-    pillClassName: "bg-amber-500/12 dark:bg-amber-500/16",
-    textClassName: "text-amber-700 dark:text-amber-300",
+    pillClassName: "bg-warning",
+    textClassName: "text-warning-foreground",
   },
   connecting: {
     label: "Connecting",
-    pillClassName: "bg-sky-500/12 dark:bg-sky-500/16",
-    textClassName: "text-sky-700 dark:text-sky-300",
+    pillClassName: "bg-primary/15",
+    textClassName: "text-primary-text",
   },
   active: {
     label: "Live",
-    pillClassName: "bg-emerald-500/12 dark:bg-emerald-500/16",
-    textClassName: "text-emerald-700 dark:text-emerald-300",
+    pillClassName: "bg-primary",
+    textClassName: "text-primary-foreground",
   },
   ending: {
     label: "Ending",
@@ -57,14 +56,13 @@ const STATUS_TONES: Record<Exclude<VoiceLiveStatus, "idle">, StatusTone> = {
 
 const ERROR_TONE: StatusTone = {
   label: "Error",
-  pillClassName: "bg-rose-500/12 dark:bg-rose-500/16",
-  textClassName: "text-rose-700 dark:text-rose-300",
+  pillClassName: "bg-danger",
+  textClassName: "text-danger-foreground",
 };
 
 function VoiceLiveBanner() {
   const state = useVoiceLiveState();
   const insets = useSafeAreaInsets();
-  const mutedColor = useThemeColor("--color-foreground-muted");
 
   const bottomOffset = insets.bottom + 12;
 
@@ -90,7 +88,12 @@ function VoiceLiveBanner() {
               hitSlop={10}
               onPress={voiceLiveStoreActions.dismissError}
             >
-              <SymbolView name="xmark" size={15} tintColor={mutedColor} type="monochrome" />
+              <SymbolView
+                name="xmark"
+                size={15}
+                tintColorClassName="accent-foreground-muted"
+                type="monochrome"
+              />
             </Pressable>
           </View>
         </GlassSurface>
@@ -176,8 +179,6 @@ function VoiceLiveBanner() {
 function VoiceLivePicker() {
   const targets = useVoiceLiveTargets();
   const insets = useSafeAreaInsets();
-  const iconColor = useThemeColor("--color-icon");
-  const mutedColor = useThemeColor("--color-foreground-muted");
 
   const handleSelect = (target: VoiceLiveTarget) => {
     voiceLiveStoreActions.closePicker();
@@ -199,7 +200,12 @@ function VoiceLivePicker() {
         <GlassSurface style={{ borderRadius: 28 }}>
           <View className="px-5 py-4">
             <View className="flex-row items-center gap-2.5">
-              <SymbolView name="waveform" size={18} tintColor={iconColor} type="monochrome" />
+              <SymbolView
+                name="waveform"
+                size={18}
+                tintColorClassName="accent-icon"
+                type="monochrome"
+              />
               <Text className="flex-1 text-base font-t3-bold text-foreground">Live Voice</Text>
               <Pressable
                 accessibilityLabel="Close"
@@ -207,7 +213,12 @@ function VoiceLivePicker() {
                 hitSlop={10}
                 onPress={voiceLiveStoreActions.closePicker}
               >
-                <SymbolView name="xmark" size={15} tintColor={mutedColor} type="monochrome" />
+                <SymbolView
+                  name="xmark"
+                  size={15}
+                  tintColorClassName="accent-foreground-muted"
+                  type="monochrome"
+                />
               </Pressable>
             </View>
             <Text className="mt-1 text-sm text-foreground-muted">
@@ -232,7 +243,7 @@ function VoiceLivePicker() {
                     <SymbolView
                       name="server.rack"
                       size={16}
-                      tintColor={iconColor}
+                      tintColorClassName="accent-icon"
                       type="monochrome"
                     />
                     <Text className="flex-1 text-base text-foreground" numberOfLines={1}>
@@ -241,7 +252,7 @@ function VoiceLivePicker() {
                     <SymbolView
                       name="chevron.right"
                       size={14}
-                      tintColor={mutedColor}
+                      tintColorClassName="accent-foreground-muted"
                       type="monochrome"
                     />
                   </Pressable>
