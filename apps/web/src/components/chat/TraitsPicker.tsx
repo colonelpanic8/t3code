@@ -626,6 +626,7 @@ export const TraitsPicker = memo(function TraitsPicker({
                 <ComposerControl
                   aria-label={accessibleLabel}
                   data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
+                  data-chat-provider-traits-picker="true"
                   size={size}
                   className={cn(
                     isCodexStyle
