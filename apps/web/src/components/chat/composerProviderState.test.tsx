@@ -13,6 +13,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
   withImplicitFastModeDefault,
+  selectComposerReasoningEffort,
 } from "./composerProviderState";
 
 // Everything in composerProviderState is now data-driven by the model's
@@ -468,6 +469,41 @@ describe("trait controls fastMode display", () => {
     if (fastMode?.type === "boolean") {
       expect(fastMode.currentValue).toBe(false);
     }
+  });
+});
+
+describe("selectComposerReasoningEffort", () => {
+  const models = modelWith([
+    selectDescriptor("reasoningEffort", [
+      { id: "low", label: "Low" },
+      { id: "medium", label: "Medium", isDefault: true },
+      { id: "high", label: "High" },
+    ]),
+    booleanDescriptor("fastMode"),
+  ]);
+
+  it("changes the primary select option and preserves other options", () => {
+    expect(
+      selectComposerReasoningEffort({
+        provider: PROVIDER,
+        model: MODEL,
+        models,
+        modelOptions: selections(["reasoningEffort", "medium"], ["fastMode", true]),
+        effort: "high",
+      }),
+    ).toEqual(selections(["reasoningEffort", "high"], ["fastMode", true]));
+  });
+
+  it("rejects effort values the selected model does not support", () => {
+    expect(
+      selectComposerReasoningEffort({
+        provider: PROVIDER,
+        model: MODEL,
+        models,
+        modelOptions: undefined,
+        effort: "xhigh",
+      }),
+    ).toBeNull();
   });
 });
 
