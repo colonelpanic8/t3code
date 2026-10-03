@@ -51,6 +51,20 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "auto");
   });
 
+  it("reads the split-layout config directory when no legacy settings exist", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { XDG_CONFIG_HOME: "/home/user/.xdg" },
+      homeDirectory: "/home/user",
+      joinPath,
+      readFileString: (path) => {
+        if (path !== "/home/user/.xdg/t3code/desktop-settings.json") throw new Error("missing");
+        return JSON.stringify({ linuxPasswordStore: "kwallet5" });
+      },
+    });
+
+    assert.equal(preference, "kwallet5");
+  });
+
   it("preserves absolute root paths when resolving early settings", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/" },
