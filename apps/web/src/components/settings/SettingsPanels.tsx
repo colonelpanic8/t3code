@@ -548,6 +548,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
+      ...(settings.sidebarV2LargeIcons !== DEFAULT_UNIFIED_SETTINGS.sidebarV2LargeIcons
+        ? ["Large project icons"]
+        : []),
       ...(settings.sidebarProjectGroupingMode !==
       DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
         ? ["Project Grouping"]
@@ -692,6 +695,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarProjectGroupingMode,
       settings.sidebarWorkingShelfEnabled,
       settings.sidebarThreadPreviewCount,
+      settings.sidebarV2LargeIcons,
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.notificationMode,
@@ -788,6 +792,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+      sidebarV2LargeIcons: DEFAULT_UNIFIED_SETTINGS.sidebarV2LargeIcons,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
@@ -2327,6 +2332,28 @@ export function GeneralSettingsPanel() {
                 updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
               }
               aria-label="Working section (beta)"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("large-project-icons")}
+          description="Show larger project icons in sidebar thread rows."
+          resetAction={
+            settings.sidebarV2LargeIcons ? (
+              <SettingResetButton
+                label="large project icons"
+                onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarV2LargeIcons}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+              }
+              aria-label="Large project icons"
             />
           }
         />
