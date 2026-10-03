@@ -192,7 +192,7 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly onExpectedFailure?: (
     cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
   ) => Effect.Effect<void, never, never>;
-  readonly retryExpectedFailureAfter?: Duration.Input;
+  readonly retryExpectedFailureAfter?: Duration.Input | ((attempt: number) => Duration.Input);
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
@@ -238,6 +238,7 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                 EnvironmentRpcStreamValue<TTag>,
                 EnvironmentRpcStreamFailure<TTag>
               >;
+              let consecutiveExpectedFailures = 0;
               const subscribeToSession = (): Stream.Stream<A, EnvironmentRpcStreamFailure<TTag>> =>
                 Stream.suspend(() =>
                   Stream.unwrap(
@@ -248,7 +249,14 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         method: tag,
                         input,
                       });
-                      const stream = mapStream(session, method(input));
+                      // Reset per chunk: a per-element effect would split chunks
+                      // that must survive a session switch intact.
+                      const stream = mapStream(session, method(input)).pipe(
+                        Stream.mapArray((values) => {
+                          consecutiveExpectedFailures = 0;
+                          return values;
+                        }),
+                      );
                       // An evicted preview host completes its registration stream.
                       // Re-register only after completion; failures still follow the
                       // session recovery policy and browser actions are never replayed.
@@ -296,15 +304,17 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         const handled = Stream.fromEffect(options.onExpectedFailure(cause)).pipe(
                           Stream.drain,
                         );
-                        if (options.retryExpectedFailureAfter === undefined) {
+                        const retryAfter = options.retryExpectedFailureAfter;
+                        if (retryAfter === undefined) {
                           return handled;
                         }
+                        const delay =
+                          typeof retryAfter === "function"
+                            ? retryAfter(consecutiveExpectedFailures)
+                            : retryAfter;
+                        consecutiveExpectedFailures += 1;
                         return handled.pipe(
-                          Stream.concat(
-                            Stream.fromEffect(Effect.sleep(options.retryExpectedFailureAfter)).pipe(
-                              Stream.drain,
-                            ),
-                          ),
+                          Stream.concat(Stream.fromEffect(Effect.sleep(delay)).pipe(Stream.drain)),
                           Stream.concat(subscribeToSession()),
                         );
                       }
