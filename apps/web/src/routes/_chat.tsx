@@ -8,7 +8,7 @@ import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
-import { usePrimaryEnvironmentId } from "../state/environments";
+import { useAppOwnsLocalEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
@@ -39,15 +39,17 @@ function ChatRouteGlobalShortcuts() {
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { scratchEnvironmentId, startScratchThread } = useScratchProject();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
   const projectGroupCount = useMemo(
     () =>
       buildSidebarProjectSnapshots({
         projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment,
         resolveEnvironmentLabel: () => null,
       }).length,
-    [primaryEnvironmentId, projectGroupingSettings, projects],
+    [ownsLocalEnvironment, primaryEnvironmentId, projectGroupingSettings, projects],
   );
   const terminalOpen = useTerminalUiStateStore((state) =>
     routeThreadRef

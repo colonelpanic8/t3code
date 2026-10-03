@@ -15,6 +15,7 @@ import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
+import * as DesktopBackendMode from "./DesktopBackendMode.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
@@ -24,6 +25,7 @@ import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopObservability from "./DesktopObservability.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import * as DesktopRunningLocalServers from "./DesktopRunningLocalServers.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -182,6 +184,7 @@ const bootstrap = Effect.gen(function* () {
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
   const appActivation = yield* DesktopAppActivation.DesktopAppActivation;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
   yield* logBootstrapInfo("bootstrap start");
 
   const settings = yield* desktopSettings.get;
@@ -200,8 +203,9 @@ const bootstrap = Effect.gen(function* () {
 
   yield* snapShot.initialize;
 
-  if (!settings.localEnvironmentEnabled) {
-    yield* logBootstrapInfo("bootstrap skipping local environment (disabled in settings)");
+  const launchMode = yield* backendMode.get;
+  if (launchMode.effectiveMode === "client-only") {
+    yield* logBootstrapInfo("bootstrap skipping local environment", { source: launchMode.source });
     if (!(yield* Ref.get(state.quitting))) {
       yield* desktopWindow.createMainIfBackendReady;
     }
@@ -275,6 +279,39 @@ const bootstrap = Effect.gen(function* () {
   }
 }).pipe(Effect.withSpan("desktop.bootstrap"));
 
+export const latchDesktopBackendModeForStartup = Effect.gen(function* () {
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+  return yield* backendMode.latchCliOverride.pipe(
+    Effect.catchCause((cause) => fatalStartupCause("backendMode", cause)),
+  );
+});
+
+const selectDesktopBackendMode = Effect.gen(function* () {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+  let launchMode = yield* latchDesktopBackendModeForStartup;
+  if (launchMode.effectiveMode === "managed" && !environment.isDevelopment) {
+    const runningLocalServers = yield* DesktopRunningLocalServers.DesktopRunningLocalServers;
+    const existingServer = (yield* runningLocalServers.discover).find(
+      (server) => server.variant === "userdata",
+    );
+    if (existingServer !== undefined) {
+      launchMode = yield* backendMode.useExistingServer;
+      yield* logStartupInfo("using existing local server instead of starting managed backend", {
+        environmentId: existingServer.environmentId,
+        origin: existingServer.httpBaseUrl,
+        pid: existingServer.pid,
+        statePath: existingServer.statePath,
+      });
+    }
+  }
+  yield* logStartupInfo("desktop backend mode selected", {
+    effectiveMode: launchMode.effectiveMode,
+    configuredMode: launchMode.configuredMode,
+    source: launchMode.source,
+  });
+});
+
 const startup = Effect.gen(function* () {
   const appIdentity = yield* DesktopAppIdentity.DesktopAppIdentity;
   const applicationMenu = yield* DesktopApplicationMenu.DesktopApplicationMenu;
@@ -318,6 +355,7 @@ const startup = Effect.gen(function* () {
   });
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
   yield* desktopSettings.load;
+  yield* selectDesktopBackendMode;
 
   if (linuxElectronOptions !== null) {
     yield* logStartupInfo("linux password store configured", {
