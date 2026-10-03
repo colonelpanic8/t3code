@@ -6,9 +6,12 @@ import {
 import { Discovery } from "@t3tools/client-runtime/relay";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
+import type { EnvironmentPresenceScope } from "../environmentPresence";
+import { isHostedStaticApp } from "../hostedPairing";
+import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import {
   environmentPresentations,
   environmentSummaries,
@@ -61,6 +64,26 @@ export function useEnvironments() {
 
 export function usePrimaryEnvironmentId(): EnvironmentId | null {
   return useAtomValue(primaryEnvironmentIdAtom);
+}
+
+export function appOwnsLocalEnvironment(): boolean {
+  return !isHostedStaticApp() && !isLocalEnvironmentDisabled();
+}
+
+// Fixed for the life of the page: the hosting mode and the desktop launch mode
+// never change without a reload.
+export function useAppOwnsLocalEnvironment(): boolean {
+  const [ownsLocalEnvironment] = useState(appOwnsLocalEnvironment);
+  return ownsLocalEnvironment;
+}
+
+export function useEnvironmentPresenceScope(): EnvironmentPresenceScope {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const ownsLocalEnvironment = useAppOwnsLocalEnvironment();
+  return useMemo(
+    () => ({ primaryEnvironmentId, ownsLocalEnvironment }),
+    [primaryEnvironmentId, ownsLocalEnvironment],
+  );
 }
 
 export function useEnvironment(
