@@ -19,7 +19,7 @@
   composition = pkgs.androidenv.composeAndroidPackages {
     cmdLineToolsVersion = commandLineToolsVersion;
     toolsVersion = "26.1.1";
-    platformToolsVersion = "35.0.2";
+    platformToolsVersion = "37.0.1";
     buildToolsVersions = [buildToolsVersion "35.0.0" "34.0.0"];
     platformVersions = ["35" "36"];
     includeSources = false;
