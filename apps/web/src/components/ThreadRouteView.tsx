@@ -1,10 +1,14 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import ChatView from "./ChatView";
-import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
+import {
+  draftServerThreadHasStarted,
+  resolveDraftPromotionNavigationTarget,
+  threadHasStarted,
+} from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
 import { SidebarInset } from "./ui/sidebar";
 import {
@@ -14,11 +18,17 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
-import { useEnvironmentThreadRefs, useThreadRefs, useThreadShell } from "../state/entities";
+import {
+  resolveThreadDetailRef,
+  useEnvironmentThreadRefs,
+  useThreadProjection,
+  useThreadShell,
+} from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { environmentShell } from "../state/shell";
 import {
   buildThreadRouteParams,
+  resolveDraftThreadSubscriptionRef,
   resolveThreadRouteRenderState,
   type ThreadRouteTarget,
 } from "../threadRoutes";
@@ -42,19 +52,40 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
   );
-  const threadRefs = useThreadRefs();
-  // The server thread this view is about: the route's own ref, or the draft's
-  // reserved ref once the server knows it.
-  const inferredThreadRef = draftSession
-    ? (threadRefs.find(
-        (ref) =>
-          ref.environmentId === draftSession.environmentId &&
-          ref.threadId === draftSession.threadId,
-      ) ?? null)
-    : null;
+  // The server thread this view is about: the route's own ref, or the ref the
+  // draft reserved at creation. Observing the reserved ref directly keeps
+  // promotion from waiting on the shell thread list to publish the thread.
+  const promotedTo = draftSession?.promotedTo ?? null;
+  const draftEnvironmentId = draftSession?.environmentId ?? null;
+  const draftThreadId = draftSession?.threadId ?? null;
+  const draftServerThreadRef = useMemo(
+    () =>
+      draftEnvironmentId === null || draftThreadId === null
+        ? null
+        : resolveDraftThreadSubscriptionRef({
+            environmentId: draftEnvironmentId,
+            threadId: draftThreadId,
+            promotedTo,
+          }),
+    [draftEnvironmentId, draftThreadId, promotedTo],
+  );
   const serverThreadRef: ScopedThreadRef | null =
-    target.kind === "server" ? target.threadRef : (draftSession?.promotedTo ?? inferredThreadRef);
+    target.kind === "server" ? target.threadRef : draftServerThreadRef;
   const serverThread = useThreadShell(serverThreadRef);
+  // Once the bootstrap launch has been accepted (`promotedTo` recorded) the
+  // reserved detail stream is an independent promotion signal, so it must not
+  // stay gated behind the shell upsert the way an unsent draft's is.
+  const draftServerThreadDetail = useThreadProjection(
+    target.kind === "draft"
+      ? resolveThreadDetailRef(serverThreadRef, {
+          shellExists: serverThread !== null,
+          waitForShell: promotedTo === null,
+        })
+      : null,
+  );
+  const draftServerThreadStarted =
+    target.kind === "draft" &&
+    draftServerThreadHasStarted({ shell: serverThread, projection: draftServerThreadDetail });
   const backgroundSubmissionPending = useBackgroundDraftSubmissionPending(
     target.kind === "draft" ? serverThreadRef : null,
   );
@@ -63,6 +94,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       ? resolveDraftPromotionNavigationTarget({
           serverThreadRef,
           serverThread,
+          serverThreadProjection: draftServerThreadDetail,
           backgroundSubmissionPending,
         })
       : null;
@@ -108,11 +140,11 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
   useEffect(() => {
-    if (!inferredThreadRef || draftSession?.promotedTo) {
+    if (target.kind !== "draft" || !serverThreadRef || !draftServerThreadStarted || promotedTo) {
       return;
     }
-    markPromotedDraftThreadByRef(inferredThreadRef);
-  }, [draftSession?.promotedTo, inferredThreadRef]);
+    markPromotedDraftThreadByRef(serverThreadRef);
+  }, [draftServerThreadStarted, promotedTo, serverThreadRef, target.kind]);
 
   useEffect(() => {
     if (!canonicalThreadRef) {
