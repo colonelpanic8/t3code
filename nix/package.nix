@@ -18,6 +18,33 @@
   version =
     "${desktopPackage.version}-source"
     + lib.optionalString (buildCommit != "") "-${builtins.substring 0 8 buildCommit}";
+  # The web build renders generated license notices from SPDX texts that it
+  # otherwise downloads on first use. Seed that cache so the sandbox stays offline.
+  licenseScript = builtins.readFile ../scripts/lib/third-party-licenses.ts;
+  licenseScriptConst = name:
+    builtins.head (builtins.match ".*const ${name} = \"([^\"]+)\";.*" licenseScript);
+  spdxLicenseListVersion = licenseScriptConst "SPDX_LICENSE_LIST_VERSION";
+  spdxLicenseListRevision = licenseScriptConst "SPDX_LICENSE_LIST_REVISION";
+  # One entry per licenseId in third-party-licenses.config.json.
+  spdxLicenseHashes = {
+    "Apache-2.0" = "sha256-iyt7wmfXAL6UCFzSyDA+Atj4ODKLKnMQ3DqIQNPKErs=";
+    "BSD-2-Clause" = "sha256-h2hDpwacR4mNECQyo1vjMqRXz3r/gJTMsYqj315jQJI=";
+    "BSD-3-Clause" = "sha256-RXYFS3RBfUAh/9ovY7h/3lJ5Hj7ZTu7yznkwJRtDcwE=";
+    "CC0-1.0" = "sha256-gdRg6RFSHhS1Ky/Y4Gl5Wscx6JhspYpdKUFdzAHqoSU=";
+    "ISC" = "sha256-VJTDV7IdtsBt1r1r1J1ldZINPVNDQE5vVFkWPmjn5Yo=";
+    "MIT" = "sha256-fuCJ3MxiW/GLCrHoDgxLysVYeIT1viXZATuK1sYd1Dk=";
+    "Unlicense" = "sha256-itR5uQEH/xGJKbe09Fvk/axB/Aq0J6LEIbwwY52X4fs=";
+  };
+  spdxLicenseCache = pkgs.linkFarm "t3code-spdx-licenses-${spdxLicenseListVersion}" (
+    lib.mapAttrsToList (licenseId: hash: {
+      name = "${licenseId}.json";
+      path = pkgs.fetchurl {
+        url = "https://raw.githubusercontent.com/spdx/license-list-data/${spdxLicenseListRevision}/json/details/${licenseId}.json";
+        inherit hash;
+      };
+    })
+    spdxLicenseHashes
+  );
   desktopIcon =
     if pkgs.stdenv.hostPlatform.isDarwin
     then ../assets/prod/black-macos-1024.png
@@ -88,6 +115,10 @@
     '';
 
     preBuild = ''
+      mkdir -p .generated/third-party-licenses/spdx
+      cp -rL --no-preserve=mode ${spdxLicenseCache} \
+        .generated/third-party-licenses/spdx/${spdxLicenseListVersion}
+
       node scripts/update-release-package-versions.ts ${lib.escapeShellArg finalAttrs.version}
 
       export npm_config_nodedir=${nodejs}
