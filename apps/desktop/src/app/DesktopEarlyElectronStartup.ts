@@ -49,11 +49,14 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-function resolveEarlyDesktopSettingsPath(input: {
+// Electron is not ready yet, so this mirrors DesktopEnvironment's storage selection cheaply:
+// an initialized legacy tree wins, otherwise the split config directory is used.
+function resolveEarlyDesktopSettingsPaths(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
-}): string {
+}): ReadonlyArray<string> {
+  const isDevelopment = isDevelopmentEnvironment(input.env);
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
   const baseDir = resolveDesktopBaseDir({
     homeDirectory: input.homeDirectory,
@@ -62,23 +65,45 @@ function resolveEarlyDesktopSettingsPath(input: {
   });
   const stateDir = resolveDesktopStateDir({
     baseDir,
-    isDevelopment: isDevelopmentEnvironment(input.env),
+    isDevelopment,
     joinPath: input.joinPath,
     t3Home,
   });
-  return input.joinPath(stateDir, "desktop-settings.json");
+  const legacyPath = input.joinPath(stateDir, "desktop-settings.json");
+  if (trimNonEmpty(input.env.T3CODE_HOME) !== null) return [legacyPath];
+  const configDirOverride = trimNonEmpty(input.env.T3CODE_CONFIG_DIR);
+  if (configDirOverride !== null) {
+    return [input.joinPath(configDirOverride, "desktop-settings.json")];
+  }
+  const xdgConfigHome = trimNonEmpty(input.env.XDG_CONFIG_HOME);
+  const configHome =
+    xdgConfigHome?.startsWith("/") === true
+      ? xdgConfigHome
+      : input.joinPath(input.homeDirectory, ".config");
+  return [
+    legacyPath,
+    input.joinPath(configHome, isDevelopment ? "t3code-dev" : "t3code", "desktop-settings.json"),
+  ];
 }
 
 export function resolveEarlyLinuxPasswordStorePreference(
   input: EarlyDesktopSettingsInput,
 ): LinuxPasswordStorePreference {
-  const settingsPath = resolveEarlyDesktopSettingsPath(input);
-  try {
-    const parsed = decodeEarlyDesktopSettingsJson(input.readFileString(settingsPath));
-    return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
-  } catch {
-    return DEFAULT_LINUX_PASSWORD_STORE;
+  for (const settingsPath of resolveEarlyDesktopSettingsPaths(input)) {
+    let raw: string;
+    try {
+      raw = input.readFileString(settingsPath);
+    } catch {
+      continue;
+    }
+    try {
+      const parsed = decodeEarlyDesktopSettingsJson(raw);
+      return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
+    } catch {
+      return DEFAULT_LINUX_PASSWORD_STORE;
+    }
   }
+  return DEFAULT_LINUX_PASSWORD_STORE;
 }
 
 export function resolveEarlyLinuxElectronOptions(
