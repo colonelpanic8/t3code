@@ -3,6 +3,8 @@ import {
   BearerConnectionProfile,
   BearerConnectionRegistration,
   BearerConnectionTarget,
+  isManagedConnectionTarget,
+  MANAGED_CONNECTION_ID_PREFIX,
   RelayConnectionTarget,
   SshConnectionProfile,
   SshConnectionTarget,
@@ -313,7 +315,7 @@ function connectionId(prefix: "bearer" | "ssh", environmentId: string): string {
 }
 
 function managedConnectionId(environmentId: string): string {
-  return `managed:${environmentId}`;
+  return `${MANAGED_CONNECTION_ID_PREFIX}${environmentId}`;
 }
 
 function registerManagedConnections(
@@ -343,12 +345,17 @@ function registerManagedConnections(
   }, catalog);
 }
 
-function removeManagedConnections(
+// Declared entries are re-registered in place so a switched-off flag survives reloads.
+function removeStaleManagedConnections(
   catalog: RuntimeConnectionCatalogDocumentType,
+  connections: ReadonlyArray<ManagedConnection>,
 ): RuntimeConnectionCatalogDocumentType {
+  const declared = new Set(
+    connections.map((connection) => managedConnectionId(connection.environmentId)),
+  );
   return catalog.targets.reduce(
     (current, target) =>
-      "connectionId" in target && target.connectionId.startsWith("managed:")
+      isManagedConnectionTarget(target) && !declared.has(target.connectionId)
         ? removeConnectionFromCatalog(current, target.environmentId)
         : current,
     catalog,
@@ -631,7 +638,10 @@ export const make = Effect.gen(function* () {
         : EMPTY_CONNECTION_CATALOG_DOCUMENT;
       return Option.some(
         yield* encodeCatalog(
-          registerManagedConnections(removeManagedConnections(catalog), managedConnections),
+          registerManagedConnections(
+            removeStaleManagedConnections(catalog, managedConnections),
+            managedConnections,
+          ),
         ),
       );
     }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
