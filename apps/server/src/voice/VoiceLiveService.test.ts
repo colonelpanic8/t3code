@@ -15,10 +15,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpServer } from "effect/unstable/http";
+import * as NetAddress from "effect/unstable/net/NetAddress";
 
 import * as ServerConfig from "../config.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import type {
   CodexRealtimeEvent,
@@ -40,7 +41,7 @@ const otherOwner: VoiceLiveService.VoiceLiveOwner = {
 const defaultSettings = Schema.decodeUnknownSync(ServerSettings)({});
 
 const fakeHttpServer = HttpServer.HttpServer.of({
-  address: { _tag: "TcpAddress", hostname: "127.0.0.1", port: 43123 },
+  address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
   serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
 });
 
@@ -95,7 +96,7 @@ const dependencies = Layer.mergeAll(
   ),
   Layer.mock(ServerSettingsService)({ getSettings: Effect.succeed(defaultSettings) }),
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
-  Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({}),
+  Layer.mock(ProjectStore.ProjectStoreV2)({}),
 );
 
 const makeService = (openHost: VoiceLiveService.OpenVoiceRealtimeHost) =>

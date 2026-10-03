@@ -181,7 +181,7 @@ export const VoiceLiveToolExecuteResult = Schema.Struct({
 });
 export type VoiceLiveToolExecuteResult = typeof VoiceLiveToolExecuteResult.Type;
 
-export class VoiceLiveError extends Schema.TaggedErrorClass<VoiceLiveError>()("VoiceLiveError", {
+export class VoiceLiveError extends Schema.TaggedError<VoiceLiveError>()("VoiceLiveError", {
   message: Schema.String,
   /** Open string for version skew: unavailable, busy, provider_too_old, unauthenticated, ... */
   code: Schema.optional(TrimmedNonEmptyString),

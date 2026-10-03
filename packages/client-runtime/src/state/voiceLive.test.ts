@@ -21,7 +21,7 @@ import {
 } from "./voiceLive.ts";
 import { classifyVoiceLiveExecuteTarget, routeVoiceLiveRequest } from "./voiceLiveRouter.ts";
 
-class TestRpcError extends Schema.TaggedErrorClass<TestRpcError>()("TestRpcError", {
+class TestRpcError extends Schema.TaggedError<TestRpcError>()("TestRpcError", {
   message: Schema.String,
 }) {}
 

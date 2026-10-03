@@ -45,11 +45,11 @@ export const VoiceLiveCallCard = memo(function VoiceLiveCallCard() {
   const statusDotClass =
     status === "active"
       ? muted
-        ? "bg-amber-500"
-        : "bg-emerald-500"
+        ? "bg-warning"
+        : "bg-success"
       : status === "connecting"
-        ? "bg-amber-500"
-        : "bg-red-500";
+        ? "bg-warning"
+        : "bg-destructive";
   const statusLine =
     status === "error"
       ? (errorMessage ?? "Call failed")
@@ -118,7 +118,7 @@ export const VoiceLiveCallCard = memo(function VoiceLiveCallCard() {
       </div>
       {status === "active" && autoplayBlocked ? (
         <button
-          className="w-full border-t border-border px-3 py-2 text-left text-xs text-amber-500"
+          className="w-full border-t border-border px-3 py-2 text-left text-xs text-warning"
           onClick={() => {
             void resumeVoiceLiveAudio();
           }}
