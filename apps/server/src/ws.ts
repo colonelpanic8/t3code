@@ -94,6 +94,7 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
+  VcsRepositoryDetectionError,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -1209,6 +1210,24 @@ const makeWsRpcLayer = (
           }).pipe(Effect.as(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL)),
         ),
       );
+      const addReviewWorkspacePaths = <T extends { readonly cwd: string }>(input: T) =>
+        Effect.all({
+          repositoryRoots: projectStore
+            .list()
+            .pipe(Effect.map((projects) => projects.map((project) => project.workspaceRoot))),
+          knownWorktreePaths: projectStore.listActiveThreadWorktreePaths(),
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new VcsRepositoryDetectionError({
+                operation: "review.workspacePaths",
+                cwd: input.cwd,
+                detail: "Failed to load project paths required to validate the review workspace.",
+                cause,
+              }),
+          ),
+          Effect.map((paths) => ({ ...input, ...paths })),
+        );
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
       const withPullRequestViewer = pullRequests.withRoutingCredential;
@@ -3336,13 +3355,15 @@ const makeWsRpcLayer = (
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.reviewGetDiffPreview]: (input) =>
-          observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
-            "rpc.aggregate": "review",
-          }),
+          observeRpcEffect(
+            WS_METHODS.reviewGetDiffPreview,
+            addReviewWorkspacePaths(input).pipe(Effect.flatMap(review.getDiffPreview)),
+            { "rpc.aggregate": "review" },
+          ),
         [WS_METHODS.reviewGetDiffFileContents]: (input) =>
           observeRpcEffect(
             WS_METHODS.reviewGetDiffFileContents,
-            review.getDiffFileContents(input),
+            addReviewWorkspacePaths(input).pipe(Effect.flatMap(review.getDiffFileContents)),
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>

@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
+import * as ServerSettings from "../serverSettings.ts";
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -22,6 +23,7 @@ function makeLayer(input: {
     ),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
+    Layer.provide(ServerSettings.layerTest()),
   );
 }
 
@@ -131,6 +133,7 @@ describe("GitWorkflowService", () => {
           status,
         }),
       ),
+      Layer.provide(ServerSettings.layerTest()),
     );
 
     return Effect.gen(function* () {
@@ -142,6 +145,42 @@ describe("GitWorkflowService", () => {
       assert.equal(localStatus.mock.calls.length, 0);
       assert.equal(remoteStatus.mock.calls.length, 0);
       assert.equal(status.mock.calls.length, 0);
+    }).pipe(Effect.provide(testLayer));
+  });
+
+  it.effect("creates worktrees at the configured path template unless a path is given", () => {
+    const createWorktree = vi.fn(
+      (
+        input: Parameters<GitVcsDriver.GitVcsDriver["Service"]["createWorktree"]>[0],
+        _options?: GitVcsDriver.CreateWorktreeOptions,
+      ) =>
+        Effect.succeed({
+          worktree: { path: input.path ?? "/templated", refName: input.refName },
+        }),
+    );
+    const testLayer = GitWorkflowService.layer.pipe(
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          resolve: () => Effect.succeed({ kind: "git" } as never),
+        }),
+      ),
+      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ createWorktree })),
+      Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      Layer.provide(
+        ServerSettings.layerTest({ worktreePathTemplate: "{repoRoot}/.worktrees/{branch}" }),
+      ),
+    );
+
+    return Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      yield* workflow.createWorktree({ cwd: "/repo", refName: "feature", path: null });
+      yield* workflow.createWorktree({ cwd: "/repo", refName: "feature", path: "/explicit" });
+
+      assert.equal(
+        createWorktree.mock.calls[0]?.[1]?.pathTemplate,
+        "{repoRoot}/.worktrees/{branch}",
+      );
+      assert.equal(createWorktree.mock.calls[1]?.[1]?.pathTemplate, undefined);
     }).pipe(Effect.provide(testLayer));
   });
 
