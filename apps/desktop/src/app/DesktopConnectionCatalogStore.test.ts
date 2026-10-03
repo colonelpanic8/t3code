@@ -1,6 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
+import {
+  ConnectionCatalogDocument,
+  setConnectionEnabledInCatalog,
+} from "@t3tools/client-runtime/platform";
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
@@ -21,6 +24,9 @@ import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const decodeConnectionCatalog = Schema.decodeEffect(
+  Schema.fromJsonString(ConnectionCatalogDocument),
+);
+const encodeConnectionCatalog = Schema.encodeEffect(
   Schema.fromJsonString(ConnectionCatalogDocument),
 );
 const encodeLegacySavedEnvironments = Schema.encodeEffect(
@@ -168,7 +174,19 @@ describe("DesktopConnectionCatalogStore", () => {
         assert.equal(managedCatalog.credentials[0].credential.token, "fleet-secret");
       }
 
-      assert.isTrue(yield* store.set(first.value));
+      const fleetId = EnvironmentId.make("fleet:ryzen-shine");
+      const switchedOff = yield* encodeConnectionCatalog(
+        setConnectionEnabledInCatalog(managedCatalog, fleetId, false),
+      );
+      assert.isTrue(yield* store.set(switchedOff));
+      const reloaded = yield* store.get;
+      assert.isTrue(Option.isSome(reloaded));
+      if (Option.isSome(reloaded)) {
+        const catalog = yield* decodeConnectionCatalog(reloaded.value);
+        assert.deepEqual(catalog.disabledEnvironmentIds, [fleetId]);
+        assert.equal(catalog.targets.length, 1);
+      }
+
       yield* fileSystem.writeFileString(managedConnectionsPath, '{"version":1,"connections":[]}');
       const reconciled = yield* store.get;
       assert.isTrue(Option.isSome(reconciled));
@@ -177,6 +195,7 @@ describe("DesktopConnectionCatalogStore", () => {
         assert.deepEqual(catalog.targets, []);
         assert.deepEqual(catalog.profiles, []);
         assert.deepEqual(catalog.credentials, []);
+        assert.deepEqual(catalog.disabledEnvironmentIds, []);
       }
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );

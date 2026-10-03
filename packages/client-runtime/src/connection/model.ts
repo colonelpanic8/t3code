@@ -46,7 +46,7 @@ export const ConnectionTarget = Schema.Union([
 ]);
 export type ConnectionTarget = typeof ConnectionTarget.Type;
 
-const MANAGED_CONNECTION_ID_PREFIX = "managed:";
+export const MANAGED_CONNECTION_ID_PREFIX = "managed:";
 
 export function isManagedConnectionTarget(
   target: ConnectionTarget,
