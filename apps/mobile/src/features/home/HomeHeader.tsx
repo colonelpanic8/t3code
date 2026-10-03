@@ -8,6 +8,8 @@ import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
+import { useVoiceLiveTargets } from "../voice/useVoiceLive";
+import { voiceLiveStoreActions } from "../voice/voiceLiveStore";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 
@@ -16,6 +18,7 @@ export type { HomeHeaderEnvironment } from "./HomeHeader.types";
 export function HomeHeader(props: HomeHeaderProps) {
   const searchBarRef = useRef<SearchBarCommands>(null);
   const iconColor = useUniwindTheme()["--color-icon"];
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   // The list uses a fixed creation order and ignores sort/group options, so
   // the filter menu only carries the filters and the "customized" icon state
   // keys off those alone.
@@ -31,12 +34,24 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[filterMenu.items, voiceLiveAvailable]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
           headerTintColor: iconColor,
           unstable_headerRightItems: () => [
+            ...(voiceLiveAvailable
+              ? [
+                  withNativeGlassHeaderItem({
+                    accessibilityLabel: "Start Live Voice",
+                    icon: { name: "waveform", type: "sfSymbol" } as const,
+                    identifier: "home-voice-live",
+                    label: "",
+                    onPress: voiceLiveStoreActions.openPicker,
+                    type: "button",
+                  }),
+                ]
+              : []),
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open settings",
               icon: { name: "ellipsis", type: "sfSymbol" } as const,

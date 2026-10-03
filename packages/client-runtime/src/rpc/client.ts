@@ -67,7 +67,8 @@ export type EnvironmentStreamCommandRpcTag =
   | typeof WS_METHODS.chatGptHandoffSubscribe
   | typeof WS_METHODS.cloudInstallRelayClient
   | typeof WS_METHODS.serverUpdateServerWithProgress
-  | typeof WS_METHODS.gitRunStackedAction;
+  | typeof WS_METHODS.gitRunStackedAction
+  | typeof WS_METHODS.voiceLiveStart;
 
 export type EnvironmentStreamRpcTag =
   | EnvironmentSubscriptionRpcTag
