@@ -486,6 +486,10 @@
     "./PtyAdapter": {
       "types": "./src/PtyAdapter.ts",
       "import": "./src/PtyAdapter.ts"
+    },
+    "./serverRuntimeState": {
+      "types": "./src/serverRuntimeState.ts",
+      "import": "./src/serverRuntimeState.ts"
     }
   },
   "scripts": {
