@@ -26,6 +26,7 @@ import * as Schema from "effect/Schema";
 import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
@@ -192,11 +193,12 @@ export const pickFolder = DesktopIpc.makeIpcMethod({
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
-    const settings = yield* appSettings.get;
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
     // A picked path only means something to a backend on this machine.
-    if (!settings.localEnvironmentEnabled) {
+    if (!(yield* backendMode.localEnvironmentEnabled)) {
       return null;
     }
+    const settings = yield* appSettings.get;
     // Three picker modes:
     //   - targetEnvironmentId omitted: default to the primary picker. Keeps
     //     the historical behavior unchanged for users who never enabled the
@@ -260,8 +262,8 @@ export const pickProjectFavicon = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.pickProjectFavicon")(function* (initialPath) {
     const dialog = yield* ElectronDialog.ElectronDialog;
     const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
-    if (!(yield* appSettings.get).localEnvironmentEnabled) {
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+    if (!(yield* backendMode.localEnvironmentEnabled)) {
       return null;
     }
     const paths = yield* dialog.pickFiles({

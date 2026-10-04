@@ -76,6 +76,7 @@ describe("environment grouping", () => {
       projects: [primary, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     }).length;
 
@@ -105,6 +106,7 @@ describe("environment grouping", () => {
         projects,
         settings: defaultGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment: true,
         resolveEnvironmentLabel: (environmentId) =>
           environmentId === remoteEnvironmentId ? "Mac mini" : "Primary",
       });
@@ -114,6 +116,34 @@ describe("environment grouping", () => {
     expect(projectGroupsSpanEnvironments(groups)).toBe(true);
     expect(projectGroupsSpanEnvironments(build([grouped, separateLocal]))).toBe(false);
     expect(projectGroupsSpanEnvironments(build([separateRemote]))).toBe(false);
+  });
+
+  it("marks every project remote for an app with no local backend of its own", () => {
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+    });
+
+    const [clientOnly] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      ownsLocalEnvironment: false,
+      resolveEnvironmentLabel: () => "remote",
+    });
+
+    expect(clientOnly?.environmentPresence).toBe("remote-only");
+    expect(clientOnly?.remoteEnvironmentLabels).toEqual(["remote"]);
+
+    const [managed] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      ownsLocalEnvironment: true,
+      resolveEnvironmentLabel: () => "remote",
+    });
+
+    expect(managed?.environmentPresence).toBe("local-only");
   });
 
   it("keeps projects without repository identity physically scoped", () => {
@@ -204,6 +234,7 @@ describe("environment grouping", () => {
       projects: [primary, duplicate, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: (environmentId) =>
         environmentId === remoteEnvironmentId ? "remote" : "primary",
     });
@@ -234,6 +265,7 @@ describe("environment grouping", () => {
       projects: [staleDuplicate, canonical],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => "primary",
     });
 
@@ -263,6 +295,7 @@ describe("environment grouping", () => {
       projects: [staleWithoutRepositoryIdentity, canonical, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: (environmentId) =>
         environmentId === remoteEnvironmentId ? "remote" : "primary",
     });
@@ -321,6 +354,25 @@ describe("environment grouping", () => {
     ).not.toBe(repositoryIdentity.canonicalKey);
   });
 
+  it("reports the remote environments backing a group's remote labels", () => {
+    const primary = makeProject({ repositoryIdentity });
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const [group] = buildSidebarProjectSnapshots({
+      projects: [primary, remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      ownsLocalEnvironment: true,
+      resolveEnvironmentLabel: (environmentId) =>
+        environmentId === remoteEnvironmentId ? "ryzen-shine" : null,
+    });
+
+    expect(group?.remoteEnvironmentLabels).toEqual(["ryzen-shine"]);
+  });
+
   it("builds one picker entry per logical project and targets the preferred environment", () => {
     const primary = makeProject({ repositoryIdentity });
     const remote = makeProject({
@@ -337,6 +389,7 @@ describe("environment grouping", () => {
       projects: [separate, primary, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
 
@@ -401,6 +454,7 @@ describe("environment grouping", () => {
       ],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
 
@@ -452,6 +506,7 @@ describe("environment grouping", () => {
       projects: orderedProjects,
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
 
