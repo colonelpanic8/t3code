@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
 import * as DesktopShutdown from "../../app/DesktopShutdown.ts";
@@ -32,10 +33,14 @@ describe("local environment IPC", () => {
   it.effect("relaunches only when the setting changes and keeps other settings", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: true,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: true,
+          }),
+        ),
+      ),
       Layer.mock(DesktopLifecycle.DesktopLifecycle, {
         relaunch: (reason) =>
           Effect.sync(() => {
@@ -58,6 +63,50 @@ describe("local environment IPC", () => {
         "localEnvironmentEnabled=false",
         "localEnvironmentEnabled=true",
       ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("relaunches when turned on while attached to an existing server", () => {
+    const relaunchReasons: Array<string> = [];
+    const layer = Layer.mergeAll(
+      DesktopBackendMode.layerTest().pipe(Layer.provideMerge(DesktopAppSettings.layerTest())),
+      Layer.mock(DesktopLifecycle.DesktopLifecycle, {
+        relaunch: (reason) =>
+          Effect.sync(() => {
+            relaunchReasons.push(reason);
+          }),
+      }),
+      layerUnusedLifecycleRuntime,
+    );
+    return Effect.gen(function* () {
+      const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+      yield* backendMode.decide(Effect.succeed(true));
+      yield* setLocalEnvironmentEnabled.handler(true);
+      assert.deepEqual(relaunchReasons, ["localEnvironmentEnabled=true"]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("saves without relaunching when the launch set --backend-mode", () => {
+    const relaunchReasons: Array<string> = [];
+    const layer = Layer.mergeAll(
+      DesktopBackendMode.layerTest(["main.cjs", "--backend-mode=client-only"]).pipe(
+        Layer.provideMerge(DesktopAppSettings.layerTest()),
+      ),
+      Layer.mock(DesktopLifecycle.DesktopLifecycle, {
+        relaunch: (reason) =>
+          Effect.sync(() => {
+            relaunchReasons.push(reason);
+          }),
+      }),
+      layerUnusedLifecycleRuntime,
+    );
+    return Effect.gen(function* () {
+      const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+      yield* backendMode.decide(Effect.succeed(false));
+      yield* setLocalEnvironmentEnabled.handler(false);
+      const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
+      assert.isFalse((yield* appSettings.get).localEnvironmentEnabled);
+      assert.deepEqual(relaunchReasons, []);
     }).pipe(Effect.provide(layer));
   });
 });

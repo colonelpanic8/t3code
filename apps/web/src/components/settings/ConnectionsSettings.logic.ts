@@ -1,3 +1,4 @@
+import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
 import {
   type AdvertisedEndpoint,
   type AuthGrantScope,
@@ -5,7 +6,60 @@ import {
   AuthTerminalReadScope,
   type DesktopBridge,
   type DesktopWslState,
+  type RunningLocalServer,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+
+import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
+import { isLoopbackHostname } from "../../environments/primary/target";
+import { setPairingTokenOnUrl } from "../../pairingUrl";
+import type { EnvironmentPresentation } from "../../state/environments";
+import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
+
+export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string | null {
+  switch (entry.target._tag) {
+    case "PrimaryConnectionTarget":
+      return entry.target.httpBaseUrl;
+    case "BearerConnectionTarget":
+      return Option.isSome(entry.profile) && entry.profile.value._tag === "BearerConnectionProfile"
+        ? entry.profile.value.httpBaseUrl
+        : null;
+    case "RelayConnectionTarget":
+    case "SshConnectionTarget":
+      return null;
+  }
+}
+
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The link a new pairing credential is shared as when no advertised endpoint
+ * applies, or null to share the code alone. `pageUrl` is only passed for the
+ * environment serving this page: a relay or SSH environment has no address
+ * another device could open.
+ */
+export function resolveFallbackPairingUrl(input: {
+  readonly credential: string;
+  readonly endpointUrl: string | null | undefined;
+  readonly pageUrl: string | null;
+}): string | null {
+  if (input.endpointUrl) {
+    return (
+      resolveHostedPairingUrl(input.endpointUrl, input.credential) ??
+      resolveDesktopPairingUrl(input.endpointUrl, input.credential)
+    );
+  }
+  if (input.pageUrl === null || isLoopbackUrl(input.pageUrl)) {
+    return null;
+  }
+  return setPairingTokenOnUrl(new URL("/pair", input.pageUrl), input.credential).toString();
+}
 
 /**
  * Operating terminals without being able to list them leaves a client
@@ -38,6 +92,46 @@ export function canRevokeOtherClients(
 }
 
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
+
+export type LocalServerPairingStatus = "pair" | "pair-again" | "paired" | "version-mismatch";
+
+export interface LocalServerPairingCandidate {
+  readonly server: RunningLocalServer;
+  readonly status: LocalServerPairingStatus;
+}
+
+/**
+ * Discovered servers this client could pair with. This machine's own and
+ * desktop-managed backends are never candidates. A saved environment is only
+ * offered again once its connection has failed.
+ */
+export function selectLocalServerPairingCandidates(
+  servers: ReadonlyArray<RunningLocalServer>,
+  environments: ReadonlyArray<
+    Pick<EnvironmentPresentation, "environmentId" | "entry" | "connection">
+  >,
+): ReadonlyArray<LocalServerPairingCandidate> {
+  return servers.flatMap((server): LocalServerPairingCandidate[] => {
+    const saved = environments.find(
+      (environment) => environment.environmentId === server.environmentId,
+    );
+    if (
+      saved?.entry.target._tag === "PrimaryConnectionTarget" ||
+      (saved !== undefined && isDesktopLocalConnectionTarget(saved.entry.target))
+    ) {
+      return [];
+    }
+    const status: LocalServerPairingStatus =
+      saved !== undefined && saved.connection.phase !== "error"
+        ? "paired"
+        : server.pairing === "version-mismatch"
+          ? "version-mismatch"
+          : saved !== undefined
+            ? "pair-again"
+            : "pair";
+    return [{ server, status }];
+  });
+}
 
 /**
  * A QR code encoding a loopback URL makes the scanning device dial itself, so

@@ -114,7 +114,11 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  appOwnsLocalEnvironment,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -941,6 +945,7 @@ function OpenCommandPaletteDialog(props: {
         projects: clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
         settings: projectGroupingSettings,
         primaryEnvironmentId,
+        ownsLocalEnvironment: appOwnsLocalEnvironment(),
         resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
     [
