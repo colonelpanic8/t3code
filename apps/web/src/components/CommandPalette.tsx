@@ -130,6 +130,7 @@ import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import {
+  appOwnsLocalEnvironment,
   useEnvironmentProviders,
   useEnvironments,
   usePrimaryEnvironmentId,
@@ -471,6 +472,7 @@ function useSortedProjectGroups(environmentLabelById: ReadonlyMap<EnvironmentId,
     projects: clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
     settings: projectGroupingSettings,
     primaryEnvironmentId,
+    ownsLocalEnvironment: appOwnsLocalEnvironment(),
     resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
   });
   return sortLogicalProjectsForSidebar(
