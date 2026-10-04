@@ -2,25 +2,34 @@ import {
   type AuthEnvironmentScope,
   AuthStandardClientScopes,
   ExecutionEnvironmentDescriptor,
+  type LocalServerPairCommandOutput,
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
+  deriveServerRuntimeStatePath,
+  type ServerRuntimeStateVariant,
+} from "@t3tools/shared/serverRuntimeState";
+import {
   buildTailscaleHttpsBaseUrl,
   DEFAULT_TAILSCALE_SERVE_PORT,
   ensureTailscaleServe,
   readTailscaleStatus,
 } from "@t3tools/tailscale";
+import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as References from "effect/References";
+import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
@@ -50,8 +59,6 @@ const PAIR_PROBE_TIMEOUT = Duration.millis(2_500);
 // serve mapping, which can take a few seconds.
 const TAILSCALE_PROBE_ATTEMPTS = 5;
 const TAILSCALE_PROBE_RETRY_DELAY = Duration.seconds(1);
-
-export type PairStateVariant = "userdata" | "dev";
 
 // deriveServerPaths only checks devUrl for undefined-ness when picking the
 // dev-vs-userdata state directory; the value itself is not used.
@@ -184,6 +191,56 @@ const formatPairOutput = (input: {
     "",
   ].join("\n");
 
+const formatPairJsonOutput = (input: {
+  readonly pairingUrl: string;
+  readonly token: string;
+  readonly expiresAt: DateTime.Utc;
+  readonly environmentId: LocalServerPairCommandOutput["environmentId"];
+  readonly label: string;
+}): string =>
+  JSON.stringify({
+    pairingUrl: input.pairingUrl,
+    token: input.token,
+    expiresAt: DateTime.formatIso(input.expiresAt),
+    environmentId: input.environmentId,
+    label: input.label,
+  } satisfies LocalServerPairCommandOutput);
+
+export class JsonTailscaleUnsupportedError extends Schema.TaggedError<JsonTailscaleUnsupportedError>()(
+  "JsonTailscaleUnsupportedError",
+  {},
+) {
+  override get message(): string {
+    return "--json cannot be combined with --tailscale. Run `t3 pair --tailscale` without --json.";
+  }
+}
+
+class PairJsonFailedError extends Schema.TaggedError<PairJsonFailedError>()(
+  "PairJsonFailedError",
+  {},
+) {
+  override readonly [Runtime.errorReported] = false;
+}
+
+const asJsonCommand = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  logLevel: ServerConfig.ServerConfig["Service"]["logLevel"],
+) =>
+  effect.pipe(
+    Effect.catchCauseIf(
+      (cause) => !Cause.hasInterruptsOnly(cause),
+      (cause) => {
+        const error = Cause.squash(cause);
+        const message = error instanceof Error ? error.message : String(error);
+        return Console.error(message.replace(/\s*\n\s*/g, " ")).pipe(
+          Effect.andThen(new PairJsonFailedError()),
+        );
+      },
+    ),
+    Effect.provideService(References.MinimumLogLevel, logLevel),
+    Effect.provideService(Logger.LogToStderr, true),
+  );
+
 type EnvironmentProbeResult =
   | { readonly _tag: "descriptor"; readonly descriptor: ExecutionEnvironmentDescriptor }
   | { readonly _tag: "unreachable" }
@@ -219,7 +276,7 @@ const probeEnvironmentDescriptor: (
 
 interface DiscoveredPairTarget {
   readonly baseDir: string;
-  readonly variant: PairStateVariant;
+  readonly variant: ServerRuntimeStateVariant;
   readonly state: PersistedServerRuntimeState;
   readonly descriptor: ExecutionEnvironmentDescriptor;
 }
@@ -242,15 +299,11 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     bases.push(yield* resolveBaseDir(Option.getOrUndefined(envHome)));
   }
 
+  const path = yield* Path.Path;
   const checkedStatePaths: Array<string> = [];
   for (const baseDir of new Set(bases)) {
     for (const variant of ["userdata", "dev"] as const) {
-      const derivedPaths = yield* ServerConfig.deriveServerPaths(
-        baseDir,
-        variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-        {},
-      );
-      const statePath = derivedPaths.serverRuntimeStatePath;
+      const statePath = deriveServerRuntimeStatePath({ baseDir, variant, joinPath: path.join });
       checkedStatePaths.push(statePath);
       const state = yield* readPersistedServerRuntimeState(statePath);
       if (Option.isNone(state)) {
@@ -454,6 +507,11 @@ const labelFlag = Flag.String("label").pipe(
   Flag.optional,
 );
 
+const jsonFlag = Flag.Boolean("json").pipe(
+  Flag.withDescription("Emit JSON instead of human-readable output."),
+  Flag.withDefault(false),
+);
+
 const tailscaleFlag = Flag.Boolean("tailscale").pipe(
   Flag.withDescription(
     "Publish the server over Tailscale Serve HTTPS and pair through the tailnet URL.",
@@ -472,6 +530,7 @@ export const pairCommand = Command.make("pair", {
   scopes: authScopesFlag(AuthStandardClientScopes),
   ttl: ttlFlag,
   label: labelFlag,
+  json: jsonFlag,
   tailscale: tailscaleFlag,
   tailscaleServePort: tailscaleServePortFlag,
 }).pipe(
@@ -480,8 +539,13 @@ export const pairCommand = Command.make("pair", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const cliLogLevel = yield* GlobalFlag.LogLevel;
-      const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
+      const logLevel = Option.getOrElse(yield* GlobalFlag.LogLevel, () =>
+        flags.json ? ("Error" as const) : ("Warn" as const),
+      );
+      const run = Effect.gen(function* () {
+        if (flags.json && flags.tailscale) {
+          return yield* new JsonTailscaleUnsupportedError();
+        }
 
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
@@ -518,7 +582,15 @@ export const pairCommand = Command.make("pair", {
       const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
 
       yield* Console.log(
-        formatPairOutput({
+          flags.json
+            ? formatPairJsonOutput({
+                pairingUrl,
+                token: issued.credential,
+                expiresAt: issued.expiresAt,
+                environmentId: target.descriptor.environmentId,
+                label: target.descriptor.label,
+              })
+            : formatPairOutput({
           serverLabel: target.descriptor.label,
           origin: target.state.origin,
           pairingUrl,
@@ -527,6 +599,8 @@ export const pairCommand = Command.make("pair", {
           notes,
         }),
       );
-    }).pipe(Effect.provide(FetchHttpClient.layer)),
+      }).pipe(Effect.provide(FetchHttpClient.layer));
+      return yield* flags.json ? asJsonCommand(run, logLevel) : run;
+    }),
   ),
 );
