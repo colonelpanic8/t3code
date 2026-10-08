@@ -2626,6 +2626,7 @@ export const make = Effect.gen(function* () {
             Effect.map((settings) => settings.worktreeSubmodules),
             Effect.orElseSucceed(() => null),
           ),
+          pathTemplate: yield* ServerSettings.readWorktreePathTemplate(serverSettingsService),
         },
       );
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
