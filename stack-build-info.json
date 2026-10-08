@@ -1,0 +1,249 @@
+{
+  "entries": [
+    {
+      "branch": "t3code/main/pr-4259",
+      "commit": "be452bb0351e0f4e5a4fa6b18d2d8fcecc4520b3",
+      "kind": "branch",
+      "label": "t3code/main/pr-4259",
+      "note": "Re-expressed on main's rewritten DraftHeroHeadline using its ComboboxSearchInput; \"No project\" is searchable too.",
+      "pr": 4259,
+      "status": "merged",
+      "summary": "Searchable new-thread project picker"
+    },
+    {
+      "branch": "t3code/main/pr-4257",
+      "commit": "0665a2dd68bdc62dc9d57abd1a23988fa538c1f2",
+      "kind": "branch",
+      "label": "t3code/main/pr-4257",
+      "pr": 4257,
+      "status": "merged",
+      "summary": "Directory-path Tab completion"
+    },
+    {
+      "branch": "t3code/main/pr-4324",
+      "commit": "cc3ca332af43bc2cfd0fb7885b840d64fd98c24d",
+      "kind": "branch",
+      "label": "t3code/main/pr-4324",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar-v2 project icons"
+    },
+    {
+      "branch": "t3code/main/pr-4394",
+      "commit": "e4942ad913bc8fc2123da874783335ec94d02dee",
+      "kind": "branch",
+      "label": "t3code/main/pr-4394",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N and Ctrl-P"
+    },
+    {
+      "branch": "t3code/main/pr-4405",
+      "commit": "d2afa80b2b632820e14458126cc6d8fd49d8bf76",
+      "kind": "branch",
+      "label": "t3code/main/pr-4405",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Harden thread-detail loading and subscriptions"
+    },
+    {
+      "branch": "t3code/main/pr-4602",
+      "commit": "3626da5587ada754ed5149af90c3f64bf5fcadfa",
+      "kind": "branch",
+      "label": "t3code/main/pr-4602",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "t3code/main/pr-4447",
+      "commit": "8717987c5ab41179ccd24e8278cf8c269268763a",
+      "kind": "branch",
+      "label": "t3code/main/pr-4447",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task flow on mobile"
+    },
+    {
+      "branch": "t3code/main/pr-4701",
+      "commit": "f02c058cffd334639e715db9f82b425119a6de34",
+      "kind": "branch",
+      "label": "t3code/main/pr-4701",
+      "pr": 4701,
+      "status": "merged",
+      "summary": "Render shortcuts with Apple glyphs"
+    },
+    {
+      "branch": "t3code/main/pr-4439",
+      "commit": "4db8bffe626ba4d7ab0113afc81a16c24010298f",
+      "kind": "branch",
+      "label": "t3code/main/pr-4439",
+      "note": "GitWorkflowService fills the configured template whenever no explicit worktree path is given; review path checks read v2 thread worktrees.",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configurable worktree placement"
+    },
+    {
+      "branch": "t3code/main/pr-4437",
+      "commit": "4b8ccbeb0f249ae10c30f46e2a98eb8c889f595e",
+      "kind": "branch",
+      "label": "t3code/main/pr-4437",
+      "note": "Split layout uses main's statev2.sqlite name; legacy detection accepts either database file.",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "XDG storage layout"
+    },
+    {
+      "branch": "t3code/main/pr-4494",
+      "commit": "4179760a3c0163c3dd6264fa7343a810f4099d28",
+      "kind": "branch",
+      "label": "t3code/main/pr-4494",
+      "pr": 4494,
+      "status": "merged",
+      "summary": "Keep rapid provider-settings edits from reverting"
+    },
+    {
+      "branch": "t3code/main/pr-4487",
+      "commit": "50380ec0e6148f0f8767210046acafbee13d61fb",
+      "kind": "branch",
+      "label": "t3code/main/pr-4487",
+      "note": "Neither main nor the closed PR filters these models. Patches parseCodexModelListResponse in provider/Layers/CodexProvider.ts.",
+      "pr": 4487,
+      "status": "merged",
+      "summary": "Filter non-interactive Codex models"
+    },
+    {
+      "branch": "t3code/main/client-environment-suite",
+      "commit": "9f3d2631ee0b687b6b86f1adefe3cac478bf4164",
+      "kind": "branch",
+      "label": "t3code/main/client-environment-suite",
+      "note": "Continuation of the closed #9376 (and #4444, #4474, #4486, #4496, #4548, #4559, #4567). Builds on main's Local environment setting (#9194): an existing local server or --backend-mode overrides it for one launch so the desktop attaches instead of spawning a second backend. Discovery reads server-runtime.json and pairs through `t3 pair --json`. Environment-scoped settings were dropped when main shipped its settings scopes. Per-environment accent colors and display names (#4505, #4538) live on fork:t3code/environment-accent-and-names, which is not carried.",
+      "status": "merged",
+      "summary": "Client-only desktop, local server discovery and pairing"
+    },
+    {
+      "branch": "t3code/main/pr-4593",
+      "commit": "e865cebcb95c4c7ad5e2688ac161b3ed9ab31d79",
+      "kind": "branch",
+      "label": "t3code/main/pr-4593",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state after a settle does not land"
+    },
+    {
+      "branch": "t3code/main/managed-fleet",
+      "commit": "5e2da9161117cf348a1741e052ae239d67852f64",
+      "kind": "branch",
+      "label": "t3code/main/managed-fleet",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/desktop-clerk-startup",
+      "commit": "1646b0336c7178e09d5d94de46d21828251e219a",
+      "kind": "branch",
+      "label": "t3code/main/desktop-clerk-startup",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/migration-schema-repair",
+      "commit": "514c0f51b4c555d17718de028210a7d83d0d67aa",
+      "kind": "branch",
+      "label": "t3code/main/migration-schema-repair",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/pr-4699",
+      "commit": "998488cc5dc7567049fdacc8093105675a4b9622",
+      "kind": "branch",
+      "label": "t3code/main/pr-4699",
+      "note": "Closed upstream as an unsupported distribution system. Load-bearing: this is how NixOS builds the assembly.",
+      "pr": 4699,
+      "status": "merged",
+      "summary": "Self-contained Nix flake"
+    },
+    {
+      "branch": "t3code/main/live-voice",
+      "commit": "a107cb0d4a6ed6d2c9394f0c08ccbef87fa73648",
+      "kind": "branch",
+      "label": "t3code/main/live-voice",
+      "status": "merged",
+      "summary": "Cross-host live voice calls over Codex realtime"
+    },
+    {
+      "branch": "t3code/main/fdroid-distribution",
+      "commit": "08a7bb2bb874834652b3a09cf7dfa36ef963b0bf",
+      "kind": "branch",
+      "label": "t3code/main/fdroid-distribution",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/pr-4318",
+      "commit": "411b9e1097e0d477b0e0ddda16f4abfa6fbe532e",
+      "kind": "branch",
+      "label": "t3code/main/pr-4318",
+      "note": "Closed because the v2 rewrite moved the files, not on merit. Re-applied in ThreadRouteView: subscribes to the ref the draft reserved instead of inferring from the shell list.",
+      "pr": 4318,
+      "status": "merged",
+      "summary": "Recover stalled draft thread promotion"
+    },
+    {
+      "branch": "t3code/main/pr-4420",
+      "commit": "68450087495d17a52c9ed445ff9e54dd21d7c4c3",
+      "kind": "branch",
+      "label": "t3code/main/pr-4420",
+      "note": "Closed without comment. Re-ported; the PR's busy_timeout half already reached the base through upstream main and is not duplicated.",
+      "pr": 4420,
+      "status": "merged",
+      "summary": "Refuse startup when another server owns the state dir"
+    },
+    {
+      "branch": "t3code/main/pr-4484",
+      "commit": "daed80b8b83fa036f58196a5ffce0fd1fd57009d",
+      "kind": "branch",
+      "label": "t3code/main/pr-4484",
+      "note": "Nothing upstream sets bootstrapThreadDisposition for v2 launches. Deletes the provisional thread on a failed owned launch and propagates the disposition.",
+      "pr": 4484,
+      "status": "merged",
+      "summary": "Recover draft thread IDs after failed bootstrap"
+    },
+    {
+      "branch": "t3code/main/pr-6507",
+      "commit": "b4f770fdcad2493fa2f73e642ced831c67b1fe63",
+      "kind": "branch",
+      "label": "t3code/main/pr-6507",
+      "note": "Rebased port of the upstream PR onto main.",
+      "pr": 6507,
+      "status": "merged",
+      "summary": "Direct model and reasoning keybindings"
+    },
+    {
+      "branch": "t3code/main/usage-host-resilience",
+      "commit": "75abd5bdf8f13bcfd09ee127148a02f1444a46ad",
+      "kind": "branch",
+      "label": "t3code/main/usage-host-resilience",
+      "status": "merged",
+      "summary": "Keep usage available when hosts disconnect or reconnect"
+    },
+    {
+      "branch": "t3code/main/typecheck-fixes",
+      "commit": "0892b4f7c3ec8010a256feb115b3bfbd4d346c3f",
+      "kind": "branch",
+      "label": "t3code/main/typecheck-fixes",
+      "status": "merged",
+      "summary": "Resolve transitive type declarations through workspace-local dependencies"
+    }
+  ],
+  "fork": {
+    "branch": "t3code/assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "b24f0fbba09d8623c896081b4ff70aa7190c8fda",
+    "date": "2026-10-08T01:22:25-03:00",
+    "ref": "main",
+    "remote": "https://github.com/pingdotgg/t3code",
+    "subject": "fix(web): PR timeline no longer shifts when its scrollbar appears (#15588)"
+  }
+}
