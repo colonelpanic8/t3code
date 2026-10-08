@@ -46,10 +46,14 @@ vi.mock("~/state/environments", () => ({
   usePrimaryEnvironment: () =>
     state.environments.find((environment) => environment.environmentId === primaryId) ?? null,
 }));
-vi.mock("~/state/server", () => ({
-  serverEnvironment: { updateSettings: Symbol("updateSettings") },
-  primaryServerSettingsAtom: undefined,
-}));
+vi.mock("~/state/server", async () => {
+  const { DEFAULT_SERVER_SETTINGS } = await import("@t3tools/contracts");
+  const { Atom } = await import("effect/reactivity");
+  return {
+    serverEnvironment: { updateSettings: Symbol("updateSettings") },
+    primaryServerSettingsAtom: Atom.make(DEFAULT_SERVER_SETTINGS),
+  };
+});
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => state.persist }));
 vi.mock("~/components/ui/toast", () => ({ toastManager: { add: state.toast } }));
 vi.mock("~/themePalette", () => ({}));
@@ -71,14 +75,17 @@ const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState 
   },
 });
 let renderer: ReactTestRenderer | undefined;
+let nextPatch: ServerSettingsPatch = patch;
 
 function SettingsEditor() {
   const updateSettings = useUpdatePrimarySettings();
-  return <button onClick={() => updateSettings(patch)}>Save shared setting</button>;
+  return <button onClick={() => updateSettings(nextPatch)}>Save shared setting</button>;
 }
 
-function saveSharedSettings() {
+// The selected environment's write drains through a serialized queue.
+async function saveSharedSettings() {
   renderer!.root.findByType("button").props.onClick();
+  await act(async () => {});
 }
 
 async function mountEditor() {
@@ -112,6 +119,7 @@ beforeEach(() => {
   state.persist.mockReset();
   state.persist.mockResolvedValue(AsyncResult.success(DEFAULT_SERVER_SETTINGS));
   state.toast.mockReset();
+  nextPatch = patch;
 });
 
 afterEach(async () => {
@@ -124,13 +132,30 @@ afterEach(async () => {
 describe("shared settings writes", () => {
   it("dispatches to the primary and connected remote before the remote grant finishes loading", async () => {
     await mountEditor();
-    saveSharedSettings();
+    await saveSharedSettings();
 
     expect(state.persist.mock.calls).toEqual([
-      [{ environmentId: primaryId, input: { patch } }],
       [{ environmentId: remoteId, input: { patch } }],
+      [{ environmentId: primaryId, input: { patch } }],
     ]);
     expect(state.registry!.get(state.sessions.get(remoteId)!)).toMatchObject({ _tag: "Initial" });
+  });
+
+  it("writes a text generation model change to the selected environment", async () => {
+    state.registry!.set(state.sessions.get(remoteId)!, AsyncResult.success(session([])));
+    nextPatch = {
+      textGenerationModelSelection: {
+        ...DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+        model: "another-model",
+      },
+    };
+    await mountEditor();
+    await saveSharedSettings();
+
+    expect(state.persist).toHaveBeenCalledExactlyOnceWith({
+      environmentId: primaryId,
+      input: { patch: nextPatch },
+    });
   });
 
   it.each([
@@ -143,7 +168,7 @@ describe("shared settings writes", () => {
   ] as const)("skips a remote whose grant is %s", async (_label, result) => {
     state.registry!.set(state.sessions.get(remoteId)!, result());
     await mountEditor();
-    saveSharedSettings();
+    await saveSharedSettings();
 
     expect(state.persist).toHaveBeenCalledExactlyOnceWith({
       environmentId: primaryId,
@@ -158,7 +183,7 @@ describe("shared settings writes", () => {
       if (condition === "disconnected") remote.connection.phase = "disconnected";
       else remote.serverConfig.environment.capabilities.threadAutoSettlement = false;
       await mountEditor();
-      saveSharedSettings();
+      await saveSharedSettings();
 
       expect(state.persist).toHaveBeenCalledExactlyOnceWith({
         environmentId: primaryId,
@@ -181,6 +206,7 @@ describe("shared settings writes", () => {
         state.registry!.set(state.sessions.get(remoteId)!, AsyncResult.success(session([])));
       });
       previousUpdate();
+      await act(async () => {});
 
       if (mode === "primary") {
         expect(state.persist).toHaveBeenCalledExactlyOnceWith({
