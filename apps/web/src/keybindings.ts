@@ -2,6 +2,7 @@ import {
   type KeybindingCommand,
   type KeybindingShortcut,
   type KeybindingWhenNode,
+  ProviderInstanceId,
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
@@ -50,6 +51,33 @@ const TERMINAL_WORD_FORWARD = "\u001bf";
 const TERMINAL_LINE_START = "\u0001";
 const TERMINAL_LINE_END = "\u0005";
 const TERMINAL_DELETE_TO_LINE_START = "\u0015";
+
+const MODEL_SELECT_COMMAND_PREFIX = "model.select.";
+const REASONING_SELECT_COMMAND_PREFIX = "reasoning.select.";
+
+export interface ModelSelectKeybindingTarget {
+  instanceId: ProviderInstanceId;
+  model: string;
+}
+
+export function modelSelectTargetFromCommand(
+  command: KeybindingCommand | string,
+): ModelSelectKeybindingTarget | null {
+  if (!command.startsWith(MODEL_SELECT_COMMAND_PREFIX)) return null;
+  const target = command.slice(MODEL_SELECT_COMMAND_PREFIX.length);
+  const separatorIndex = target.indexOf(".");
+  if (separatorIndex <= 0 || separatorIndex === target.length - 1) return null;
+  return {
+    instanceId: ProviderInstanceId.make(target.slice(0, separatorIndex)),
+    model: target.slice(separatorIndex + 1),
+  };
+}
+
+export function reasoningEffortFromCommand(command: KeybindingCommand | string): string | null {
+  if (!command.startsWith(REASONING_SELECT_COMMAND_PREFIX)) return null;
+  return command.slice(REASONING_SELECT_COMMAND_PREFIX.length) || null;
+}
+
 function resolvePlatform(options: ShortcutMatchOptions | undefined): string {
   return options?.platform ?? navigator.platform;
 }
