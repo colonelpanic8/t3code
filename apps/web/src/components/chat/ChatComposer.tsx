@@ -1314,6 +1314,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
                 data-composer-shortcut="composer.mode"
                 size={size}
                 aria-label="Runtime mode"
+                data-chat-runtime-mode-picker="true"
               />
             }
           >
