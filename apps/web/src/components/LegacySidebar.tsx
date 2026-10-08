@@ -128,7 +128,14 @@ import { useDesktopUpdateState } from "../state/desktopUpdate";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment, useEnvironmentThread } from "../state/threads";
-import { useEnvironment, useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import { isRemoteEnvironmentId } from "../environmentPresence";
+import {
+  appOwnsLocalEnvironment,
+  useEnvironment,
+  useEnvironmentPresenceScope,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -444,10 +451,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     reportFailure: false,
   });
   const environment = useEnvironment(thread.environmentId);
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  // No primary (the hosted app) means every thread is remote, and the machine
-  // glyph is what tells the environments apart.
-  const isRemoteThread = thread.environmentId !== primaryEnvironmentId;
+  const presenceScope = useEnvironmentPresenceScope();
+  // Without a local environment (the hosted app or a client-only desktop) every
+  // thread is remote, and the machine glyph is what tells the environments apart.
+  const isRemoteThread = isRemoteEnvironmentId(thread.environmentId, presenceScope);
   const remoteEnvLabel = environment?.label ?? null;
   const remoteMachine = resolveEnvironmentMachineKind(environment?.serverConfig ?? null);
   // A desktop-local secondary backend (e.g. the WSL backend) shows up as a
@@ -3342,6 +3349,7 @@ export default function LegacySidebar() {
       projects: orderedProjects,
       settings: projectGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: appOwnsLocalEnvironment(),
       resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       isDesktopLocalEnvironment: (environmentId) => desktopLocalEnvironmentIds.has(environmentId),
       isWslEnvironment: (environmentId) => wslEnvironmentIds.has(environmentId),
