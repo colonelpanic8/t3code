@@ -8,6 +8,7 @@ import {
   applyT3StorageDirectoryOverrides,
   hasT3StorageDirectoryOverrides,
   legacyT3StorageArtifactPaths,
+  legacyT3StorageMigrationMarkerPath,
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
   resolveT3ClientStorageRoots,
@@ -274,10 +275,11 @@ const make = Effect.fn("desktop.environment.make")(function* (
     }),
   );
   // Sequential and synchronous: this runs before Electron is ready (see main.ts).
-  const legacyStorageInitialized = (yield* Effect.forEach(
-    legacyT3StorageArtifactPaths(legacyRoots, path),
-    (artifact) => fileSystem.exists(artifact),
-  )).some(Boolean);
+  const legacyStorageInitialized =
+    !(yield* fileSystem.exists(legacyT3StorageMigrationMarkerPath(legacyRoots, path))) &&
+    (yield* Effect.forEach(legacyT3StorageArtifactPaths(legacyRoots, path), (artifact) =>
+      fileSystem.exists(artifact),
+    )).some(Boolean);
   const storageRoots = selectT3StorageRoots({
     ...(Option.isNone(explicitLegacyRoots)
       ? {}

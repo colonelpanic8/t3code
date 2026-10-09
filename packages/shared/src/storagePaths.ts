@@ -7,6 +7,9 @@ export const T3CODE_CLIENT_CONFIG_DIR_ENV = "T3CODE_CLIENT_CONFIG_DIR";
 const T3CODE_CLIENT_STATE_DIR_ENV = "T3CODE_CLIENT_STATE_DIR";
 const T3CODE_CLIENT_CACHE_DIR_ENV = "T3CODE_CLIENT_CACHE_DIR";
 
+/** Written into a legacy state directory once its contents were copied to the split layout. */
+export const LEGACY_STORAGE_MIGRATION_MARKER = "storage-migration.json";
+
 /** Every variable that selects server storage, legacy home first. */
 export const T3_STORAGE_ENVIRONMENT_NAMES = [
   "T3CODE_HOME",
@@ -263,7 +266,17 @@ export function resolveLegacyT3StorageRoots(input: {
   };
 }
 
-/** Files whose presence marks the legacy tree as an initialized installation. */
+export function legacyT3StorageMigrationMarkerPath(
+  roots: T3StorageRoots,
+  path: Pick<StoragePathOperations, "join">,
+): string {
+  return path.join(roots.stateDir, LEGACY_STORAGE_MIGRATION_MARKER);
+}
+
+/**
+ * Files whose presence marks the legacy tree as an initialized installation. A tree carrying the
+ * migration marker no longer counts; see legacyT3StorageMigrationMarkerPath.
+ */
 export function legacyT3StorageArtifactPaths(
   roots: T3StorageRoots,
   path: Pick<StoragePathOperations, "join">,
