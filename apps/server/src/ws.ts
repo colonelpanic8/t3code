@@ -1661,6 +1661,7 @@ const layerWsRpc = (
           const settings = ServerSettings.redactServerSettingsForClient(
             yield* serverSettings.getSettings,
           );
+          const managedSettingPaths = yield* serverSettings.managedSettingPaths;
           const environment = yield* serverEnvironment.getDescriptor;
           const auth = yield* serverAuth.getDescriptor();
           const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
@@ -1697,6 +1698,7 @@ const layerWsRpc = (
               otlpLogsEnabled: config.otlpLogsUrl !== undefined,
             },
             settings,
+            ...(managedSettingPaths.length > 0 ? { managedSettingPaths } : {}),
             shellResumeCompletionMarker: true,
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
