@@ -67,6 +67,30 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "kwallet5");
   });
 
+  it("skips legacy settings once the legacy tree was migrated", () => {
+    const files: Record<string, string> = {
+      "/home/user/.t3/userdata/storage-migration.json": "{}",
+      "/home/user/.t3/userdata/desktop-settings.json": JSON.stringify({
+        linuxPasswordStore: "basic",
+      }),
+      "/home/user/.config/t3code-client/desktop-settings.json": JSON.stringify({
+        linuxPasswordStore: "gnome-libsecret",
+      }),
+    };
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: {},
+      homeDirectory: "/home/user",
+      joinPath,
+      readFileString: (path) => {
+        const contents = files[path];
+        if (contents === undefined) throw new Error("missing");
+        return contents;
+      },
+    });
+
+    assert.equal(preference, "gnome-libsecret");
+  });
+
   it("preserves absolute root paths when resolving early settings", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/" },

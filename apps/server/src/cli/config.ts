@@ -28,6 +28,7 @@ import {
   applyT3StorageDirectoryOverrides,
   hasT3StorageDirectoryOverrides,
   legacyT3StorageArtifactPaths,
+  legacyT3StorageMigrationMarkerPath,
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
   resolveT3ClientStorageRoots,
@@ -366,6 +367,15 @@ export class ForcedLegacyLayoutConflictError extends Schema.TaggedError<ForcedLe
   }
 }
 
+export class LegacyStorageMigratedError extends Schema.TaggedError<LegacyStorageMigratedError>()(
+  "LegacyStorageMigratedError",
+  { stateDir: Schema.String },
+) {
+  override get message(): string {
+    return `The legacy storage at '${this.stateDir}' was copied to the split layout by \`t3 storage migrate\`. Unset T3CODE_HOME and drop --base-dir or --storage-layout legacy to use the copy, or run \`t3 storage migrate --rollback\` to return to the legacy tree.`;
+  }
+}
+
 export class RuntimeDirectoryOpenError extends Schema.TaggedError<RuntimeDirectoryOpenError>()(
   "RuntimeDirectoryOpenError",
   {
@@ -417,6 +427,7 @@ export class RuntimeDirectoryChmodError extends Schema.TaggedError<RuntimeDirect
 const legacyStorageIsInitialized = Effect.fn(function* (roots: T3StorageRoots) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  if (yield* fs.exists(legacyT3StorageMigrationMarkerPath(roots, path))) return false;
   const results = yield* Effect.forEach(
     legacyT3StorageArtifactPaths(roots, path),
     (artifact) => fs.exists(artifact),
@@ -548,7 +559,7 @@ export const resolveClientStorageRoots = Effect.fn("resolveClientStorageRoots")(
 });
 
 /** The split roots for this host: platform defaults with any granular overrides applied. */
-const resolveSplitStorageRoots = Effect.fn("resolveSplitStorageRoots")(function* (input: {
+export const resolveSplitStorageRoots = Effect.fn("resolveSplitStorageRoots")(function* (input: {
   readonly isDevelopment: boolean;
   readonly host: StorageHost;
 }) {
@@ -738,6 +749,12 @@ export const resolveServerConfig = (
     });
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    if (
+      storageRoots.layout === "legacy" &&
+      (yield* fs.exists(legacyT3StorageMigrationMarkerPath(storageRoots, path)))
+    ) {
+      return yield* new LegacyStorageMigratedError({ stateDir: storageRoots.stateDir });
+    }
     const derivedPaths = yield* ServerConfig.deriveServerPathsFromRoots(storageRoots);
     const baseDir = derivedPaths.dataDir;
     // An interactive CLI must not start over a discovered server. Lifetime locking

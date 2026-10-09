@@ -236,6 +236,31 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("uses split storage once the legacy tree carries the migration marker", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-migrated-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const legacyStateDir = path.join(homeDirectory, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(legacyStateDir, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, "statev2.sqlite"), "legacy");
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+
+      const environment = yield* makeEnvironment({
+        platform: "linux",
+        homeDirectory,
+        temporaryDirectory: root,
+        userId: 1000,
+      });
+
+      assert.equal(environment.storageLayout, "split");
+      assert.equal(environment.stateDir, path.join(homeDirectory, ".local", "state", "t3code"));
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("rejects mixing T3CODE_HOME with granular directory overrides", () =>
     Effect.gen(function* () {
       const error = yield* makeEnvironment(

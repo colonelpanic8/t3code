@@ -1,5 +1,6 @@
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import {
+  LEGACY_STORAGE_MIGRATION_MARKER,
   T3CODE_CLIENT_CONFIG_DIR_ENV,
   T3_STORAGE_ENVIRONMENT_NAMES,
 } from "@t3tools/shared/storagePaths";
@@ -54,7 +55,7 @@ const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
 // Electron is not ready yet, so this mirrors DesktopEnvironment's storage selection cheaply: an
-// initialized legacy tree wins, otherwise the split client config directory is used.
+// initialized, unmigrated legacy tree wins, otherwise the split client config directory is used.
 function resolveEarlyDesktopSettingsPaths(input: EarlyDesktopSettingsInput): ReadonlyArray<string> {
   const isDevelopment = isDevelopmentEnvironment(input.env);
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
@@ -85,8 +86,18 @@ function resolveEarlyDesktopSettingsPaths(input: EarlyDesktopSettingsInput): Rea
   const splitIsExplicit = T3_STORAGE_ENVIRONMENT_NAMES.some(
     (name) => trimNonEmpty(input.env[name]) !== null,
   );
-  return splitIsExplicit ? [clientPath] : [legacyPath, clientPath];
+  const legacyMigrated = canRead(input, input.joinPath(stateDir, LEGACY_STORAGE_MIGRATION_MARKER));
+  return splitIsExplicit || legacyMigrated ? [clientPath] : [legacyPath, clientPath];
 }
+
+const canRead = (input: EarlyDesktopSettingsInput, path: string): boolean => {
+  try {
+    input.readFileString(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export function resolveEarlyLinuxPasswordStorePreference(
   input: EarlyDesktopSettingsInput,

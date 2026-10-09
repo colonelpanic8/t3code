@@ -24,6 +24,7 @@ import { deriveServerPaths } from "../config.ts";
 import {
   ForcedLegacyLayoutConflictError,
   ForcedXdgLayoutConflictError,
+  LegacyStorageMigratedError,
   resolveServerConfig,
   RuntimeDirectoryOpenError,
   RuntimeDirectoryOwnerMismatchError,
@@ -1411,6 +1412,58 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(error.actualUserId).toBe(actualUserId);
         expect(error.expectedUserId).toBe(actualUserId + 1);
       }
+    }),
+  );
+
+  it.effect("leaves a migrated legacy tree for split storage and refuses to serve it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-migrated-" });
+      const homeDirectory = path.join(root, "home");
+      const legacyBaseDir = path.join(homeDirectory, ".t3");
+      const legacyStateDir = path.join(legacyBaseDir, "userdata");
+      yield* fs.makeDirectory(legacyStateDir, { recursive: true });
+      yield* fs.writeFileString(path.join(legacyStateDir, "settings.json"), "{}");
+      yield* fs.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+      const resolve = (baseDir: Option.Option<string>) =>
+        resolveServerConfig(
+          {
+            mode: Option.some("web"),
+            port: Option.some(3773),
+            host: Option.none(),
+            baseDir,
+            cwd: Option.none(),
+            devUrl: Option.none(),
+            noBrowser: Option.none(),
+            bootstrapFd: Option.none(),
+            autoBootstrapProjectFromCwd: Option.none(),
+            logWebSocketEvents: Option.none(),
+            tailscaleServeEnabled: Option.none(),
+            tailscaleServePort: Option.none(),
+          },
+          Option.none(),
+          {
+            homeDirectory,
+            temporaryDirectory: root,
+            userId: NodeOS.userInfo().uid,
+            platform: "linux",
+          },
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              NetService.layer,
+            ),
+          ),
+        );
+
+      const resolved = yield* resolve(Option.none());
+      expect(resolved.layout).toBe("split");
+      expect(resolved.stateDir).toBe(path.join(homeDirectory, ".local", "state", "t3code"));
+
+      const error = yield* resolve(Option.some(legacyBaseDir)).pipe(Effect.flip);
+      expect(error).toBeInstanceOf(LegacyStorageMigratedError);
     }),
   );
 

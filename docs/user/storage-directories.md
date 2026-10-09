@@ -64,6 +64,25 @@ Override them with `T3CODE_CLIENT_CONFIG_DIR`, `T3CODE_CLIENT_STATE_DIR`, and
 
 ## Existing installations
 
-If T3 Code finds initialized storage under `~/.t3`, it continues using that
-layout. Startup does not copy, move, delete, or automatically switch any data.
-An explicit migration workflow will be handled separately.
+If T3 Code finds initialized storage under `~/.t3`, it keeps using that layout.
+Startup never copies, moves, or deletes data. To switch, stop the server, quit
+the desktop app, and run:
+
+```bash
+t3 storage migrate --dry-run
+t3 storage migrate
+```
+
+The dry run lists every copy and anything that blocks the migration. The
+migration copies the database and files into the server and desktop
+directories, verifies each copy, and only then writes `storage-migration.json`
+into `~/.t3/userdata`, which retires that tree. Nothing under `~/.t3` is moved
+or deleted. Worktrees stay where they are because threads refer to them by
+path, and logs stay with the old tree. If a destination already holds different
+contents, the migration stops; `--replace-existing` moves those files aside
+first.
+
+`t3 storage migrate --rollback` returns to the old tree. It moves the copies
+aside rather than deleting them, and does not copy back anything written since
+the migration. A server pointed at a retired tree with `T3CODE_HOME` or
+`--base-dir` refuses to start until you unset it or roll back.
