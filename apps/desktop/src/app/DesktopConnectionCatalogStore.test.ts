@@ -1,6 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
+import {
+  ConnectionCatalogDocument,
+  setConnectionEnabledInCatalog,
+} from "@t3tools/client-runtime/platform";
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Base64 from "effect/encoding/Base64";
@@ -21,6 +24,9 @@ import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const decodeConnectionCatalog = Schema.decodeEffect(
+  Schema.fromJsonString(ConnectionCatalogDocument),
+);
+const encodeConnectionCatalog = Schema.encodeEffect(
   Schema.fromJsonString(ConnectionCatalogDocument),
 );
 const encodeLegacySavedEnvironments = Schema.encodeEffect(
@@ -55,6 +61,7 @@ function layerFor(
   encryptionAvailable = true,
   failDecrypt: Ref.Ref<boolean> | null = null,
   fileSystemLayer: Layer.Layer<FileSystem.FileSystem> = NodeServices.layer,
+  env: Readonly<Record<string, string | undefined>> = {},
 ) {
   const layerEnvironment = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
@@ -68,7 +75,7 @@ function layerFor(
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir, ...env })),
     ),
   );
   const layerSafeStorage = layerSafeStorageFor(encryptionAvailable, failDecrypt);
@@ -125,6 +132,72 @@ describe("DesktopConnectionCatalogStore", () => {
       }),
       false,
     ),
+  );
+
+  it.effect("overlays declarative managed connections and removes stale managed entries", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-connections-test-",
+      });
+      const managedConnectionsDirectory = `${baseDir}/.config/t3code`;
+      const managedConnectionsPath = `${managedConnectionsDirectory}/managed-connections.json`;
+      yield* fileSystem.makeDirectory(managedConnectionsDirectory, {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(
+        managedConnectionsPath,
+        '{"version":1,"connections":[{"environmentId":"fleet:ryzen-shine","label":"ryzen-shine","httpBaseUrl":"https://ryzen-shine/","wsBaseUrl":"wss://ryzen-shine/","token":"fleet-secret"}]}',
+      );
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(layerFor(baseDir)),
+      );
+
+      const first = yield* store.get;
+      assert.isTrue(Option.isSome(first));
+      if (Option.isNone(first)) return;
+      const managedCatalog = yield* decodeConnectionCatalog(first.value);
+      assert.deepInclude(managedCatalog.targets[0], {
+        _tag: "BearerConnectionTarget",
+        environmentId: EnvironmentId.make("fleet:ryzen-shine"),
+        label: "ryzen-shine",
+        connectionId: "managed:fleet:ryzen-shine",
+      });
+      assert.deepInclude(managedCatalog.profiles[0], {
+        _tag: "BearerConnectionProfile",
+        environmentId: EnvironmentId.make("fleet:ryzen-shine"),
+        httpBaseUrl: "https://ryzen-shine/",
+        wsBaseUrl: "wss://ryzen-shine/",
+      });
+      assert.equal(managedCatalog.credentials[0]?.credential._tag, "BearerConnectionCredential");
+      if (managedCatalog.credentials[0]?.credential._tag === "BearerConnectionCredential") {
+        assert.equal(managedCatalog.credentials[0].credential.token, "fleet-secret");
+      }
+
+      const fleetId = EnvironmentId.make("fleet:ryzen-shine");
+      const switchedOff = yield* encodeConnectionCatalog(
+        setConnectionEnabledInCatalog(managedCatalog, fleetId, false),
+      );
+      assert.isTrue(yield* store.set(switchedOff));
+      const reloaded = yield* store.get;
+      assert.isTrue(Option.isSome(reloaded));
+      if (Option.isSome(reloaded)) {
+        const catalog = yield* decodeConnectionCatalog(reloaded.value);
+        assert.deepEqual(catalog.disabledEnvironmentIds, [fleetId]);
+        assert.equal(catalog.targets.length, 1);
+      }
+
+      yield* fileSystem.writeFileString(managedConnectionsPath, '{"version":1,"connections":[]}');
+      const reconciled = yield* store.get;
+      assert.isTrue(Option.isSome(reconciled));
+      if (Option.isSome(reconciled)) {
+        const catalog = yield* decodeConnectionCatalog(reconciled.value);
+        assert.deepEqual(catalog.targets, []);
+        assert.deepEqual(catalog.profiles, []);
+        assert.deepEqual(catalog.credentials, []);
+        assert.deepEqual(catalog.disabledEnvironmentIds, []);
+      }
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
   it.effect("migrates legacy relay, SSH, bearer profile, and credential data", () =>
