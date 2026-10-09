@@ -61,6 +61,9 @@ import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
+import * as VoiceMcpServer from "./mcp/VoiceMcpServer.ts";
+import * as VoiceLiveService from "./voice/VoiceLiveService.ts";
+import * as VoiceLiveToolExecutor from "./voice/VoiceLiveToolExecutor.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
@@ -685,6 +688,9 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
+  // Live Voice gets its own transport at /mcp/voice so the voice model's tool
+  // catalog carries the routing toolkit and nothing else.
+  VoiceMcpServer.layer,
 ).pipe(
   // Both transports consume the same service instance, so caches single-flight across clients
   // and mutations observed on WebSocket invalidate patches subsequently read over HTTP.
@@ -694,6 +700,9 @@ const layerMakeRoutes = Layer.mergeAll(
   // Server browser tabs and HTML render previews install and run the same headless browser.
   Layer.provide(PreviewBrowser.layer),
   Layer.provide(PreviewAutomationBroker.layer),
+  // One broker instance serves both the WebSocket voice RPCs and /mcp/voice.
+  Layer.provide(VoiceLiveService.layer),
+  Layer.provide(VoiceLiveToolExecutor.layer),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
   Layer.provide(layerCommandReadiness),
   Layer.provide(ServerHttp.layerBrowserApiCors),
