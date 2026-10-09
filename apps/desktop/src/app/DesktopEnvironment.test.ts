@@ -201,8 +201,38 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.cacheDir, "/xdg/cache/t3code");
       assert.equal(environment.runtimeDir, "/run/user/1000/t3code");
       assert.equal(environment.serverSettingsPath, "/xdg/config/t3code/settings.json");
-      assert.equal(environment.browserArtifactsDir, "/xdg/cache/t3code/browser-artifacts");
-      assert.equal(environment.electronUserDataPath, "/xdg/state/t3code/electron");
+      assert.equal(
+        environment.desktopSettingsPath,
+        "/xdg/config/t3code-client/desktop-settings.json",
+      );
+      assert.equal(
+        environment.clientSettingsPath,
+        "/xdg/config/t3code-client/client-settings.json",
+      );
+      assert.equal(
+        environment.savedEnvironmentRegistryPath,
+        "/xdg/state/t3code-client/saved-environments.json",
+      );
+      assert.equal(environment.logDir, "/xdg/state/t3code-client/logs");
+      assert.equal(environment.browserArtifactsDir, "/xdg/cache/t3code-client/browser-artifacts");
+      assert.equal(environment.electronUserDataPath, "/xdg/state/t3code-client/electron");
+    }),
+  );
+
+  it.effect("keeps client storage apart from overridden server storage", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { platform: "linux", homeDirectory: "/home/alice", temporaryDirectory: "/tmp" },
+        {
+          T3CODE_STATE_DIR: "/srv/t3/state",
+          T3CODE_CLIENT_STATE_DIR: "~/client-state",
+        },
+      );
+
+      assert.equal(environment.stateDir, "/srv/t3/state");
+      assert.equal(environment.clientStateDir, "/home/alice/client-state");
+      assert.equal(environment.clientConfigDir, "/home/alice/.config/t3code-client");
+      assert.equal(environment.clientCacheDir, "/home/alice/.cache/t3code-client");
     }),
   );
 
@@ -253,6 +283,11 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.storageLayout, "legacy");
       assert.equal(environment.stateDir, legacyStateDir);
       assert.equal(environment.serverSettingsPath, path.join(legacyStateDir, "settings.json"));
+      assert.equal(environment.clientStateDir, legacyStateDir);
+      assert.equal(
+        environment.desktopSettingsPath,
+        path.join(legacyStateDir, "desktop-settings.json"),
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

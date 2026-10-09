@@ -15,9 +15,8 @@ On Linux, the default roots are:
 
 Settings and keybindings live in the configuration directory. Attachments and
 worktrees live in the data directory. The SQLite database, identity, secrets,
-and logs live in the state directory. Provider caches and desktop browser
-artifacts live in the cache directory. Live-server discovery state lives in the
-runtime directory.
+and logs live in the state directory. Provider caches live in the cache
+directory. Live-server discovery state lives in the runtime directory.
 
 The effective paths for the connected server are shown under **Settings →
 Diagnostics → Storage Locations**.
@@ -46,6 +45,22 @@ force the default legacy tree under `~/.t3`, even when it has not been
 initialized. These values override automatic layout selection; `xdg` cannot be
 combined with `T3CODE_HOME` or `--base-dir`, and `legacy` cannot be combined
 with granular directory overrides.
+
+## Desktop app storage
+
+With the split layout, the desktop app keeps its own files apart from any
+server's, so a desktop that only connects to other servers never writes to
+them:
+
+| Purpose       | Default                                               | Holds                                                             |
+| ------------- | ----------------------------------------------------- | ----------------------------------------------------------------- |
+| Configuration | `${XDG_CONFIG_HOME:-$HOME/.config}/t3code-client`     | Desktop and client settings                                       |
+| State         | `${XDG_STATE_HOME:-$HOME/.local/state}/t3code-client` | Saved connections and credentials, Electron profile, desktop logs |
+| Cache         | `${XDG_CACHE_HOME:-$HOME/.cache}/t3code-client`       | Browser artifacts                                                 |
+
+Override them with `T3CODE_CLIENT_CONFIG_DIR`, `T3CODE_CLIENT_STATE_DIR`, and
+`T3CODE_CLIENT_CACHE_DIR`. In the legacy layout these files stay in
+`~/.t3/userdata`.
 
 ## Existing installations
 
