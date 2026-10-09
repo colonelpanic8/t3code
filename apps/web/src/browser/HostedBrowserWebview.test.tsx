@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 const mocks = vi.hoisted(() => ({
   getClientSettings: vi.fn<() => Promise<ClientSettings | null>>(),
   setClientSettings: vi.fn<(settings: ClientSettings) => Promise<void>>(),
+  getManagedClientSettings: vi.fn(async () => null),
   createTab: vi.fn<DesktopPreviewBridge["createTab"]>(),
   closeTab: vi.fn<DesktopPreviewBridge["closeTab"]>(),
   registerWebview: vi.fn<DesktopPreviewBridge["registerWebview"]>(),

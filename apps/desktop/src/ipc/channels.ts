@@ -35,6 +35,7 @@ export const GET_LOCAL_ENVIRONMENT_BEARER_TOKEN_CHANNEL =
   "desktop:get-local-environment-bearer-token";
 export const GET_CLIENT_SETTINGS_CHANNEL = "desktop:get-client-settings";
 export const SET_CLIENT_SETTINGS_CHANNEL = "desktop:set-client-settings";
+export const GET_MANAGED_CLIENT_SETTINGS_CHANNEL = "desktop:get-managed-client-settings";
 export const SETUP_SNAP_SHOT_CHANNEL = "desktop:setup-snap-shot";
 export const PREVIEW_SNAP_SHOT_CONFIG_CHANNEL = "desktop:preview-snap-shot-config";
 export const APPLY_SNAP_SHOT_CONFIG_CHANNEL = "desktop:apply-snap-shot-config";

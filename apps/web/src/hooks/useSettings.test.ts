@@ -3,12 +3,17 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { DEFAULT_CLIENT_SETTINGS, type ClientSettings } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  type ClientSettings,
+  type ClientSettingsPatch,
+} from "@t3tools/contracts/settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const persistenceMocks = vi.hoisted(() => ({
   getClientSettings: vi.fn<() => Promise<ClientSettings | null>>(),
   setClientSettings: vi.fn<(settings: ClientSettings) => Promise<void>>(),
+  getManagedClientSettings: vi.fn<() => Promise<ClientSettingsPatch | null>>(),
 }));
 
 vi.mock("~/localApi", () => ({
@@ -29,6 +34,7 @@ import {
 beforeEach(() => {
   persistenceMocks.getClientSettings.mockReset().mockResolvedValue(null);
   persistenceMocks.setClientSettings.mockReset().mockResolvedValue(undefined);
+  persistenceMocks.getManagedClientSettings.mockReset().mockResolvedValue(null);
   __resetClientSettingsPersistenceForTests();
 });
 
@@ -37,6 +43,21 @@ afterEach(() => {
 });
 
 describe("client settings hydration", () => {
+  it("keeps managed values over saved settings and later patches", async () => {
+    persistenceMocks.getClientSettings.mockResolvedValue({
+      ...DEFAULT_CLIENT_SETTINGS,
+      diffLayout: "stacked",
+      wordWrap: false,
+    });
+    persistenceMocks.getManagedClientSettings.mockResolvedValue({ diffLayout: "split" });
+
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings()).toMatchObject({ diffLayout: "split", wordWrap: false });
+
+    await persistClientSettingsPatch({ diffLayout: "stacked", wordWrap: true });
+    expect(getClientSettings()).toMatchObject({ diffLayout: "split", wordWrap: true });
+  });
+
   const savedSettings = {
     ...DEFAULT_CLIENT_SETTINGS,
     timestampFormat: "12-hour" as const,

@@ -1512,6 +1512,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "write-secret",
   "write-file",
   "prepare-directory",
+  "read-managed-file",
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 
@@ -1536,6 +1537,38 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
         : ` and environment variable ${this.environmentVariable}`;
     return `Server settings ${this.operation} failed${provider}${variable} at ${this.settingsPath}.`;
   }
+}
+
+/** A write that would change a value set by the managed (system configuration) layer. */
+export class ManagedSettingWriteError extends Schema.TaggedError<ManagedSettingWriteError>()(
+  "ManagedSettingWriteError",
+  {
+    /** Dotted settings path, or the keybinding command. */
+    setting: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${this.setting} is managed by system configuration.`;
+  }
+}
+
+/**
+ * Leaf paths fixed by an environment's managed settings file. A path stops at
+ * arrays and at values the merge treats as a whole.
+ */
+export const ManagedSettingPaths = Schema.Array(Schema.Array(Schema.String));
+export type ManagedSettingPaths = typeof ManagedSettingPaths.Type;
+
+/** Whether `path`, or anything inside or above it, is fixed by the managed layer. */
+export function isSettingPathManaged(
+  managedPaths: ManagedSettingPaths | undefined,
+  path: ReadonlyArray<string>,
+): boolean {
+  return (
+    managedPaths?.some((managed) =>
+      managed.slice(0, path.length).every((segment, index) => segment === path[index]),
+    ) ?? false
+  );
 }
 
 // ── Unified type ─────────────────────────────────────────────────────

@@ -73,7 +73,12 @@ import {
   whenNodeRemoveLabel,
 } from "./KeybindingsSettings.logic";
 import { SettingsGroup } from "./SettingsGroup";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import {
+  MANAGED_SETTING_MESSAGE,
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "./settingsLayout";
 import { keybindingSearchAnchorId, searchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -899,7 +904,7 @@ function KeybindingRowMenu({
   onRemove: (row: KeybindingRow) => void;
 }) {
   const canReset = row.source === "Custom" && row.defaultKey !== null;
-  const canRemove = row.source !== "Default";
+  const canRemove = row.source !== "Default" && row.source !== "Managed";
   if (!canReset && !canRemove) return null;
 
   return (
@@ -993,7 +998,38 @@ function KeybindingHoverRowMenu(props: {
 }
 
 /** One binding as a settings row: pills flush right, actions fading in beside them on hover. */
+/** A binding from the environment's managed keybindings file: shown, never edited here. */
+function ManagedKeybindingSettingsRow({
+  row,
+  anchorId,
+}: {
+  row: KeybindingRow;
+  anchorId?: string | undefined;
+}) {
+  return (
+    <SettingsRow
+      id={anchorId}
+      className="rounded-none"
+      title={<KeybindingRowTitle row={row} />}
+      description={
+        <span className="flex h-6 items-center gap-1.5 text-xs text-muted-foreground/70">
+          When <span className="font-mono">{row.when || "Always"}</span>
+        </span>
+      }
+      status={MANAGED_SETTING_MESSAGE}
+      control={<KeybindingPill value={row.key} />}
+    />
+  );
+}
+
 function KeybindingSettingsRow(props: KeybindingRowProps) {
+  if (props.row.source === "Managed") {
+    return <ManagedKeybindingSettingsRow row={props.row} anchorId={props.anchorId} />;
+  }
+  return <EditableKeybindingSettingsRow {...props} />;
+}
+
+function EditableKeybindingSettingsRow(props: KeybindingRowProps) {
   const { row, isSaving, anchorId, allRows, variables, onSave, onReset, onRemove } = props;
   const editor = useKeybindingRowEditor({ row, allRows, onSave });
 
