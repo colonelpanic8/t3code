@@ -5,6 +5,16 @@
   ...
 }: let
   cfg = config.services.t3code;
+  managedFiles = import ./managed-files.nix {inherit lib pkgs;};
+  # Set on the service rather than in the launch script so a replaced
+  # ExecStart or ProgramArguments still sees the managed files.
+  managedEnvironment =
+    lib.optionalAttrs (cfg.settings != {}) {
+      T3CODE_MANAGED_SETTINGS_FILE = "${managedFiles.settingsFile "t3code-managed-settings.json" cfg.settings}";
+    }
+    // lib.optionalAttrs (cfg.keybindings != []) {
+      T3CODE_MANAGED_KEYBINDINGS_FILE = "${managedFiles.keybindingsFile cfg.keybindings}";
+    };
   serverCommand = pkgs.writeShellScript "t3code-headless-server" ''
     set -eu
 
@@ -86,6 +96,20 @@ in {
       description = "Additional packages available to the server and its provider processes.";
     };
 
+    settings = managedFiles.settingsOption ''
+      Server settings fixed by system configuration, in the format of the
+      server's settings.json. Objects merge key by key and anything else
+      replaces the user's value; keys left out stay editable. The file lands in
+      the Nix store, so reference credentials such as GitHub tokens as
+      `{ "$file" = "/run/agenix/github-token"; }` instead of writing them inline.
+    '';
+
+    keybindings = managedFiles.keybindingsOption ''
+      Keybindings fixed by system configuration. Each rule replaces the user's
+      rules for the same command or the same shortcut, and clients cannot
+      change or remove it.
+    '';
+
     systemdTarget = lib.mkOption {
       type = lib.types.str;
       default = "graphical-session.target";
@@ -126,6 +150,9 @@ in {
           RestartSec = 5;
           TimeoutStopSec = 15;
           UMask = "0077";
+          Environment = lib.mkIf (managedEnvironment != {}) (
+            lib.mapAttrsToList (name: value: "${name}=${value}") managedEnvironment
+          );
         };
 
         # Deliberately omit PartOf so the backend survives graphical logout.
@@ -142,6 +169,7 @@ in {
           ProcessType = "Interactive";
           RunAtLoad = true;
           ThrottleInterval = 5;
+          EnvironmentVariables = lib.mkIf (managedEnvironment != {}) managedEnvironment;
           StandardOutPath = "${config.home.homeDirectory}/Library/Logs/t3code-headless.log";
           StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/t3code-headless.err.log";
         };

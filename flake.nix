@@ -131,6 +131,7 @@
       homeManagerModules = {
         default = self.homeManagerModules.t3code-server;
         t3code-server = import ./nix/home-manager/t3code-server.nix {inherit self;};
+        t3code = import ./nix/home-manager/t3code.nix {inherit self;};
       };
     };
 }
