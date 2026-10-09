@@ -511,6 +511,7 @@ const layerTest = (
           DesktopClientSettings.DesktopClientSettings.of({
             get: settingsGet,
             set: () => Effect.void,
+            getManaged: Effect.succeed({}),
           }),
         ),
         Layer.succeed(

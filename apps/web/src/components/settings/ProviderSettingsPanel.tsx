@@ -17,6 +17,7 @@ import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
   type AcpRegistryUrlAuthAction,
+  isSettingPathManaged,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
   type ProjectId,
@@ -108,6 +109,7 @@ import {
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
 } from "./SettingsPanels.logic";
 import {
+  MANAGED_SETTING_MESSAGE,
   PolicyTooltip,
   SettingResetButton,
   SettingsPageContainer,
@@ -576,6 +578,9 @@ export function EnvironmentProviderSettings({
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
+  const managedSettingPaths = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+  )?.managedSettingPaths;
   const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const canRefreshProviders = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -955,6 +960,11 @@ export function EnvironmentProviderSettings({
             onChange: (next: boolean) => writeProjectOverride(next),
             onReset: () => writeProjectOverride(undefined),
           };
+    const managedInstance = isSettingPathManaged(managedSettingPaths, [
+      "providerInstances",
+      row.instanceId,
+    ]);
+    const instanceReadOnly = readOnly || managedInstance;
 
     return (
       <ProviderInstanceCard
@@ -963,7 +973,7 @@ export function EnvironmentProviderSettings({
         acpProjects={projects}
         projectOverride={projectOverride}
         onAcceptUrlAuth={
-          readOnly ? undefined : (action) => acceptUrlAuthentication(row.instanceId, action)
+          instanceReadOnly ? undefined : (action) => acceptUrlAuthentication(row.instanceId, action)
         }
         instanceId={row.instanceId}
         instance={row.instance}
@@ -972,7 +982,7 @@ export function EnvironmentProviderSettings({
         mode={mode}
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         onSelect={mode === "list" ? () => setSelectedInstanceId(row.instanceId) : undefined}
-        readOnly={readOnly}
+        readOnly={instanceReadOnly}
         runtime={
           mode === "editor" &&
           row.driver === "codex" &&
@@ -995,7 +1005,7 @@ export function EnvironmentProviderSettings({
               binaryPath={configuredBinaryPath(row.instance.config)}
               authMethod={readAntigravityAuthMethod(row.instance.config)}
               enabled={resolveProviderInstanceEnabled(row.instance)}
-              readOnly={readOnly}
+              readOnly={instanceReadOnly}
               onEnable={() => updateProviderInstance(row, { ...row.instance, enabled: true })}
             />
           ) : mode === "editor" &&
@@ -1007,7 +1017,7 @@ export function EnvironmentProviderSettings({
               provider={liveProvider}
               mode={readCodexSetupMode(row.instance.config)}
               enabled={resolveProviderInstanceEnabled(row.instance)}
-              readOnly={readOnly}
+              readOnly={instanceReadOnly}
               onModeChange={(setupMode) =>
                 updateProviderInstance(row, {
                   ...row.instance,
@@ -1023,7 +1033,7 @@ export function EnvironmentProviderSettings({
               }
             />
           ) : mode === "editor" &&
-            !readOnly &&
+            !instanceReadOnly &&
             liveProvider &&
             (liveProvider.setup?.canAuthenticate ||
               (liveProvider.driver === "acpRegistry" && liveProvider.installed)) ? (
@@ -1033,10 +1043,10 @@ export function EnvironmentProviderSettings({
               environmentLabel={environmentLabel}
               instanceId={row.instanceId}
               provider={liveProvider}
-              readOnly={readOnly}
+              readOnly={instanceReadOnly}
             />
           ) : mode === "editor" &&
-            !readOnly &&
+            !instanceReadOnly &&
             row.driver === "cursor" &&
             liveProvider?.setup?.canAuthenticate === false ? (
             <SettingsRow
@@ -1064,10 +1074,14 @@ export function EnvironmentProviderSettings({
           );
         }}
         onDelete={
-          mode === "editor" && !row.isDefault ? () => deleteProviderInstance(row) : undefined
+          mode === "editor" && !row.isDefault && !managedInstance
+            ? () => deleteProviderInstance(row)
+            : undefined
         }
         headerAction={
-          mode === "editor" && row.isDefault && row.isDirty ? (
+          managedInstance ? (
+            <span className="text-xs text-muted-foreground">{MANAGED_SETTING_MESSAGE}</span>
+          ) : mode === "editor" && row.isDefault && row.isDirty ? (
             <SettingResetButton
               label={`${resetLabel} provider settings`}
               onClick={() => resetDefaultInstance(row.driver)}

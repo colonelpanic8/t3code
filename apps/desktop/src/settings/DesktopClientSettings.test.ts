@@ -78,7 +78,7 @@ const decodeClientSettingsJson = Schema.decodeEffect(Schema.fromJsonString(Clien
 const decodeRecordJson = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
 );
-function layer(baseDir: string) {
+function layer(baseDir: string, env: Readonly<Record<string, string>> = {}) {
   const layerEnvironment = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: baseDir,
@@ -91,7 +91,7 @@ function layer(baseDir: string) {
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir, ...env })),
     ),
   );
 
@@ -113,6 +113,54 @@ const withClientSettings = <A, E, R>(
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
 describe("DesktopClientSettings", () => {
+  it.effect("applies managed settings without persisting them over the user's values", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-client-settings-test-",
+      });
+      const managedPath = `${baseDir}/managed-client-settings.json`;
+      yield* fileSystem.writeFileString(managedPath, '{"fontSizeCode":15,"diffLayout":"split"}');
+
+      yield* Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        yield* settings.set({ ...clientSettings, fontSizeCode: 11 });
+      }).pipe(Effect.provide(layer(baseDir)));
+
+      yield* Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        assert.deepEqual(yield* settings.getManaged, { fontSizeCode: 15, diffLayout: "split" });
+        assert.deepEqual(
+          yield* settings.get,
+          Option.some({ ...clientSettings, fontSizeCode: 15, diffLayout: "split" }),
+        );
+
+        // The renderer echoes managed values back with its other edits; only the edits persist.
+        yield* settings.set({
+          ...clientSettings,
+          fontSizeCode: 15,
+          diffLayout: "split",
+          wordWrap: false,
+        });
+        assert.deepEqual(
+          yield* decodeClientSettingsJson(
+            yield* fileSystem.readFileString(environment.clientSettingsPath),
+          ),
+          { ...clientSettings, fontSizeCode: 11, wordWrap: false },
+        );
+      }).pipe(Effect.provide(layer(baseDir, { T3CODE_MANAGED_CLIENT_SETTINGS_FILE: managedPath })));
+
+      yield* Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        assert.deepEqual(
+          yield* settings.get,
+          Option.some({ ...clientSettings, fontSizeCode: 11, wordWrap: false }),
+        );
+      }).pipe(Effect.provide(layer(baseDir)));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
   it.effect("returns none when no client settings file exists", () =>
     withClientSettings(
       Effect.gen(function* () {
