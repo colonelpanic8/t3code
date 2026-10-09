@@ -33,6 +33,7 @@ import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoo
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { VoiceLiveCallCard } from "../voice/VoiceLiveCallCard";
 import { Button } from "../components/ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { StandalonePage, StandalonePageHeader } from "../components/ui/standalone-page";
@@ -213,6 +214,9 @@ function RootRouteBranch() {
         {appShell}
         {/* Keep the theme editor above the router so drafts survive navigation. */}
         <ThemeEditorHost />
+        {/* Above the router for the same reason: an active call keeps its
+            surface while the user navigates anywhere in the app. */}
+        <VoiceLiveCallCard />
       </FirstRunGate>
     </>
   );

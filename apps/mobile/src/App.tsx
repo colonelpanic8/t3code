@@ -26,6 +26,7 @@ import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import { VoiceLiveSurface } from "./features/voice/VoiceLiveOverlays";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
@@ -171,6 +172,10 @@ function AppContent() {
               </NativeLayoutMetricsProvider>
             </GlobalVoiceInputControl>
             <OverlayPortalHost />
+            {/* Live Voice call banner + environment picker; above the
+              navigation container so the active call follows the user
+              across every screen. */}
+            <VoiceLiveSurface />
           </SafeAreaProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>
