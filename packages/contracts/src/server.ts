@@ -641,6 +641,22 @@ export const ServerDirectEndpoint = Schema.Struct({
 });
 export type ServerDirectEndpoint = typeof ServerDirectEndpoint.Type;
 
+export const ServerStorageLayout = Schema.Struct({
+  layout: Schema.Literals(["split", "legacy"]),
+  configDirectoryPath: TrimmedNonEmptyString,
+  dataDirectoryPath: TrimmedNonEmptyString,
+  stateDirectoryPath: TrimmedNonEmptyString,
+  cacheDirectoryPath: TrimmedNonEmptyString,
+  runtimeDirectoryPath: TrimmedNonEmptyString,
+  databaseFilePath: TrimmedNonEmptyString,
+  settingsFilePath: TrimmedNonEmptyString,
+  keybindingsFilePath: TrimmedNonEmptyString,
+  worktreesDirectoryPath: TrimmedNonEmptyString,
+  attachmentsDirectoryPath: TrimmedNonEmptyString,
+  legacyBaseDirectoryPath: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ServerStorageLayout = typeof ServerStorageLayout.Type;
+
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
@@ -666,6 +682,8 @@ export const ServerConfig = Schema.Struct({
    */
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
   observability: ServerObservability,
+  /** Effective server-side storage paths. Optional for older server compatibility. */
+  storage: Schema.optionalKey(ServerStorageLayout),
   settings: ServerSettings,
   /** Whether shell subscriptions can emit an opt-in catch-up completion marker. */
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
