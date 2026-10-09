@@ -16,6 +16,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import { base64UrlDecodeUtf8, base64UrlEncode, signPayload } from "./utils.ts";
@@ -283,6 +284,45 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
           Layer.provide(SqlitePersistence.layerMemory),
           Layer.provide(layerServerEnvironment(EnvironmentId.make("test-environment"))),
           Layer.provide(layerServerConfig()),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("maps the configured managed token to a renewable server session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const verified = yield* sessions.verify("managed-fleet-secret");
+      const websocket = yield* sessions.issueWebSocketToken(verified.sessionId);
+      const websocketSession = yield* sessions.verifyWebSocketToken(websocket.token);
+
+      expect(verified.method).toBe("bearer-access-token");
+      expect(verified.subject).toBe("managed-access");
+      expect(verified.client).toEqual({ label: "Managed fleet", deviceType: "bot" });
+      expect(websocketSession.sessionId).toBe(verified.sessionId);
+      expect(websocketSession.subject).toBe("managed-access");
+    }).pipe(Effect.provide(layerSessionStore({ managedAccessToken: "managed-fleet-secret" }))),
+  );
+  it.effect("replaces the managed session when the server restarts", () =>
+    Effect.gen(function* () {
+      const firstStore = yield* SessionStore.make;
+      const firstSession = yield* firstStore.verify("managed-fleet-secret");
+      expect(yield* firstStore.listActive()).toHaveLength(1);
+
+      const restartedStore = yield* SessionStore.make;
+      const restartedSession = yield* restartedStore.verify("managed-fleet-secret");
+      const active = yield* restartedStore.listActive();
+
+      expect(restartedSession.sessionId).not.toBe(firstSession.sessionId);
+      expect(active).toHaveLength(1);
+      expect(active[0]?.sessionId).toBe(restartedSession.sessionId);
+      expect(active[0]?.subject).toBe("managed-access");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(AuthSessions.layer, ServerSecretStore.layer).pipe(
+          Layer.provideMerge(SqlitePersistence.layerMemory),
+          Layer.provideMerge(layerServerEnvironment(EnvironmentId.make("test-environment"))),
+          Layer.provideMerge(layerServerConfig({ managedAccessToken: "managed-fleet-secret" })),
         ),
       ),
     ),

@@ -92,6 +92,8 @@ it.effect.each([
           staticDir: undefined,
           devAllowedOrigins: [],
           desktopBootstrapToken: undefined,
+          managedAccessToken: undefined,
+          environmentIdOverride: undefined,
           logWebSocketEvents: false,
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
