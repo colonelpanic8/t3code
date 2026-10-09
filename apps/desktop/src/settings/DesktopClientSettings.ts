@@ -1,4 +1,9 @@
-import { ClientSettingsSchema, type ClientSettings } from "@t3tools/contracts";
+import {
+  ClientSettingsPatch,
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  type ClientSettings,
+} from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as Context from "effect/Context";
@@ -26,6 +31,7 @@ const decodeClientSettingsJson = Effect.fnUntraced(function* (raw: string) {
   );
 });
 const encodeClientSettingsJson = Schema.encodeEffect(ClientSettingsJson);
+const decodeManagedClientSettingsJson = Schema.decodeEffect(fromLenientJson(ClientSettingsPatch));
 
 export class DesktopClientSettingsReadError extends Schema.TaggedError<DesktopClientSettingsReadError>()(
   "DesktopClientSettingsReadError",
@@ -66,11 +72,48 @@ export class DesktopClientSettings extends Context.Service<
   DesktopClientSettings,
   {
     readonly get: Effect.Effect<Option.Option<ClientSettings>, DesktopClientSettingsReadError>;
+    /** Writes the user's settings; values for managed keys keep what the user had. */
     readonly set: (
       settings: ClientSettings,
     ) => Effect.Effect<void, DesktopClientSettingsWriteError>;
+    /** Settings fixed by the managed client settings file; `get` already applies them. */
+    readonly getManaged: Effect.Effect<ClientSettingsPatch>;
   }
 >()("@t3tools/desktop/settings/DesktopClientSettings") {}
+
+// Read on every call so the file can change under a running app. An unusable
+// file leaves the user's settings in charge rather than blocking them.
+const readManagedClientSettings = (
+  fileSystem: FileSystem.FileSystem,
+  managedPath: Option.Option<string>,
+): Effect.Effect<ClientSettingsPatch> =>
+  Option.match(managedPath, {
+    onNone: () => Effect.succeed({}),
+    onSome: (path) =>
+      fileSystem.readFileString(path).pipe(
+        Effect.flatMap(decodeManagedClientSettingsJson),
+        Effect.catch((cause) =>
+          Effect.logWarning("Ignoring managed client settings.", cause).pipe(
+            Effect.annotateLogs({ path }),
+            Effect.as({}),
+          ),
+        ),
+      ),
+  });
+
+/** Put the user's own values back under every managed key before persisting. */
+function withoutManagedValues(
+  settings: ClientSettings,
+  managed: ClientSettingsPatch,
+  user: Option.Option<ClientSettings>,
+): ClientSettings {
+  const previous = Option.getOrElse(user, () => DEFAULT_CLIENT_SETTINGS);
+  const restored: Record<string, unknown> = { ...settings };
+  for (const key of Object.keys(managed) as Array<keyof ClientSettings>) {
+    restored[key] = previous[key];
+  }
+  return restored as ClientSettings;
+}
 
 const readClientSettings = (
   fileSystem: FileSystem.FileSystem,
@@ -190,32 +233,45 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
 
-  return DesktopClientSettings.of({
-    get: readClientSettings(fileSystem, environment.clientSettingsPath).pipe(
-      Effect.withSpan("desktop.clientSettings.get"),
-    ),
-    set: (settings) =>
-      crypto.randomUUIDv4.pipe(
-        Effect.map((uuid) => uuid.replace(/-/g, "")),
-        Effect.mapError(
-          (cause) =>
-            new DesktopClientSettingsWriteError({
-              operation: "create-temporary-file-name",
-              path: environment.clientSettingsPath,
-              cause,
-            }),
-        ),
-        Effect.flatMap((suffix) =>
-          writeClientSettings({
-            fileSystem,
-            path,
-            settingsPath: environment.clientSettingsPath,
-            settings,
-            suffix,
+  const getManaged = readManagedClientSettings(fileSystem, environment.managedClientSettingsPath);
+  const readUserSettings = readClientSettings(fileSystem, environment.clientSettingsPath);
+  const writeUserSettings = (settings: ClientSettings) =>
+    crypto.randomUUIDv4.pipe(
+      Effect.map((uuid) => uuid.replace(/-/g, "")),
+      Effect.mapError(
+        (cause) =>
+          new DesktopClientSettingsWriteError({
+            operation: "create-temporary-file-name",
+            path: environment.clientSettingsPath,
+            cause,
           }),
-        ),
-        Effect.withSpan("desktop.clientSettings.set"),
       ),
+      Effect.flatMap((suffix) =>
+        writeClientSettings({
+          fileSystem,
+          path,
+          settingsPath: environment.clientSettingsPath,
+          settings,
+          suffix,
+        }),
+      ),
+    );
+
+  return DesktopClientSettings.of({
+    get: Effect.gen(function* () {
+      const user = yield* readUserSettings;
+      const managed = yield* getManaged;
+      if (Object.keys(managed).length === 0) return user;
+      return Option.some({ ...Option.getOrElse(user, () => DEFAULT_CLIENT_SETTINGS), ...managed });
+    }).pipe(Effect.withSpan("desktop.clientSettings.get")),
+    getManaged,
+    set: (requested) =>
+      Effect.gen(function* () {
+        const managed = yield* getManaged;
+        if (Object.keys(managed).length === 0) return requested;
+        const user = yield* readUserSettings.pipe(Effect.orElseSucceed(() => Option.none()));
+        return withoutManagedValues(requested, managed, user);
+      }).pipe(Effect.flatMap(writeUserSettings), Effect.withSpan("desktop.clientSettings.set")),
   });
 });
 
@@ -229,6 +285,7 @@ export const layerTest = (initialSettings: Option.Option<ClientSettings> = Optio
       return DesktopClientSettings.of({
         get: Ref.get(settingsRef),
         set: (settings) => Ref.set(settingsRef, Option.some(settings)),
+        getManaged: Effect.succeed({}),
       });
     }),
   );
