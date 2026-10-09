@@ -30,6 +30,7 @@ import {
   legacyT3StorageArtifactPaths,
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
+  resolveT3ClientStorageRoots,
   resolveT3StorageDirectoryOverrides,
   selectT3StorageRoots,
   type T3StorageRoots,
@@ -135,6 +136,18 @@ const EnvStorageConfig = Config.all({
     Config.map(Option.getOrUndefined),
   ),
   t3RuntimeDir: Config.String("T3CODE_RUNTIME_DIR").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  t3ClientConfigDir: Config.String("T3CODE_CLIENT_CONFIG_DIR").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  t3ClientStateDir: Config.String("T3CODE_CLIENT_STATE_DIR").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  t3ClientCacheDir: Config.String("T3CODE_CLIENT_CACHE_DIR").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
@@ -490,6 +503,78 @@ export const currentStorageHost = Effect.gen(function* () {
   } satisfies StorageHost;
 });
 
+const storagePathOperations = (path: Path.Path) => ({
+  join: (...paths: ReadonlyArray<string>) => path.join(...paths),
+  resolve: (...paths: ReadonlyArray<string>) => path.resolve(...paths),
+  isAbsolute: (candidate: string) => path.isAbsolute(candidate),
+});
+
+const storageEnvironmentRecord = (env: Config.Success<typeof EnvStorageConfig>) => ({
+  T3CODE_CONFIG_DIR: env.t3ConfigDir,
+  T3CODE_DATA_DIR: env.t3DataDir,
+  T3CODE_STATE_DIR: env.t3StateDir,
+  T3CODE_CACHE_DIR: env.t3CacheDir,
+  T3CODE_RUNTIME_DIR: env.t3RuntimeDir,
+  T3CODE_CLIENT_CONFIG_DIR: env.t3ClientConfigDir,
+  T3CODE_CLIENT_STATE_DIR: env.t3ClientStateDir,
+  T3CODE_CLIENT_CACHE_DIR: env.t3ClientCacheDir,
+  XDG_CONFIG_HOME: env.xdgConfigHome,
+  XDG_DATA_HOME: env.xdgDataHome,
+  XDG_STATE_HOME: env.xdgStateHome,
+  XDG_CACHE_HOME: env.xdgCacheHome,
+  XDG_RUNTIME_DIR: env.xdgRuntimeDir,
+  APPDATA: env.appData,
+  LOCALAPPDATA: env.localAppData,
+});
+
+/** Directories a desktop client would use next to a server on `serverRoots`. */
+export const resolveClientStorageRoots = Effect.fn("resolveClientStorageRoots")(function* (input: {
+  readonly serverRoots: T3StorageRoots;
+  readonly isDevelopment: boolean;
+  readonly host: StorageHost;
+}) {
+  const path = yield* Path.Path;
+  const env = yield* EnvStorageConfig;
+  return resolveT3ClientStorageRoots({
+    serverRoots: input.serverRoots,
+    platform: input.host.platform,
+    homeDirectory: input.host.homeDirectory,
+    temporaryDirectory: input.host.temporaryDirectory,
+    ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
+    isDevelopment: input.isDevelopment,
+    environment: storageEnvironmentRecord(env),
+    path: storagePathOperations(path),
+  });
+});
+
+/** The split roots for this host: platform defaults with any granular overrides applied. */
+const resolveSplitStorageRoots = Effect.fn("resolveSplitStorageRoots")(function* (input: {
+  readonly isDevelopment: boolean;
+  readonly host: StorageHost;
+}) {
+  const path = yield* Path.Path;
+  const env = yield* EnvStorageConfig;
+  const pathOperations = storagePathOperations(path);
+  const environment = storageEnvironmentRecord(env);
+  const defaults = resolveDefaultT3StorageRoots({
+    platform: input.host.platform,
+    homeDirectory: input.host.homeDirectory,
+    temporaryDirectory: input.host.temporaryDirectory,
+    ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
+    isDevelopment: input.isDevelopment,
+    environment,
+    path: pathOperations,
+  });
+  return applyT3StorageDirectoryOverrides(
+    defaults,
+    resolveT3StorageDirectoryOverrides({
+      environment,
+      homeDirectory: input.host.homeDirectory,
+      path: pathOperations,
+    }),
+  );
+});
+
 /**
  * Storage roots a server started with these flags would use: a desktop bootstrap pins them, then
  * --base-dir/T3CODE_HOME, granular directory overrides, a forced layout, and finally an initialized
@@ -521,25 +606,8 @@ export const resolveStorageRoots = Effect.fn("resolveStorageRoots")(function* (i
     Option.fromUndefinedOr(env.t3Home),
   ).pipe(Option.filter((value) => value.trim().length > 0));
   const forcedStorageLayout = Option.getOrUndefined(input.storageLayout);
-  const pathOperations = {
-    join: (...paths: ReadonlyArray<string>) => path.join(...paths),
-    resolve: (...paths: ReadonlyArray<string>) => path.resolve(...paths),
-    isAbsolute: (candidate: string) => path.isAbsolute(candidate),
-  };
-  const storageEnvironment = {
-    T3CODE_CONFIG_DIR: env.t3ConfigDir,
-    T3CODE_DATA_DIR: env.t3DataDir,
-    T3CODE_STATE_DIR: env.t3StateDir,
-    T3CODE_CACHE_DIR: env.t3CacheDir,
-    T3CODE_RUNTIME_DIR: env.t3RuntimeDir,
-    XDG_CONFIG_HOME: env.xdgConfigHome,
-    XDG_DATA_HOME: env.xdgDataHome,
-    XDG_STATE_HOME: env.xdgStateHome,
-    XDG_CACHE_HOME: env.xdgCacheHome,
-    XDG_RUNTIME_DIR: env.xdgRuntimeDir,
-    APPDATA: env.appData,
-    LOCALAPPDATA: env.localAppData,
-  };
+  const pathOperations = storagePathOperations(path);
+  const storageEnvironment = storageEnvironmentRecord(env);
   const directoryOverrides = resolveT3StorageDirectoryOverrides({
     environment: storageEnvironment,
     homeDirectory,
@@ -555,18 +623,7 @@ export const resolveStorageRoots = Effect.fn("resolveStorageRoots")(function* (i
   if (forcedStorageLayout === "legacy" && hasDirectoryOverrides) {
     return yield* new ForcedLegacyLayoutConflictError();
   }
-  const defaultSplitRoots = resolveDefaultT3StorageRoots({
-    platform: input.host.platform,
-    homeDirectory,
-    temporaryDirectory: input.host.temporaryDirectory,
-    ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
-    isDevelopment,
-    environment: storageEnvironment,
-    path: pathOperations,
-  });
-  const explicitSplitRoots = hasDirectoryOverrides
-    ? applyT3StorageDirectoryOverrides(defaultSplitRoots, directoryOverrides)
-    : undefined;
+  const splitRoots = yield* resolveSplitStorageRoots(input);
   const explicitLegacyRoots = Option.isSome(explicitBaseDir)
     ? resolveLegacyT3StorageRoots({
         baseDir: yield* resolveBaseDir(explicitBaseDir.value),
@@ -585,12 +642,10 @@ export const resolveStorageRoots = Effect.fn("resolveStorageRoots")(function* (i
       : explicitLegacyRoots === undefined
         ? {}
         : { explicitLegacyRoots }),
-    ...(forcedStorageLayout === "xdg"
-      ? { explicitSplitRoots: explicitSplitRoots ?? defaultSplitRoots }
-      : explicitSplitRoots === undefined
-        ? {}
-        : { explicitSplitRoots }),
-    defaultSplitRoots,
+    ...(forcedStorageLayout === "xdg" || hasDirectoryOverrides
+      ? { explicitSplitRoots: splitRoots }
+      : {}),
+    defaultSplitRoots: splitRoots,
     legacyRoots,
     legacyStorageInitialized: yield* legacyStorageIsInitialized(legacyRoots),
   });
