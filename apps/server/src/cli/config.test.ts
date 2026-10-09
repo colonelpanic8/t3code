@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
 import * as NodeOS from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
@@ -123,6 +124,84 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         );
         expect(config.cwd).toBe(cwd);
         expect(yield* fs.exists(cwd)).toBe(true);
+      }
+    }),
+  );
+
+  it.effect("refuses supervised and desktop startup only when the owner still answers", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-owner-" });
+      const respondsAsT3 = yield* Effect.acquireRelease(
+        Effect.callback<NodeHttp.Server>((resume) => {
+          const server = NodeHttp.createServer((request, response) => {
+            if (request.url !== "/.well-known/t3/environment") {
+              response.writeHead(404).end();
+              return;
+            }
+            response.writeHead(200, { "content-type": "application/json" }).end(
+              JSON.stringify({
+                environmentId: "environment-owner",
+                label: "Owner",
+                platform: { os: "linux", arch: "x64" },
+                serverVersion: "0.0.0",
+                capabilities: { repositoryIdentity: true },
+              }),
+            );
+          });
+          server.listen(0, "127.0.0.1", () => resume(Effect.succeed(server)));
+        }),
+        (server) =>
+          Effect.callback<void>((resume) => {
+            server.close(() => resume(Effect.void));
+          }),
+      );
+      const address = respondsAsT3.address();
+      assert(address !== null && typeof address === "object");
+      const ownerOrigin = `http://127.0.0.1:${address.port}`;
+
+      for (const [name, origin, mode, refused] of [
+        ["serve-owned", ownerOrigin, "web", true],
+        ["desktop-owned", ownerOrigin, "desktop", true],
+        ["reused-pid", "http://127.0.0.1:9", "web", false],
+      ] as const) {
+        const baseDir = path.join(root, name);
+        const stateDir = path.join(baseDir, "userdata");
+        yield* fs.makeDirectory(stateDir, { recursive: true });
+        yield* fs.writeFileString(
+          path.join(stateDir, "server-runtime.json"),
+          yield* encodeUnknownJson({
+            version: 1,
+            pid: process.ppid,
+            port: 3773,
+            origin,
+            startedAt: "2026-10-01T00:00:00.000Z",
+          }),
+        );
+        const result = yield* resolveServerConfig(
+          {
+            ...minimalWebFlags(baseDir),
+            mode: Option.some(mode),
+            port: Option.some(8788),
+            cwd: Option.some(path.join(root, `${name}-project`)),
+          },
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.merge(
+              NetService.layer,
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            ),
+          ),
+          Effect.result,
+        );
+        if (refused) {
+          assert(result._tag === "Failure");
+          expect(String(result.failure)).toContain("already owns");
+        } else {
+          expect(result._tag).toBe("Success");
+        }
       }
     }),
   );
