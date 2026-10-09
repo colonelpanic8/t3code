@@ -3,6 +3,7 @@ import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import {
   useClientSettings,
   useClientSettingsHydrated,
+  useManagedClientSettings,
   useUpdateClientSettings,
 } from "~/hooks/useSettings";
 import type { EnvironmentPresentation } from "~/state/environments";
@@ -10,6 +11,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { EnvironmentRow, environmentTransportLabel } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { MANAGED_SETTING_MESSAGE } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 const preferences = [
@@ -55,6 +57,9 @@ export function LoadBalancingSettings({
   }));
   const settingsHydrated = useClientSettingsHydrated();
   const updateSettings = useUpdateClientSettings();
+  const managed = useManagedClientSettings();
+  const enabledManaged = Object.hasOwn(managed, "loadBalancingEnabled");
+  const weightsManaged = Object.hasOwn(managed, "loadBalancingWeights");
 
   if (environments.length < 2) return null;
 
@@ -63,16 +68,19 @@ export function LoadBalancingSettings({
     <FoldedSettingsSection
       id={id}
       title={title}
-      summary={
+      summary={[
         settings.loadBalancingEnabled
           ? summarizeLoadPreferences(environments, settings.loadBalancingWeights)
-          : "Off"
-      }
+          : "Off",
+        enabledManaged || weightsManaged ? MANAGED_SETTING_MESSAGE : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       control={
         <Switch
           aria-label="Automatically balance load"
           checked={settings.loadBalancingEnabled}
-          disabled={!settingsHydrated}
+          disabled={!settingsHydrated || enabledManaged}
           onCheckedChange={(loadBalancingEnabled) => updateSettings({ loadBalancingEnabled })}
         />
       }
@@ -93,7 +101,7 @@ export function LoadBalancingSettings({
             value={loadPreferenceForWeight(
               settings.loadBalancingWeights[environment.environmentId],
             )}
-            disabled={!settingsHydrated || !settings.loadBalancingEnabled}
+            disabled={!settingsHydrated || !settings.loadBalancingEnabled || weightsManaged}
             onValueChange={(value) => {
               if (value === null) return;
               updateSettings({
