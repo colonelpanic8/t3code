@@ -37,7 +37,10 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
     readonly appDataDirectory: string;
     readonly isDevelopment: boolean;
     readonly platform: NodeJS.Platform;
+    readonly storageLayout: "split" | "legacy";
+    readonly electronUserDataPath: string;
   }) {
+    if (input.storageLayout === "split") return input.electronUserDataPath;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const names = input.isDevelopment
