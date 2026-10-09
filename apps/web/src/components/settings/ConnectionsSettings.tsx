@@ -49,6 +49,7 @@ import {
   connectionRoutes,
   connectionStatusText,
   environmentMcpUrl,
+  isManagedConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
@@ -1517,6 +1518,7 @@ function SavedBackendListRow({
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
+  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
   // Discovery empties its map on every refresh, so hold the last descriptor
   // seen or the glyph would blink back to the generic one each time.
@@ -1551,6 +1553,7 @@ function SavedBackendListRow({
   const routeCount = connectionRoutes(environment.entry).length;
   const subtitleText = [
     environmentTransportLabel(environment, connectedTarget),
+    isManagedEnvironment ? "Managed by system configuration" : null,
     resumingServerUpdate ? "Restarting" : status.text,
     enabled && versionMismatch ? serverVersion : null,
   ]
@@ -1558,6 +1561,7 @@ function SavedBackendListRow({
     .join(" · ");
 
   const showUpdateAction =
+    !isManagedEnvironment &&
     enabled &&
     isConnected &&
     versionMismatch !== null &&
@@ -1645,7 +1649,7 @@ function SavedBackendListRow({
         </span>
       }
       below={
-        serverUpdateState.status !== "idle" ? (
+        !isManagedEnvironment && serverUpdateState.status !== "idle" ? (
           <div className="mt-1 max-w-md">
             <ServerUpdateProgress state={serverUpdateState} />
           </div>
@@ -1656,7 +1660,7 @@ function SavedBackendListRow({
           {routesOpen && (
             <EnvironmentRoutesList
               environment={environment}
-              onAddRoute={() => onAddRoute(environment)}
+              onAddRoute={isManagedEnvironment ? null : () => onAddRoute(environment)}
             />
           )}
           {permissionsOpen && (
@@ -1743,10 +1747,14 @@ function SavedBackendListRow({
           {errorTraceId ? (
             <MenuItem onClick={() => copyTraceId(errorTraceId)}>Copy trace ID</MenuItem>
           ) : null}
-          <MenuSeparator />
-          <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
-            {isRemoving ? "Removing…" : "Remove from this device…"}
-          </MenuItem>
+          {isManagedEnvironment ? null : (
+            <>
+              <MenuSeparator />
+              <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
+                {isRemoving ? "Removing…" : "Remove from this device…"}
+              </MenuItem>
+            </>
+          )}
         </MenuPopup>
       </Menu>
     </EnvironmentRow>
