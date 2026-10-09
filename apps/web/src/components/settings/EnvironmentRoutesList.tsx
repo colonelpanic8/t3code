@@ -46,7 +46,8 @@ export function EnvironmentRoutesList({
   onAddRoute,
 }: {
   readonly environment: EnvironmentPresentation;
-  readonly onAddRoute: () => void;
+  /** Null when routes come from system configuration and cannot be added here. */
+  readonly onAddRoute: (() => void) | null;
 }) {
   const saved = connectionRoutes(environment.entry);
   const savedIds = saved.map((route) => connectionRouteId(route.target));
@@ -128,12 +129,14 @@ export function EnvironmentRoutesList({
           </ol>
         </SortableContext>
       </DndContext>
-      <div className="border-t border-border/70 px-1 py-1">
-        <Button size="xs" variant="ghost-muted" onClick={onAddRoute}>
-          <PlusIcon className="size-3" />
-          Add route
-        </Button>
-      </div>
+      {onAddRoute === null ? null : (
+        <div className="border-t border-border/70 px-1 py-1">
+          <Button size="xs" variant="ghost-muted" onClick={onAddRoute}>
+            <PlusIcon className="size-3" />
+            Add route
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
