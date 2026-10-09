@@ -9,6 +9,7 @@ import { AuthStandardClientScopes } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -233,6 +234,39 @@ describe("t3 pair", () => {
         }>;
         assert.lengthOf(credentials, 1);
         assert.deepEqual(credentials[0]?.scopes, ["orchestration:read", "relay:read"]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("finds a server using split storage directories", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-split-test-"));
+        const env = {
+          T3CODE_CONFIG_DIR: NodePath.join(root, "config"),
+          T3CODE_DATA_DIR: NodePath.join(root, "data"),
+          T3CODE_STATE_DIR: NodePath.join(root, "state"),
+          T3CODE_CACHE_DIR: NodePath.join(root, "cache"),
+          T3CODE_RUNTIME_DIR: NodePath.join(root, "runtime"),
+        };
+        // A running server has created its state directory.
+        NodeFS.mkdirSync(env.T3CODE_STATE_DIR, { recursive: true });
+        yield* persistServerRuntimeState({
+          path: NodePath.join(env.T3CODE_RUNTIME_DIR, "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined },
+            port: Number(new URL(origin).port),
+          }),
+        });
+        const withEnv = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          effect.pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))));
+
+        const output = yield* captureStdout(withEnv(runCli(["pair"])));
+        assert.include(output, `Pairing URL: ${origin}/pair#token=`);
+
+        const listed = yield* captureStdout(withEnv(runCli(["auth", "pairing", "list", "--json"])));
+        assert.lengthOf(JSON.parse(listed) as ReadonlyArray<unknown>, 1);
+        assert.isTrue(NodeFS.existsSync(NodePath.join(env.T3CODE_STATE_DIR, "statev2.sqlite")));
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );

@@ -24,8 +24,8 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Argument, Command } from "effect/cli";
 
-import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
-import { baseDirFlag } from "./config.ts";
+import { expandHomePath } from "../os-jank.ts";
+import { baseDirFlag, currentStorageHost, resolveStorageRoots } from "./config.ts";
 
 const CLI_RESPONSE_TIMEOUT_MS = 17_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -197,21 +197,28 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   }
 
   const path = yield* Path.Path;
-  const configuredBaseDir = Option.getOrUndefined(flags.baseDir) ?? environment.t3Home;
-  const baseDir = yield* resolveBaseDir(configuredBaseDir);
   const allowDevFallback = Option.isNone(flags.baseDir) && !environment.t3Home?.trim();
   const rawWorkspaceRoot =
     Option.getOrUndefined(flags.workspaceRoot) ?? (yield* HostProcessWorkingDirectory);
   const workspaceRoot = path.resolve(yield* expandHomePath(rawWorkspaceRoot));
   const userId = yield* HostProcessUserId;
-  const resolveAddress = (stateSubdirectory: "userdata" | "dev") =>
-    resolveDesktopAppControlAddress({
-      stateDir: path.join(baseDir, stateSubdirectory),
+  const storageHost = { ...(yield* currentStorageHost), platform: hostPlatform, userId };
+  // The desktop keys its control socket on the state directory it selected.
+  const resolveAddress = Effect.fn(function* (isDevelopment: boolean) {
+    const roots = yield* resolveStorageRoots({
+      baseDir: flags.baseDir,
+      storageLayout: Option.none(),
+      isDevelopment,
+      host: storageHost,
+    });
+    return resolveDesktopAppControlAddress({
+      stateDir: roots.stateDir,
       platform: hostPlatform,
       tempDir: NodeOS.tmpdir(),
       userId,
       joinPath: path.join,
     }).address;
+  });
   const crypto = yield* Crypto.Crypto;
   const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
   const request: DesktopAppActivationRequest = {
@@ -221,8 +228,8 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
     workspaceRoot,
     platform: hostPlatform,
   };
-  const address = resolveAddress("userdata");
-  const fallbackAddress = allowDevFallback ? resolveAddress("dev") : undefined;
+  const address = yield* resolveAddress(false);
+  const fallbackAddress = allowDevFallback ? yield* resolveAddress(true) : undefined;
 
   const response = yield* Effect.tryPromise({
     try: () =>
