@@ -157,13 +157,43 @@ For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
 open it, or pair from the desktop app. On mobile, an IP address entered without a
 scheme uses HTTP, so include `https://` when your server uses HTTPS.
 
-## Declarative desktop connections
+## Declarative fleets
 
-Managed desktop installations can provision a stable fleet without an interactive pairing step.
-Give each server a stable `T3CODE_ENVIRONMENT_ID` and set `T3CODE_MANAGED_ACCESS_TOKEN_FILE` to the
-path of a file holding the shared token. The server reads the file at startup and refuses to start
-if it is missing, unreadable, or empty. `T3CODE_MANAGED_ACCESS_TOKEN` still accepts the token
-inline, but set only one of the two. Then start the desktop app with
+Managed installations can declare several servers as one fleet, so pairing a device with one of
+them pairs it with all of them. Give every server its own stable `T3CODE_ENVIRONMENT_ID` and set
+`T3CODE_MANAGED_ACCESS_TOKEN_FILE` to a file holding the shared token. The server reads the file
+at startup and refuses to start if it is missing, unreadable, or empty.
+`T3CODE_MANAGED_ACCESS_TOKEN` still accepts the token inline; set only one of the two.
+Set `T3CODE_FLEET_MANIFEST_FILE` to a manifest that lists every member,
+itself included:
+
+```json
+{
+  "version": 1,
+  "environments": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "httpBaseUrl": "https://build-host.example.ts.net/",
+      "wsBaseUrl": "wss://build-host.example.ts.net/"
+    }
+  ]
+}
+```
+
+The manifest holds no secrets. Pair a phone, browser, or desktop app with any member as usual;
+T3 Code then adds the other members, each at its declared address, and follows later changes to
+the manifest, including members that leave. Every member issues the device its own session, which
+appears under its authorized clients and can be revoked there. A member that does not answer, for
+example while your phone is off the tailnet, is added the next time the device connects to any
+member.
+
+Members added this way are managed by system configuration: you can switch one off, but not edit
+or remove it. To take the fleet off a device, remove the machine you paired with.
+
+### Declarative desktop connections
+
+A desktop app can also load its connections from a file instead of pairing. Start it with
 `T3CODE_MANAGED_CONNECTIONS_FILE` pointing to a JSON file:
 
 ```json
