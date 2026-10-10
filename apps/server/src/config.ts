@@ -92,6 +92,8 @@ export class ServerConfig extends Context.Service<
     readonly startupPresentation: StartupPresentation;
     readonly desktopBootstrapToken: string | undefined;
     readonly desktopBootstrapSecret?: string | undefined;
+    readonly managedAccessToken: string | undefined;
+    readonly environmentIdOverride: string | undefined;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly desktopBrowserFd?: number | undefined;
@@ -252,6 +254,8 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     port: 0,
     host: undefined,
     desktopBootstrapToken: undefined,
+    managedAccessToken: undefined,
+    environmentIdOverride: undefined,
     desktopTelemetryFd: undefined,
     desktopTelemetryControlFd: undefined,
     desktopBrowserFd: undefined,
