@@ -49,6 +49,13 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("lets any reader see the fleet and carry its own grant to another member", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverGetConfig)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverIssueFleetHandoff)).toBe(
+      AuthOrchestrationReadScope,
+    );
+  });
+
   it("separates passive terminal observation from operations that can change a shell", () => {
     for (const method of [WS_METHODS.terminalObserve, WS_METHODS.subscribeTerminalMetadata]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthTerminalReadScope);

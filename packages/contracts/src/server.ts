@@ -8,6 +8,7 @@ import {
 } from "./environment.ts";
 import { AuthClientPresentationMetadata, ServerAuthDescriptor } from "./auth.ts";
 import {
+  EnvironmentId,
   ForwardCompatibleArray,
   IsoDateTime,
   NonNegativeInt,
@@ -605,6 +606,15 @@ export const ServerEventLoopStall = Schema.Struct({
 });
 export type ServerEventLoopStall = typeof ServerEventLoopStall.Type;
 
+/** One environment of a declared fleet and the addresses clients reach it at. */
+export const ServerFleetEnvironment = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: TrimmedNonEmptyString,
+  httpBaseUrl: TrimmedNonEmptyString,
+  wsBaseUrl: TrimmedNonEmptyString,
+});
+export type ServerFleetEnvironment = typeof ServerFleetEnvironment.Type;
+
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
@@ -617,6 +627,13 @@ export const ServerConfig = Schema.Struct({
   remoteOpenTargets: Schema.optionalKey(ForwardCompatibleArray(RemoteOpenTarget)),
   /** Hints only; verify each address answers as this environment. */
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
+  /**
+   * The fleet this environment belongs to, itself included, as its operator
+   * declared it. A client paired here joins the others through
+   * `server.issueFleetHandoff` instead of pairing each one. Absent when no
+   * fleet is configured.
+   */
+  fleet: Schema.optionalKey(ForwardCompatibleArray(ServerFleetEnvironment)),
   observability: ServerObservability,
   settings: ServerSettings,
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),

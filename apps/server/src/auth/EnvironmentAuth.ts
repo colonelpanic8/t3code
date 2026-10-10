@@ -37,6 +37,7 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerConfig from "../config.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
+import * as FleetHandoff from "./FleetHandoff.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -704,6 +705,7 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const devAuth = resolveReusableDevAuth(config);
+  const fleetHandoff = yield* FleetHandoff.FleetHandoff;
 
   const authenticateToken = (
     token: string,
@@ -895,7 +897,10 @@ export const make = Effect.gen(function* () {
     PairingGrantStore.BootstrapGrant,
     "scopes" | "subject" | "label"
   > & {
-    readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
+    readonly method:
+      | PairingGrantStore.BootstrapGrant["method"]
+      | "reusable-dev-token"
+      | "fleet-handoff";
   };
   const resolveBootstrapGrant = (
     credential: string,
@@ -907,6 +912,29 @@ export const make = Effect.gen(function* () {
     ResolvedBootstrapGrant,
     ServerAuthInvalidCredentialError | ServerAuthInternalError | ServerAuthScopeNotGrantedError
   > => {
+    if (FleetHandoff.isFleetHandoffCredential(credential)) {
+      return fleetHandoff.redeem(credential).pipe(
+        Effect.map(
+          (handoff) =>
+            ({
+              method: "fleet-handoff",
+              scopes: handoff.scopes,
+              subject: FleetHandoff.FLEET_HANDOFF_SUBJECT,
+            }) satisfies ResolvedBootstrapGrant,
+        ),
+        Effect.catchTags({
+          FleetHandoffInvalidError: (cause) =>
+            Effect.fail(
+              new ServerAuthInvalidCredentialError({
+                diagnostic: cause.message,
+                cause,
+              }),
+            ),
+          FleetHandoffReplayStateError: (cause) =>
+            Effect.fail(new ServerAuthBootstrapCredentialValidationError({ cause })),
+        }),
+      );
+    }
     if (!devAuth?.matches(credential)) {
       return bootstrapCredentials
         .consume(credential, input)
@@ -1387,6 +1415,7 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(EnvironmentAuth, make).pipe(
+  Layer.provideMerge(FleetHandoff.layer),
   Layer.provideMerge(PairingGrantStore.layer),
   Layer.provideMerge(SessionStore.layer),
   Layer.provideMerge(EnvironmentAuthPolicy.layer),
