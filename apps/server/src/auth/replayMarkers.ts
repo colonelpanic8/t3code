@@ -11,13 +11,18 @@ import { CLOUD_REPLAY_MARKER_PREFIXES } from "../cloud/CloudLink.ts";
 import * as ServerConfig from "../config.ts";
 import { forkParked } from "../serverActivation.ts";
 import { DPOP_REPLAY_MARKER_PREFIX } from "./dpop.ts";
+import { FLEET_HANDOFF_REPLAY_MARKER_PREFIX } from "./FleetHandoff.ts";
 
-const REPLAY_MARKER_PREFIXES = [DPOP_REPLAY_MARKER_PREFIX, ...CLOUD_REPLAY_MARKER_PREFIXES];
+const REPLAY_MARKER_PREFIXES = [
+  DPOP_REPLAY_MARKER_PREFIX,
+  FLEET_HANDOFF_REPLAY_MARKER_PREFIX,
+  ...CLOUD_REPLAY_MARKER_PREFIXES,
+];
 
 /**
  * How long a replay marker stays on disk. A marker only matters while its proof
- * can pass the time check (about 5 minutes for DPoP, 7 for cloud proofs). After
- * that, the time check rejects a replay by itself. The sweep and the time check
+ * can pass the time check (about 5 minutes for DPoP proofs and fleet handoffs, 7
+ * for cloud proofs). After that, the time check rejects a replay by itself. The sweep and the time check
  * both use the wall clock, so a pruned marker can let a replay through only if
  * the clock moves back by almost a day, or if the filesystem stamps mtimes almost
  * a day behind. Markers are files, so a restart does not reset them.
