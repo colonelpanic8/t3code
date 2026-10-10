@@ -39,7 +39,11 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
-import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import {
+  isProcessAlive,
+  isRespondingServerRuntime,
+  readPersistedServerRuntimeState,
+} from "../serverRuntimeState.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
@@ -700,6 +704,15 @@ export const resolveServerConfig = (
       if (Option.isSome(runtime) && runtime.value.pid > 0 && isProcessAlive(runtime.value.pid)) {
         return yield* new CliError.UserError({
           cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
+        });
+      }
+    } else {
+      // Supervised (`t3 serve`) and desktop-spawned servers restart after crashes,
+      // so they yield only to a server that still answers at its recorded origin.
+      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+      if (Option.isSome(runtime) && (yield* isRespondingServerRuntime(runtime.value))) {
+        return yield* new CliError.UserError({
+          cause: `Another T3 Code server (pid ${runtime.value.pid}, ${runtime.value.origin}) already owns ${baseDir}. Two servers sharing one T3 home corrupt its state. Stop that server or use a different --base-dir.`,
         });
       }
     }
