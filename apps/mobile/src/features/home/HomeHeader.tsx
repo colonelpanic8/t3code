@@ -10,6 +10,8 @@ import {
   createNativeMailSearchToolbarItem,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
+import { useVoiceLiveTargets } from "../voice/useVoiceLive";
+import { voiceLiveStoreActions } from "../voice/voiceLiveStore";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
 import { createSidebarHeaderItems } from "../threads/sidebar-native-header-items";
 import type { HomeHeaderProps } from "./HomeHeader.types";
@@ -21,6 +23,7 @@ export function HomeHeader(props: HomeHeaderProps) {
   const iPadSidebar = Platform.OS === "ios" && Platform.isPad && primaryColumn !== null;
   const searchBarRef = useRef<SearchBarCommands>(null);
   const iconColor = useUniwindTheme()["--color-icon"];
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   // The list uses a fixed creation order and ignores sort/group options, so
   // the filter menu only carries the filters and the "customized" icon state
   // keys off those alone.
@@ -32,17 +35,30 @@ export function HomeHeader(props: HomeHeaderProps) {
   }, []);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
   const filterMenu = buildHomeListFilterMenu(props);
+  const voiceLiveHeaderItems = voiceLiveAvailable
+    ? [
+        withNativeGlassHeaderItem({
+          accessibilityLabel: "Start Live Voice",
+          icon: { name: "waveform", type: "sfSymbol" } as const,
+          identifier: "home-voice-live",
+          label: "",
+          onPress: voiceLiveStoreActions.openPicker,
+          type: "button",
+        }),
+      ]
+    : [];
 
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={filterMenu.items}
+        optionsVersion={[filterMenu.items, voiceLiveAvailable]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
           headerTintColor: iconColor,
-          unstable_headerRightItems: () =>
-            iPadSidebar
+          unstable_headerRightItems: () => [
+            ...voiceLiveHeaderItems,
+            ...(iPadSidebar
               ? createSidebarHeaderItems({
                   filterIcon: hasCustomListOptions
                     ? "line.3.horizontal.decrease.circle.fill"
@@ -59,7 +75,8 @@ export function HomeHeader(props: HomeHeaderProps) {
                     onPress: props.onOpenSettings,
                     type: "button",
                   }),
-                ],
+                ]),
+          ],
           // The keys below are set per-branch (not `undefined`) so a later
           // reapply cannot clobber options owned by NativeHeaderToolbar.
           ...(iPadSidebar
