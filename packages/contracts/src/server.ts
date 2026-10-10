@@ -8,6 +8,7 @@ import {
 } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
+  EnvironmentId,
   ForwardCompatibleArray,
   IsoDateTime,
   NonNegativeInt,
@@ -582,6 +583,15 @@ export const ServerDirectEndpoint = Schema.Struct({
 });
 export type ServerDirectEndpoint = typeof ServerDirectEndpoint.Type;
 
+/** One environment of a declared fleet and the addresses clients reach it at. */
+export const ServerFleetEnvironment = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: TrimmedNonEmptyString,
+  httpBaseUrl: TrimmedNonEmptyString,
+  wsBaseUrl: TrimmedNonEmptyString,
+});
+export type ServerFleetEnvironment = typeof ServerFleetEnvironment.Type;
+
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
@@ -597,6 +607,13 @@ export const ServerConfig = Schema.Struct({
    * before using it.
    */
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
+  /**
+   * The fleet this environment belongs to, itself included, as its operator
+   * declared it. A client paired here joins the others through
+   * `server.issueFleetHandoff` instead of pairing each one. Absent when no
+   * fleet is configured.
+   */
+  fleet: Schema.optionalKey(ForwardCompatibleArray(ServerFleetEnvironment)),
   observability: ServerObservability,
   settings: ServerSettings,
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
