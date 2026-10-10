@@ -228,6 +228,8 @@ export const ResolvedKeybindingRule = Schema.Struct({
   command: KeybindingCommand,
   shortcut: KeybindingShortcut,
   whenAst: Schema.optional(KeybindingWhenNode),
+  /** Set by the environment's managed keybindings file; clients cannot change or remove it. */
+  managed: Schema.optionalKey(Schema.Boolean),
 }).annotate({ parseOptions: { onExcessProperty: "ignore" } });
 export type ResolvedKeybindingRule = typeof ResolvedKeybindingRule.Type;
 

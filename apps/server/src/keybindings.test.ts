@@ -11,7 +11,11 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
-import { KeybindingsConfigError, MAX_KEYBINDINGS_COUNT } from "@t3tools/contracts";
+import {
+  KeybindingsConfigError,
+  ManagedSettingWriteError,
+  MAX_KEYBINDINGS_COUNT,
+} from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
@@ -35,9 +39,32 @@ const layerKeybindings = () => {
   );
 };
 
-const toDetailResult = <A, R>(effect: Effect.Effect<A, KeybindingsConfigError, R>) =>
+const layerKeybindingsWithManagedFile = (managedKeybindingsPath: string) =>
+  Keybindings.layer.pipe(
+    Layer.provideMerge(
+      Layer.effect(
+        ServerConfig.ServerConfig,
+        Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          return { ...config, managedKeybindingsPath };
+        }),
+      ).pipe(
+        Layer.provide(
+          Layer.fresh(
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3code-managed-keybindings-test-" }),
+          ),
+        ),
+      ),
+    ),
+  );
+
+const toDetailResult = <A, R>(
+  effect: Effect.Effect<A, KeybindingsConfigError | ManagedSettingWriteError, R>,
+) =>
   effect.pipe(
-    Effect.mapError((error) => error.detail),
+    Effect.mapError((error) =>
+      error._tag === "ManagedSettingWriteError" ? error.message : error.detail,
+    ),
     Effect.result,
   );
 
@@ -672,5 +699,69 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         assert.isTrue(persistedCommands.has(command), `expected persisted command ${command}`);
       }
     }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("managed keybindings win over user rules and cannot be changed", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const managedDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-rules-" });
+      const managedPath = `${managedDir}/keybindings.json`;
+      yield* writeKeybindingsConfig(managedPath, [
+        { key: "mod+shift+j", command: "terminal.toggle" },
+        { key: "f13", command: "sidebar.toggle" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+        const userRules: KeybindingRule[] = [
+          { key: "mod+j", command: "terminal.toggle" },
+          { key: "f13", command: "chat.new" },
+          { key: "mod+shift+r", command: "script.run-tests.run" },
+        ];
+        yield* writeKeybindingsConfig(keybindingsConfigPath, userRules);
+        const keybindings = yield* Keybindings.Keybindings;
+
+        const { keybindings: resolved } = yield* keybindings.loadConfigState;
+        const view = resolved.map((rule) => ({
+          command: rule.command,
+          key: rule.shortcut.key,
+          managed: rule.managed === true,
+        }));
+        assert.deepEqual(
+          view.filter((rule) => rule.command === "terminal.toggle"),
+          [{ command: "terminal.toggle", key: "j", managed: true }],
+        );
+        assert.deepEqual(
+          view.filter((rule) => rule.key === "f13"),
+          [{ command: "sidebar.toggle", key: "f13", managed: true }],
+        );
+        assert.isTrue(
+          view.some((rule) => rule.command === "script.run-tests.run" && !rule.managed),
+        );
+
+        const sameCommand = yield* keybindings
+          .upsertKeybindingRule({ key: "mod+k", command: "terminal.toggle" })
+          .pipe(toDetailResult);
+        assertFailure(sameCommand, "terminal.toggle is managed by system configuration.");
+        const sameShortcut = yield* keybindings
+          .upsertKeybindingRule({ key: "f13", command: "chat.new" })
+          .pipe(toDetailResult);
+        assertFailure(sameShortcut, "chat.new is managed by system configuration.");
+        const removal = yield* keybindings
+          .removeKeybindingRule({ key: "f13", command: "sidebar.toggle" })
+          .pipe(toDetailResult);
+        assertFailure(removal, "sidebar.toggle is managed by system configuration.");
+        assert.deepEqual(yield* readKeybindingsConfig(keybindingsConfigPath), userRules);
+
+        yield* keybindings.removeKeybindingRule({
+          key: "mod+shift+r",
+          command: "script.run-tests.run",
+        });
+        assert.deepEqual(
+          yield* readKeybindingsConfig(keybindingsConfigPath),
+          userRules.slice(0, 2),
+        );
+      }).pipe(Effect.provide(layerKeybindingsWithManagedFile(managedPath)));
+    }),
   );
 });

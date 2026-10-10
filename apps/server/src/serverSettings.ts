@@ -16,6 +16,8 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
   DEFAULT_WORKTREE_PATH_TEMPLATE,
+  ManagedSettingWriteError,
+  type ManagedSettingPaths,
   ModelSelection,
   ProjectId,
   ProjectScript,
@@ -266,16 +268,22 @@ export class ServerSettingsService extends Context.Service<
     /** Read the current settings. */
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
-    /** Patch settings and persist. Returns the new full settings object. */
+    /** Leaf paths fixed by the managed settings file; empty when there is none. */
+    readonly managedSettingPaths: Effect.Effect<ManagedSettingPaths, ServerSettingsError>;
+
+    /**
+     * Patch settings and persist. Returns the new full settings object. A patch
+     * that would change a managed value fails; managed values are never persisted.
+     */
     readonly updateSettings: (
       patch: ServerSettingsPatch,
-    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+    ) => Effect.Effect<ServerSettings, ServerSettingsError | ManagedSettingWriteError>;
 
     /** Apply a patch and one provider-instance mutation against the same latest settings snapshot. */
     readonly updateProviderInstance: (
       mutation: ProviderInstanceMutation,
       patch?: ServerSettingsPatch,
-    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+    ) => Effect.Effect<ServerSettings, ServerSettingsError | ManagedSettingWriteError>;
 
     /** Run an effect against a settings snapshot while settings writes are paused. */
     readonly withSettingsSnapshot: <A, E, R>(
@@ -331,6 +339,7 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
       start: Effect.void,
       ready: Effect.void,
       getSettings,
+      managedSettingPaths: Effect.succeed([]),
       updateSettings: (patch) =>
         updateTestSettings((currentSettings) =>
           Effect.succeed(applyServerSettingsPatch(currentSettings, patch)),
@@ -585,6 +594,120 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
   return Object.is(current, defaults) ? undefined : current;
 }
 
+type JsonRecord = Record<string, unknown>;
+
+const isJsonRecord = (value: unknown): value is JsonRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** A managed value is a leaf unless both sides are objects the writer would merge key by key. */
+const mergesKeyByKey = (key: string, value: unknown) =>
+  isJsonRecord(value) && !ATOMIC_SETTINGS_KEYS.has(key);
+
+function managedLeafPaths(document: JsonRecord, prefix: ReadonlyArray<string> = []): string[][] {
+  return Object.entries(document).flatMap(([key, value]) =>
+    mergesKeyByKey(key, value)
+      ? managedLeafPaths(value as JsonRecord, [...prefix, key])
+      : [[...prefix, key]],
+  );
+}
+
+function overlayManagedSettings(base: JsonRecord, managed: JsonRecord): JsonRecord {
+  const next = { ...base };
+  for (const [key, value] of Object.entries(managed)) {
+    const current = next[key];
+    next[key] =
+      mergesKeyByKey(key, value) && isJsonRecord(current)
+        ? overlayManagedSettings(current, value as JsonRecord)
+        : value;
+  }
+  return next;
+}
+
+/**
+ * Put the user's own value back at every managed path, so a write against the
+ * effective settings never persists a managed value. Objects that exist only
+ * because the managed layer created them are dropped again.
+ */
+function restoreUserSettings(
+  next: JsonRecord,
+  user: JsonRecord | undefined,
+  managed: JsonRecord,
+): JsonRecord {
+  const restored = { ...next };
+  for (const [key, value] of Object.entries(managed)) {
+    const nested = restored[key];
+    const userHasKey = user !== undefined && Object.hasOwn(user, key);
+    if (mergesKeyByKey(key, value) && isJsonRecord(nested)) {
+      const userValue = user?.[key];
+      const child = restoreUserSettings(
+        nested,
+        isJsonRecord(userValue) ? userValue : undefined,
+        value as JsonRecord,
+      );
+      if (Object.keys(child).length === 0 && !userHasKey) delete restored[key];
+      else restored[key] = child;
+    } else if (userHasKey) {
+      restored[key] = user[key];
+    } else {
+      delete restored[key];
+    }
+  }
+  return restored;
+}
+
+function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unknown {
+  return path.reduce<unknown>(
+    (current, segment) => (isJsonRecord(current) ? current[segment] : undefined),
+    document,
+  );
+}
+
+// Credentials reach the managed file only as `{ "$file": "/path" }`, since the
+// file itself usually lives somewhere world-readable such as the Nix store.
+function findInlineManagedSecret(document: JsonRecord): string | undefined {
+  const inline = (value: unknown) => typeof value === "string" && value.length > 0;
+  const github = isJsonRecord(document.github) ? document.github : {};
+  for (const [host, token] of Object.entries(isJsonRecord(github.tokens) ? github.tokens : {})) {
+    if (inline(token)) return `github.tokens.${host}`;
+  }
+  const bitbucket = isJsonRecord(document.bitbucket) ? document.bitbucket : {};
+  for (const field of BITBUCKET_SECRET_FIELDS) {
+    if (inline(bitbucket[field])) return `bitbucket.${field}`;
+  }
+  const sources = isJsonRecord(document.usageLimitSources) ? document.usageLimitSources : {};
+  for (const [sourceId, source] of Object.entries(sources)) {
+    if (isJsonRecord(source) && inline(source.managementKey)) {
+      return `usageLimitSources.${sourceId}.managementKey`;
+    }
+  }
+  const instances = isJsonRecord(document.providerInstances) ? document.providerInstances : {};
+  for (const [instanceId, instance] of Object.entries(instances)) {
+    const environment = isJsonRecord(instance) ? instance.environment : undefined;
+    for (const variable of Array.isArray(environment) ? environment : []) {
+      if (isJsonRecord(variable) && variable.sensitive === true && inline(variable.value)) {
+        return `providerInstances.${instanceId}.environment.${String(variable.name)}`;
+      }
+    }
+  }
+  return undefined;
+}
+
+interface ManagedSettingsLayer {
+  readonly document: JsonRecord;
+  readonly paths: ManagedSettingPaths;
+}
+
+interface SettingsState {
+  /** What settings.json holds: the only layer writes persist. */
+  readonly user: ServerSettings;
+  /** The user layer with the managed layer applied; what everything else reads. */
+  readonly effective: ServerSettings;
+  readonly managed: ManagedSettingsLayer | undefined;
+}
+
+const ManagedSettingsDocumentJson = fromLenientJson(Schema.Record(Schema.String, Schema.Unknown));
+const decodeManagedSettingsDocumentExit = Schema.decodeUnknownExit(ManagedSettingsDocumentJson);
+
 const decodeProjectScriptsJson = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Array(ProjectScript)),
 );
@@ -673,7 +796,7 @@ function foldLegacyProjectSettings(
 }
 
 const make = Effect.gen(function* () {
-  const { settingsPath } = yield* ServerConfig.ServerConfig;
+  const { settingsPath, managedSettingsPath } = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -874,11 +997,128 @@ const make = Effect.gen(function* () {
     if (migrated !== loaded || (settingsFileTrusted && legacyProviders !== undefined)) {
       yield* writeSettingsAtomically(migrated);
     }
-    return migrated;
+    return yield* settingsStateFor(migrated, yield* loadManagedLayer);
   });
 
+  const managedFileError = (cause: unknown) =>
+    new ServerSettingsError({
+      settingsPath: managedSettingsPath ?? settingsPath,
+      operation: "read-managed-file",
+      cause,
+    });
+
+  const resolveManagedFileReferences = (
+    value: unknown,
+  ): Effect.Effect<unknown, ServerSettingsError> => {
+    if (Array.isArray(value)) {
+      return Effect.forEach(value, resolveManagedFileReferences);
+    }
+    if (!isJsonRecord(value)) {
+      return Effect.succeed(value);
+    }
+    const reference = value.$file;
+    if (typeof reference === "string" && Object.keys(value).length === 1) {
+      return fs.readFileString(reference).pipe(
+        Effect.map((contents) => contents.replace(/\r?\n$/, "")),
+        Effect.mapError(managedFileError),
+      );
+    }
+    return Effect.forEach(Object.entries(value), ([key, entry]) =>
+      resolveManagedFileReferences(entry).pipe(Effect.map((resolved) => [key, resolved] as const)),
+    ).pipe(Effect.map(Object.fromEntries));
+  };
+
+  // Read on every load, like settings.json; an unusable file leaves the user layer in charge.
+  const loadManagedLayer = Effect.gen(function* () {
+    if (managedSettingsPath === undefined) return undefined;
+    const raw = yield* fs
+      .readFileString(managedSettingsPath)
+      .pipe(Effect.mapError(managedFileError));
+    const decoded = decodeManagedSettingsDocumentExit(raw);
+    if (decoded._tag === "Failure") {
+      return yield* managedFileError(decoded.cause);
+    }
+    const inlineSecret = findInlineManagedSecret(decoded.value);
+    if (inlineSecret !== undefined) {
+      return yield* managedFileError(
+        new Error(`${inlineSecret} must reference a file with {"$file": "/path"}`),
+      );
+    }
+    const document = (yield* resolveManagedFileReferences(decoded.value)) as JsonRecord;
+    return { document, paths: managedLeafPaths(document) } satisfies ManagedSettingsLayer;
+  }).pipe(
+    Effect.catch((error: ServerSettingsError) =>
+      Effect.logWarning("ignoring managed settings file", {
+        path: managedSettingsPath,
+        cause: error.cause,
+      }).pipe(Effect.as(undefined)),
+    ),
+  );
+
+  const applyManagedLayer = (
+    user: ServerSettings,
+    managed: ManagedSettingsLayer,
+  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+    encodeServerSettings(user).pipe(
+      Effect.flatMap((encoded) =>
+        decodeServerSettings(overlayManagedSettings(encoded as JsonRecord, managed.document)),
+      ),
+      Effect.mapError(managedFileError),
+      Effect.flatMap(normalizeServerSettings),
+    );
+
+  const settingsStateFor = (
+    user: ServerSettings,
+    managed: ManagedSettingsLayer | undefined,
+  ): Effect.Effect<SettingsState> =>
+    managed === undefined
+      ? Effect.succeed({ user, effective: user, managed })
+      : applyManagedLayer(user, managed).pipe(
+          Effect.map((effective): SettingsState => ({ user, effective, managed })),
+          Effect.catch((error) =>
+            Effect.logWarning("ignoring managed settings that do not fit the settings schema", {
+              path: managedSettingsPath,
+              cause: error.cause,
+            }).pipe(Effect.as({ user, effective: user, managed: undefined })),
+          ),
+        );
+
+  /**
+   * Turn settings computed against the effective layer back into the user's
+   * layer. Fails when the change would alter a managed value; secrets compare
+   * in their redacted form so an echoed redaction marker is not a change.
+   */
+  const userSettingsFrom = (
+    current: SettingsState,
+    updated: ServerSettings,
+  ): Effect.Effect<ServerSettings, ServerSettingsError | ManagedSettingWriteError> => {
+    const managed = current.managed;
+    if (managed === undefined) return Effect.succeed(updated);
+    return Effect.gen(function* () {
+      const before = yield* encodeServerSettings(redactServerSettingsForClient(current.effective));
+      const after = yield* encodeServerSettings(redactServerSettingsForClient(updated));
+      const changed = managed.paths.find(
+        (path) => !Equal.equals(readSettingsPath(after, path), readSettingsPath(before, path)),
+      );
+      if (changed !== undefined) {
+        return yield* new ManagedSettingWriteError({ setting: changed.join(".") });
+      }
+      const restored = restoreUserSettings(
+        (yield* encodeServerSettings(updated)) as JsonRecord,
+        (yield* encodeServerSettings(current.user)) as JsonRecord,
+        managed.document,
+      );
+      return yield* decodeServerSettings(restored);
+    }).pipe(
+      Effect.catchTags({
+        SchemaError: (cause) =>
+          Effect.fail(new ServerSettingsError({ settingsPath, operation: "normalize", cause })),
+      }),
+    );
+  };
+
   // A failed read is not kept: the next read retries instead of replaying the failure.
-  const settingsCache = yield* Cache.makeWith<typeof cacheKey, ServerSettings, ServerSettingsError>(
+  const settingsCache = yield* Cache.makeWith<typeof cacheKey, SettingsState, ServerSettingsError>(
     () => loadSettingsFromDisk,
     {
       capacity: 1,
@@ -886,7 +1126,8 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
+  const getStateFromCache = Cache.get(settingsCache, cacheKey);
+  const getSettingsFromCache = getStateFromCache.pipe(Effect.map((state) => state.effective));
 
   const materializeProviderEnvironmentSecrets = (
     settings: ServerSettings,
@@ -1261,20 +1502,22 @@ const make = Effect.gen(function* () {
 
   const updateAndPersistSettings = (
     update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
-  ): Effect.Effect<ServerSettings, ServerSettingsError> =>
+  ): Effect.Effect<ServerSettings, ServerSettingsError | ManagedSettingWriteError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
-        const current = yield* getSettingsFromCache;
-        const updated = yield* update(current);
+        const state = yield* getStateFromCache;
+        const current = state.user;
+        const updated = yield* userSettingsFrom(state, yield* update(state.effective));
         const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
         const next = yield* normalizeServerSettings(persisted.settings);
+        const nextState = yield* settingsStateFor(next, state.managed);
         const materialized = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
             const rollbackSecretChanges = yield* applyProviderEnvironmentSecretChanges(
               persisted.changes,
             );
             const materializedExit = yield* Effect.exit(
-              materializeProviderEnvironmentSecrets(next),
+              materializeProviderEnvironmentSecrets(nextState.effective),
             );
             if (Exit.isFailure(materializedExit)) {
               yield* rollbackSecretChanges;
@@ -1288,8 +1531,8 @@ const make = Effect.gen(function* () {
             return materializedExit.value;
           }),
         );
-        yield* Cache.set(settingsCache, cacheKey, next);
-        yield* emitChange(next);
+        yield* Cache.set(settingsCache, cacheKey, nextState);
+        yield* emitChange(nextState.effective);
         return resolveTextGenerationProvider(materialized);
       }),
     );
@@ -1416,6 +1659,7 @@ const make = Effect.gen(function* () {
       Effect.flatMap(materializeProviderEnvironmentSecrets),
       Effect.map(resolveTextGenerationProvider),
     ),
+    managedSettingPaths: getStateFromCache.pipe(Effect.map((state) => state.managed?.paths ?? [])),
     updateSettings: (patch) =>
       updateAndPersistSettings((current) =>
         Effect.succeed(applyServerSettingsPatch(current, patch)),

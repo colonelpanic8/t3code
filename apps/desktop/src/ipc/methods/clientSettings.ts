@@ -1,4 +1,4 @@
-import { ClientSettingsSchema } from "@t3tools/contracts";
+import { ClientSettingsPatch, ClientSettingsSchema } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -27,5 +27,15 @@ export const setClientSettings = DesktopIpc.makeIpcMethod({
     const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
     yield* clientSettings.set(settings);
     yield* snapShot.configure(settings);
+  }),
+});
+
+export const getManagedClientSettings = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GET_MANAGED_CLIENT_SETTINGS_CHANNEL,
+  payload: Schema.Void,
+  result: ClientSettingsPatch,
+  handler: Effect.fn("desktop.ipc.clientSettings.getManaged")(function* () {
+    const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
+    return yield* clientSettings.getManaged;
   }),
 });

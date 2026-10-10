@@ -175,6 +175,26 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 [Antigravity](./providers-antigravity.md), [Pi](./providers-pi.md), and
 [Muse Code](./providers-muse.md).
 
+## Managed settings
+
+A system configuration such as Nix or MDM can fix settings so they survive
+reinstalls and cannot drift. Point these variables at read-only files:
+
+- `T3CODE_MANAGED_SETTINGS_FILE`, read by the server: same format as its
+  `settings.json`. Nested objects merge key by key; anything else replaces the
+  value, and keys you leave out stay editable.
+- `T3CODE_MANAGED_KEYBINDINGS_FILE`, read by the server: same format as
+  `keybindings.json`. A managed rule replaces your rules for the same command or
+  the same shortcut.
+- `T3CODE_MANAGED_CLIENT_SETTINGS_FILE`, read by the desktop app: top-level
+  client settings such as fonts, diff layout, or confirmations.
+
+Managed values show as **Managed by system configuration** and cannot be changed
+from any client or agent. Your own values stay saved underneath, so removing a
+key from the managed file gives it back. Credentials such as GitHub tokens must
+not appear inline; write `{"$file": "/path/to/secret"}` instead. Restart the
+server or app after changing a managed file.
+
 ## Next steps
 
 - [Working with threads](./thread-sidebar.md): start tasks and organize parallel work.

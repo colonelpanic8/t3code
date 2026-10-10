@@ -63,6 +63,22 @@ const layerServerSettingsWithSecrets = () =>
     ),
   );
 
+/** Settings over an existing home whose managed settings file sits next to settings.json. */
+const layerServerSettingsWithManagedFile = (baseDir: string) =>
+  ServerSettingsModule.layer.pipe(
+    Layer.provide(ServerSecretStore.layer),
+    Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+    Layer.provideMerge(
+      Layer.effect(
+        ServerConfig.ServerConfig,
+        Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          return { ...config, managedSettingsPath: `${config.stateDir}/managed-settings.json` };
+        }),
+      ).pipe(Layer.provide(Layer.fresh(ServerConfig.layerTest(process.cwd(), baseDir)))),
+    ),
+  );
+
 const layerFailingSecretStore = (cause: ServerSecretStore.SecretStoreError) =>
   Layer.succeed(
     ServerSecretStore.ServerSecretStore,
@@ -1250,6 +1266,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         }),
       );
+      assert.equal(error._tag, "ServerSettingsError");
+      if (error._tag !== "ServerSettingsError") return;
       assert.equal(error.operation, "write-secret");
       assert.strictEqual(error.cause, cause);
       assert.equal(yield* fs.readFileString(config.settingsPath), original);
@@ -1905,5 +1923,114 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       // The user's file is still there to repair; nothing was written over it.
       assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), broken);
     }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  it.effect(
+    "applies managed settings without persisting them, and hands keys back once unmanaged",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-settings-" });
+        const settingsPath = `${baseDir}/userdata/settings.json`;
+        const managedPath = `${baseDir}/userdata/managed-settings.json`;
+        yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+        yield* fs.writeFileString(settingsPath, '{"branchNamePrefix":"user/"}');
+        yield* fs.writeFileString(
+          managedPath,
+          JSON.stringify({
+            branchNamePrefix: "nix/",
+            providerInstances: { codex: { driver: "codex", config: { homePath: "/managed" } } },
+          }),
+        );
+        const codex = ProviderInstanceId.make("codex");
+
+        yield* Effect.gen(function* () {
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const settings = yield* service.getSettings;
+          assert.equal(settings.branchNamePrefix, "nix/");
+          assert.deepEqual(settings.providerInstances[codex]?.config, { homePath: "/managed" });
+          assert.deepEqual(yield* service.managedSettingPaths, [
+            ["branchNamePrefix"],
+            ["providerInstances", "codex", "driver"],
+            ["providerInstances", "codex", "config", "homePath"],
+          ]);
+
+          const rejected = yield* Effect.flip(
+            service.updateSettings({ branchNamePrefix: "other/" }),
+          );
+          assert.equal(rejected._tag, "ManagedSettingWriteError");
+          assert.equal(rejected.message, "branchNamePrefix is managed by system configuration.");
+
+          // Echoing managed values back, as the whole-map provider patch does, is not a change.
+          const added = ProviderInstanceId.make("codex_work");
+          const updated = yield* service.updateSettings({
+            branchNamePrefix: "nix/",
+            defaultAutoPull: true,
+            providerInstances: {
+              ...settings.providerInstances,
+              [added]: { driver: ProviderDriverKind.make("codex"), config: {} },
+            },
+          });
+          assert.isTrue(updated.defaultAutoPull);
+          assert.equal(updated.branchNamePrefix, "nix/");
+          assert.deepEqual(updated.providerInstances[codex]?.config, { homePath: "/managed" });
+          assert.deepEqual(JSON.parse(yield* fs.readFileString(settingsPath)), {
+            branchNamePrefix: "user/",
+            defaultAutoPull: true,
+            providerInstances: { codex_work: { driver: "codex", config: {} } },
+          });
+        }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+
+        yield* fs.writeFileString(managedPath, "{}");
+        yield* Effect.gen(function* () {
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const settings = yield* service.getSettings;
+          assert.equal(settings.branchNamePrefix, "user/");
+          assert.isUndefined(settings.providerInstances[codex]);
+          assert.deepEqual(yield* service.managedSettingPaths, []);
+        }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+      }),
+  );
+
+  it.effect("reads managed credentials only from referenced files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-secrets-" });
+      const managedPath = `${baseDir}/userdata/managed-settings.json`;
+      const tokenPath = `${baseDir}/github-token`;
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(tokenPath, "file-token\n");
+      yield* fs.writeFileString(
+        managedPath,
+        JSON.stringify({
+          branchNamePrefix: "nix/",
+          github: { tokens: { "github.com": "inline" } },
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.branchNamePrefix, DEFAULT_SERVER_SETTINGS.branchNamePrefix);
+        assert.deepEqual(settings.github.tokens, {});
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+
+      yield* fs.writeFileString(
+        managedPath,
+        JSON.stringify({ github: { tokens: { "github.com": { $file: tokenPath } } } }),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.github.tokens["github.com"], "file-token");
+        assert.notEqual(
+          ServerSettingsModule.redactServerSettingsForClient(settings).github.tokens["github.com"],
+          "file-token",
+        );
+        yield* service.updateSettings({ defaultAutoPull: true });
+        const config = yield* ServerConfig.ServerConfig;
+        assert.notInclude(yield* fs.readFileString(config.settingsPath), "file-token");
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
   );
 });

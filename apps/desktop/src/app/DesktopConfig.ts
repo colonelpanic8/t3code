@@ -51,6 +51,7 @@ export const DesktopConfig = Config.all({
   t3ClientConfigDir: trimmedString("T3CODE_CLIENT_CONFIG_DIR"),
   t3ClientStateDir: trimmedString("T3CODE_CLIENT_STATE_DIR"),
   t3ClientCacheDir: trimmedString("T3CODE_CLIENT_CACHE_DIR"),
+  managedClientSettingsFile: trimmedString("T3CODE_MANAGED_CLIENT_SETTINGS_FILE"),
   devServerUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option),
   appUserModelIdOverride: trimmedString("T3CODE_DESKTOP_APP_USER_MODEL_ID"),
   devRemoteT3ServerEntryPath: trimmedString("T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH"),
