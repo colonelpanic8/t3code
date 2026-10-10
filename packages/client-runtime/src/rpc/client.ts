@@ -246,8 +246,10 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
    * failure. Each consecutive failure doubles it up to 30 seconds, and the
    * first value from a healthy stream resets it. Authorization failures are
    * not retried; they wait for the next session or `resubscribe` signal.
+   * A function receives the consecutive failure count and supplies the delay
+   * as-is, without the built-in doubling or cap.
    */
-  readonly retryExpectedFailureAfter?: Duration.Input;
+  readonly retryExpectedFailureAfter?: Duration.Input | ((attempt: number) => Duration.Input);
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
@@ -353,23 +355,23 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         const handled = Stream.fromEffect(options.onExpectedFailure(cause)).pipe(
                           Stream.drain,
                         );
+                        const retryAfter = options.retryExpectedFailureAfter;
                         const isAuthorizationFailure = cause.reasons.some(
                           (reason) =>
                             reason._tag === "Fail" && isEnvironmentAuthorizationError(reason.error),
                         );
-                        if (
-                          options.retryExpectedFailureAfter === undefined ||
-                          isAuthorizationFailure
-                        ) {
+                        if (retryAfter === undefined || isAuthorizationFailure) {
                           return handled;
                         }
-                        const retryDelay = Duration.millis(
-                          Math.min(
-                            Duration.toMillis(options.retryExpectedFailureAfter) *
-                              2 ** expectedFailureRetries,
-                            MAX_EXPECTED_FAILURE_RETRY_DELAY_MS,
-                          ),
-                        );
+                        const retryDelay =
+                          typeof retryAfter === "function"
+                            ? retryAfter(expectedFailureRetries)
+                            : Duration.millis(
+                                Math.min(
+                                  Duration.toMillis(retryAfter) * 2 ** expectedFailureRetries,
+                                  MAX_EXPECTED_FAILURE_RETRY_DELAY_MS,
+                                ),
+                              );
                         expectedFailureRetries += 1;
                         return handled.pipe(
                           Stream.concat(
