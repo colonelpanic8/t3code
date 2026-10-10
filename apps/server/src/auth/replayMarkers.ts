@@ -11,8 +11,13 @@ import { CLOUD_REPLAY_MARKER_PREFIXES } from "../cloud/CloudLink.ts";
 import * as ServerConfig from "../config.ts";
 import { forkParked } from "../serverActivation.ts";
 import { DPOP_REPLAY_MARKER_PREFIX } from "./dpop.ts";
+import { FLEET_HANDOFF_REPLAY_MARKER_PREFIX } from "./FleetHandoff.ts";
 
-const REPLAY_MARKER_PREFIXES = [DPOP_REPLAY_MARKER_PREFIX, ...CLOUD_REPLAY_MARKER_PREFIXES];
+const REPLAY_MARKER_PREFIXES = [
+  DPOP_REPLAY_MARKER_PREFIX,
+  FLEET_HANDOFF_REPLAY_MARKER_PREFIX,
+  ...CLOUD_REPLAY_MARKER_PREFIXES,
+];
 
 /**
  * A marker only matters while its proof can pass the time check (about 10 minutes
