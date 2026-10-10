@@ -56,7 +56,11 @@ import {
 } from "@t3tools/client-runtime/text-paste";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
-import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  buildProviderOptionSelectionsFromDescriptors,
+  createModelSelection,
+  normalizeModelSlug,
+} from "@t3tools/shared/model";
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   memo,
@@ -294,6 +298,7 @@ import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
+  selectComposerReasoningEffort,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
@@ -1470,6 +1475,8 @@ export interface ChatComposerHandle {
   /** True when a collapsed caret sits before everything in the draft, including when it is empty. */
   isCaretAtStart: () => boolean;
   compactContext: () => void;
+  selectModel: (instanceId: ProviderInstanceId, model: string) => void;
+  selectReasoningEffort: (effort: string) => void;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -2007,6 +2014,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const clearComposerDraftPromptAndImages = useComposerDraftStore(
     (store) => store.clearComposerPromptAndImages,
   );
+  const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const syncComposerDraftPersistedAttachments = useComposerDraftStore(
     (store) => store.syncPersistedAttachments,
   );
@@ -6475,6 +6483,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         const range = composerEditorRef.current?.readSelectionRange();
         return range !== undefined && range.start === 0 && range.end === 0;
       },
+      selectModel: (instanceId: ProviderInstanceId, model: string) => {
+        onProviderModelSelect(instanceId, model);
+      },
+      selectReasoningEffort: (effort: string) => {
+        const change = selectComposerReasoningEffort({
+          provider: selectedProvider,
+          model: selectedModel,
+          models: selectedProviderModels,
+          modelOptions: composerModelOptions?.[selectedInstanceId],
+          prompt: promptRef.current,
+          planModeEnabled: settings.planModeEnabled,
+          effort,
+        });
+        if (change === null) return;
+        if (change.nextPrompt !== null) setPromptFromTraits(change.nextPrompt);
+        if (change.nextDescriptors !== null) {
+          setProviderModelOptions(
+            composerDraftTarget,
+            selectedProvider,
+            buildProviderOptionSelectionsFromDescriptors(change.nextDescriptors),
+            { instanceId: selectedInstanceId, model: selectedModel, persistSticky: true },
+          );
+        }
+      },
       readSnapshot: () => {
         return readComposerSnapshot();
       },
@@ -6622,6 +6654,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getTimelineScrollableNode,
       isTimelineAtLogicalEnd,
       setIsComposerScrollCollapsed,
+      selectedInstanceId,
+      setProviderModelOptions,
+      onProviderModelSelect,
+      composerModelOptions,
+      settings.planModeEnabled,
+      setPromptFromTraits,
     ],
   );
 

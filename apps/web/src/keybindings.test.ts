@@ -12,6 +12,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import {
+  applyComposerSelectionShortcut,
   effectiveShortcutsForCommand,
   formatShortcutLabel,
   formatShortcutTokenLabel,
@@ -26,6 +27,8 @@ import {
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
   isTerminalToggleShortcut,
+  modelSelectTargetFromCommand,
+  reasoningEffortFromCommand,
   resolveChatShortcutCommand,
   resolveShortcutCommand,
   shouldShowThreadJumpHintsForModifiers,
@@ -37,6 +40,31 @@ import {
   threadTraversalDirectionFromCommand,
   type ShortcutEventLike,
 } from "./keybindings";
+
+describe("direct model and reasoning commands", () => {
+  it("parses a provider instance and dotted model slug", () => {
+    assert.deepEqual(modelSelectTargetFromCommand("model.select.codex.gpt-5.6-sol"), {
+      instanceId: "codex",
+      model: "gpt-5.6-sol",
+    });
+    assert.deepEqual(modelSelectTargetFromCommand("model.select.claudeAgent.claude-opus-5[1m]"), {
+      instanceId: "claudeAgent",
+      model: "claude-opus-5[1m]",
+    });
+  });
+
+  it("parses reasoning effort commands", () => {
+    assert.strictEqual(reasoningEffortFromCommand("reasoning.select.low"), "low");
+    assert.isNull(reasoningEffortFromCommand("modelPicker.toggle"));
+  });
+
+  it("consumes model and reasoning commands even when nothing can apply them", () => {
+    assert.isTrue(applyComposerSelectionShortcut("reasoning.select.high", null));
+    assert.isTrue(applyComposerSelectionShortcut("model.select.codex.gpt-5.6-sol", undefined));
+    assert.isFalse(applyComposerSelectionShortcut("modelPicker.toggle", null));
+    assert.isFalse(applyComposerSelectionShortcut(null, null));
+  });
+});
 
 function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
