@@ -4,6 +4,15 @@ import {
   HostProcessPlatform,
   HostProcessUserId,
 } from "@t3tools/shared/hostProcess";
+import {
+  T3CODE_CACHE_DIR_ENV,
+  T3CODE_CONFIG_DIR_ENV,
+  T3CODE_DATA_DIR_ENV,
+  T3CODE_RUNTIME_DIR_ENV,
+  T3CODE_STATE_DIR_ENV,
+  t3StorageEnvironment,
+  type T3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -37,6 +46,13 @@ import {
 } from "./serviceProtocol.ts";
 
 const BOOT_SERVICE_NAME = "t3code";
+const GRANULAR_STORAGE_ENVIRONMENT_NAMES = [
+  T3CODE_CONFIG_DIR_ENV,
+  T3CODE_DATA_DIR_ENV,
+  T3CODE_STATE_DIR_ENV,
+  T3CODE_CACHE_DIR_ENV,
+  T3CODE_RUNTIME_DIR_ENV,
+];
 const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
 // `.service` suffix keeps the label distinct from the desktop app's bundle id
 // (com.t3tools.t3code), so launchd and TCC records never collide.
@@ -89,12 +105,23 @@ export interface BootServicePlan {
    */
   readonly program: ReadonlyArray<string>;
   readonly baseDir: string;
+  readonly storageRoots?: T3StorageRoots;
   readonly logPath: string;
   readonly unitPath: string;
 }
 
 /** Pure renderer: service units cannot rely on the user's shell or PATH. */
 export function renderBootServiceUnit(plan: BootServicePlan): string {
+  const storageEnvironment =
+    plan.storageRoots === undefined
+      ? { T3CODE_HOME: plan.baseDir }
+      : t3StorageEnvironment(plan.storageRoots);
+  const storageEnvironmentLines = Object.entries(storageEnvironment).map(
+    ([name, value]) => `Environment=${name}=${quoteSystemdValue(value)}`,
+  );
+  const unsetStorageEnvironmentLine = Object.hasOwn(storageEnvironment, "T3CODE_HOME")
+    ? `UnsetEnvironment=${GRANULAR_STORAGE_ENVIRONMENT_NAMES.join(" ")}`
+    : "UnsetEnvironment=T3CODE_HOME";
   // The user manager has no reliable network-online target; server networking retries itself.
   return [
     "[Unit]",
@@ -105,7 +132,8 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "[Service]",
     "Type=simple",
     "WorkingDirectory=%h",
-    `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
+    ...storageEnvironmentLines,
+    unsetStorageEnvironmentLine,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
     `ExecStart=${plan.program.map(quoteSystemdValue).join(" ")}`,
     // Let the launcher mark an explicit stop before it signals the server.
@@ -164,8 +192,14 @@ export function renderBootServicePlist(
     `  <dict>`,
     `    <key>PATH</key>`,
     `    <string>${escapeXmlText(options.environmentPath)}</string>`,
-    `    <key>T3CODE_HOME</key>`,
-    `    <string>${escapeXmlText(plan.baseDir)}</string>`,
+    ...Object.entries(
+      plan.storageRoots === undefined
+        ? { T3CODE_HOME: plan.baseDir }
+        : t3StorageEnvironment(plan.storageRoots),
+    ).flatMap(([name, value]) => [
+      `    <key>${name}</key>`,
+      `    <string>${escapeXmlText(value)}</string>`,
+    ]),
     `    <key>${BOOT_SERVICE_UNIT_ENV}</key>`,
     `    <string>${BOOT_SERVICE_PLIST_FILE}</string>`,
     `  </dict>`,
@@ -554,6 +588,7 @@ export interface BootServiceHost {
 
 export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   readonly baseDir: string;
+  readonly storageRoots?: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
@@ -629,6 +664,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const plan: BootServicePlan = {
     program: [runtimePaths.entryPath, "__service-launcher"],
     baseDir: input.baseDir,
+    ...(input.storageRoots === undefined ? {} : { storageRoots: input.storageRoots }),
     logPath,
     unitPath,
   };
@@ -995,6 +1031,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
 export const layer = (input: {
   readonly baseDir: string;
+  readonly storageRoots?: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;

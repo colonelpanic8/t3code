@@ -94,11 +94,16 @@ const layerDesktopEnvironment = Layer.unwrap(
     return DesktopEnvironment.layer({
       dirname: __dirname,
       homeDirectory: NodeOS.homedir(),
+      temporaryDirectory: NodeOS.tmpdir(),
+      ...(process.getuid === undefined ? {} : { userId: process.getuid() }),
       platform,
       processArch,
       ...metadata,
     });
   }),
+).pipe(
+  // The Clerk layer builds this before Electron is ready, so its filesystem probes must not yield.
+  Layer.provide(DesktopPreReadyFileSystem.layer),
 );
 
 // The remote runs the exact release this app is on, from its self-contained

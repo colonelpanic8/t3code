@@ -153,6 +153,38 @@ function EmptyRows({ label }: { label: string }) {
   return <div className="px-4 py-4 text-xs text-muted-foreground sm:px-5">{label}</div>;
 }
 
+function StoragePathRow({ label, path }: { label: string; path: string }) {
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    target: `${label.toLowerCase()} path`,
+    timeout: 1_200,
+  });
+  return (
+    <div className="relative grid min-w-0 gap-1 py-3 pr-12 pl-4 sm:grid-cols-[8rem_minmax(0,1fr)_auto] sm:items-center sm:gap-3 sm:px-5">
+      <div className="text-2xs font-medium uppercase tracking-widest text-muted-foreground/70">
+        {label}
+      </div>
+      <code className="min-w-0 break-all text-xs text-foreground/90">{path}</code>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute right-4 mt-0.5 inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground sm:static sm:mt-0"
+              aria-label={
+                isCopied ? `Copied ${label.toLowerCase()} path` : `Copy ${label.toLowerCase()} path`
+              }
+              onClick={() => copyToClipboard(path)}
+            >
+              <CopyIcon className="size-3.5" />
+            </button>
+          }
+        />
+        <TooltipPopup side="top">{isCopied ? "Copied" : "Copy path"}</TooltipPopup>
+      </Tooltip>
+    </div>
+  );
+}
+
 function DiagnosticsTable({
   headers,
   children,
@@ -729,6 +761,7 @@ export function DiagnosticsSettingsPanel() {
     hasSessionError: session.error !== null,
   });
   const canReadDiagnostics = diagnosticsAccess.canReadDiagnostics;
+  const storage = environment?.serverConfig?.storage;
   const signalServerProcess = useAtomCommand(serverEnvironment.signalProcess, {
     reportFailure: false,
   });
@@ -934,6 +967,35 @@ export function DiagnosticsSettingsPanel() {
   return (
     <SettingsPageContainer width="expanded" className="gap-10">
       <ResourceTelemetryDiagnostics environmentId={environmentId} />
+
+      <SettingsSection title="Storage Locations">
+        {storage ? (
+          <>
+            <div className="border-b border-border/60 px-4 py-3 text-xs leading-relaxed text-muted-foreground sm:px-5">
+              {storage.layout === "split"
+                ? "T3 Code is using separate configuration, data, state, cache, and runtime directories."
+                : "T3 Code is using the legacy unified directory. No data has been moved or copied."}
+            </div>
+            <div className="relative divide-y divide-border/60">
+              <StoragePathRow label="Configuration" path={storage.configDirectoryPath} />
+              <StoragePathRow label="Data" path={storage.dataDirectoryPath} />
+              <StoragePathRow label="State" path={storage.stateDirectoryPath} />
+              <StoragePathRow label="Cache" path={storage.cacheDirectoryPath} />
+              <StoragePathRow label="Runtime" path={storage.runtimeDirectoryPath} />
+              {storage.legacyBaseDirectoryPath ? (
+                <StoragePathRow label="Legacy root" path={storage.legacyBaseDirectoryPath} />
+              ) : null}
+              <StoragePathRow label="Database" path={storage.databaseFilePath} />
+              <StoragePathRow label="Settings" path={storage.settingsFilePath} />
+              <StoragePathRow label="Keybindings" path={storage.keybindingsFilePath} />
+              <StoragePathRow label="Worktrees" path={storage.worktreesDirectoryPath} />
+              <StoragePathRow label="Attachments" path={storage.attachmentsDirectoryPath} />
+            </div>
+          </>
+        ) : (
+          <EmptyRows label="Storage locations are unavailable from this server version." />
+        )}
+      </SettingsSection>
 
       <SettingsSection
         title="Live Processes"

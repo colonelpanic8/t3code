@@ -16,6 +16,7 @@ import {
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { resolveLegacyT3StorageRoots, type T3StorageRoots } from "@t3tools/shared/storagePaths";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
@@ -24,13 +25,13 @@ import {
   ensureTailscaleServe,
   readTailscaleStatus,
 } from "@t3tools/tailscale";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag } from "effect/cli";
@@ -53,7 +54,12 @@ import {
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
 import { authScopesFlag } from "./authScopes.ts";
-import { baseDirFlag, DurationFromString } from "./config.ts";
+import {
+  baseDirFlag,
+  currentStorageHost,
+  DurationFromString,
+  resolveStorageRoots,
+} from "./config.ts";
 
 const WELL_KNOWN_ENVIRONMENT_PATH = "/.well-known/t3/environment";
 const PAIR_PROBE_TIMEOUT = Duration.millis(2_500);
@@ -63,10 +69,6 @@ const TAILSCALE_PROBE_ATTEMPTS = 5;
 const TAILSCALE_PROBE_RETRY_DELAY = Duration.seconds(1);
 
 export type PairStateVariant = "userdata" | "dev";
-
-// deriveServerPaths only checks devUrl for undefined-ness when picking the
-// dev-vs-userdata state directory; the value itself is not used.
-const DEV_VARIANT_PLACEHOLDER_URL = new URL("http://localhost");
 
 export class NoRunningServerError extends Schema.TaggedError<NoRunningServerError>()(
   "NoRunningServerError",
@@ -230,61 +232,81 @@ const probeEnvironmentDescriptor = (
   }).pipe(Effect.catch((outcome) => Effect.succeed(outcome)));
 
 interface DiscoveredPairTarget {
-  readonly baseDir: string;
+  readonly roots: T3StorageRoots;
   readonly variant: PairStateVariant;
   readonly state: PersistedServerRuntimeState;
   readonly descriptor: ExecutionEnvironmentDescriptor;
 }
 
+interface PairCandidate {
+  readonly roots: T3StorageRoots;
+  readonly variant: PairStateVariant;
+}
+
+const legacyCandidates = (baseDir: string, path: Path.Path): ReadonlyArray<PairCandidate> =>
+  (["userdata", "dev"] as const).map((variant) => ({
+    roots: resolveLegacyT3StorageRoots({ baseDir, stateDirectoryName: variant, path }),
+    variant,
+  }));
+
 const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   explicitBaseDir: string | undefined,
 ) {
-  const bases: Array<string> = [];
+  const path = yield* Path.Path;
+  const candidates: Array<PairCandidate> = [];
   if (explicitBaseDir !== undefined && explicitBaseDir.trim().length > 0) {
-    bases.push(yield* resolveBaseDir(explicitBaseDir));
+    candidates.push(...legacyCandidates(yield* resolveBaseDir(explicitBaseDir), path));
   } else {
     // Same precedence as dev-runner: inside a linked worktree its own `.t3`
     // outranks the shared home, so `t3 pair` in a worktree pairs with the dev
     // server under test rather than the daily-driver install.
     const worktreeHome = yield* resolveWorktreeT3Home(process.cwd());
     if (worktreeHome !== undefined) {
-      bases.push(worktreeHome);
+      candidates.push(...legacyCandidates(worktreeHome, path));
     }
-    const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-    bases.push(yield* resolveBaseDir(Option.getOrUndefined(envHome)));
+    const host = yield* currentStorageHost;
+    for (const variant of ["userdata", "dev"] as const) {
+      const roots = yield* resolveStorageRoots({
+        baseDir: Option.none(),
+        storageLayout: Option.none(),
+        isDevelopment: variant === "dev",
+        host,
+      });
+      candidates.push(
+        ...(roots.layout === "legacy" && roots.legacyBaseDir !== undefined
+          ? legacyCandidates(roots.legacyBaseDir, path)
+          : [{ roots, variant }]),
+      );
+    }
   }
 
   const checkedStatePaths: Array<string> = [];
-  for (const baseDir of new Set(bases)) {
-    for (const variant of ["userdata", "dev"] as const) {
-      const derivedPaths = yield* ServerConfig.deriveServerPaths(
-        baseDir,
-        variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-        {},
-      );
-      const statePath = derivedPaths.serverRuntimeStatePath;
-      checkedStatePaths.push(statePath);
-      const state = yield* readPersistedServerRuntimeState(statePath);
-      if (Option.isNone(state)) {
-        continue;
-      }
-      // The pid check guards against a dead server's state file whose port
-      // was since reused by a different server: pairing would then mint a
-      // token in the old database while the QR code points at the new server.
-      if (!isProcessAlive(state.value.pid)) {
-        continue;
-      }
-      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
-      if (probed._tag !== "descriptor") {
-        continue;
-      }
-      return {
-        baseDir,
-        variant,
-        state: state.value,
-        descriptor: probed.descriptor,
-      } satisfies DiscoveredPairTarget;
+  for (const candidate of candidates) {
+    const statePath = (yield* ServerConfig.deriveServerPathsFromRoots(candidate.roots))
+      .serverRuntimeStatePath;
+    if (checkedStatePaths.includes(statePath)) {
+      continue;
     }
+    checkedStatePaths.push(statePath);
+    const state = yield* readPersistedServerRuntimeState(statePath);
+    if (Option.isNone(state)) {
+      continue;
+    }
+    // The pid check guards against a dead server's state file whose port
+    // was since reused by a different server: pairing would then mint a
+    // token in the old database while the QR code points at the new server.
+    if (!isProcessAlive(state.value.pid)) {
+      continue;
+    }
+    const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+    if (probed._tag !== "descriptor") {
+      continue;
+    }
+    return {
+      ...candidate,
+      state: state.value,
+      descriptor: probed.descriptor,
+    } satisfies DiscoveredPairTarget;
   }
   return yield* new NoRunningServerError({ checkedStatePaths });
 });
@@ -300,16 +322,12 @@ const makePairServerConfig = Effect.fn(function* (input: {
   readonly target: DiscoveredPairTarget;
   readonly logLevel: ServerConfig.ServerConfig["Service"]["logLevel"];
 }) {
-  const { baseDir, variant, state } = input.target;
+  const { roots, state } = input.target;
   // The state-dir variant does not imply dev-ness: a worktree dev server uses
   // an explicit home and therefore lands in `userdata`. The recorded devUrl is
   // what actually marks a dev server.
   const devUrl = state.devUrl !== undefined ? new URL(state.devUrl) : undefined;
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(
-    baseDir,
-    variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-    {},
-  );
+  const derivedPaths = yield* ServerConfig.deriveServerPathsFromRoots(roots);
   return ServerConfig.make({
     logLevel: input.logLevel,
     traceMinLevel: "Info",
@@ -328,7 +346,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
     port: state.port,
     host: state.host,
     cwd: process.cwd(),
-    baseDir,
+    baseDir: derivedPaths.dataDir,
     ...derivedPaths,
     staticDir: undefined,
     devUrl,
