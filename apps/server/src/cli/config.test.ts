@@ -340,6 +340,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_HOME: baseDir,
                   T3CODE_MANAGED_ACCESS_TOKEN: " managed-fleet-secret ",
                   T3CODE_ENVIRONMENT_ID: " fleet:ryzen-shine ",
+                  T3CODE_FLEET_MANIFEST_FILE: " /etc/t3code/fleet.json ",
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
                   T3CODE_DEV_ALLOWED_ORIGINS:
                     "https://host.example.ts.net, https://phone.example.ts.net ",
@@ -371,6 +372,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         desktopBootstrapToken: undefined,
         managedAccessToken: "managed-fleet-secret",
         environmentIdOverride: "fleet:ryzen-shine",
+        fleetManifestPath: "/etc/t3code/fleet.json",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,

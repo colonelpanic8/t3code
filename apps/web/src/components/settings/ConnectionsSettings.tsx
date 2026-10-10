@@ -60,7 +60,8 @@ import {
   connectionRoutes,
   connectionStatusText,
   environmentMcpUrl,
-  isManagedConnectionTarget,
+  fleetMembersJoinedThrough,
+  isManagedConnectionEntry,
 } from "@t3tools/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
@@ -1670,7 +1671,7 @@ function SavedBackendListRow({
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
-  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
+  const isManagedEnvironment = isManagedConnectionEntry(environment.entry);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
   // A saved T3 Connect machine this device has never reached (unsupported,
   // or not yet connected) still has a descriptor from relay discovery, so
@@ -3112,14 +3113,22 @@ export function ConnectionsSettings() {
         setPendingT3ConnectRemoval(environment);
         return;
       }
+      const fleetMembers = fleetMembersJoinedThrough(
+        new Map(savedEnvironments.map((saved) => [saved.environmentId, saved.entry])),
+        environment.environmentId,
+      ).length;
       // Fail closed: no mounted confirm host means no removal.
       const confirmed = await requestConfirmDialog(
-        `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved.`,
+        `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here.${
+          fleetMembers === 0
+            ? ""
+            : ` ${fleetMembers === 1 ? "The fleet machine" : `The ${fleetMembers} fleet machines`} that joined through it will be removed too.`
+        } Switch it off instead to keep it saved.`,
         { variant: "destructive" },
       );
       if (confirmed === true) await removeSavedBackend(environment);
     },
-    [removeSavedBackend],
+    [removeSavedBackend, savedEnvironments],
   );
 
   const visibleDesktopPairingLinks = desktopPairingLinks;

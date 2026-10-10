@@ -11,7 +11,11 @@ import {
   type ConnectionCatalogEntry,
   type ConnectionRoute,
 } from "./catalog.ts";
-import { BearerConnectionTarget, type ConnectionTarget } from "./model.ts";
+import {
+  BearerConnectionTarget,
+  type ConnectionTarget,
+  isManagedConnectionTarget,
+} from "./model.ts";
 
 /**
  * A saved environment can hold several routes: T3 Connect, direct URLs (LAN,
@@ -203,6 +207,19 @@ export function hasRelayRoute(
 ): boolean {
   return [entry.target, ...(entry.alternateRoutes ?? []).map((route) => route.target)].some(
     (target) => target._tag === "RelayConnectionTarget",
+  );
+}
+
+/**
+ * Whether system configuration decides how the environment is reached: a
+ * declared desktop connection or a fleet member. Its routes are not edited or
+ * removed by hand, though the environment can still be switched off.
+ */
+export function isManagedConnectionEntry(
+  entry: Pick<ConnectionCatalogEntry, "target" | "alternateRoutes">,
+): boolean {
+  return [entry.target, ...(entry.alternateRoutes ?? []).map((route) => route.target)].some(
+    isManagedConnectionTarget,
   );
 }
 

@@ -1,4 +1,5 @@
 import { EnvironmentId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 const ConnectionTargetBase = {
@@ -47,6 +48,7 @@ export const ConnectionTarget = Schema.Union([
 export type ConnectionTarget = typeof ConnectionTarget.Type;
 
 export const MANAGED_CONNECTION_ID_PREFIX = "managed:";
+const decodeEnvironmentId = Schema.decodeUnknownOption(EnvironmentId);
 
 export function isManagedConnectionTarget(
   target: ConnectionTarget,
@@ -55,6 +57,23 @@ export function isManagedConnectionTarget(
     target._tag === "BearerConnectionTarget" &&
     target.connectionId.startsWith(MANAGED_CONNECTION_ID_PREFIX)
   );
+}
+
+/**
+ * The id of a route joined through a fleet handoff. It names the saved
+ * environment the client joined the fleet through, so the route goes away
+ * with that environment.
+ */
+export function fleetConnectionId(environmentId: EnvironmentId, root: EnvironmentId): string {
+  return `${MANAGED_CONNECTION_ID_PREFIX}${environmentId}@${root}`;
+}
+
+/** The environment a fleet route was joined through, or null for any other route. */
+export function fleetConnectionRoot(connectionId: string): EnvironmentId | null {
+  if (!connectionId.startsWith(MANAGED_CONNECTION_ID_PREFIX)) return null;
+  // Neither environment id contains an "@".
+  const at = connectionId.indexOf("@");
+  return at === -1 ? null : Option.getOrNull(decodeEnvironmentId(connectionId.slice(at + 1)));
 }
 
 export const PersistedConnectionTarget = Schema.Union([

@@ -209,10 +209,12 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
+import * as FleetManifest from "./environment/FleetManifest.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as FleetHandoff from "./auth/FleetHandoff.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
@@ -1265,6 +1267,8 @@ const layerWsRpc = (
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
+      const fleetManifest = yield* FleetManifest.FleetManifest;
+      const fleetHandoff = yield* FleetHandoff.FleetHandoff;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
@@ -1738,6 +1742,10 @@ const layerWsRpc = (
               remoteOpenTargets.resolveTargets(),
             ),
             directEndpoints: yield* resolveAvailableEditorsForConfig(directEndpoints.resolve()),
+            ...Option.match(yield* fleetManifest.read, {
+              onNone: () => ({}),
+              onSome: (fleet) => ({ fleet }),
+            }),
             observability: {
               logsDirectoryPath: config.logsDir,
               localTracingEnabled: true,
@@ -2125,6 +2133,8 @@ const layerWsRpc = (
           ),
         [WS_METHODS.serverProbe]: (_input) => Effect.succeed({}),
         [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig({ usageLimitsCommand: false }),
+        [WS_METHODS.serverIssueFleetHandoff]: (input) =>
+          fleetHandoff.issue({ audience: input.environmentId, scopes: currentSession.scopes }),
         [WS_METHODS.serverSearchAcpRegistry]: (input) =>
           acpRegistryCatalog
             .search(input)
