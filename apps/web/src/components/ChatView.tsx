@@ -539,6 +539,7 @@ import {
   prepareRevertedMessageAttachments,
   waitForRevertedMessage,
   reconcileMountedTerminalThreadIds,
+  recoverDraftThreadAfterBootstrap,
   resolveComposerInteractionMode,
   resolveComposerProviderSelection,
   getAntigravitySendBlockReason,
@@ -9990,6 +9991,16 @@ export default function ChatView(props: ChatViewProps) {
         clearUsageLimitsFor(routeThreadKey);
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
+        }
+        if (isLocalDraftThread) {
+          // The launch succeeded, so the server thread exists whether or not
+          // the shell stream has published it yet. Record the promotion from
+          // that authoritative result and restart the reserved detail stream if
+          // neither source hydrates, so the draft never strands on /draft/<id>
+          // and retry the bootstrap against an already-consumed thread id.
+          const promotedDraftRef = scopeThreadRef(activeThread.environmentId, threadIdForSend);
+          markPromotedDraftThreadByRef(promotedDraftRef);
+          void recoverDraftThreadAfterBootstrap(promotedDraftRef);
         }
         acknowledgeActiveThreadWoke();
         if (backgroundThreadRef) {
