@@ -13,6 +13,8 @@ export interface ConnectedEnvironmentSummary {
   readonly environmentLabel: string;
   readonly displayUrl: string;
   readonly isRelayManaged: boolean;
+  /** System configuration owns its routes, as for a fleet member. */
+  readonly isManaged: boolean;
   /** False when the user switched the environment off in Settings. */
   readonly isEnabled: boolean;
   readonly connectionState: EnvironmentConnectionPhase;

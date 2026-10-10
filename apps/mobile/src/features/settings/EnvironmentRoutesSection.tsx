@@ -8,6 +8,7 @@ import {
   connectionRouteLabel,
   connectionRoutes,
   isLearned,
+  isManagedConnectionEntry,
 } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -43,7 +44,8 @@ const ROUTE_ICONS: Record<ConnectionRouteKind, AppSymbolName> = {
  * The ways this device reaches an environment, preferred first. The first
  * route that answers is used, and the connection moves back up the list when
  * a better route is reachable again. Edit shows drag handles and remove
- * buttons; Add route pairs this machine over another address.
+ * buttons; Add route pairs this machine over another address. Routes from
+ * system configuration can only be reordered.
  */
 export function EnvironmentRoutesSection({
   environmentId,
@@ -80,6 +82,7 @@ export function EnvironmentRoutesSection({
   const [drops, setDrops] = useState(0);
   if (entry === undefined) return null;
 
+  const managed = isManagedConnectionEntry(entry);
   const byId = new Map(saved.map((route) => [connectionRouteId(route.target), route]));
   const routes = order.flatMap((id) => byId.get(id) ?? []);
   const activeRouteId =
@@ -184,12 +187,14 @@ export function EnvironmentRoutesSection({
             // The last route goes with the machine, which is "Remove" on the row.
             // A learned route would be learned again, so it is only reordered.
             onRemove={
-              routes.length > 1 && !isLearned(route) ? () => confirmRemove(route) : undefined
+              routes.length > 1 && !isLearned(route) && !managed
+                ? () => confirmRemove(route)
+                : undefined
             }
           />
         );
       })}
-      <SettingsActionRow icon="plus" label="Add route" onPress={onAddRoute} />
+      {managed ? null : <SettingsActionRow icon="plus" label="Add route" onPress={onAddRoute} />}
     </SettingsSection>
   );
 }

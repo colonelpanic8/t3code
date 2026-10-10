@@ -60,6 +60,13 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("lets any reader see the fleet and carry its own grant to another member", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverGetConfig)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverIssueFleetHandoff)).toBe(
+      AuthOrchestrationReadScope,
+    );
+  });
+
   it("allows relay status reads without granting relay installation access", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudGetRelayClientStatus)).toBe(
       AuthRelayReadScope,

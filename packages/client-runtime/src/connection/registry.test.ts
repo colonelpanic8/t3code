@@ -4,9 +4,12 @@ import {
   type OrchestrationV2ShellSnapshot,
   ORCHESTRATION_PROTOCOL_VERSION,
   type ExecutionEnvironmentDescriptor,
+  type ServerConfig,
+  WS_METHODS,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -40,7 +43,9 @@ import * as Connectivity from "./connectivity.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import * as ConnectionDriver from "./driver.ts";
 import type { RouteCheck } from "./driver.ts";
-import { connectionRouteId } from "./routes.ts";
+import { fleetConnectionId } from "./model.ts";
+import { syncFleets } from "./fleet.ts";
+import { connectionRouteId, isManagedConnectionEntry } from "./routes.ts";
 import {
   ConnectionTransientError,
   ConnectionBlockedError,
@@ -60,6 +65,7 @@ import {
   type StoredGitHubRoutingPermission,
   makeGitHubRoutingPermissions,
 } from "./githubRoutingPermissions.ts";
+import * as RpcHttp from "../rpc/http.ts";
 import * as RpcSession from "../rpc/session.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
@@ -163,6 +169,10 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
       target: ConnectionTarget,
     ) => Effect.Effect<ConnectionBlockedError | undefined>;
     readonly initialDisabled?: ReadonlyArray<EnvironmentId>;
+    /** What each session for an environment answers, when a test needs more than a socket. */
+    readonly session?: (
+      environmentId: EnvironmentId,
+    ) => Partial<Pick<RpcSession.RpcSession, "client" | "initialConfig">>;
   },
 ) {
   const storedTargets = yield* Ref.make<ReadonlyArray<ConnectionTarget>>(initialTargets);
@@ -415,6 +425,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
           ready: Effect.void,
           probe: Effect.void,
           closed: Deferred.await(closed),
+          ...options?.session?.(target.environmentId),
         } satisfies RpcSession.RpcSession),
         () => Ref.update(releasedSessions, (count) => count + 1),
       );
@@ -473,6 +484,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
     disconnectedSshTargets,
     networkStatus,
     connectedRoutes,
+    credentialStore,
   };
 });
 
@@ -2084,5 +2096,131 @@ describe("EnvironmentRegistry routes", () => {
         expect(entry?.alternateRoutes ?? []).toEqual([]);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
+  );
+});
+
+describe("fleet sync", () => {
+  const PAIRED = EnvironmentId.make("fleet:paired");
+  const MEMBER = EnvironmentId.make("fleet:member");
+  const declared = (environmentId: EnvironmentId) => {
+    const host = environmentId.slice("fleet:".length);
+    return {
+      environmentId,
+      label: host,
+      httpBaseUrl: `https://${host}.example.ts.net/`,
+      wsBaseUrl: `wss://${host}.example.ts.net/`,
+    };
+  };
+  const pairedTarget = new BearerConnectionTarget({
+    environmentId: PAIRED,
+    label: "paired",
+    connectionId: "bearer:fleet:paired",
+  });
+  const pairedProfile = new BearerConnectionProfile({
+    connectionId: pairedTarget.connectionId,
+    ...declared(PAIRED),
+  });
+  // Members answer the descriptor as themselves and redeem any handoff.
+  const layerMemberHttp = RpcHttp.layerRemoteHttpClient(((input) => {
+    const url = String(input);
+    if (url.endsWith("/.well-known/t3/environment")) {
+      return Promise.resolve(
+        Response.json({
+          environmentId: url.startsWith("https://member.") ? MEMBER : PAIRED,
+          label: "member",
+          platform: { os: "linux", arch: "x64" },
+          serverVersion: "0.0.0-test",
+          orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+          capabilities: { repositoryIdentity: true },
+        }),
+      );
+    }
+    if (url.endsWith("/oauth/token")) {
+      return Promise.resolve(
+        Response.json({
+          access_token: "member-session",
+          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "orchestration:read",
+        }),
+      );
+    }
+    return Promise.reject(new Error(`Unexpected request: ${url}`));
+  }) satisfies typeof fetch);
+
+  it.effect("joins the reported fleet once and takes it away with the paired machine", () =>
+    Effect.gen(function* () {
+      const fleet = yield* Ref.make([declared(PAIRED), declared(MEMBER)]);
+      const handoffs = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
+      const harness = yield* makeHarness(
+        [pairedTarget],
+        [pairedProfile],
+        [[pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })]],
+        {
+          session: () => ({
+            initialConfig: Ref.get(fleet).pipe(
+              Effect.map((current) => ({ fleet: current }) as unknown as ServerConfig),
+            ),
+            client: {
+              [WS_METHODS.serverIssueFleetHandoff]: ({
+                environmentId,
+              }: {
+                readonly environmentId: EnvironmentId;
+              }) =>
+                Ref.update(handoffs, (current) => [...current, environmentId]).pipe(
+                  Effect.as({ credential: "t3fleet1.handoff", expiresAt: DateTime.makeUnsafe(0) }),
+                ),
+            } as unknown as RpcSession.RpcSession["client"],
+          }),
+        },
+      );
+      const entriesWhere = (
+        registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+        predicate: (entries: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) => boolean,
+      ) =>
+        SubscriptionRef.changes(registry.entries).pipe(
+          Stream.filter(predicate),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        );
+
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.start;
+        yield* syncFleets().pipe(Effect.forkScoped);
+
+        const joined = (yield* entriesWhere(registry, (entries) => entries.has(MEMBER))).get(
+          MEMBER,
+        )!;
+        expect(joined.target).toMatchObject({
+          connectionId: fleetConnectionId(MEMBER, PAIRED),
+          label: "member",
+        });
+        expect(isManagedConnectionEntry(joined)).toBe(true);
+        // The member's own session reports the same fleet and joins nothing more.
+        yield* awaitConnectionState(registry, MEMBER, (state) => state.phase === "connected");
+        expect(yield* Ref.get(handoffs)).toEqual([MEMBER]);
+
+        yield* registry.remove(PAIRED);
+        const after = yield* entriesWhere(registry, (entries) => !entries.has(MEMBER));
+        expect([...after.keys()]).toEqual([]);
+      }).pipe(
+        Effect.provide(harness.layer),
+        Effect.provide(
+          Layer.mergeAll(
+            layerMemberHttp,
+            Layer.succeed(
+              ConnectionCredentialStore.ConnectionCredentialStore,
+              harness.credentialStore,
+            ),
+            Layer.succeed(
+              ClientCapabilities.ClientPresentation,
+              ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
+            ),
+          ),
+        ),
+      );
+    }).pipe(Effect.scoped),
   );
 });

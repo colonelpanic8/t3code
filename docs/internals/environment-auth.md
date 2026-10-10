@@ -81,6 +81,23 @@ transaction](../../apps/server/src/persistence/AuthSessions.ts); a failed
 replacement must leave the old credential usable. Pairing and browser sessions
 do not follow this replacement rule.
 
+### Fleet handoffs
+
+Servers that share a managed access token form a fleet: the operator has already
+made them one trust domain, since that token opens a session on any of them. A
+client connected to one member can therefore ask it for a
+[handoff](../../apps/server/src/auth/FleetHandoff.ts) to another, and that
+member redeems it like a pairing code. Unlike a pairing link, issuing one does
+not need `access:write`: it carries exactly the caller's own grant, names one
+audience, expires in minutes, and its nonce is spent through the same replay
+markers as DPoP proofs. The shared token never leaves the hosts, and each member
+issues and revokes its own session for the device.
+
+Clients join only members that the reporting server's manifest lists, and only
+when that server lists itself. Each joined route records the saved environment it
+was joined through, so removing that one environment is the way out
+([fleet sync](../../packages/client-runtime/src/connection/fleet.ts)).
+
 ### Reusable dev credential
 
 Web development environments can accept one `T3CODE_DEV_AUTH_TOKEN` across

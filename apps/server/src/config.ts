@@ -97,6 +97,8 @@ export class ServerConfig extends Context.Service<
     readonly desktopBootstrapSecret?: string | undefined;
     readonly managedAccessToken: string | undefined;
     readonly environmentIdOverride: string | undefined;
+    /** Non-secret JSON list of the fleet's environments and their tailnet URLs. */
+    readonly fleetManifestPath?: string | undefined;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly desktopBrowserFd?: number | undefined;

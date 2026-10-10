@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
+import { fleetMembersJoinedThrough } from "@t3tools/client-runtime/connection";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -168,12 +169,20 @@ export function useRemoteConnections() {
           void controller.removeEnvironment(environmentId);
         },
       } as const;
+      const fleetMembers = fleetMembersJoinedThrough(
+        appAtomRegistry.get(environmentCatalog.catalogValueAtom).entries,
+        environmentId,
+      ).length;
+      const fleetNote =
+        fleetMembers === 0
+          ? ""
+          : ` ${fleetMembers === 1 ? "The fleet machine" : `The ${fleetMembers} fleet machines`} that joined through it will be removed too.`;
       // Removing a T3 Connect environment here leaves its account registration
       // and host space, so point to where it can be deregistered.
       if (environment.isRelayManaged) {
         Alert.alert(
           "Remove from this device?",
-          `Forget ${environment.environmentLabel} and its cached threads on this device.\n\nIt stays on your T3 Connect account and keeps its host space. Deregister it under T3 Account → T3 Connect to free it.`,
+          `Forget ${environment.environmentLabel} and its cached threads on this device.${fleetNote}\n\nIt stays on your T3 Connect account and keeps its host space. Deregister it under T3 Account → T3 Connect to free it.`,
           [
             { text: "Cancel", style: "cancel" },
             {
@@ -187,7 +196,7 @@ export function useRemoteConnections() {
       }
       Alert.alert(
         "Remove from this device?",
-        `Forget ${environment.environmentLabel} and its cached threads on this device. Switch it off instead to keep it saved.`,
+        `Forget ${environment.environmentLabel} and its cached threads on this device.${fleetNote} Switch it off instead to keep it saved.`,
         [{ text: "Cancel", style: "cancel" }, remove],
       );
     },
