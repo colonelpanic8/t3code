@@ -13,6 +13,7 @@ import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
@@ -106,13 +107,17 @@ describe("WSL IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          DesktopAppSettings.layerTest({
-            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-            localEnvironmentEnabled: false,
-            wslBackendEnabled: true,
-            wslDistro: "Ubuntu",
-            wslOnly: true,
-          }),
+          DesktopBackendMode.layerTest().pipe(
+            Layer.provideMerge(
+              DesktopAppSettings.layerTest({
+                ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+                localEnvironmentEnabled: false,
+                wslBackendEnabled: true,
+                wslDistro: "Ubuntu",
+                wslOnly: true,
+              }),
+            ),
+          ),
           DesktopWslEnvironment.layerTest(),
           layerWslBackend(),
         ),
@@ -123,11 +128,15 @@ describe("WSL IPC", () => {
   it.effect("stages dual-backend preferences before enabling without relaunching", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: false,
-        wslOnly: true,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: false,
+            wslOnly: true,
+          }),
+        ),
+      ),
       DesktopWslEnvironment.layerTest({ isAvailable: true }),
       layerWslBackend(),
       layerLifecycle(relaunchReasons),
@@ -154,11 +163,15 @@ describe("WSL IPC", () => {
   it.effect("stages WSL-only preferences and relaunches only after enabling", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: false,
-        wslOnly: false,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: false,
+            wslOnly: false,
+          }),
+        ),
+      ),
       DesktopWslEnvironment.layerTest({ isAvailable: true }),
       layerWslBackend(),
       layerLifecycle(relaunchReasons),
@@ -191,11 +204,15 @@ describe("WSL IPC", () => {
     const relaunchReasons: Array<string> = [];
     let reconcileCount = 0;
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: false,
-        wslOnly: true,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: false,
+            wslOnly: true,
+          }),
+        ),
+      ),
       DesktopWslEnvironment.layerTest({ isAvailable: true }),
       layerWslBackend({
         onReconcile: Effect.sync(() => {
@@ -226,11 +243,15 @@ describe("WSL IPC", () => {
     const relaunchReasons: Array<string> = [];
     let reconcileCount = 0;
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: false,
-        wslOnly: false,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: false,
+            wslOnly: false,
+          }),
+        ),
+      ),
       DesktopWslEnvironment.layerTest({ isAvailable: true }),
       layerWslBackend({
         onReconcile: Effect.sync(() => {
@@ -255,11 +276,15 @@ describe("WSL IPC", () => {
     const relaunchReasons: Array<string> = [];
     let reconcileCount = 0;
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: true,
-        wslOnly: true,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: true,
+            wslOnly: true,
+          }),
+        ),
+      ),
       DesktopWslEnvironment.layerTest({ isAvailable: true }),
       layerWslBackend({
         onReconcile: Effect.sync(() => {
@@ -294,11 +319,15 @@ describe("WSL IPC", () => {
     const relaunchReasons: Array<string> = [];
     let reconcileCount = 0;
     const layer = Layer.mergeAll(
-      DesktopAppSettings.layerTest({
-        ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-        wslBackendEnabled: true,
-        wslOnly: false,
-      }),
+      DesktopBackendMode.layerTest().pipe(
+        Layer.provideMerge(
+          DesktopAppSettings.layerTest({
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            wslBackendEnabled: true,
+            wslOnly: false,
+          }),
+        ),
+      ),
       DesktopWslEnvironment.layerTest({ isAvailable: true }),
       layerWslBackend({
         onReconcile: Effect.sync(() => {
