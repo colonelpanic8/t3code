@@ -20,15 +20,21 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
+import { matchesWorktreePathTemplate } from "../vcs/worktreePathTemplate.ts";
+
+type ReviewWorkspaceInput<T extends { readonly cwd: string }> = T & {
+  readonly repositoryRoots?: ReadonlyArray<string>;
+  readonly knownWorktreePaths?: ReadonlyArray<string>;
+};
 
 export class ReviewService extends Context.Service<
   ReviewService,
   {
     readonly getDiffPreview: (
-      input: ReviewDiffPreviewInput,
+      input: ReviewWorkspaceInput<ReviewDiffPreviewInput>,
     ) => Effect.Effect<ReviewDiffPreviewResult, ReviewDiffPreviewError>;
     readonly getDiffFileContents: (
-      input: ReviewDiffFileContentsInput,
+      input: ReviewWorkspaceInput<ReviewDiffFileContentsInput>,
     ) => Effect.Effect<ReviewDiffFileContentsResult, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
@@ -68,8 +74,9 @@ export const make = Effect.gen(function* () {
 
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
     operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
-    cwd: string,
+    input: ReviewWorkspaceInput<{ readonly cwd: string }>,
   ) {
+    const { cwd } = input;
     const worktreesDirectories = yield* settings.getSettings.pipe(
       Effect.orElseSucceed(() => ({ worktreesDirectory: "", previousWorktreesDirectories: [] })),
     );
@@ -88,9 +95,56 @@ export const make = Effect.gen(function* () {
       ),
     ]);
 
+    const worktreePathTemplate = yield* ServerSettings.readWorktreePathTemplate(settings);
+    const repositoryRoots = yield* Effect.forEach(
+      input.repositoryRoots ?? [],
+      (repositoryRoot) =>
+        canonicalizePath(repositoryRoot).pipe(
+          Effect.map((resolvedRepoRoot) => ({ repositoryRoot, resolvedRepoRoot })),
+          Effect.catch((cause) =>
+            Effect.logWarning("Skipping repository root that could not be resolved", {
+              cause,
+              repositoryRoot,
+            }).pipe(Effect.as(null)),
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+    const knownWorktreePaths = yield* Effect.forEach(
+      input.knownWorktreePaths ?? [],
+      (worktreePath) =>
+        canonicalizePath(worktreePath).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Skipping worktree path that could not be resolved", {
+              cause,
+              worktreePath,
+            }).pipe(Effect.as(null)),
+          ),
+        ),
+      { concurrency: "unbounded" },
+    );
+    const matchesKnownWorktreePath = knownWorktreePaths.some(
+      (worktreePath) => worktreePath !== null && isWithinRoot(candidate, worktreePath),
+    );
+    const matchesConfiguredWorktreePath = repositoryRoots.some(
+      (repositoryRoot) =>
+        repositoryRoot !== null &&
+        worktreesRoots.some((worktreesRoot) =>
+          matchesWorktreePathTemplate(path, {
+            candidate,
+            cwd: repositoryRoot.repositoryRoot,
+            resolvedRepoRoot: repositoryRoot.resolvedRepoRoot,
+            worktreesDir: worktreesRoot,
+            template: worktreePathTemplate,
+          }),
+        ),
+    );
+
     if (
       isWithinRoot(candidate, workspaceRoot) ||
-      worktreesRoots.some((root) => isWithinRoot(candidate, root))
+      worktreesRoots.some((root) => isWithinRoot(candidate, root)) ||
+      matchesKnownWorktreePath ||
+      matchesConfiguredWorktreePath
     ) {
       return;
     }
@@ -108,7 +162,7 @@ export const make = Effect.gen(function* () {
   const getDiffPreview: ReviewService["Service"]["getDiffPreview"] = Effect.fn(
     "ReviewService.getDiffPreview",
   )(function* (input) {
-    yield* assertWorkspaceBoundCwd("ReviewService.getDiffPreview", input.cwd);
+    yield* assertWorkspaceBoundCwd("ReviewService.getDiffPreview", input);
 
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (!handle) {
@@ -137,7 +191,7 @@ export const make = Effect.gen(function* () {
   const getDiffFileContents: ReviewService["Service"]["getDiffFileContents"] = Effect.fn(
     "ReviewService.getDiffFileContents",
   )(function* (input) {
-    yield* assertWorkspaceBoundCwd("ReviewService.getDiffFileContents", input.cwd);
+    yield* assertWorkspaceBoundCwd("ReviewService.getDiffFileContents", input);
 
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (handle?.kind !== "git") {

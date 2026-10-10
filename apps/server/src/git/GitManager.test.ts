@@ -3031,6 +3031,27 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
+  it.effect("creates worktrees at the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: { worktreePathTemplate: "{repoRoot}/.worktrees/{branch}" },
+      });
+
+      const created = yield* manager.createWorktree({
+        cwd: repoDir,
+        refName: "main",
+        newRefName: "feature/templated",
+        path: null,
+      });
+
+      expect(created.worktree.path).toBe(
+        NodePath.join(NodeFS.realpathSync(repoDir), ".worktrees", "feature-templated"),
+      );
+    }),
+  );
+
   it.effect("creates a commit when working tree is dirty", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

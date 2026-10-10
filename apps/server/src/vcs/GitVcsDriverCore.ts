@@ -19,6 +19,7 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import {
+  DEFAULT_WORKTREE_PATH_TEMPLATE,
   GitCommandError,
   type GitCommandFailureReason,
   T3_PROJECT_FILE_NAME,
@@ -43,6 +44,7 @@ import {
   parseRemoteRefWithRemoteNames,
 } from "../git/remoteRefs.ts";
 import * as ServerConfig from "../config.ts";
+import { resolveWorktreePathTemplate } from "./worktreePathTemplate.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const gitProcesses = Semaphore.makeUnsafe(8);
@@ -3395,8 +3397,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     "createWorktree",
   )(function* (input, options) {
     const targetBranch = input.newRefName ?? input.refName;
-    const sanitizedBranch = targetBranch.replace(/\//g, "-");
-    const repoName = path.basename(input.cwd);
     let worktreePath = input.path;
     if (worktreePath == null) {
       const parentDir = resolveWorktreesDirectory(
@@ -3412,7 +3412,27 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           detail: `The worktree location "${options?.worktreesDirectory}" must be an absolute folder on this machine, not a drive root. Change it in Settings → Storage.`,
         });
       }
-      worktreePath = path.join(parentDir, repoName, sanitizedBranch);
+      worktreePath = yield* fileSystem.realPath(path.resolve(input.cwd)).pipe(
+        Effect.map((resolvedRepoRoot) =>
+          resolveWorktreePathTemplate(path, {
+            cwd: input.cwd,
+            resolvedRepoRoot,
+            worktreesDir: parentDir,
+            template: options?.pathTemplate ?? DEFAULT_WORKTREE_PATH_TEMPLATE,
+            branch: targetBranch,
+          }),
+        ),
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.createWorktree",
+              command: "git worktree add",
+              cwd: input.cwd,
+              detail: "Failed to resolve the repository root before creating a worktree.",
+              cause,
+            }),
+        ),
+      );
     }
     const args = input.newRefName
       ? ["worktree", "add", "-b", input.newRefName, worktreePath, input.refName]

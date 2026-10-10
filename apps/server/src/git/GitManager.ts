@@ -760,6 +760,7 @@ export const make = Effect.gen(function* () {
     Effect.map((settings) => settings.worktreesDirectory),
     Effect.orElseSucceed(() => ""),
   );
+  const readWorktreePathTemplate = ServerSettings.readWorktreePathTemplate(serverSettingsService);
   const createWorktree: GitManager["Service"]["createWorktree"] = Effect.fn(
     "GitManager.createWorktree",
   )(function* (input, options) {
@@ -771,7 +772,13 @@ export const make = Effect.gen(function* () {
             Effect.orElseSucceed(() => null),
           );
     const worktreesDirectory = yield* readWorktreesDirectory;
-    return yield* gitCore.createWorktree(input, { worktreesDirectory, ...options, submodules });
+    const pathTemplate = yield* readWorktreePathTemplate;
+    return yield* gitCore.createWorktree(input, {
+      worktreesDirectory,
+      pathTemplate,
+      ...options,
+      submodules,
+    });
   });
 
   const readRepositoryInstructions = (cwd: string, fileName: string) =>
@@ -2665,6 +2672,7 @@ export const make = Effect.gen(function* () {
             Effect.map((settings) => settings.worktreeSubmodules),
             Effect.orElseSucceed(() => null),
           ),
+          pathTemplate: yield* readWorktreePathTemplate,
         },
       );
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);
