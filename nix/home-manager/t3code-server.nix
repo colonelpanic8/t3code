@@ -26,6 +26,12 @@
 
     export PATH=${lib.escapeShellArg "${lib.makeBinPath ([cfg.package] ++ cfg.extraPackages)}:/run/current-system/sw/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
     export T3CODE_HOME=${lib.escapeShellArg cfg.dataDirectory}
+    ${lib.optionalString (cfg.fleetManifest != null) ''
+      export T3CODE_FLEET_MANIFEST_FILE=${pkgs.writeText "t3code-fleet.json" (builtins.toJSON {
+        version = 1;
+        environments = cfg.fleetManifest;
+      })}
+    ''}
 
     cd "$repository_root"
     server_args=(
@@ -109,6 +115,35 @@ in {
       rules for the same command or the same shortcut, and clients cannot
       change or remove it.
     '';
+
+    fleetManifest = lib.mkOption {
+      type = lib.types.nullOr (lib.types.listOf (lib.types.submodule {
+        options = {
+          environmentId = lib.mkOption {
+            type = lib.types.str;
+            description = "Environment id the member server reports.";
+          };
+          label = lib.mkOption {
+            type = lib.types.str;
+            description = "Display name clients show for the member.";
+          };
+          httpBaseUrl = lib.mkOption {
+            type = lib.types.str;
+            description = "HTTP(S) origin clients reach the member at.";
+          };
+          wsBaseUrl = lib.mkOption {
+            type = lib.types.str;
+            description = "WebSocket origin clients reach the member at.";
+          };
+        };
+      }));
+      default = null;
+      description = ''
+        The fleet this server belongs to, itself included. Members sharing a
+        managed access token hand clients paired with one of them a single-use
+        credential for each of the others. The manifest holds no secrets.
+      '';
+    };
 
     systemdTarget = lib.mkOption {
       type = lib.types.str;
