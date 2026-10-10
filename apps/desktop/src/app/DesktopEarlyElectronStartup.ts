@@ -1,4 +1,9 @@
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import {
+  LEGACY_STORAGE_MIGRATION_MARKER,
+  T3CODE_CLIENT_CONFIG_DIR_ENV,
+  T3_STORAGE_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -49,13 +54,9 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-// Electron is not ready yet, so this mirrors DesktopEnvironment's storage selection cheaply:
-// an initialized legacy tree wins, otherwise the split config directory is used.
-function resolveEarlyDesktopSettingsPaths(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly homeDirectory: string;
-  readonly joinPath: JoinPath;
-}): ReadonlyArray<string> {
+// Electron is not ready yet, so this mirrors DesktopEnvironment's storage selection cheaply: an
+// initialized, unmigrated legacy tree wins, otherwise the split client config directory is used.
+function resolveEarlyDesktopSettingsPaths(input: EarlyDesktopSettingsInput): ReadonlyArray<string> {
   const isDevelopment = isDevelopmentEnvironment(input.env);
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
   const baseDir = resolveDesktopBaseDir({
@@ -71,20 +72,32 @@ function resolveEarlyDesktopSettingsPaths(input: {
   });
   const legacyPath = input.joinPath(stateDir, "desktop-settings.json");
   if (trimNonEmpty(input.env.T3CODE_HOME) !== null) return [legacyPath];
-  const configDirOverride = trimNonEmpty(input.env.T3CODE_CONFIG_DIR);
-  if (configDirOverride !== null) {
-    return [input.joinPath(configDirOverride, "desktop-settings.json")];
-  }
+  const clientConfigDir = trimNonEmpty(input.env[T3CODE_CLIENT_CONFIG_DIR_ENV]);
   const xdgConfigHome = trimNonEmpty(input.env.XDG_CONFIG_HOME);
   const configHome =
     xdgConfigHome?.startsWith("/") === true
       ? xdgConfigHome
       : input.joinPath(input.homeDirectory, ".config");
-  return [
-    legacyPath,
-    input.joinPath(configHome, isDevelopment ? "t3code-dev" : "t3code", "desktop-settings.json"),
-  ];
+  const clientPath = input.joinPath(
+    clientConfigDir ??
+      input.joinPath(configHome, isDevelopment ? "t3code-client-dev" : "t3code-client"),
+    "desktop-settings.json",
+  );
+  const splitIsExplicit = T3_STORAGE_ENVIRONMENT_NAMES.some(
+    (name) => trimNonEmpty(input.env[name]) !== null,
+  );
+  const legacyMigrated = canRead(input, input.joinPath(stateDir, LEGACY_STORAGE_MIGRATION_MARKER));
+  return splitIsExplicit || legacyMigrated ? [clientPath] : [legacyPath, clientPath];
 }
+
+const canRead = (input: EarlyDesktopSettingsInput, path: string): boolean => {
+  try {
+    input.readFileString(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export function resolveEarlyLinuxPasswordStorePreference(
   input: EarlyDesktopSettingsInput,

@@ -51,18 +51,44 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "auto");
   });
 
-  it("reads the split-layout config directory when no legacy settings exist", () => {
+  it("reads the split-layout client config directory when no legacy settings exist", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { XDG_CONFIG_HOME: "/home/user/.xdg" },
       homeDirectory: "/home/user",
       joinPath,
       readFileString: (path) => {
-        if (path !== "/home/user/.xdg/t3code/desktop-settings.json") throw new Error("missing");
+        if (path !== "/home/user/.xdg/t3code-client/desktop-settings.json") {
+          throw new Error("missing");
+        }
         return JSON.stringify({ linuxPasswordStore: "kwallet5" });
       },
     });
 
     assert.equal(preference, "kwallet5");
+  });
+
+  it("skips legacy settings once the legacy tree was migrated", () => {
+    const files: Record<string, string> = {
+      "/home/user/.t3/userdata/storage-migration.json": "{}",
+      "/home/user/.t3/userdata/desktop-settings.json": JSON.stringify({
+        linuxPasswordStore: "basic",
+      }),
+      "/home/user/.config/t3code-client/desktop-settings.json": JSON.stringify({
+        linuxPasswordStore: "gnome-libsecret",
+      }),
+    };
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: {},
+      homeDirectory: "/home/user",
+      joinPath,
+      readFileString: (path) => {
+        const contents = files[path];
+        if (contents === undefined) throw new Error("missing");
+        return contents;
+      },
+    });
+
+    assert.equal(preference, "gnome-libsecret");
   });
 
   it("preserves absolute root paths when resolving early settings", () => {

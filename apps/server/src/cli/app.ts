@@ -25,7 +25,12 @@ import * as Schema from "effect/Schema";
 import { Argument, Command } from "effect/cli";
 
 import { expandHomePath } from "../os-jank.ts";
-import { baseDirFlag, currentStorageHost, resolveStorageRoots } from "./config.ts";
+import {
+  baseDirFlag,
+  currentStorageHost,
+  resolveClientStorageRoots,
+  resolveStorageRoots,
+} from "./config.ts";
 
 const CLI_RESPONSE_TIMEOUT_MS = 17_000;
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -203,16 +208,21 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   const workspaceRoot = path.resolve(yield* expandHomePath(rawWorkspaceRoot));
   const userId = yield* HostProcessUserId;
   const storageHost = { ...(yield* currentStorageHost), platform: hostPlatform, userId };
-  // The desktop keys its control socket on the state directory it selected.
+  // The desktop keys its control socket on its client state directory.
   const resolveAddress = Effect.fn(function* (isDevelopment: boolean) {
-    const roots = yield* resolveStorageRoots({
+    const serverRoots = yield* resolveStorageRoots({
       baseDir: flags.baseDir,
       storageLayout: Option.none(),
       isDevelopment,
       host: storageHost,
     });
+    const clientRoots = yield* resolveClientStorageRoots({
+      serverRoots,
+      isDevelopment,
+      host: storageHost,
+    });
     return resolveDesktopAppControlAddress({
-      stateDir: roots.stateDir,
+      stateDir: clientRoots.stateDir,
       platform: hostPlatform,
       tempDir: NodeOS.tmpdir(),
       userId,

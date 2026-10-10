@@ -83,7 +83,7 @@ export const make = Effect.gen(function* () {
   const launcher = DesktopCliShim.launcherPath(environment);
   const binDirectory = path.dirname(launcher);
   /** Records that Install added `binDirectory` to the Windows PATH, so Remove takes out only that. */
-  const ownedPathMarker = path.join(environment.stateDir, "cli-command-path-entry");
+  const ownedPathMarker = path.join(environment.clientStateDir, "cli-command-path-entry");
 
   const fail = (message: string) => new DesktopCliCommandError({ message });
   const exists = (target: string) => fs.exists(target).pipe(Effect.orElseSucceed(() => false));

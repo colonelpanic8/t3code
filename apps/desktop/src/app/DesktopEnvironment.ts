@@ -8,8 +8,10 @@ import {
   applyT3StorageDirectoryOverrides,
   hasT3StorageDirectoryOverrides,
   legacyT3StorageArtifactPaths,
+  legacyT3StorageMigrationMarkerPath,
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
+  resolveT3ClientStorageRoots,
   resolveT3StorageDirectoryOverrides,
   selectT3StorageRoots,
   type T3StorageLayout,
@@ -77,6 +79,11 @@ export class DesktopEnvironment extends Context.Service<
     readonly stateDir: string;
     readonly cacheDir: string;
     readonly runtimeDir: string;
+    // Client-owned files. Equal to stateDir in the legacy layout; separate
+    // application directories in the split layout.
+    readonly clientConfigDir: string;
+    readonly clientStateDir: string;
+    readonly clientCacheDir: string;
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
     readonly savedEnvironmentRegistryPath: string;
@@ -215,6 +222,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
     T3CODE_STATE_DIR: Option.getOrUndefined(config.t3StateDir),
     T3CODE_CACHE_DIR: Option.getOrUndefined(config.t3CacheDir),
     T3CODE_RUNTIME_DIR: Option.getOrUndefined(config.t3RuntimeDir),
+    T3CODE_CLIENT_CONFIG_DIR: Option.getOrUndefined(config.t3ClientConfigDir),
+    T3CODE_CLIENT_STATE_DIR: Option.getOrUndefined(config.t3ClientStateDir),
+    T3CODE_CLIENT_CACHE_DIR: Option.getOrUndefined(config.t3ClientCacheDir),
     XDG_CONFIG_HOME: Option.getOrUndefined(config.xdgConfigHome),
     XDG_DATA_HOME: Option.getOrUndefined(config.xdgDataHome),
     XDG_STATE_HOME: Option.getOrUndefined(config.xdgStateHome),
@@ -266,10 +276,11 @@ const make = Effect.fn("desktop.environment.make")(function* (
     }),
   );
   // Sequential and synchronous: this runs before Electron is ready (see main.ts).
-  const legacyStorageInitialized = (yield* Effect.forEach(
-    legacyT3StorageArtifactPaths(legacyRoots, path),
-    (artifact) => fileSystem.exists(artifact),
-  )).some(Boolean);
+  const legacyStorageInitialized =
+    !(yield* fileSystem.exists(legacyT3StorageMigrationMarkerPath(legacyRoots, path))) &&
+    (yield* Effect.forEach(legacyT3StorageArtifactPaths(legacyRoots, path), (artifact) =>
+      fileSystem.exists(artifact),
+    )).some(Boolean);
   const storageRoots = selectT3StorageRoots({
     ...(Option.isNone(explicitLegacyRoots)
       ? {}
@@ -280,6 +291,15 @@ const make = Effect.fn("desktop.environment.make")(function* (
     legacyStorageInitialized,
   });
   const { cacheDir, configDir, dataDir, runtimeDir, stateDir } = storageRoots;
+  const clientRoots = resolveT3ClientStorageRoots({
+    platform: input.platform,
+    homeDirectory,
+    temporaryDirectory: input.temporaryDirectory ?? NodeOS.tmpdir(),
+    isDevelopment,
+    environment: storageEnvironment,
+    path: pathOperations,
+    serverRoots: storageRoots,
+  });
   const baseDir = dataDir;
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
@@ -332,17 +352,17 @@ const make = Effect.fn("desktop.environment.make")(function* (
     stateDir,
     cacheDir,
     runtimeDir,
-    desktopSettingsPath: path.join(configDir, "desktop-settings.json"),
-    clientSettingsPath: path.join(configDir, "client-settings.json"),
-    savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
+    clientConfigDir: clientRoots.configDir,
+    clientStateDir: clientRoots.stateDir,
+    clientCacheDir: clientRoots.cacheDir,
+    desktopSettingsPath: path.join(clientRoots.configDir, "desktop-settings.json"),
+    clientSettingsPath: path.join(clientRoots.configDir, "client-settings.json"),
+    savedEnvironmentRegistryPath: path.join(clientRoots.stateDir, "saved-environments.json"),
     managedConnectionsPath,
     serverSettingsPath: path.join(configDir, "settings.json"),
-    logDir: path.join(stateDir, "logs"),
-    browserArtifactsDir: path.join(
-      storageRoots.layout === "legacy" ? stateDir : cacheDir,
-      "browser-artifacts",
-    ),
-    electronUserDataPath: path.join(stateDir, "electron"),
+    logDir: path.join(clientRoots.stateDir, "logs"),
+    browserArtifactsDir: path.join(clientRoots.cacheDir, "browser-artifacts"),
+    electronUserDataPath: path.join(clientRoots.stateDir, "electron"),
     rootDir,
     appRoot,
     serverRoot,

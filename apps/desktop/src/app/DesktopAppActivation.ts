@@ -318,7 +318,7 @@ export const make = Effect.gen(function* () {
   const userId = yield* HostProcessUserId;
   const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
   const address = resolveDesktopAppControlAddress({
-    stateDir: path.resolve(desktopEnvironment.stateDir),
+    stateDir: path.resolve(desktopEnvironment.clientStateDir),
     platform: desktopEnvironment.platform,
     tempDir: NodeOS.tmpdir(),
     userId,
