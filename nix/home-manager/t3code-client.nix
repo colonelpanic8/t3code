@@ -4,7 +4,7 @@
   pkgs,
   ...
 }: let
-  cfg = config.programs.t3code;
+  cfg = config.programs.t3code-client;
   managedFiles = import ./managed-files.nix {inherit lib pkgs;};
   environment = lib.filterAttrs (_: value: value != null) {
     T3CODE_MANAGED_CLIENT_SETTINGS_FILE =
@@ -43,7 +43,7 @@
     inherit (cfg.package) meta;
   };
 in {
-  options.programs.t3code = {
+  options.programs.t3code-client = {
     enable = lib.mkEnableOption "the T3 Code desktop app with managed settings";
 
     package = lib.mkOption {
@@ -52,7 +52,7 @@ in {
       defaultText = lib.literalExpression "inputs.t3code.packages.\${pkgs.system}.t3code";
       description = ''
         T3 Code package to wrap. It must not already pass `--backend-mode`;
-        set {option}`programs.t3code.backendMode` instead.
+        set {option}`programs.t3code-client.backendMode` instead.
       '';
     };
 
