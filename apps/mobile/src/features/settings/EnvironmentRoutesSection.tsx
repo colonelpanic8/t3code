@@ -9,6 +9,7 @@ import {
   connectionRouteLabel,
   connectionRoutes,
   isLearned,
+  isManagedConnectionEntry,
 } from "@t3tools/client-runtime/connection";
 import { type EnvironmentId, sessionGrantsScope } from "@t3tools/contracts";
 import { AUTH_SCOPE_OPTIONS } from "@t3tools/shared/authScopeOptions";
@@ -79,6 +80,7 @@ export function EnvironmentRoutesSection({
   const [drops, setDrops] = useState(0);
   if (entry === undefined) return null;
 
+  const managed = isManagedConnectionEntry(entry);
   const byId = new Map(saved.map((route) => [connectionRouteId(route.target), route]));
   const routes = order.flatMap((id) => byId.get(id) ?? []);
   const activeRouteId =
@@ -210,12 +212,14 @@ export function EnvironmentRoutesSection({
             onStep={(direction) => move(index, direction === "up" ? index - 1 : index + 1)}
             // A learned route would be learned again, so it is only reordered.
             onRemove={
-              routes.length > 1 && !isLearned(route) ? () => confirmRemove(route) : undefined
+              routes.length > 1 && !isLearned(route) && !managed
+                ? () => confirmRemove(route)
+                : undefined
             }
           />
         );
       })}
-      <SettingsActionRow icon="plus" label="Add route" onPress={onAddRoute} />
+      {managed ? null : <SettingsActionRow icon="plus" label="Add route" onPress={onAddRoute} />}
     </SettingsSection>
   );
 }

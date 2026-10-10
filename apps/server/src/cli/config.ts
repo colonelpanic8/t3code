@@ -141,6 +141,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  fleetManifestFile: Config.String("T3CODE_FLEET_MANIFEST_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -411,6 +415,7 @@ export const resolveServerConfig = (
       env.managedAccessTokenFile,
     );
     const environmentIdOverride = env.environmentIdOverride?.trim() || undefined;
+    const fleetManifestPath = env.fleetManifestFile?.trim() || undefined;
     const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
     const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
     const desktopBrowserFd = bootstrap?.desktopBrowserFd;
@@ -520,6 +525,7 @@ export const resolveServerConfig = (
       ...(shellEnvironmentPrepared === undefined ? {} : { shellEnvironmentPrepared }),
       managedAccessToken,
       environmentIdOverride,
+      ...(fleetManifestPath === undefined ? {} : { fleetManifestPath }),
       desktopTelemetryFd,
       desktopTelemetryControlFd,
       desktopBrowserFd,
