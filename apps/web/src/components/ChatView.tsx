@@ -1843,6 +1843,7 @@ export default function ChatView(props: ChatViewProps) {
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
+  const panelBranchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
@@ -8255,7 +8256,8 @@ export default function ChatView(props: ChatViewProps) {
         command === "composer.host" ||
         command === "composer.effort" ||
         command === "composer.mode" ||
-        command === "composer.workspace"
+        command === "composer.workspace" ||
+        command === "composer.interactionMode"
       ) {
         event.preventDefault();
         event.stopPropagation();
@@ -8281,14 +8283,18 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "composer.branch") {
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) branchToolbarRef.current?.openBranchPicker();
+        if (!event.repeat) {
+          (branchToolbarRef.current ?? panelBranchToolbarRef.current)?.openBranchPicker();
+        }
         return;
       }
 
       if (command === "composer.previousWorktree") {
         event.preventDefault();
         event.stopPropagation();
-        if (!event.repeat) branchToolbarRef.current?.usePreviousWorktree();
+        if (!event.repeat) {
+          (branchToolbarRef.current ?? panelBranchToolbarRef.current)?.usePreviousWorktree();
+        }
         return;
       }
 
@@ -11271,6 +11277,7 @@ export default function ChatView(props: ChatViewProps) {
     ) : null
   ) : null;
   const threadDetailsPanelProps: ThreadDetailsPanelProps = {
+    branchToolbarRef: panelBranchToolbarRef,
     anchor: threadPanelPopoverAnchorRef,
     handle: threadPanelPopoverHandle,
     onPresentationChange: setThreadPanelPresentation,

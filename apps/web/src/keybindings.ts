@@ -283,6 +283,43 @@ export function shouldShowThreadJumpHintsForModifiers(
   return false;
 }
 
+export const COMPOSER_CONTROL_HINT_COMMANDS = [
+  "modelPicker.toggle",
+  "composer.effort",
+  "composer.mode",
+  "composer.interactionMode",
+  "composer.host",
+  "composer.workspace",
+  "composer.branch",
+] as const satisfies ReadonlyArray<KeybindingCommand>;
+
+/** Label for `command`'s binding whose modifiers are exactly the held ones. */
+export function composerControlHintLabel(
+  command: KeybindingCommand,
+  modifiers: ShortcutModifierStateLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): string | null {
+  if (resolveContext(options).terminalFocus) return null;
+  if (!modifiers.metaKey && !modifiers.ctrlKey && !modifiers.altKey) return null;
+
+  const platform = resolvePlatform(options);
+  const shortcut = effectiveShortcutsForCommand(keybindings, command, options).find((candidate) =>
+    matchesKeybindingShortcutModifiers(modifiers, candidate, platform),
+  );
+  return shortcut ? formatShortcutLabel(shortcut, platform) : null;
+}
+
+export function shouldShowComposerControlHintsForModifiers(
+  modifiers: ShortcutModifierStateLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return COMPOSER_CONTROL_HINT_COMMANDS.some(
+    (command) => composerControlHintLabel(command, modifiers, keybindings, options) !== null,
+  );
+}
+
 export function modelPickerJumpCommandForIndex(
   index: number,
 ): ModelPickerJumpKeybindingCommand | null {
