@@ -1121,13 +1121,19 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
       : isUncPath(savedPath)
         ? `file:${savedPath.replaceAll("\\", "/")}`
         : savedPath;
+    const imageEmbed = (path: string) =>
+      new RegExp(
+        `(!\\[[^\\]]*\\]\\()<?${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}>?(?=[\\s)])`,
+        "g",
+      );
+    const destination = `<${embedPath.replace(/[<>]/g, "\\$&")}>`;
+    // The reply may embed the raw Windows path, which some clients misread; point it at embedPath.
+    if (embedPath !== savedPath) {
+      result = result.replace(imageEmbed(savedPath), (_, prefix: string) => prefix + destination);
+    }
     // Only an existing image embed counts; a plain path mention or link still needs a preview.
-    const embedded = [savedPath, embedPath].some((candidate) => {
-      const escapedPath = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`!\\[[^\\]]*\\]\\(<?${escapedPath}>?[\\s)]`).test(result);
-    });
-    if (!embedded) {
-      result += `${result.length > 0 ? "\n\n" : ""}![](<${embedPath.replace(/[<>]/g, "\\$&")}>)`;
+    if (!imageEmbed(embedPath).test(result)) {
+      result += `${result.length > 0 ? "\n\n" : ""}![](${destination})`;
     }
   }
   return result;
@@ -1921,6 +1927,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           new Map<string, { readonly id: string; readonly text: string }>(),
         );
         const generatedImagesByTurn = yield* Ref.make(new Map<string, Map<string, string>>());
+        // In-flight image generations keep a settled turn so their late completion can attach.
+        const runningImagesByTurn = yield* Ref.make(new Map<string, Set<string>>());
         // Native completion and the interrupt timeout share one finalization
         // path. Serialize the race so only one can publish terminal events.
         const turnTerminalizationPermit = yield* Semaphore.make(1);
@@ -2205,6 +2213,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             if ((yield* Ref.get(pendingMcpAppCaptures)).has(nativeTurnId)) {
               return true;
             }
+            if ((yield* Ref.get(runningImagesByTurn)).get(nativeTurnId)?.size) {
+              return true;
+            }
             const tools = (yield* Ref.get(runningDynamicToolsByTurn)).get(nativeTurnId);
             if (tools === undefined) {
               return false;
@@ -2255,6 +2266,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return updated;
             });
             yield* Ref.update(generatedImagesByTurn, (current) => {
+              if (!current.has(nativeTurnId)) {
+                return current;
+              }
+              const updated = new Map(current);
+              updated.delete(nativeTurnId);
+              return updated;
+            });
+            yield* Ref.update(runningImagesByTurn, (current) => {
               if (!current.has(nativeTurnId)) {
                 return current;
               }
@@ -4726,6 +4745,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
 
+            if (payload.item.type === "imageGeneration") {
+              const { id } = payload.item;
+              yield* Ref.update(runningImagesByTurn, (current) =>
+                new Map(current).set(payload.turnId, new Set(current.get(payload.turnId)).add(id)),
+              );
+              return;
+            }
+
             if (payload.item.type === "commandExecution") {
               if (!codexItemStatus(payload.item.status).completed) {
                 yield* trackRunningCommandItem(payload.turnId, {
@@ -5020,6 +5047,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
             if (payload.item.type === "imageGeneration") {
               const { id, savedPath, status, failure } = payload.item;
+              yield* Ref.update(runningImagesByTurn, (current) => {
+                if (!current.get(payload.turnId)?.has(id)) {
+                  return current;
+                }
+                const updated = new Map(current);
+                const images = new Set(updated.get(payload.turnId));
+                images.delete(id);
+                updated.set(payload.turnId, images);
+                return updated;
+              });
               if (savedPath?.trim() && status !== "failed" && failure == null) {
                 yield* Ref.update(generatedImagesByTurn, (current) => {
                   const updated = new Map(current);
@@ -5028,10 +5065,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   updated.set(payload.turnId, images);
                   return updated;
                 });
-                // Work that outlives turn/completed, such as a backgrounded exec, can finish later.
-                if (settled) {
-                  yield* projectGeneratedImages(context, payload.turnId);
-                }
+              }
+              // Work that outlives turn/completed, such as a backgrounded exec, can finish later.
+              if (settled) {
+                yield* projectGeneratedImages(context, payload.turnId);
+                yield* releaseSettledTurnIfIdle(payload.turnId);
               }
               return;
             }
@@ -6091,6 +6129,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   return updated;
                 });
                 yield* Ref.update(generatedImagesByTurn, (current) => {
+                  if (!current.has(input.nativeTurnId)) {
+                    return current;
+                  }
+                  const updated = new Map(current);
+                  updated.delete(input.nativeTurnId);
+                  return updated;
+                });
+                yield* Ref.update(runningImagesByTurn, (current) => {
                   if (!current.has(input.nativeTurnId)) {
                     return current;
                   }

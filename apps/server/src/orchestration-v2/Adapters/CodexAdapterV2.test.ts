@@ -107,6 +107,15 @@ describe("appendGeneratedImageEmbeds", () => {
     );
   });
 
+  it("points a raw Windows embed at the forward-slash path instead of adding another", () => {
+    assert.strictEqual(
+      CodexAdapterV2.appendGeneratedImageEmbeds("Done ![Apple](C:\\me\\.codex\\a.png)", [
+        "C:\\me\\.codex\\a.png",
+      ]),
+      "Done ![Apple](<C:/me/.codex/a.png>)",
+    );
+  });
+
   it("appends each image once", () => {
     assert.strictEqual(
       CodexAdapterV2.appendGeneratedImageEmbeds("![](/tmp/a.png)", ["/tmp/a.png", "/tmp/b.png"]),
@@ -4498,6 +4507,72 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         );
         const messages = assistantMessages(harness.events);
         assert.strictEqual(messages.at(-1)?.message.id, messages[0]?.message.id);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("keeps a turn whose image is still generating and attaches it when done", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const savedPath = "/tmp/slow image.png";
+        const imageEvent = (phase: "started" | "completed") => ({
+          type: "emit_inbound" as const,
+          label: `item/${phase}/image`,
+          ...(phase === "completed" ? { afterMs: 10_000 } : {}),
+          frame: {
+            method: `item/${phase}`,
+            params: {
+              item: {
+                type: "imageGeneration",
+                id: "slow-image",
+                status: phase === "started" ? "inProgress" : "completed",
+                result: "",
+                ...(phase === "completed" ? { savedPath } : {}),
+              },
+              threadId: BG_NATIVE_THREAD,
+              turnId: BG_NATIVE_TURN,
+              [`${phase}AtMs`]: 1782622440500,
+            },
+          },
+        });
+        // The root answer and turn/completed from the background exec transcript.
+        const settle = backgroundExecTranscript.entries.slice(-3, -1);
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({
+            scenario: `${BG_SCENARIO}-slow-image`,
+            entries: [
+              ...codexReplayPreamble({
+                nativeThreadId: BG_NATIVE_THREAD,
+                nativeTurnId: BG_NATIVE_TURN,
+                prompt: BG_PROMPT,
+              }),
+              imageEvent("started"),
+              ...settle,
+              imageEvent("completed"),
+            ],
+          }),
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-codex-slow-image"),
+            text: BG_PROMPT,
+          }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
+
+        yield* TestClock.adjust("10 seconds");
+        const expected = `STARTED\n\n![](<${savedPath}>)`;
+        yield* awaitUntil(
+          () => assistantMessages(harness.events).at(-1)?.message.text === expected,
+          "slow image projection",
+        );
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
