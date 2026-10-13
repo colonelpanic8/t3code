@@ -31,6 +31,7 @@ import {
   reasoningEffortFromCommand,
   resolveChatShortcutCommand,
   resolveShortcutCommand,
+  shouldShowComposerControlHintsForModifiers,
   shouldShowThreadJumpHintsForModifiers,
   shortcutLabelForCommand,
   terminalDeleteShortcutData,
@@ -39,6 +40,7 @@ import {
   threadJumpIndexFromCommand,
   threadTraversalDirectionFromCommand,
   type ShortcutEventLike,
+  composerControlHintLabel,
 } from "./keybindings";
 
 describe("direct model and reasoning commands", () => {
@@ -634,6 +636,52 @@ describe("thread navigation helpers", () => {
         context: { terminalFocus: false },
       }),
     );
+  });
+
+  it("reveals composer control hints only for the held binding modifiers", () => {
+    const linux = { platform: "Linux" };
+    const ctrlShift = event({ ctrlKey: true, shiftKey: true });
+    assert.isTrue(
+      shouldShowComposerControlHintsForModifiers(ctrlShift, DEFAULT_RESOLVED_KEYBINDINGS, linux),
+    );
+    assert.strictEqual(
+      composerControlHintLabel(
+        "modelPicker.toggle",
+        ctrlShift,
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+      ),
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "modelPicker.toggle", linux),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({ ctrlKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+      ),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(ctrlShift, DEFAULT_RESOLVED_KEYBINDINGS, {
+        ...linux,
+        context: { terminalFocus: true },
+      }),
+    );
+
+    const withAltModel = [
+      ...DEFAULT_RESOLVED_KEYBINDINGS,
+      ...compile([
+        {
+          shortcut: modShortcut("m", { modKey: false, altKey: true }),
+          command: "modelPicker.toggle",
+        },
+      ]),
+    ];
+    const alt = event({ altKey: true });
+    assert.strictEqual(
+      composerControlHintLabel("modelPicker.toggle", alt, withAltModel, linux),
+      shortcutLabelForCommand(withAltModel, "modelPicker.toggle", linux),
+    );
+    assert.isNull(composerControlHintLabel("composer.effort", alt, withAltModel, linux));
   });
 
   it("keeps default thread jumps off the web so the browser can switch tabs", () => {
