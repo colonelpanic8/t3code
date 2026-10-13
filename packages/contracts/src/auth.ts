@@ -3,6 +3,7 @@ import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
 
 import {
   AuthSessionId,
+  EnvironmentId,
   ForwardCompatibleArray,
   ClientSurface,
   ClientWebDeployment,
@@ -329,6 +330,35 @@ export const AuthPairingCredentialResult = Schema.Struct({
   expiresAt: Schema.DateTimeUtc,
 });
 export type AuthPairingCredentialResult = typeof AuthPairingCredentialResult.Type;
+
+export const AuthFleetHandoffInput = Schema.Struct({
+  environmentId: EnvironmentId,
+});
+export type AuthFleetHandoffInput = typeof AuthFleetHandoffInput.Type;
+
+/**
+ * A short-lived, single-use pairing credential for another environment of the
+ * same fleet. That environment exchanges it like a pairing code for its own
+ * session carrying the caller's grant.
+ */
+export const AuthFleetHandoffResult = Schema.Struct({
+  credential: TrimmedNonEmptyString,
+  expiresAt: Schema.DateTimeUtc,
+});
+export type AuthFleetHandoffResult = typeof AuthFleetHandoffResult.Type;
+
+export class AuthFleetHandoffError extends Schema.TaggedError<AuthFleetHandoffError>()(
+  "AuthFleetHandoffError",
+  {
+    reason: Schema.Literals(["not-configured", "not-a-member"]),
+  },
+) {
+  override get message(): string {
+    return this.reason === "not-configured"
+      ? "This environment does not belong to a fleet."
+      : "That environment is not part of this fleet.";
+  }
+}
 
 // Read models contain metadata only. Credentials are returned by creation alone.
 export const AuthPairingLink = Schema.Struct({
