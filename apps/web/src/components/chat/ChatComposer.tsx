@@ -311,6 +311,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { ComposerShortcutHints, composerShortcutScopes } from "./ComposerShortcutHints";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -1252,6 +1253,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
               size={size}
               className="shrink-0 whitespace-nowrap"
               aria-pressed={props.interactionMode === "plan"}
+              data-composer-shortcut="composer.interactionMode"
               type="button"
               onClick={props.onToggleInteractionMode}
               aria-label={interactionModeTooltip}
@@ -6090,6 +6092,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
       },
       openControl: (command) => {
+        if (command === "composer.interactionMode") {
+          if (planModeUiEnabled) toggleInteractionMode();
+          return;
+        }
         if (composerBlurFrameRef.current !== null) {
           window.cancelAnimationFrame(composerBlurFrameRef.current);
           composerBlurFrameRef.current = null;
@@ -6098,15 +6104,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           setIsComposerScrollCollapsed(false);
           setIsComposerFocused(true);
         });
-        const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
-        const trigger = Array.from(
-          shell?.querySelectorAll<HTMLButtonElement>(
-            `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
-          ) ?? [],
-        ).find(
-          (element) =>
-            !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
-        );
+        const trigger = composerShortcutScopes(composerFormRef.current)
+          .flatMap((scope) =>
+            Array.from(
+              scope.querySelectorAll<HTMLButtonElement>(
+                `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
+              ),
+            ),
+          )
+          .find(
+            (element) =>
+              !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
+          );
         if (!trigger) return;
         trigger.focus({ preventScroll: true });
         trigger.click();
@@ -6261,6 +6270,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedProviderModels,
       interactionMode,
       planModeUiEnabled,
+      toggleInteractionMode,
       compactThreadContextStable,
       restoreAfterTimelineReachedEnd,
       getTimelineScrollableNode,
@@ -7353,6 +7363,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           </div>
         </ComposerSurface.Main>
       </div>
+      <ComposerShortcutHints anchorRef={composerFormRef} keybindings={keybindings} />
     </form>
   );
 });
