@@ -23,7 +23,7 @@ const environmentFor = (
     isPackaged: input.isPackaged ?? true,
     homeDirectory: input.home,
     baseDir: input.baseDir,
-    stateDir: path.join(input.baseDir, "userdata"),
+    clientStateDir: path.join(input.baseDir, "userdata"),
     storageRoots: resolveLegacyT3StorageRoots({
       baseDir: input.baseDir,
       stateDirectoryName: "userdata",
