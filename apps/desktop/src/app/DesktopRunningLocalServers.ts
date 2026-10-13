@@ -8,7 +8,6 @@ import {
 } from "@t3tools/contracts";
 import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 import {
-  deriveServerRuntimeStatePath,
   isProcessAlive,
   readPersistedServerRuntimeState,
 } from "@t3tools/shared/serverRuntimeState";
@@ -53,7 +52,11 @@ type ProbeEnvironment = (
 ) => Effect.Effect<ExecutionEnvironmentDescriptor | null>;
 
 export interface DesktopRunningLocalServersOptions {
-  readonly baseDir: string;
+  // Where the home server writes server-runtime.json and environment-id.
+  readonly runtimeDir: string;
+  readonly stateDir: string;
+  // Legacy layout only; in the split layout `t3 pair` resolves the same roots itself.
+  readonly pairBaseDir?: string;
   readonly backendEntryPath: string;
   readonly backendCwd: string;
   readonly executablePath: string;
@@ -86,8 +89,7 @@ const makePairCommand = (options: DesktopRunningLocalServersOptions) =>
       "--json",
       "--label",
       "T3 Code Desktop",
-      "--base-dir",
-      options.baseDir,
+      ...(options.pairBaseDir === undefined ? [] : ["--base-dir", options.pairBaseDir]),
     ],
     {
       cwd: options.backendCwd,
@@ -109,13 +111,8 @@ export const make = Effect.fn("desktop.runningLocalServers.make")(function* (
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const processIsAlive = options.processIsAlive ?? isProcessAlive;
 
-  // Only the packaged "userdata" server: dev servers pair through their Vite origin.
   const findHomeServer = Effect.gen(function* () {
-    const statePath = deriveServerRuntimeStatePath({
-      baseDir: options.baseDir,
-      variant: "userdata",
-      joinPath: path.join,
-    });
+    const statePath = path.join(options.runtimeDir, "server-runtime.json");
     const state = yield* readPersistedServerRuntimeState(statePath).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
     );
@@ -124,7 +121,7 @@ export const make = Effect.fn("desktop.runningLocalServers.make")(function* (
     }
 
     const persistedEnvironmentId = yield* fileSystem
-      .readFileString(path.join(path.dirname(statePath), "environment-id"))
+      .readFileString(path.join(options.stateDir, "environment-id"))
       .pipe(
         Effect.map((value) => value.trim()),
         Effect.option,
@@ -246,7 +243,9 @@ export const layer = Layer.effect(
     const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
     const httpClient = yield* HttpClient.HttpClient;
     return yield* make({
-      baseDir: environment.baseDir,
+      runtimeDir: environment.runtimeDir,
+      stateDir: environment.stateDir,
+      ...(environment.storageLayout === "legacy" ? { pairBaseDir: environment.baseDir } : {}),
       backendEntryPath: environment.backendEntryPath,
       backendCwd: environment.backendCwd,
       executablePath: process.execPath,
