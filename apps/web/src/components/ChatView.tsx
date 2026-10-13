@@ -1332,6 +1332,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
+  const panelBranchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
@@ -5869,6 +5870,7 @@ export default function ChatView(props: ChatViewProps) {
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
+      "composer.interactionMode": openComposerControl("composer.interactionMode"),
       "composer.cycleHost": ({ event }) => {
         if (!canChangeEnvironment) return false;
         if (event.repeat) return;
@@ -5880,10 +5882,14 @@ export default function ChatView(props: ChatViewProps) {
         if (next) onEnvironmentChangeStable(next.environmentId);
       },
       "composer.branch": ({ event }) => {
-        if (!event.repeat) branchToolbarRef.current?.openBranchPicker();
+        if (!event.repeat) {
+          (branchToolbarRef.current ?? panelBranchToolbarRef.current)?.openBranchPicker();
+        }
       },
       "composer.previousWorktree": ({ event }) => {
-        if (!event.repeat) branchToolbarRef.current?.usePreviousWorktree();
+        if (!event.repeat) {
+          (branchToolbarRef.current ?? panelBranchToolbarRef.current)?.usePreviousWorktree();
+        }
       },
       "thread.steerQueuedMessage": ({ event }) =>
         routeKind !== "draft" && queuedRunsControlRef.current?.steerNext(event.repeat) === true,
@@ -8702,6 +8708,7 @@ export default function ChatView(props: ChatViewProps) {
             />
 
             <ThreadDetailsPanel
+              branchToolbarRef={panelBranchToolbarRef}
               anchor={threadPanelPopoverAnchorRef}
               handle={threadPanelPopoverHandle}
               onPresentationChange={setThreadPanelPresentation}
