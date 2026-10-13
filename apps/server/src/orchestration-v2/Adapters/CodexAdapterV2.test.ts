@@ -116,6 +116,17 @@ describe("appendGeneratedImageEmbeds", () => {
     );
   });
 
+  it.each([
+    "```md\n![](/tmp/a.png)\n```",
+    "Use `![](/tmp/a.png)` to embed it.",
+    "Escaped \\![](/tmp/a.png)",
+  ])("still previews an image that only appears as text: %s", (text) => {
+    assert.strictEqual(
+      CodexAdapterV2.appendGeneratedImageEmbeds(text, ["/tmp/a.png"]),
+      `${text}\n\n![](</tmp/a.png>)`,
+    );
+  });
+
   it("appends each image once", () => {
     assert.strictEqual(
       CodexAdapterV2.appendGeneratedImageEmbeds("![](/tmp/a.png)", ["/tmp/a.png", "/tmp/b.png"]),

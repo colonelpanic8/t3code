@@ -1121,18 +1121,25 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
       : isUncPath(savedPath)
         ? `file:${savedPath.replaceAll("\\", "/")}`
         : savedPath;
-    const imageEmbed = (path: string) =>
-      new RegExp(
-        `(!\\[[^\\]]*\\]\\()<?${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}>?(?=[\\s)])`,
+    const destination = `<${embedPath.replace(/[<>]/g, "\\$&")}>`;
+    let embedded = false;
+    for (const path of new Set([savedPath, embedPath])) {
+      // Code spans, fences, and escaped `\![` are skipped: they show text, not an image.
+      const pattern = new RegExp(
+        "(```[\\s\\S]*?(?:```|$)|~~~[\\s\\S]*?(?:~~~|$)|`[^`\\n]*`)|(?<!\\\\)(!\\[[^\\]]*\\]\\()<?" +
+          path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+          ">?(?=[\\s)])",
         "g",
       );
-    const destination = `<${embedPath.replace(/[<>]/g, "\\$&")}>`;
-    // The reply may embed the raw Windows path, which some clients misread; point it at embedPath.
-    if (embedPath !== savedPath) {
-      result = result.replace(imageEmbed(savedPath), (_, prefix: string) => prefix + destination);
+      result = result.replace(pattern, (match, code?: string, prefix?: string) => {
+        if (code !== undefined || prefix === undefined) return match;
+        embedded = true;
+        // A raw Windows path would load the wrong file on some clients; point it at embedPath.
+        return path === embedPath ? match : prefix + destination;
+      });
     }
     // Only an existing image embed counts; a plain path mention or link still needs a preview.
-    if (!imageEmbed(embedPath).test(result)) {
+    if (!embedded) {
       result += `${result.length > 0 ? "\n\n" : ""}![](${destination})`;
     }
   }
