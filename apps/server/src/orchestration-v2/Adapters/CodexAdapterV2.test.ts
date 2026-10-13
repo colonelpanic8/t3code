@@ -99,6 +99,22 @@ describe("Codex context usage compatibility", () => {
   });
 });
 
+describe("appendGeneratedImageEmbeds", () => {
+  it("writes Windows paths in a form every Markdown parser keeps", () => {
+    assert.strictEqual(
+      CodexAdapterV2.appendGeneratedImageEmbeds("", ["\\\\host\\share\\.codex\\a.png"]),
+      "![](<file://host/share/.codex/a.png>)",
+    );
+  });
+
+  it("appends each image once", () => {
+    assert.strictEqual(
+      CodexAdapterV2.appendGeneratedImageEmbeds("![](/tmp/a.png)", ["/tmp/a.png", "/tmp/b.png"]),
+      "![](/tmp/a.png)\n\n![](</tmp/b.png>)",
+    );
+  });
+});
+
 describe("CodexAdapterV2 file change approvals", () => {
   it("uses nonblank reasons before sorted file operations and renamed paths", () => {
     const fileChanges = {
@@ -4428,6 +4444,67 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       },
     ],
   });
+
+  it.effect("attaches an image that finishes after the turn settles to the final answer", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const savedPath = "/tmp/late image.png";
+        const lateImage = {
+          type: "emit_inbound" as const,
+          label: "item/completed/image-late",
+          afterMs: 10_000,
+          frame: {
+            method: "item/completed",
+            params: {
+              item: {
+                type: "imageGeneration",
+                id: "late-image",
+                status: "completed",
+                savedPath,
+                result: "aW1hZ2U=",
+              },
+              threadId: BG_NATIVE_THREAD,
+              turnId: BG_NATIVE_TURN,
+              completedAtMs: 1782622451000,
+            },
+          },
+        };
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({
+            scenario: `${BG_SCENARIO}-late-image`,
+            entries: [
+              ...backgroundExecTranscript.entries.slice(0, -1),
+              lateImage,
+              backgroundExecTranscript.entries.at(-1)!,
+            ],
+          }),
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-codex-bg-image"),
+            text: BG_PROMPT,
+          }),
+        );
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
+
+        yield* TestClock.adjust("10 seconds");
+        const expected = `STARTED\n\n![](<${savedPath}>)`;
+        yield* awaitUntil(
+          () => assistantMessages(harness.events).at(-1)?.message.text === expected,
+          "late image projection",
+        );
+        const messages = assistantMessages(harness.events);
+        assert.strictEqual(messages.at(-1)?.message.id, messages[0]?.message.id);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
 
   it.effect(
     "projects a post-settle background command completion and requests a continuation",

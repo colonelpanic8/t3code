@@ -41,7 +41,7 @@ import {
   dynamicToolTitle,
 } from "@t3tools/shared/toolActivity";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
-import { isWindowsAbsolutePath } from "@t3tools/shared/path";
+import { isUncPath, isWindowsDrivePath } from "@t3tools/shared/path";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import type {
   ChatAttachment,
@@ -1105,6 +1105,32 @@ function parseCodexRetryProgress(
     return null;
   }
   return { attempt, maxAttempts };
+}
+
+/**
+ * Appends a Markdown image for each saved path the text does not already embed.
+ * Markdown reads the `\.` in `C:\Users\me\.codex` as an escape, and clients without
+ * Windows path handling, such as released mobile apps, would load the wrong file. Drive
+ * paths use forward slashes; UNC paths use `file:` URLs, since `//host` reads as a web URL.
+ */
+export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<string>): string {
+  let result = text;
+  for (const savedPath of savedPaths) {
+    const embedPath = isWindowsDrivePath(savedPath)
+      ? savedPath.replaceAll("\\", "/")
+      : isUncPath(savedPath)
+        ? `file:${savedPath.replaceAll("\\", "/")}`
+        : savedPath;
+    // Only an existing image embed counts; a plain path mention or link still needs a preview.
+    const embedded = [savedPath, embedPath].some((candidate) => {
+      const escapedPath = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`!\\[[^\\]]*\\]\\(<?${escapedPath}>?[\\s)]`).test(result);
+    });
+    if (!embedded) {
+      result += `${result.length > 0 ? "\n\n" : ""}![](<${embedPath.replace(/[<>]/g, "\\$&")}>)`;
+    }
+  }
+  return result;
 }
 
 function codexErrorInfoCode(value: unknown): string | null {
@@ -5002,6 +5028,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   updated.set(payload.turnId, images);
                   return updated;
                 });
+                // Work that outlives turn/completed, such as a backgrounded exec, can finish later.
+                if (settled) {
+                  yield* projectGeneratedImages(context, payload.turnId);
+                }
               }
               return;
             }
@@ -5763,6 +5793,48 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           },
         );
 
+        // Settled timelines retain the final assistant message, so generated images attach there.
+        const projectGeneratedImages = (context: ActiveCodexTurnContext, nativeTurnId: string) =>
+          Effect.gen(function* () {
+            const images = yield* Ref.modify(generatedImagesByTurn, (current) => {
+              const pending = current.get(nativeTurnId);
+              if (pending === undefined) return [undefined, current] as const;
+              const updated = new Map(current);
+              updated.delete(nativeTurnId);
+              return [pending, updated] as const;
+            });
+            const firstImageItemId = images?.keys().next().value;
+            if (images === undefined || firstImageItemId === undefined) {
+              return;
+            }
+            const finalAnswer = (yield* Ref.get(lastFinalAnswerByTurn)).get(nativeTurnId);
+            const text = appendGeneratedImageEmbeds(finalAnswer?.text ?? "", images.values());
+            if (text === (finalAnswer?.text ?? "")) {
+              return;
+            }
+            const message = { id: finalAnswer?.id ?? firstImageItemId, text };
+            // A later image on a settled turn appends to this text instead of replacing it.
+            yield* Ref.update(lastFinalAnswerByTurn, (current) =>
+              new Map(current).set(nativeTurnId, message),
+            );
+            const artifacts = yield* buildAgentMessageArtifacts(context, message, true);
+            yield* emitProviderEvent({
+              type: "node.updated",
+              driver: CODEX_PROVIDER,
+              node: artifacts.node,
+            });
+            yield* emitProviderEvent({
+              type: "message.updated",
+              driver: CODEX_PROVIDER,
+              message: artifacts.message,
+            });
+            yield* emitProviderEvent({
+              type: "turn_item.updated",
+              driver: CODEX_PROVIDER,
+              turnItem: artifacts.turnItem,
+            });
+          });
+
         const finalizeCodexTurn = (input: {
           readonly context: ActiveCodexTurnContext;
           readonly nativeTurnId: string;
@@ -5821,6 +5893,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               for (const [key, part] of reasoningParts) {
                 if (part.turnId === input.nativeTurnId) reasoningParts.delete(key);
               }
+              yield* projectGeneratedImages(input.context, input.nativeTurnId);
               const nativeThreadId = input.context.providerThread.nativeThreadRef?.nativeId;
               // Codex continues an active goal with another turn, so the run stays
               // open and this turn reads as running until that turn starts.
@@ -6050,50 +6123,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               (yield* Ref.get(interruptingNativeTurns)).has(payload.turn.id)
                 ? "interrupted"
                 : nativeStatus;
-            const images = (yield* Ref.get(generatedImagesByTurn)).get(payload.turn.id);
-            const firstImageItemId = images?.keys().next().value;
-            if (images !== undefined && firstImageItemId !== undefined) {
-              const finalAnswer = (yield* Ref.get(lastFinalAnswerByTurn)).get(payload.turn.id);
-              let text = finalAnswer?.text ?? "";
-              for (const savedPath of images.values()) {
-                // Markdown reads the `\.` in `C:\Users\me\.codex` as an escape. Clients without
-                // Windows path handling, such as released mobile apps, would load the wrong file.
-                const embedPath = isWindowsAbsolutePath(savedPath)
-                  ? savedPath.replaceAll("\\", "/")
-                  : savedPath;
-                // Only an existing image embed counts; a plain path mention or link still needs a preview.
-                const embedded = [savedPath, embedPath].some((candidate) => {
-                  const escapedPath = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                  return new RegExp(`!\\[[^\\]]*\\]\\(<?${escapedPath}>?[\\s)]`).test(text);
-                });
-                if (!embedded) {
-                  text += `${text.length > 0 ? "\n\n" : ""}![](<${embedPath.replace(/[<>]/g, "\\$&")}>)`;
-                }
-              }
-              // Settled timelines retain the final assistant message, so attach images there.
-              if (text !== (finalAnswer?.text ?? "")) {
-                const artifacts = yield* buildAgentMessageArtifacts(
-                  context,
-                  { id: finalAnswer?.id ?? firstImageItemId, text },
-                  true,
-                );
-                yield* emitProviderEvent({
-                  type: "node.updated",
-                  driver: CODEX_PROVIDER,
-                  node: artifacts.node,
-                });
-                yield* emitProviderEvent({
-                  type: "message.updated",
-                  driver: CODEX_PROVIDER,
-                  message: artifacts.message,
-                });
-                yield* emitProviderEvent({
-                  type: "turn_item.updated",
-                  driver: CODEX_PROVIDER,
-                  turnItem: artifacts.turnItem,
-                });
-              }
-            }
             yield* finalizeCodexTurn({
               context,
               nativeTurnId: payload.turn.id,
