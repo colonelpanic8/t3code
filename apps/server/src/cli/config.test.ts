@@ -24,7 +24,7 @@ import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -299,10 +299,64 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         ),
       );
 
+      const fromCliFlag = yield* resolveCliAuthConfig(
+        { baseDir: Option.some(baseDir), sharedSettingsFile: Option.some(sharedFromFlag) },
+        Option.none(),
+      ).pipe(provide);
+      const fromCliEnv = yield* resolveCliAuthConfig(
+        { baseDir: Option.some(baseDir) },
+        Option.none(),
+      ).pipe(provide);
+
       expect(fromEnv.sharedSettingsPath).toBe(path.join(baseDir, "from-env.json"));
       expect(fromFlag.sharedSettingsPath).toBe(sharedFromFlag);
       expect(fromFlag.otlpTracesUrl).toBe("http://collector.test/v1/traces");
       expect("sharedSettingsPath" in off).toBe(false);
+      expect(fromCliFlag.sharedSettingsPath).toBe(sharedFromFlag);
+      expect(fromCliEnv.sharedSettingsPath).toBe(path.join(baseDir, "from-env.json"));
+    }),
+  );
+
+  it.effect("lets an empty local OTLP endpoint turn off the shared one", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-shared-otlp-" });
+      const sharedSettingsFile = path.join(baseDir, "dotfiles", "t3code.json");
+      yield* fs.makeDirectory(path.dirname(sharedSettingsFile), { recursive: true });
+      yield* fs.writeFileString(
+        sharedSettingsFile,
+        JSON.stringify({
+          observability: {
+            otlpTracesUrl: "http://collector.test/v1/traces",
+            otlpMetricsUrl: "http://collector.test/v1/metrics",
+          },
+        }),
+      );
+      const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
+      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+      yield* fs.writeFileString(
+        derivedPaths.settingsPath,
+        JSON.stringify({ observability: { otlpTracesUrl: "" } }),
+      );
+
+      const resolved = yield* resolveServerConfig(
+        {
+          ...minimalDesktopFlags(baseDir),
+          sharedSettingsFile: Option.some(sharedSettingsFile),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.otlpTracesUrl).toBeUndefined();
+      expect(resolved.otlpMetricsUrl).toBe("http://collector.test/v1/metrics");
     }),
   );
 
