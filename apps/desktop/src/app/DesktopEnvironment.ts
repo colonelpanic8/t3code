@@ -86,6 +86,10 @@ export class DesktopEnvironment extends Context.Service<
     readonly clientCacheDir: string;
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
+    /** Read-only client settings that win over the user's; writes to their keys are ignored. */
+    readonly managedClientSettingsPath: Option.Option<string>;
+    /** Read-only keybindings that win over every environment's for the same command. */
+    readonly managedKeybindingsPath: Option.Option<string>;
     readonly savedEnvironmentRegistryPath: string;
     readonly managedConnectionsPath: Option.Option<string>;
     readonly serverSettingsPath: string;
@@ -357,6 +361,8 @@ const make = Effect.fn("desktop.environment.make")(function* (
     clientCacheDir: clientRoots.cacheDir,
     desktopSettingsPath: path.join(clientRoots.configDir, "desktop-settings.json"),
     clientSettingsPath: path.join(clientRoots.configDir, "client-settings.json"),
+    managedClientSettingsPath: config.managedClientSettingsFile,
+    managedKeybindingsPath: config.managedKeybindingsFile,
     savedEnvironmentRegistryPath: path.join(clientRoots.stateDir, "saved-environments.json"),
     managedConnectionsPath,
     serverSettingsPath: path.join(configDir, "settings.json"),
