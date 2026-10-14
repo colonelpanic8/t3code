@@ -9,7 +9,8 @@ export type ConnectionWakeup =
   | "credentials-changed"
   // The device moved to a different network (another Wi-Fi, Wi-Fi to
   // cellular) while staying online. Saved routes may have changed reach.
-  | "network-changed";
+  | "network-changed"
+  | "resync-requested";
 
 function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
   return (
@@ -26,7 +27,11 @@ export function resetsRetryBackoff(reason: ConnectionWakeup): boolean {
 
 // A long resume replaces the session, and the new session subscribes on its own.
 export function shouldResubscribeAfterWakeup(reason: ConnectionWakeup): boolean {
-  return reason === "application-active" || reason === "application-active-probe";
+  return (
+    reason === "application-active" ||
+    reason === "application-active-probe" ||
+    reason === "resync-requested"
+  );
 }
 
 export class ConnectionWakeups extends Context.Service<
