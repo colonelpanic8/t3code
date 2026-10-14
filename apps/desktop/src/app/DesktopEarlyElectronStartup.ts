@@ -11,12 +11,14 @@ import {
 } from "../linuxSecretStorage.ts";
 import {
   resolveDesktopBaseDir,
+  resolveDesktopClientPaths,
   resolveDesktopStateDir,
   type JoinPath,
 } from "./DesktopStatePaths.ts";
 
 interface EarlyDesktopSettingsInput {
   readonly env: NodeJS.ProcessEnv;
+  readonly clientDirSwitch: string | null;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
   readonly readFileString: (path: string) => string;
@@ -49,11 +51,7 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-function resolveEarlyDesktopSettingsPath(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly homeDirectory: string;
-  readonly joinPath: JoinPath;
-}): string {
+function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): string {
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
   const baseDir = resolveDesktopBaseDir({
     homeDirectory: input.homeDirectory,
@@ -66,7 +64,12 @@ function resolveEarlyDesktopSettingsPath(input: {
     joinPath: input.joinPath,
     t3Home,
   });
-  return input.joinPath(stateDir, "desktop-settings.json");
+  return resolveDesktopClientPaths({
+    stateDir,
+    clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
+    clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
+    joinPath: input.joinPath,
+  }).desktopSettingsPath;
 }
 
 export function resolveEarlyLinuxPasswordStorePreference(
