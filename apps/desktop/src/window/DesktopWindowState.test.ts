@@ -1,31 +1,34 @@
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Logger from "effect/Logger";
+import * as Schema from "effect/Schema";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopWindowState from "./DesktopWindowState.ts";
+
+const layerEnvironment = (baseDir: string) =>
+  DesktopEnvironment.layer({
+    dirname: "/repo/apps/desktop/src",
+    homeDirectory: baseDir,
+    platform: "linux",
+    processArch: "x64",
+    appVersion: "0.0.17",
+    appPath: "/repo",
+    isPackaged: true,
+    resourcesPath: "/missing/resources",
+    runningUnderArm64Translation: false,
+  }).pipe(Layer.provide(DesktopConfig.layerTest({ T3CODE_HOME: baseDir })));
 
 const layerWindowState = (baseDir: string) =>
   DesktopWindowState.layer.pipe(
     Layer.provideMerge(DesktopAppSettings.layer),
-    Layer.provideMerge(
-      DesktopEnvironment.layer({
-        dirname: "/repo/apps/desktop/src",
-        homeDirectory: baseDir,
-        platform: "linux",
-        processArch: "x64",
-        appVersion: "0.0.17",
-        appPath: "/repo",
-        isPackaged: true,
-        resourcesPath: "/missing/resources",
-        runningUnderArm64Translation: false,
-      }).pipe(Layer.provide(DesktopConfig.layerTest({ T3CODE_HOME: baseDir }))),
-    ),
+    Layer.provideMerge(layerEnvironment(baseDir)),
     Layer.provideMerge(NodeServices.layer),
   );
 
@@ -36,23 +39,48 @@ const startApp = (baseDir: string) =>
     return yield* (yield* DesktopWindowState.DesktopWindowState).get;
   }).pipe(Effect.provide(layerWindowState(baseDir)));
 
-const startAppCapturingLogs = (baseDir: string) =>
+const TraceRecordLine = Schema.Struct({
+  name: Schema.String,
+  events: Schema.Array(Schema.Struct({ name: Schema.String })),
+});
+const decodeTraceRecordLine = Schema.decodeUnknownSync(Schema.fromJsonString(TraceRecordLine));
+
+// Wired as in main.ts: logs from layer construction reach observability only
+// when it is provided beneath the layer, not merged beside it.
+const startAppObserved = (baseDir: string) =>
   Effect.gen(function* () {
-    const messages: Array<unknown> = [];
-    const logger = Logger.make(({ message }) => {
-      messages.push(...(Array.isArray(message) ? message : [message]));
-    });
-    const state = yield* Effect.gen(function* () {
+    const { state, logDir } = yield* Effect.gen(function* () {
       yield* (yield* DesktopAppSettings.DesktopAppSettings).load;
-      return yield* (yield* DesktopWindowState.DesktopWindowState).get;
+      return {
+        state: yield* (yield* DesktopWindowState.DesktopWindowState).get,
+        logDir: (yield* DesktopEnvironment.DesktopEnvironment).logDir,
+      };
     }).pipe(
       Effect.provide(
-        layerWindowState(baseDir).pipe(
-          Layer.provide(Logger.layer([logger], { mergeWithExisting: false })),
+        DesktopWindowState.layer.pipe(
+          Layer.provideMerge(DesktopAppSettings.layer),
+          Layer.provideMerge(DesktopObservability.layer),
+          Layer.provideMerge(layerEnvironment(baseDir)),
+          Layer.provideMerge(
+            Layer.mergeAll(
+              NodeServices.layer,
+              NodeHttpClient.layerUndici,
+              DesktopConfig.layerTest({}),
+            ),
+          ),
         ),
       ),
     );
-    return { state, messages };
+    const traces = yield* (yield* FileSystem.FileSystem).readFileString(
+      `${logDir}/desktop.trace.ndjson`,
+    );
+    const readEvents = traces
+      .trim()
+      .split("\n")
+      .map((line) => decodeTraceRecordLine(line))
+      .filter((record) => record.name === "desktop.windowState.read")
+      .map((record) => record.events.map((event) => event.name));
+    return { state, readEvents };
   });
 
 const legacySettingsWithWindowState =
@@ -205,10 +233,12 @@ describe("DesktopWindowState", () => {
             "{not-json",
           );
 
-          const { state, messages } = yield* startAppCapturingLogs(baseDir);
+          const { state, readEvents } = yield* startAppObserved(baseDir);
 
           assert.deepEqual(state, { bounds: null, maximized: false });
-          assert.include(messages, "desktop window state could not be read; using defaults");
+          assert.deepEqual(readEvents, [
+            ["desktop window state could not be read; using defaults"],
+          ]);
         }),
       ),
   );
@@ -225,10 +255,12 @@ describe("DesktopWindowState", () => {
           );
           yield* fileSystem.makeDirectory(`${baseDir}/userdata/desktop-window-state.json`);
 
-          const { state, messages } = yield* startAppCapturingLogs(baseDir);
+          const { state, readEvents } = yield* startAppObserved(baseDir);
 
           assert.deepEqual(state, { bounds: null, maximized: false });
-          assert.include(messages, "desktop window state could not be read; using defaults");
+          assert.deepEqual(readEvents, [
+            ["desktop window state could not be read; using defaults"],
+          ]);
         }),
       ),
   );
@@ -242,13 +274,13 @@ describe("DesktopWindowState", () => {
           '{"mainWindowBounds":{"x":40,"y":30,"width":900,"height":700},"mainWindowMaximized":"yes"}\n',
         );
 
-        const { state, messages } = yield* startAppCapturingLogs(baseDir);
+        const { state, readEvents } = yield* startAppObserved(baseDir);
 
         assert.deepEqual(state, {
           bounds: { x: 40, y: 30, width: 900, height: 700 },
           maximized: false,
         });
-        assert.deepEqual(messages, []);
+        assert.deepEqual(readEvents, [[]]);
       }),
     ),
   );
