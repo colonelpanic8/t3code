@@ -7363,7 +7363,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           </div>
         </ComposerSurface.Main>
       </div>
-      <ComposerShortcutHints anchorRef={composerFormRef} keybindings={keybindings} />
+      <ComposerShortcutHints
+        anchorRef={composerFormRef}
+        keybindings={keybindings}
+        trigger={settings.composerShortcutHints}
+      />
     </form>
   );
 });

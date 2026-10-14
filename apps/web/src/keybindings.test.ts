@@ -655,6 +655,39 @@ describe("thread navigation helpers", () => {
     assert.isNull(composerControlHintLabel("composer.effort", alt, withAltModel, linux));
   });
 
+  it("reveals every composer control hint on a lone Alt hold with the alt trigger", () => {
+    const linux = { platform: "Linux" };
+    const alt = event({ altKey: true });
+    assert.strictEqual(
+      composerControlHintLabel("composer.effort", alt, DEFAULT_RESOLVED_KEYBINDINGS, linux, "alt"),
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "composer.effort", linux),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({ ctrlKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+        "alt",
+      ),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({ altKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+        "alt",
+      ),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({ ctrlKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+        "off",
+      ),
+    );
+  });
+
   it("keeps default thread jumps off the web so the browser can switch tabs", () => {
     const input = event({ key: "1", metaKey: true });
     assert.isNull(
