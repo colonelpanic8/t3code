@@ -3,7 +3,7 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Terminal from "effect/Terminal";
-import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 import { FetchHttpClient } from "effect/http";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -11,9 +11,9 @@ import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { installLocationFlags, resolveCliInstallConfig } from "./config.ts";
+import { installLocationFlags, resolveInstallLocations } from "./config.ts";
 
-export const layer = (config: ServerConfig.ServerConfig["Service"]) =>
+export const layer = (config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir">) =>
   BootService.layer({
     baseDir: config.baseDir,
     logsDir: config.logsDir,
@@ -102,12 +102,11 @@ export function formatServiceStatus(
 }
 
 const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E>(
-  flags: { readonly baseDir: Parameters<typeof resolveCliInstallConfig>[0]["baseDir"] },
+  flags: Parameters<typeof resolveInstallLocations>[0],
   run: Effect.Effect<A, E, BootService.BootService>,
 ) {
-  const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliInstallConfig(flags, logLevel);
-  return yield* run.pipe(Effect.provide(layer(config)));
+  const locations = yield* resolveInstallLocations(flags);
+  return yield* run.pipe(Effect.provide(layer(locations)));
 });
 
 const serviceReconcileFlags = {

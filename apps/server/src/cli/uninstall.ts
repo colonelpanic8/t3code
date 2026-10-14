@@ -11,13 +11,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import * as BootService from "../cloud/bootService.ts";
 import { pinnedRuntimeVersionsDir } from "../cloud/pinnedRuntime.ts";
 import {
   installLocationFlags,
-  resolveCliInstallConfig,
+  resolveInstallLocations,
   resolveServerLocationOverrides,
 } from "./config.ts";
 import * as CliService from "./service.ts";
@@ -127,8 +127,7 @@ export const uninstallCommand = Command.make("uninstall", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveCliInstallConfig(flags, logLevel);
+      const config = yield* resolveInstallLocations(flags);
       return yield* runUninstall({ baseDir: config.baseDir, assumeYes: flags.yes }).pipe(
         Effect.provide(CliService.layer(config)),
       );
