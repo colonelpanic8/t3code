@@ -2212,7 +2212,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
               >
                 {isRemote && !showsScratchMachine ? (
-                  <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+                  <span className="inline-flex shrink-0 items-center gap-1 text-sidebar-muted-foreground/70">
+                    {props.environmentLabel ? (
+                      <span className="max-w-24 truncate">{props.environmentLabel}</span>
+                    ) : null}
                     <EnvironmentMachineIcon
                       aria-hidden
                       kind={props.environmentMachine}
