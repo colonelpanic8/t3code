@@ -24,7 +24,18 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import { type CliServerFlags, resolveInstallLocations, resolveServerConfig } from "./config.ts";
+import {
+  type CliServerFlags,
+  ForcedLegacyLayoutConflictError,
+  ForcedXdgLayoutConflictError,
+  resolveInstallLocations,
+  resolveServerConfig,
+  RuntimeDirectoryOpenError,
+  RuntimeDirectoryOwnerMismatchError,
+  ServerLocationSelectorConflictError,
+  StorageDirectoryConfigurationConflictError,
+  type StorageHost,
+} from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -61,6 +72,26 @@ const makeDesktopBootstrap = (
   ...overrides,
 });
 
+const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapValue) {
+  const fs = yield* FileSystem.FileSystem;
+  const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
+  const encoded = yield* encodeDesktopBootstrap(payload);
+  yield* fs.writeFileString(filePath, `${encoded}\n`);
+  return yield* Effect.acquireRelease(
+    Effect.sync(() => NodeFS.openSync(filePath, "r")),
+    // Without a /proc or /dev/fd path to reopen, the reader consumes the fd
+    // itself (autoClose), so on Windows it is already closed here.
+    (fd) =>
+      Effect.sync(() => {
+        try {
+          NodeFS.closeSync(fd);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EBADF") throw error;
+        }
+      }),
+  );
+});
+
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
   const defaultObservabilityConfig = {
     traceMinLevel: "Info",
@@ -77,26 +108,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otelEnvironment: OtelEnvironment.none,
     devAllowedOrigins: [],
   } as const;
-
-  const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapValue) {
-    const fs = yield* FileSystem.FileSystem;
-    const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
-    const encoded = yield* encodeDesktopBootstrap(payload);
-    yield* fs.writeFileString(filePath, `${encoded}\n`);
-    return yield* Effect.acquireRelease(
-      Effect.sync(() => NodeFS.openSync(filePath, "r")),
-      // Without a /proc or /dev/fd path to reopen, the reader consumes the fd
-      // itself (autoClose), so on Windows it is already closed here.
-      (fd) =>
-        Effect.sync(() => {
-          try {
-            NodeFS.closeSync(fd);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "EBADF") throw error;
-          }
-        }),
-    );
-  });
 
   it.effect("keeps stale records and supervised startup out of the manual launch preflight", () =>
     Effect.gen(function* () {
@@ -1590,4 +1601,402 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         }),
     );
   });
+});
+
+const storageFlags = (overrides: Partial<CliServerFlags> = {}): CliServerFlags => ({
+  mode: Option.some("web"),
+  port: Option.some(3773),
+  host: Option.none(),
+  baseDir: Option.none(),
+  cwd: Option.none(),
+  devUrl: Option.none(),
+  noBrowser: Option.none(),
+  bootstrapFd: Option.none(),
+  autoBootstrapProjectFromCwd: Option.none(),
+  logWebSocketEvents: Option.none(),
+  tailscaleServeEnabled: Option.none(),
+  tailscaleServePort: Option.none(),
+  ...overrides,
+});
+
+it.layer(NodeServices.layer)("storage layout", (it) => {
+  const makeRoot = Effect.fn(function* (prefix: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix });
+    return {
+      root,
+      home: path.join(root, "home"),
+      storageHost: {
+        homeDirectory: path.join(root, "home"),
+        temporaryDirectory: root,
+        userId: NodeOS.userInfo().uid,
+        platform: "linux" as const,
+      },
+      xdgEnv: {
+        XDG_CONFIG_HOME: path.join(root, "config"),
+        XDG_DATA_HOME: path.join(root, "data"),
+        XDG_STATE_HOME: path.join(root, "state"),
+        XDG_CACHE_HOME: path.join(root, "cache"),
+        XDG_RUNTIME_DIR: path.join(root, "runtime"),
+      },
+    };
+  });
+
+  const resolveWith = (
+    env: Record<string, string>,
+    storageHost: StorageHost,
+    flags: Partial<CliServerFlags> = {},
+  ) =>
+    resolveServerConfig(storageFlags(flags), Option.none(), { storageHost }).pipe(
+      Effect.provide(
+        Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+      ),
+    );
+
+  it.effect("uses all five XDG roots for a new installation", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-xdg-");
+
+      const resolved = yield* resolveWith(xdgEnv, storageHost);
+
+      expect(resolved.layout).toBe("split");
+      expect(resolved.baseDir).toBe(path.join(root, "data", "t3code"));
+      expect(resolved.configDir).toBe(path.join(root, "config", "t3code"));
+      expect(resolved.dataDir).toBe(path.join(root, "data", "t3code"));
+      expect(resolved.stateDir).toBe(path.join(root, "state", "t3code"));
+      expect(resolved.cacheDir).toBe(path.join(root, "cache", "t3code"));
+      expect(resolved.runtimeDir).toBe(path.join(root, "runtime", "t3code"));
+      expect(resolved.settingsPath).toBe(path.join(root, "config", "t3code", "settings.json"));
+      expect(resolved.environmentThemesDir).toBe(path.join(root, "config", "t3code", "themes"));
+      expect(resolved.dbPath).toBe(path.join(root, "state", "t3code", "statev2.sqlite"));
+      expect(resolved.attachmentsDir).toBe(path.join(root, "data", "t3code", "attachments"));
+      expect(resolved.worktreesDir).toBe(path.join(root, "data", "t3code", "worktrees"));
+      expect(resolved.providerStatusCacheDir).toBe(
+        path.join(root, "cache", "t3code", "provider-status"),
+      );
+      expect(resolved.serverRuntimeStatePath).toBe(
+        path.join(root, "runtime", "t3code", "server-runtime.json"),
+      );
+    }),
+  );
+
+  it.effect("lets each server location override win over its split root", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-xdg-overrides-");
+      const configDir = path.join(root, "server-config");
+      const dataDir = path.join(root, "server-data");
+      const cacheDir = path.join(root, "server-cache");
+
+      const resolved = yield* resolveWith(
+        {
+          ...xdgEnv,
+          T3CODE_SERVER_CONFIG_DIR: configDir,
+          T3CODE_SERVER_DATA_DIR: dataDir,
+          T3CODE_SERVER_CACHE_DIR: cacheDir,
+        },
+        storageHost,
+      );
+
+      expect(resolved.layout).toBe("split");
+      expect(resolved.baseDir).toBe(path.join(root, "data", "t3code"));
+      expect(resolved.settingsPath).toBe(path.join(configDir, "settings.json"));
+      expect(resolved.environmentThemesDir).toBe(path.join(configDir, "themes"));
+      expect(resolved.dbPath).toBe(path.join(dataDir, "statev2.sqlite"));
+      expect(resolved.secretsDir).toBe(path.join(dataDir, "secrets"));
+      expect(resolved.attachmentsDir).toBe(path.join(dataDir, "attachments"));
+      expect(resolved.worktreesDir).toBe(path.join(dataDir, "worktrees"));
+      expect(resolved.providerStatusCacheDir).toBe(path.join(cacheDir, "provider-status"));
+      expect(resolved.serverRuntimeStatePath).toBe(
+        path.join(root, "runtime", "t3code", "server-runtime.json"),
+      );
+    }),
+  );
+
+  it.effect("rejects a location override and a selector naming different directories", () =>
+    Effect.gen(function* () {
+      const { storageHost } = yield* makeRoot("t3-cli-config-selector-conflict-");
+
+      const error = yield* resolveWith(
+        { T3CODE_SERVER_DATA_DIR: "/tmp/t3-data", T3CODE_STATE_DIR: "/tmp/t3-state" },
+        storageHost,
+      ).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(ServerLocationSelectorConflictError);
+      expect(error.message).toBe(
+        "--server-data-dir/T3CODE_SERVER_DATA_DIR names '/tmp/t3-data' but T3CODE_STATE_DIR names '/tmp/t3-state' for the same files. Unset one, or point both at the same directory.",
+      );
+    }),
+  );
+
+  it.effect("accepts a location override and a selector naming the same directory", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, storageHost } = yield* makeRoot("t3-cli-config-selector-agree-");
+      const configDir = path.join(root, "shared-config");
+
+      const resolved = yield* resolveWith(
+        { T3CODE_SERVER_CONFIG_DIR: configDir, T3CODE_CONFIG_DIR: configDir },
+        storageHost,
+      );
+
+      expect(resolved.layout).toBe("split");
+      expect(resolved.settingsPath).toBe(path.join(configDir, "settings.json"));
+    }),
+  );
+
+  it.effect("allows T3CODE_HOME with server location overrides in the legacy layout", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, storageHost } = yield* makeRoot("t3-cli-config-home-override-");
+      const t3Home = path.join(root, "t3");
+      const configDir = path.join(root, "server-config");
+
+      const resolved = yield* resolveWith(
+        { T3CODE_HOME: t3Home, T3CODE_SERVER_CONFIG_DIR: configDir },
+        storageHost,
+      );
+
+      expect(resolved.layout).toBe("legacy");
+      expect(resolved.baseDir).toBe(t3Home);
+      expect(resolved.settingsPath).toBe(path.join(configDir, "settings.json"));
+      expect(resolved.dbPath).toBe(path.join(t3Home, "userdata", "statev2.sqlite"));
+      expect(resolved.serverRuntimeStatePath).toBe(
+        path.join(t3Home, "userdata", "server-runtime.json"),
+      );
+    }),
+  );
+
+  it.effect("rejects T3CODE_HOME with a storage selector", () =>
+    Effect.gen(function* () {
+      const { storageHost } = yield* makeRoot("t3-cli-config-home-selector-");
+
+      const error = yield* resolveWith(
+        { T3CODE_HOME: "/tmp/legacy-t3", T3CODE_STATE_DIR: "/tmp/t3-state" },
+        storageHost,
+      ).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(StorageDirectoryConfigurationConflictError);
+    }),
+  );
+
+  it.effect.each([
+    { artifact: "state.sqlite" },
+    { artifact: "statev2.sqlite" },
+    { artifact: "settings.json" },
+    { artifact: "desktop-settings.json" },
+    { artifact: "client-settings.json" },
+    { artifact: "saved-environments.json" },
+    { artifact: "secrets" },
+  ])("keeps the legacy layout when ~/.t3 holds only $artifact", ({ artifact }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-legacy-artifact-");
+      const userdata = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(userdata, { recursive: true });
+      if (artifact === "secrets") {
+        yield* fs.makeDirectory(path.join(userdata, artifact));
+      } else {
+        yield* fs.writeFileString(path.join(userdata, artifact), "{}");
+      }
+
+      const resolved = yield* resolveWith(xdgEnv, storageHost);
+      const legacy = yield* deriveServerPaths(path.join(home, ".t3"), undefined);
+
+      expect(resolved.layout).toBe("legacy");
+      expect(resolved.baseDir).toBe(path.join(home, ".t3"));
+      expect({ ...resolved, ...legacy }).toEqual(resolved);
+    }),
+  );
+
+  it.effect("does not chmod the legacy state directory as a runtime directory", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, storageHost } = yield* makeRoot("t3-cli-config-legacy-mode-");
+      const userdata = path.join(root, "t3", "userdata");
+      yield* fs.makeDirectory(userdata, { recursive: true });
+      yield* fs.chmod(userdata, 0o750);
+
+      const resolved = yield* resolveWith({}, storageHost, {
+        baseDir: Option.some(path.join(root, "t3")),
+      });
+
+      expect(resolved.layout).toBe("legacy");
+      expect((yield* fs.stat(userdata)).mode & 0o777).toBe(0o750);
+    }),
+  );
+
+  it.effect("rejects a split runtime directory symlink without chmodding its target", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, storageHost } = yield* makeRoot("t3-cli-config-runtime-symlink-");
+      const runtimeHome = path.join(root, "runtime");
+      const targetDir = path.join(root, "target");
+      yield* fs.makeDirectory(runtimeHome, { recursive: true });
+      yield* fs.makeDirectory(targetDir, { recursive: true });
+      yield* fs.chmod(targetDir, 0o750);
+      yield* fs.symlink(targetDir, path.join(runtimeHome, "t3code"));
+
+      const error = yield* resolveWith({ XDG_RUNTIME_DIR: runtimeHome }, storageHost).pipe(
+        Effect.flip,
+      );
+
+      expect(error).toBeInstanceOf(RuntimeDirectoryOpenError);
+      expect((yield* fs.stat(targetDir)).mode & 0o777).toBe(0o750);
+    }),
+  );
+
+  it.effect("rejects a split runtime directory owned by another user", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, storageHost } = yield* makeRoot("t3-cli-config-runtime-owner-");
+      const runtimeHome = path.join(root, "runtime");
+      yield* fs.makeDirectory(path.join(runtimeHome, "t3code"), { recursive: true });
+
+      const error = yield* resolveWith(
+        { XDG_RUNTIME_DIR: runtimeHome },
+        { ...storageHost, userId: storageHost.userId + 1 },
+      ).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(RuntimeDirectoryOwnerMismatchError);
+    }),
+  );
+
+  it.effect("keeps initialized legacy storage even when split directories contain debris", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-debris-");
+      const userdata = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(userdata, { recursive: true });
+      yield* fs.makeDirectory(path.join(root, "state", "t3code"), { recursive: true });
+      yield* fs.writeFileString(path.join(userdata, "state.sqlite"), "legacy");
+      yield* fs.writeFileString(path.join(root, "state", "t3code", "statev2.sqlite"), "");
+
+      const resolved = yield* resolveWith(xdgEnv, storageHost);
+
+      expect(resolved.layout).toBe("legacy");
+      expect(resolved.dbPath).toBe(path.join(userdata, "statev2.sqlite"));
+    }),
+  );
+
+  it.effect("forces the XDG layout even when legacy storage is initialized", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, storageHost } = yield* makeRoot("t3-cli-config-forced-xdg-");
+      const userdata = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(userdata, { recursive: true });
+      yield* fs.writeFileString(path.join(userdata, "state.sqlite"), "legacy");
+
+      const resolved = yield* resolveWith({}, storageHost, {
+        storageLayout: Option.some("xdg"),
+      });
+
+      expect(resolved.layout).toBe("split");
+      expect(resolved.stateDir).toBe(path.join(home, ".local", "state", "t3code"));
+    }),
+  );
+
+  it.effect("forces the legacy layout when no legacy artifacts exist", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { home, storageHost } = yield* makeRoot("t3-cli-config-forced-legacy-");
+
+      const resolved = yield* resolveWith({}, storageHost, {
+        storageLayout: Option.some("legacy"),
+      });
+
+      expect(resolved.layout).toBe("legacy");
+      expect(resolved.stateDir).toBe(path.join(home, ".t3", "userdata"));
+    }),
+  );
+
+  it.effect("rejects forced XDG storage with a legacy home override", () =>
+    Effect.gen(function* () {
+      const { storageHost } = yield* makeRoot("t3-cli-config-forced-xdg-home-");
+
+      const error = yield* resolveWith({}, storageHost, {
+        baseDir: Option.some("/tmp/legacy-t3"),
+        storageLayout: Option.some("xdg"),
+      }).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(ForcedXdgLayoutConflictError);
+    }),
+  );
+
+  it.effect("rejects forced legacy storage with a storage selector", () =>
+    Effect.gen(function* () {
+      const { storageHost } = yield* makeRoot("t3-cli-config-forced-legacy-selector-");
+
+      const error = yield* resolveWith({ T3CODE_CONFIG_DIR: "/tmp/t3-config" }, storageHost, {
+        storageLayout: Option.some("legacy"),
+      }).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(ForcedLegacyLayoutConflictError);
+    }),
+  );
+
+  it.effect("uses the desktop's split roots and keeps location overrides on top", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, storageHost } = yield* makeRoot("t3-cli-config-bootstrap-split-");
+      const roots = {
+        layout: "split" as const,
+        configDir: path.join(root, "c"),
+        dataDir: path.join(root, "d"),
+        stateDir: path.join(root, "s"),
+        cacheDir: path.join(root, "k"),
+        runtimeDir: path.join(root, "r"),
+      };
+      const fd = yield* openBootstrapFd(
+        makeDesktopBootstrap({ t3Home: undefined, storageRoots: roots }),
+      );
+
+      const resolved = yield* resolveWith(
+        { T3CODE_SERVER_CACHE_DIR: path.join(root, "override-cache") },
+        storageHost,
+        { bootstrapFd: Option.some(fd) },
+      );
+
+      expect(resolved.layout).toBe("split");
+      expect(resolved.settingsPath).toBe(path.join(roots.configDir, "settings.json"));
+      expect(resolved.dbPath).toBe(path.join(roots.stateDir, "statev2.sqlite"));
+      expect(resolved.serverRuntimeStatePath).toBe(
+        path.join(roots.runtimeDir, "server-runtime.json"),
+      );
+      expect(resolved.providerStatusCacheDir).toBe(
+        path.join(root, "override-cache", "provider-status"),
+      );
+    }),
+  );
+
+  it.effect("gives install commands the split roots without location overrides", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, xdgEnv } = yield* makeRoot("t3-cli-config-install-split-");
+
+      const locations = yield* resolveInstallLocations({
+        baseDir: Option.none(),
+        storageLayout: Option.some("xdg"),
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: { ...xdgEnv, T3CODE_SERVER_DATA_DIR: path.join(root, "override") },
+            }),
+          ),
+        ),
+      );
+
+      expect(locations.storage.layout).toBe("split");
+      expect(locations.dbPath).toBe(path.join(root, "state", "t3code", "statev2.sqlite"));
+    }),
+  );
 });
