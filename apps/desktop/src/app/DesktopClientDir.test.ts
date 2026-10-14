@@ -99,6 +99,7 @@ describe("desktop client directory", () => {
           clientDirSwitch: null,
           homeDirectory: "/home/user",
           joinPath: NodePath.posix.join,
+          resolvePath: NodePath.posix.resolve,
           readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
         }),
         "kwallet6",
