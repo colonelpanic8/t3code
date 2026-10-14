@@ -2559,6 +2559,129 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
     }).pipe(Effect.provide(layerSharedServerSettings())),
   );
 
+  it.effect("keeps a shared cursor instance that provider history marks as used", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* recordProviderUsage("cursor");
+      yield* writeSharedSettings({
+        providerInstances: {
+          cursor: { driver: "cursor", enabled: true, config: { binaryPath: "/opt/cursor-agent" } },
+        },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ providers: { codex: { binaryPath: "/usr/local/bin/codex" } } }),
+      );
+
+      const settings = yield* service.getSettings;
+
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("cursor")], {
+        driver: ProviderDriverKind.make("cursor"),
+        enabled: true,
+        config: { binaryPath: "/opt/cursor-agent" },
+      });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        providerInstances: {
+          codex: { driver: "codex", config: { binaryPath: "/usr/local/bin/codex" } },
+        },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({ defaultThreadEnvMode: "worktree" });
+
+      const updated = yield* service.updateSettings({ defaultThreadEnvMode: null });
+
+      assert.isNull(updated.defaultThreadEnvMode);
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultThreadEnvMode: null,
+      });
+      yield* service.start;
+      assert.isNull((yield* service.getSettings).defaultThreadEnvMode);
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("follows the shared file again once an edited instance is reverted", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("codex_work");
+      const sharedInstance = (apiKey: string) => ({
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            environment: [{ name: "OPENAI_API_KEY", value: apiKey, sensitive: true }],
+            config: { binaryPath: "/opt/codex" },
+          },
+        },
+      });
+      const upsertBinaryPath = (binaryPath: string) =>
+        Effect.gen(function* () {
+          const forClient = ServerSettingsModule.redactServerSettingsForClient(
+            yield* service.getSettings,
+          );
+          return yield* service.updateProviderInstance({
+            operation: "upsert",
+            instanceId,
+            instance: { ...forClient.providerInstances[instanceId]!, config: { binaryPath } },
+          });
+        });
+      yield* writeSharedSettings(sharedInstance("sk-shared"));
+
+      yield* upsertBinaryPath("/usr/bin/codex");
+      assert.notDeepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+      const reverted = yield* upsertBinaryPath("/opt/codex");
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+      assert.equal(reverted.providerInstances[instanceId]?.environment?.[0]?.value, "sk-shared");
+      yield* writeSharedSettings(sharedInstance("sk-rotated"));
+      yield* service.start;
+      assert.equal(
+        (yield* service.getSettings).providerInstances[instanceId]?.environment?.[0]?.value,
+        "sk-rotated",
+      );
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("moves an inherited usage limit key into the store once its source is edited", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const hub = UsageLimitSourceId.make("hub");
+      yield* writeSharedSettings({
+        usageLimitSources: {
+          hub: { kind: "cliproxy", url: "http://hub.test", managementKey: "mk-shared" },
+        },
+      });
+      const forClient = ServerSettingsModule.redactServerSettingsForClient(
+        yield* service.getSettings,
+      );
+
+      const updated = yield* service.updateSettings({
+        usageLimitSources: { [hub]: { ...forClient.usageLimitSources[hub]!, enabled: false } },
+      });
+
+      assert.notInclude(yield* fs.readFileString(config.settingsPath), "mk-shared");
+      assert.deepEqual(updated.usageLimitSources[hub], {
+        kind: "cliproxy",
+        url: "http://hub.test",
+        managementKey: "mk-shared",
+        enabled: false,
+      });
+      yield* service.start;
+      assert.equal((yield* service.getSettings).usageLimitSources[hub]?.managementKey, "mk-shared");
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
   it.effect.each([
     ["malformed", '{"defaultAutoPull": tru'],
     ["missing", undefined],
