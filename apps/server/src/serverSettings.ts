@@ -444,14 +444,14 @@ function migrateLegacyProviderSettings(
     const instanceId = defaultInstanceIdForDriver(driver);
     const { enabled: rawEnabled, ...config } = blob as Record<string, unknown>;
     const explicitEnabled = typeof rawEnabled === "boolean" ? rawEnabled : undefined;
-    // A blob that adds nothing leaves an inherited entry alone; the loop above
-    // already enabled it if history shows use.
-    if (
-      localInstanceIds.has(instanceId) ||
-      (Object.hasOwn(settings.providerInstances, instanceId) &&
-        Object.keys(config).length === 0 &&
-        explicitEnabled === undefined)
-    ) {
+    if (localInstanceIds.has(instanceId)) continue;
+    // An enabled-only blob keeps an inherited entry's config; one that adds nothing
+    // leaves it alone, since the loop above already enabled it if history shows use.
+    const inherited = providerInstances[instanceId];
+    if (inherited !== undefined && Object.keys(config).length === 0) {
+      if (explicitEnabled !== undefined) {
+        providerInstances[instanceId] = { ...inherited, enabled: explicitEnabled };
+      }
       continue;
     }
     const enabled =
@@ -627,7 +627,8 @@ function restoreDocumentKeys(
  * Sensitive values the shared settings file supplies in plaintext, keyed by
  * secret name, for the entries `settings` still inherits unchanged. An edited
  * entry is saved whole to settings.json, so its secrets must go to the store.
- * Redacted secrets in `settings` compare by the value `resolvedValues` gives them.
+ * Redacted secrets in `settings` compare by the value `resolvedValues` gives them;
+ * one it lacks stays redacted, so it never matches a shared value or placeholder.
  */
 function inheritedSecretValues(
   settings: ServerSettings,
@@ -635,14 +636,11 @@ function inheritedSecretValues(
   resolvedValues: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyMap<string, string> {
   const withPlainSecrets = (value: ServerSettings, stored: ReadonlyMap<string, string>) =>
-    mapSettingsSecrets(value, (secret) =>
-      secret.sensitive
-        ? {
-            value: secret.redacted ? (stored.get(secret.secretName) ?? "") : secret.value,
-            redacted: false,
-          }
-        : secret,
-    );
+    mapSettingsSecrets(value, (secret) => {
+      const resolved =
+        secret.sensitive && secret.redacted ? stored.get(secret.secretName) : undefined;
+      return resolved === undefined ? secret : { value: resolved, redacted: false };
+    });
   const ours = withPlainSecrets(settings, resolvedValues);
   const theirs = withPlainSecrets(baseline, new Map());
   const unchanged = <K extends "providerInstances" | "usageLimitSources">(key: K) =>
