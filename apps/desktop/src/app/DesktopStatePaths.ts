@@ -2,11 +2,11 @@ import * as Option from "effect/Option";
 
 export type JoinPath = (first: string, ...segments: string[]) => string;
 
-function normalizeConfiguredBaseDir(t3Home: Option.Option<string>): Option.Option<string> {
-  if (Option.isNone(t3Home)) {
+function normalizeConfiguredDir(dir: Option.Option<string>): Option.Option<string> {
+  if (Option.isNone(dir)) {
     return Option.none();
   }
-  const trimmed = t3Home.value.trim();
+  const trimmed = dir.value.trim();
   return trimmed.length > 0 ? Option.some(trimmed) : Option.none();
 }
 
@@ -15,7 +15,7 @@ export function resolveDesktopBaseDir(input: {
   readonly joinPath: JoinPath;
   readonly t3Home: Option.Option<string>;
 }): string {
-  return Option.getOrElse(normalizeConfiguredBaseDir(input.t3Home), () =>
+  return Option.getOrElse(normalizeConfiguredDir(input.t3Home), () =>
     input.joinPath(input.homeDirectory, ".t3"),
   );
 }
@@ -26,7 +26,42 @@ export function resolveDesktopStateDir(input: {
   readonly joinPath: JoinPath;
   readonly t3Home: Option.Option<string>;
 }): string {
-  const useDevSubdir =
-    input.isDevelopment && Option.isNone(normalizeConfiguredBaseDir(input.t3Home));
+  const useDevSubdir = input.isDevelopment && Option.isNone(normalizeConfiguredDir(input.t3Home));
   return input.joinPath(input.baseDir, useDevSubdir ? "dev" : "userdata");
+}
+
+export interface DesktopClientPaths {
+  readonly clientConfigDir: string;
+  readonly clientStateDir: string;
+  readonly desktopSettingsPath: string;
+  readonly clientSettingsPath: string;
+  readonly desktopWindowStatePath: string;
+  readonly connectionCatalogPath: string;
+  readonly savedEnvironmentRegistryPath: string;
+}
+
+// Shared by the pre-ready password-store read and DesktopEnvironment so both
+// see the same desktop-settings.json. `--client-dir` wins over
+// T3CODE_CLIENT_DIR; with neither, client files stay in the server's stateDir.
+export function resolveDesktopClientPaths(input: {
+  readonly stateDir: string;
+  readonly clientDirSwitch: Option.Option<string>;
+  readonly clientDirEnv: Option.Option<string>;
+  readonly joinPath: JoinPath;
+}): DesktopClientPaths {
+  const clientDir = normalizeConfiguredDir(input.clientDirSwitch).pipe(
+    Option.orElse(() => normalizeConfiguredDir(input.clientDirEnv)),
+    Option.getOrElse(() => input.stateDir),
+  );
+  const clientConfigDir = clientDir;
+  const clientStateDir = clientDir;
+  return {
+    clientConfigDir,
+    clientStateDir,
+    desktopSettingsPath: input.joinPath(clientConfigDir, "desktop-settings.json"),
+    clientSettingsPath: input.joinPath(clientConfigDir, "client-settings.json"),
+    desktopWindowStatePath: input.joinPath(clientStateDir, "desktop-window-state.json"),
+    connectionCatalogPath: input.joinPath(clientStateDir, "connection-catalog.json"),
+    savedEnvironmentRegistryPath: input.joinPath(clientStateDir, "saved-environments.json"),
+  };
 }
