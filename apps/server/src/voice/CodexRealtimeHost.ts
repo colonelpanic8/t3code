@@ -3,6 +3,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as CodexClient from "effect-codex-app-server/client";
+import type * as CodexSchema from "effect-codex-app-server/schema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
@@ -87,6 +88,41 @@ const transcriptRole = (role: string): "user" | "assistant" =>
 /** SDP requires CRLF-terminated lines; restore the terminator the RPC contract trims. */
 export function ensureSdpLineTermination(sdp: string): string {
   return sdp.endsWith("\n") ? sdp : `${sdp}\r\n`;
+}
+
+export const VOICE_MCP_SERVER_NAME = "t3-code-voice";
+
+const tableKeys = (value: unknown): ReadonlyArray<string> =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? Object.keys(value) : [];
+
+/**
+ * `thread/start` config for the voice thread. Codex merges it over the user's
+ * own config, so every MCP server and plugin from there is switched off by
+ * name, and connectors go with `features.apps`. Nothing answers approval
+ * requests on this thread, so the voice tools are preapproved.
+ */
+export function voiceThreadConfig(
+  effectiveConfig: { readonly [key: string]: unknown },
+  mcp: OpenCodexRealtimeHostInput["mcp"],
+): NonNullable<CodexSchema.V2ThreadStartParams["config"]> {
+  const disabled = (keys: ReadonlyArray<string>) =>
+    Object.fromEntries(keys.map((key) => [key, { enabled: false }]));
+  return {
+    mcp_servers: {
+      ...disabled(tableKeys(effectiveConfig.mcp_servers)),
+      ...(mcp === undefined
+        ? {}
+        : {
+            [VOICE_MCP_SERVER_NAME]: {
+              url: mcp.endpoint,
+              http_headers: { Authorization: mcp.authorizationHeader },
+              default_tools_approval_mode: "approve",
+            },
+          }),
+    },
+    plugins: disabled(tableKeys(effectiveConfig.plugins)),
+    features: { apps: false },
+  };
 }
 
 /**
@@ -180,21 +216,16 @@ export const openCodexRealtimeHost = Effect.fn("openCodexRealtimeHost")(function
     });
   }
 
+  const effectiveConfig = yield* client
+    .request("config/read", { cwd: input.cwd })
+    .pipe(Effect.mapError(voiceError("Could not read Codex configuration.", "codex_unavailable")));
+
   const thread = yield* client
     .request("thread/start", {
       cwd: input.cwd,
-      ...(input.mcp === undefined
-        ? {}
-        : {
-            config: {
-              mcp_servers: {
-                "t3-code-voice": {
-                  url: input.mcp.endpoint,
-                  http_headers: { Authorization: input.mcp.authorizationHeader },
-                },
-              },
-            },
-          }),
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      config: voiceThreadConfig(effectiveConfig.config, input.mcp),
     })
     .pipe(
       Effect.mapError(
