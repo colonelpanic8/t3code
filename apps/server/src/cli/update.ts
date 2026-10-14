@@ -29,7 +29,7 @@ import {
 import { compareExactServiceVersions, isExactServiceVersion } from "../cloud/serviceProtocol.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { installLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import { createUpdateProgress } from "./updateProgress.ts";
 import * as CliService from "./service.ts";
 
@@ -212,7 +212,7 @@ export const findWindowsShim = Effect.fn("cli.update.find_windows_shim")(functio
 });
 
 const updateFlags = {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   channel: Flag.Literals("channel", CLI_RELEASE_CHANNELS).pipe(
     Flag.withDescription(
       "Release channel to follow. Defaults to the channel this t3 was published on.",

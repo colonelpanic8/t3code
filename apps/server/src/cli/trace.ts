@@ -5,7 +5,6 @@
  */
 import { PositiveInt } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -15,10 +14,14 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 
-import * as ServerConfig from "../config.ts";
 import { streamTraceFileLines, toRotatedTracePaths } from "../diagnostics/TraceDiagnostics.ts";
-import { resolveBaseDir } from "../os-jank.ts";
-import { baseDirFlag, DurationFromString, traceFileConfig, traceMaxFilesConfig } from "./config.ts";
+import {
+  DurationFromString,
+  resolveServerLocations,
+  serverLocationFlags,
+  traceFileConfig,
+  traceMaxFilesConfig,
+} from "./config.ts";
 
 // Only the fields the summary needs. Other record fields are ignored.
 const decodeTraceSpanLine = Schema.decodeUnknownOption(
@@ -166,7 +169,7 @@ function formatTraceSummary(
 }
 
 const traceSummaryCommand = Command.make("summary", {
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   since: Flag.String("since").pipe(
     Flag.withSchema(DurationFromString),
     Flag.withDescription("Only count spans that ended in this window, for example 30m or 2h."),
@@ -182,15 +185,11 @@ const traceSummaryCommand = Command.make("summary", {
   Command.withHandler(
     Effect.fn("cli.trace.summary")(function* (flags) {
       const fs = yield* FileSystem.FileSystem;
-      // T3CODE_TRACE_FILE, else the userdata trace file for --base-dir or
-      // T3CODE_HOME. Implicit dev runs write elsewhere; set T3CODE_TRACE_FILE.
-      const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-      const baseDir = yield* resolveBaseDir(
-        Option.getOrUndefined(Option.orElse(flags.baseDir, () => envHome)),
-      );
+      // T3CODE_TRACE_FILE, else the trace file in the server's data dir.
+      // Implicit dev runs write elsewhere; set T3CODE_TRACE_FILE.
       const traceFilePath =
         (yield* traceFileConfig) ??
-        (yield* ServerConfig.deriveServerPaths(baseDir, undefined)).serverTracePath;
+        (yield* resolveServerLocations(flags, { devUrl: undefined })).derivedPaths.serverTracePath;
       const sinceMs = Option.isSome(flags.since)
         ? (yield* Clock.currentTimeMillis) - Duration.toMillis(flags.since.value)
         : undefined;

@@ -191,6 +191,18 @@ const make = Effect.fn("desktop.environment.make")(function* (
     "applications",
   );
   const resourcesPath = input.resourcesPath;
+  const backendCwd = input.isPackaged ? homeDirectory : appRoot;
+  // The local backend inherits this env and resolves the override against its cwd.
+  const serverConfigDir = Option.match(config.serverConfigDir, {
+    onNone: () => stateDir,
+    onSome: (dir) =>
+      path.resolve(
+        backendCwd,
+        dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")
+          ? path.join(homeDirectory, dir.slice(1))
+          : dir,
+      ),
+  });
 
   return DesktopEnvironment.of({
     path,
@@ -209,7 +221,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),
     savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
-    serverSettingsPath: path.join(stateDir, "settings.json"),
+    serverSettingsPath: path.join(serverConfigDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
     rootDir,
@@ -217,7 +229,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     serverRoot,
     backendEntryPath: path.join(serverRoot, "apps/server/dist/bin.mjs"),
     clientAssetsDir: path.join(serverRoot, "apps/server/dist/client"),
-    backendCwd: input.isPackaged ? homeDirectory : appRoot,
+    backendCwd,
     preloadPath: path.join(input.dirname, "preload.cjs"),
     compileCachePath: path.join(input.dirname, "compileCache.cjs"),
     appUpdateYmlPath: input.isPackaged

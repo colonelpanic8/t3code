@@ -44,6 +44,30 @@ for an independent server.
 To try T3 Code once without installing it, run `npx t3@latest` instead (needs
 Node.js for `npx`).
 
+### Where the server keeps its files
+
+The server keeps everything under its T3 home, `~/.t3` by default. Set
+`--base-dir` or `T3CODE_HOME` to move all of it. To move one kind of file on its
+own, for example to keep configuration in a dotfiles repository or the database
+on another disk, set any of these. Each falls back to its usual place in the T3
+home when unset, and none moves the others.
+
+| Files                                                                      | Flag                  | Environment variable       | Default          |
+| -------------------------------------------------------------------------- | --------------------- | -------------------------- | ---------------- |
+| `settings.json`, `keybindings.json`, `themes/`                             | `--server-config-dir` | `T3CODE_SERVER_CONFIG_DIR` | `~/.t3/userdata` |
+| Database, secrets, attachments, logs, `worktrees/`, and other server state | `--server-data-dir`   | `T3CODE_SERVER_DATA_DIR`   | `~/.t3/userdata` |
+| Provider status caches                                                     | `--server-cache-dir`  | `T3CODE_SERVER_CACHE_DIR`  | `~/.t3/caches`   |
+
+New worktrees go in `worktrees/` inside the data directory when you set one,
+and in `~/.t3/worktrees` otherwise. Existing files are not moved for you: stop
+the server and move them yourself before pointing it at a new location.
+
+Commands that work with a server's files, such as `t3 pair`, `t3 auth`,
+`t3 project`, `t3 theme`, and `t3 connect`, need the same settings as the server
+to find it; the environment variables are the easiest way to share them. The
+background service records only the T3 home, so set these in its environment
+yourself if it should use them.
+
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To

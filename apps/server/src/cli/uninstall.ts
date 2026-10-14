@@ -15,7 +15,7 @@ import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 
 import * as BootService from "../cloud/bootService.ts";
 import { pinnedRuntimeVersionsDir } from "../cloud/pinnedRuntime.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { installLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import * as CliService from "./service.ts";
 import { findWindowsShim, launcherOwnsVersionsDir, resolveLauncherPath } from "./update.ts";
 
@@ -96,7 +96,7 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
 });
 
 export const uninstallCommand = Command.make("uninstall", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   yes: Flag.Boolean("yes").pipe(
     Flag.withAlias("y"),
     Flag.withDescription(

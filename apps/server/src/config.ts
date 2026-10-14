@@ -29,9 +29,16 @@ export const StartupPresentation = Schema.Literals(["browser", "headless"]);
 export type StartupPresentation = typeof StartupPresentation.Type;
 
 /**
- * ServerDerivedPaths - Derived paths from the base directory.
+ * ServerDerivedPaths - Derived paths from the base directory and any location
+ * overrides. Consumers read the leaf paths.
  */
 export interface ServerDerivedPaths {
+  /** Settings, keybindings, and themes. */
+  readonly configDir: string;
+  /** Database, identity, secrets, attachments, and logs. */
+  readonly dataDir: string;
+  readonly cacheDir: string;
+  /** Same directory as `dataDir`. */
   readonly stateDir: string;
   readonly dbPath: string;
   readonly keybindingsConfigPath: string;
@@ -54,7 +61,14 @@ export interface ServerDerivedPaths {
   readonly secretsDir: string;
 }
 
-export interface DeriveServerPathsOptions {
+/** Absolute directories that replace the base-dir-derived location of one category. */
+export interface ServerLocationOverrides {
+  readonly configDir?: string | undefined;
+  readonly dataDir?: string | undefined;
+  readonly cacheDir?: string | undefined;
+}
+
+export interface DeriveServerPathsOptions extends ServerLocationOverrides {
   readonly baseDirIsExplicit?: boolean;
 }
 
@@ -137,34 +151,40 @@ export const deriveServerPaths = Effect.fn(function* (
   options: DeriveServerPathsOptions = {},
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const { join } = yield* Path.Path;
-  const stateDir = join(
+  const legacyStateDir = join(
     baseDir,
     devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
   );
-  const dbPath = join(stateDir, "statev2.sqlite");
-  const attachmentsDir = join(stateDir, "attachments");
-  const logsDir = join(stateDir, "logs");
+  const configDir = options.configDir ?? legacyStateDir;
+  const dataDir = options.dataDir ?? legacyStateDir;
+  const cacheDir = options.cacheDir ?? join(baseDir, "caches");
+  const dbPath = join(dataDir, "statev2.sqlite");
+  const attachmentsDir = join(dataDir, "attachments");
+  const logsDir = join(dataDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
-  const providerStatusCacheDir = join(baseDir, "caches");
   return {
-    stateDir,
+    configDir,
+    dataDir,
+    cacheDir,
+    stateDir: dataDir,
     dbPath,
-    keybindingsConfigPath: join(stateDir, "keybindings.json"),
-    settingsPath: join(stateDir, "settings.json"),
-    environmentThemesDir: join(stateDir, "themes"),
-    providerStatusCacheDir,
-    worktreesDir: join(baseDir, "worktrees"),
+    keybindingsConfigPath: join(configDir, "keybindings.json"),
+    settingsPath: join(configDir, "settings.json"),
+    environmentThemesDir: join(configDir, "themes"),
+    providerStatusCacheDir: cacheDir,
+    // Worktrees sit beside userdata by default, so they follow only an explicit data dir.
+    worktreesDir: join(options.dataDir ?? baseDir, "worktrees"),
     attachmentsDir,
-    browserArtifactsDir: join(stateDir, "browser-artifacts"),
+    browserArtifactsDir: join(dataDir, "browser-artifacts"),
     logsDir,
     serverTracePath: join(logsDir, "server.trace.ndjson"),
     providerLogsDir,
     providerEventLogPath: join(providerLogsDir, "events.log"),
     terminalLogsDir: join(logsDir, "terminals"),
-    anonymousIdPath: join(stateDir, "anonymous-id"),
-    environmentIdPath: join(stateDir, "environment-id"),
-    serverRuntimeStatePath: join(stateDir, "server-runtime.json"),
-    secretsDir: join(stateDir, "secrets"),
+    anonymousIdPath: join(dataDir, "anonymous-id"),
+    environmentIdPath: join(dataDir, "environment-id"),
+    serverRuntimeStatePath: join(dataDir, "server-runtime.json"),
+    secretsDir: join(dataDir, "secrets"),
   };
 });
 

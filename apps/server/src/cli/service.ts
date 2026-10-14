@@ -11,7 +11,7 @@ import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { installLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 export const layer = (config: ServerConfig.ServerConfig["Service"]) =>
   BootService.layer({
@@ -111,7 +111,7 @@ const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E>(
 });
 
 const serviceReconcileFlags = {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   allowDowngrade: Flag.Boolean("allow-downgrade").pipe(
     Flag.withDescription("Allow replacing a newer installed service with this older CLI version."),
     Flag.withDefault(false),
@@ -164,7 +164,7 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
   ),
 );
 
-const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe(
+const serviceRestartCommand = Command.make("restart", installLocationFlags).pipe(
   Command.withDescription(
     "Restart the background service. Picks up a version installed by `t3 update` that was not restarted at the time.",
   ),
@@ -185,7 +185,7 @@ const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe
   ),
 );
 
-const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).pipe(
+const serviceUninstallCommand = Command.make("uninstall", installLocationFlags).pipe(
   Command.withDescription("Stop and remove the T3 Code background service."),
   Command.withHandler((flags) =>
     runServiceCommand(
@@ -201,7 +201,7 @@ const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).
   ),
 );
 
-const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
+const serviceStatusCommand = Command.make("status", installLocationFlags).pipe(
   Command.withDescription("Show whether the T3 Code background service is installed."),
   Command.withHandler((flags) =>
     runServiceCommand(
