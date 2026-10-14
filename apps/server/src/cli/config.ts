@@ -356,7 +356,6 @@ export const resolveServerConfig = (
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
-    readonly ignoreLocationOverrides?: boolean;
   },
 ) =>
   Effect.gen(function* () {
@@ -422,7 +421,6 @@ export const resolveServerConfig = (
     const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
       devUrl,
       fallbackBaseDir: bootstrap?.t3Home,
-      ignoreLocationOverrides: options?.ignoreLocationOverrides,
     });
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
@@ -581,7 +579,6 @@ export const resolveServerConfig = (
 export const resolveCliAuthConfig = (
   flags: CliAuthLocationFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
-  options?: { readonly ignoreLocationOverrides?: boolean },
 ) =>
   resolveServerConfig(
     {
@@ -602,18 +599,23 @@ export const resolveCliAuthConfig = (
       tailscaleServePort: Option.none(),
     },
     cliLogLevel,
-    options,
   );
 
 /**
- * Config for the install commands (service, update, uninstall). They resolve
- * paths from the base dir alone so they agree with the service they manage,
- * which runs without the location overrides whatever the invoking shell sets.
+ * Paths for the install commands (service, update, uninstall). They come from
+ * the base dir alone so they agree with the service they manage, which runs
+ * without the location overrides whatever the invoking shell sets. Creates
+ * nothing on disk.
  */
-export const resolveCliInstallConfig = (
-  flags: { readonly baseDir: Option.Option<string> },
-  cliLogLevel: Option.Option<LogLevel.LogLevel>,
-) => resolveCliAuthConfig(flags, cliLogLevel, { ignoreLocationOverrides: true });
+export const resolveInstallLocations = Effect.fn(function* (flags: {
+  readonly baseDir: Option.Option<string>;
+}) {
+  const { baseDir, derivedPaths } = yield* resolveServerLocations(flags, {
+    devUrl: undefined,
+    ignoreLocationOverrides: true,
+  });
+  return { ...derivedPaths, baseDir };
+});
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
 
