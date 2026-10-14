@@ -14,6 +14,7 @@ import {
   resolveDesktopClientPaths,
   resolveDesktopStateDir,
   type JoinPath,
+  type ResolvePath,
 } from "./DesktopStatePaths.ts";
 
 interface EarlyDesktopSettingsInput {
@@ -21,6 +22,7 @@ interface EarlyDesktopSettingsInput {
   readonly clientDirSwitch: string | null;
   readonly homeDirectory: string;
   readonly joinPath: JoinPath;
+  readonly resolvePath: ResolvePath;
   readonly readFileString: (path: string) => string;
 }
 
@@ -66,9 +68,11 @@ function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): stri
   });
   return resolveDesktopClientPaths({
     stateDir,
+    homeDirectory: input.homeDirectory,
     clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
     clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
     joinPath: input.joinPath,
+    resolvePath: input.resolvePath,
   }).desktopSettingsPath;
 }
 
