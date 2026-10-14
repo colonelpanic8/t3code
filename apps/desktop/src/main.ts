@@ -152,9 +152,13 @@ const layerDesktopFoundation = Layer.mergeAll(
   DesktopClientSettings.layer,
   DesktopConnectionCatalogStore.layer.pipe(Layer.provideMerge(DesktopSavedEnvironments.layer)),
   DesktopAssets.layer,
-  DesktopObservability.layer,
   DesktopRendererHistory.layer,
-).pipe(Layer.provideMerge(layerDesktopEnvironment));
+).pipe(
+  // Provided rather than merged so logs and spans emitted while the layers
+  // above are built reach the configured loggers and tracer.
+  Layer.provideMerge(DesktopObservability.layer),
+  Layer.provideMerge(layerDesktopEnvironment),
+);
 
 const layerDesktopSsh = layerDesktopSshEnvironment.pipe(
   Layer.provideMerge(DesktopSshPasswordPrompts.layer()),
