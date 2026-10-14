@@ -39,6 +39,19 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("reads server settings from the server config dir override", () =>
+    Effect.gen(function* () {
+      const relative = yield* makeEnvironment({}, { T3CODE_SERVER_CONFIG_DIR: "config" });
+      assert.equal(relative.serverSettingsPath, "/repo/config/settings.json");
+      const home = yield* makeEnvironment(
+        { isPackaged: true },
+        { T3CODE_SERVER_CONFIG_DIR: "~/c" },
+      );
+      assert.equal(home.serverSettingsPath, "/Users/alice/c/settings.json");
+      assert.equal(home.stateDir, "/Users/alice/.t3/userdata");
+    }),
+  );
+
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(
