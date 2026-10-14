@@ -1,4 +1,4 @@
-import { ClientSettingsPatch, ClientSettingsSchema } from "@t3tools/contracts";
+import { ClientSettingsPatch, ClientSettingsSchema, KeybindingRule } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -37,5 +37,15 @@ export const getManagedClientSettings = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.clientSettings.getManaged")(function* () {
     const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
     return yield* clientSettings.getManaged;
+  }),
+});
+
+export const getManagedKeybindings = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GET_MANAGED_KEYBINDINGS_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Array(KeybindingRule),
+  handler: Effect.fn("desktop.ipc.clientSettings.getManagedKeybindings")(function* () {
+    const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
+    return yield* clientSettings.getManagedKeybindings;
   }),
 });

@@ -183,9 +183,10 @@ reinstalls and cannot drift. Point these variables at read-only files:
 - `T3CODE_MANAGED_SETTINGS_FILE`, read by the server: same format as its
   `settings.json`. Nested objects merge key by key; anything else replaces the
   value, and keys you leave out stay editable.
-- `T3CODE_MANAGED_KEYBINDINGS_FILE`, read by the server: same format as
-  `keybindings.json`. A managed rule replaces your rules for the same command or
-  the same shortcut.
+- `T3CODE_MANAGED_KEYBINDINGS_FILE`, read by the server and the desktop app:
+  same format as `keybindings.json`. A managed rule replaces your rules for the
+  same command or the same shortcut. The desktop app layers it over whichever
+  environment it uses, so a client-only desktop gets these bindings too.
 - `T3CODE_MANAGED_CLIENT_SETTINGS_FILE`, read by the desktop app: top-level
   client settings such as fonts, diff layout, or confirmations.
 

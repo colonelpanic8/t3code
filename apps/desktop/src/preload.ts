@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),
   getManagedClientSettings: () =>
     ipcRenderer.invoke(IpcChannels.GET_MANAGED_CLIENT_SETTINGS_CHANNEL),
+  getManagedKeybindings: () => ipcRenderer.invoke(IpcChannels.GET_MANAGED_KEYBINDINGS_CHANNEL),
   requestSnapShotPermissions: (includeAccessibility) =>
     ipcRenderer.invoke(IpcChannels.REQUEST_SNAP_SHOT_PERMISSIONS_CHANNEL, includeAccessibility),
   getSnapShotState: () => ipcRenderer.invoke(IpcChannels.GET_SNAP_SHOT_STATE_CHANNEL),
