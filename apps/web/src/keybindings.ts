@@ -1,4 +1,5 @@
 import {
+  type ComposerShortcutHintsTrigger,
   type KeybindingCommand,
   type KeybindingShortcut,
   type KeybindingWhenNode,
@@ -287,20 +288,33 @@ export const COMPOSER_CONTROL_HINT_COMMANDS = [
   "composer.branch",
 ] as const satisfies ReadonlyArray<KeybindingCommand>;
 
-/** Label for `command`'s binding whose modifiers are exactly the held ones. */
+/**
+ * Label for `command` while `modifiers` are held. `auto` shows the binding
+ * whose modifiers are exactly the held ones; `alt` shows on a lone Alt hold,
+ * preferring an Alt binding and falling back to the command's first shortcut.
+ */
 export function composerControlHintLabel(
   command: KeybindingCommand,
   modifiers: ShortcutModifierStateLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
+  trigger: ComposerShortcutHintsTrigger = "auto",
 ): string | null {
-  if (resolveContext(options).terminalFocus) return null;
-  if (!modifiers.metaKey && !modifiers.ctrlKey && !modifiers.altKey) return null;
+  if (trigger === "off" || resolveContext(options).terminalFocus) return null;
+  if (trigger === "alt") {
+    if (!modifiers.altKey || modifiers.ctrlKey || modifiers.metaKey || modifiers.shiftKey) {
+      return null;
+    }
+  } else if (!modifiers.metaKey && !modifiers.ctrlKey && !modifiers.altKey) {
+    return null;
+  }
 
   const platform = resolvePlatform(options);
-  const shortcut = effectiveShortcutsForCommand(keybindings, command, options).find((candidate) =>
-    matchesKeybindingShortcutModifiers(modifiers, candidate, platform),
-  );
+  const shortcuts = effectiveShortcutsForCommand(keybindings, command, options);
+  const shortcut =
+    shortcuts.find((candidate) =>
+      matchesKeybindingShortcutModifiers(modifiers, candidate, platform),
+    ) ?? (trigger === "alt" ? shortcuts[0] : undefined);
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
 }
 
@@ -308,9 +322,11 @@ export function shouldShowComposerControlHintsForModifiers(
   modifiers: ShortcutModifierStateLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
+  trigger: ComposerShortcutHintsTrigger = "auto",
 ): boolean {
   return COMPOSER_CONTROL_HINT_COMMANDS.some(
-    (command) => composerControlHintLabel(command, modifiers, keybindings, options) !== null,
+    (command) =>
+      composerControlHintLabel(command, modifiers, keybindings, options, trigger) !== null,
   );
 }
 
