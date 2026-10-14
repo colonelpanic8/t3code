@@ -2215,3 +2215,233 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 });
+
+const layerSharedServerSettings = () =>
+  ServerSettingsModule.layer.pipe(
+    Layer.provideMerge(ServerSecretStore.layer),
+    Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+    Layer.provideMerge(
+      Layer.effect(
+        ServerConfig.ServerConfig,
+        Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          const path = yield* Path.Path;
+          return {
+            ...config,
+            sharedSettingsPath: path.join(config.baseDir, "dotfiles", "t3code-settings.json"),
+          };
+        }),
+      ).pipe(
+        Layer.provide(
+          Layer.fresh(
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3code-shared-settings-test-" }),
+          ),
+        ),
+      ),
+    ),
+  );
+
+const writeSharedSettings = (contents: unknown) =>
+  Effect.gen(function* () {
+    const { sharedSettingsPath } = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fs.makeDirectory(path.dirname(sharedSettingsPath!), { recursive: true });
+    const raw = typeof contents === "string" ? contents : JSON.stringify(contents, null, 2);
+    yield* writeFileStringAtomically({ filePath: sharedSettingsPath!, contents: raw });
+    return raw;
+  });
+
+const SHARED_SETTINGS = {
+  defaultAutoPull: true,
+  worktreesDirectory: "/shared/worktrees",
+  responseStreamingMode: "turn",
+  automaticGitFetchInterval: 600_000,
+  observability: { otlpTracesUrl: "http://collector.test:4318/v1/traces" },
+  favorites: [{ provider: "codex", model: "gpt-5" }],
+  providerInstances: {
+    codex_work: {
+      driver: "codex",
+      environment: [
+        { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true },
+        { name: "OPENAI_BASE_URL", value: "https://llm.example.test", sensitive: false },
+      ],
+      config: { binaryPath: "/opt/codex/bin/codex", enabled: true },
+    },
+  },
+  sourceControlHosts: {
+    bitbucket: { email: "shared@example.com", accessToken: "bb-shared" },
+    github: { tokens: { "github.com": "ghp_shared" } },
+  },
+  projectSettingsFolded: true,
+};
+
+it.layer(NodeServices.layer)("shared server settings", (it) => {
+  it.effect("applies the shared file beneath settings.json", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings(SHARED_SETTINGS);
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ worktreesDirectory: "/local/worktrees" }),
+      );
+
+      const settings = yield* service.getSettings;
+
+      assert.isTrue(settings.defaultAutoPull);
+      assert.equal(settings.responseStreamingMode, "turn");
+      assert.equal(settings.worktreesDirectory, "/local/worktrees");
+      assert.equal(settings.observability.otlpTracesUrl, "http://collector.test:4318/v1/traces");
+      assert.equal(
+        settings.providerInstances[ProviderInstanceId.make("codex_work")]?.environment?.[0]?.value,
+        "sk-shared",
+      );
+      assert.equal(settings.sourceControlHosts.bitbucket?.accessToken, "bb-shared");
+      // A migration marker in the shared file does not stand in for this machine's fold.
+      assert.isFalse(settings.projectSettingsFolded);
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("writes only the patched key to settings.json and never the shared file", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const secrets = yield* ServerSecretStore.ServerSecretStore;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const sharedRaw = yield* writeSharedSettings(SHARED_SETTINGS);
+
+      const forClient = ServerSettingsModule.redactServerSettingsForClient(
+        yield* service.getSettings,
+      );
+      yield* service.updateSettings({ enableAgentBrowserAccess: false });
+      // Clients echo whole maps back with secrets redacted.
+      const updated = yield* service.updateSettings({
+        providerInstances: forClient.providerInstances,
+        sourceControlHosts: forClient.sourceControlHosts,
+      });
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        enableAgentBrowserAccess: false,
+      });
+      assert.equal(yield* fs.readFileString(config.sharedSettingsPath!), sharedRaw);
+      assert.isTrue(
+        Option.isNone(
+          yield* secrets.get(
+            sourceControlHostSecretName({
+              kind: "bitbucket",
+              field: "accessToken",
+              serverHost: null,
+            }),
+          ),
+        ),
+      );
+      assert.isTrue(updated.defaultAutoPull);
+      assert.equal(
+        updated.providerInstances[ProviderInstanceId.make("codex_work")]?.environment?.[0]?.value,
+        "sk-shared",
+      );
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("keeps a value set back to its default when the shared file differs", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        defaultAutoPull: true,
+        worktreesDirectory: "/shared/worktrees",
+      });
+
+      const updated = yield* service.updateSettings({ defaultAutoPull: false });
+      assert.isFalse(updated.defaultAutoPull);
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultAutoPull: false,
+      });
+
+      // Reloading from disk keeps the local value over the shared one.
+      yield* service.start;
+      const reloaded = yield* service.getSettings;
+      assert.isFalse(reloaded.defaultAutoPull);
+      assert.equal(reloaded.worktreesDirectory, "/shared/worktrees");
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("migrates settings.json without copying shared values into it", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const sharedRaw = yield* writeSharedSettings(SHARED_SETTINGS);
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ providers: { codex: { binaryPath: "/usr/local/bin/codex" } } }),
+      );
+
+      const settings = yield* service.getSettings;
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        providerInstances: {
+          codex: { driver: "codex", config: { binaryPath: "/usr/local/bin/codex" } },
+        },
+      });
+      assert.equal(yield* fs.readFileString(config.sharedSettingsPath!), sharedRaw);
+      assert.isTrue(settings.defaultAutoPull);
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("codex_work")], {
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+        environment: [
+          { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true },
+          { name: "OPENAI_BASE_URL", value: "https://llm.example.test", sensitive: false },
+        ],
+        config: { binaryPath: "/opt/codex/bin/codex" },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("ignores a malformed shared file and leaves settings.json untouched", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings('{"defaultAutoPull": tru');
+      const local = JSON.stringify({
+        worktreesDirectory: "/local/worktrees",
+        providers: { codex: { binaryPath: "/usr/local/bin/codex" } },
+      });
+      yield* fs.writeFileString(config.settingsPath, local);
+
+      const settings = yield* service.getSettings;
+
+      assert.isFalse(settings.defaultAutoPull);
+      assert.isFalse(settings.continueThreadsAfterServerUpdate);
+      assert.equal(settings.worktreesDirectory, "/local/worktrees");
+      assert.equal(yield* fs.readFileString(config.settingsPath), local);
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("reloads when the shared file changes and survives a malformed edit", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* writeSharedSettings({ defaultAutoPull: false });
+        yield* service.start;
+        const changes = yield* service.subscribeChanges;
+
+        yield* writeSharedSettings({ defaultAutoPull: true });
+        const change = yield* changes.pipe(Stream.runHead, Effect.timeout("2 seconds"));
+        assert.isTrue(Option.getOrUndefined(change)?.defaultAutoPull);
+
+        yield* writeSharedSettings('{"defaultAutoPull": tru');
+        const broken = yield* changes.pipe(Stream.runHead, Effect.timeout("2 seconds"));
+        assert.isFalse(Option.getOrUndefined(broken)?.defaultAutoPull);
+
+        yield* writeSharedSettings({ defaultAutoPull: true });
+        const repaired = yield* changes.pipe(Stream.runHead, Effect.timeout("2 seconds"));
+        assert.isTrue(Option.getOrUndefined(repaired)?.defaultAutoPull);
+      }),
+    ).pipe(TestClock.withLive, Effect.provide(layerSharedServerSettings())),
+  );
+});

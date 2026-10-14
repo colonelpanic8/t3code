@@ -45,6 +45,20 @@ for an independent server.
 To try T3 Code once without installing it, run `npx t3@latest` instead (needs
 Node.js for `npx`).
 
+### Share settings across machines
+
+To keep server settings in a dotfiles repository, start the server with
+`--server-shared-settings-file <path>` or set `T3CODE_SERVER_SHARED_SETTINGS_FILE`.
+The file uses the same format as the server's `settings.json`. T3 Code reads it
+but never writes to it. Changes you make in Settings are saved to that machine's
+`settings.json` and override the shared file for those settings only. Every
+other setting follows the shared file, including later edits to it.
+
+A setting you change back to the shared file's value stops overriding it. Entries
+the shared file adds, such as provider instances, can be edited on one machine
+but not removed there. If the shared file cannot be read or parsed, T3 Code logs
+a warning and ignores it until it is fixed.
+
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To

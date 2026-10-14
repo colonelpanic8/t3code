@@ -39,6 +39,7 @@ const minimalDesktopFlags = (baseDir: string) => ({
   logWebSocketEvents: Option.none<boolean>(),
   tailscaleServeEnabled: Option.none<boolean>(),
   tailscaleServePort: Option.none<number>(),
+  sharedSettingsFile: Option.none(),
 });
 
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
@@ -160,6 +161,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: Option.none<boolean>(),
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
+        sharedSettingsFile: Option.none(),
       };
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromEnv({
@@ -185,6 +187,60 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("resolves the shared settings file, preferring the flag over the environment", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-shared-settings-" });
+      const sharedFromFlag = path.join(baseDir, "dotfiles", "t3code.json");
+      yield* fs.makeDirectory(path.dirname(sharedFromFlag), { recursive: true });
+      yield* fs.writeFileString(
+        sharedFromFlag,
+        JSON.stringify({ observability: { otlpTracesUrl: "http://collector.test/v1/traces" } }),
+      );
+      const flags = {
+        mode: Option.some("web" as const),
+        port: Option.some(8788),
+        host: Option.none<string>(),
+        baseDir: Option.some(baseDir),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+        sharedSettingsFile: Option.none<string>(),
+      };
+      const layerConfig = ConfigProvider.layer(
+        ConfigProvider.fromEnv({
+          env: { T3CODE_SERVER_SHARED_SETTINGS_FILE: path.join(baseDir, "from-env.json") },
+        }),
+      );
+      const provide = Effect.provide(Layer.mergeAll(layerConfig, NetService.layer));
+
+      const fromEnv = yield* resolveServerConfig(flags, Option.none()).pipe(provide);
+      const fromFlag = yield* resolveServerConfig(
+        { ...flags, sharedSettingsFile: Option.some(sharedFromFlag) },
+        Option.none(),
+      ).pipe(provide);
+      const off = yield* resolveServerConfig(flags, Option.none()).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(fromEnv.sharedSettingsPath).toBe(path.join(baseDir, "from-env.json"));
+      expect(fromFlag.sharedSettingsPath).toBe(sharedFromFlag);
+      expect(fromFlag.otlpTracesUrl).toBe("http://collector.test/v1/traces");
+      expect("sharedSettingsPath" in off).toBe(false);
+    }),
+  );
+
   it.effect("does not expose an invalid reusable auth token", () =>
     Effect.gen(function* () {
       const secret = "short-secret";
@@ -204,6 +260,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: Option.none<boolean>(),
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
+        sharedSettingsFile: Option.none(),
       };
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromEnv({ env: { T3CODE_DEV_AUTH_TOKEN: secret } }),
@@ -251,6 +308,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -324,6 +382,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.some(true),
           tailscaleServeEnabled: Option.some(true),
           tailscaleServePort: Option.some(8443),
+          sharedSettingsFile: Option.none(),
         },
         Option.some("Debug"),
       ).pipe(
@@ -402,6 +461,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.some(false),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -482,6 +542,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -581,6 +642,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -642,6 +704,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.some("Debug"),
       ).pipe(
@@ -718,6 +781,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -789,6 +853,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -837,6 +902,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -877,6 +943,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
         {
@@ -939,6 +1006,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -982,6 +1050,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -1027,6 +1096,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -1067,6 +1137,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -1099,6 +1170,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     logWebSocketEvents: Option.none<boolean>(),
     tailscaleServeEnabled: Option.none<boolean>(),
     tailscaleServePort: Option.none<number>(),
+    sharedSettingsFile: Option.none(),
   });
 
   it.effect(
