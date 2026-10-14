@@ -95,7 +95,9 @@ const registered = registration as Layer.Layer<
   Exclude<Layer.Services<typeof registration>, VoiceMcpInvocationContext.VoiceMcpInvocationContext>
 >;
 
-export const layer = registered.pipe(
-  Layer.provide(VoiceToolkitHandlersLive),
-  Layer.provideMerge(VoiceMcpTransportLive),
+// `McpServer.toolkit` and `McpServer.layerHttp` both build the one global
+// `McpServer.layer`, so in a shared memo map /mcp and /mcp/voice would serve a
+// single registry. A fresh memo map gives this transport its own.
+export const layer = Layer.fresh(
+  registered.pipe(Layer.provide(VoiceToolkitHandlersLive), Layer.provide(VoiceMcpTransportLive)),
 );
