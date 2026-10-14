@@ -69,6 +69,14 @@ it("survives the kernel OOM-killing a greedy agent child", () => {
   expect(unit).toContain("OOMPolicy=continue");
 });
 
+it("keeps server location overrides from the user manager out of the unit", () => {
+  const unit = BootService.renderBootServiceUnit(linuxPlan);
+
+  expect(unit).toContain(
+    "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR\n",
+  );
+});
+
 const macRuntime = "/Users/theo/.t3/runtime/versions/1.2.3/t3";
 const macPlan = {
   program: [macRuntime, "__service-launcher"],
@@ -93,6 +101,22 @@ it("preserves the installer's provider search path in the launch agent", () => {
   const plist = BootService.renderBootServicePlist(macPlan, macRenderOptions);
 
   expect(plist).toContain(`    <key>PATH</key>\n    <string>${macInstallerPath}</string>`);
+});
+
+it("blanks server location overrides from launchctl setenv in the launch agent", () => {
+  const plist = BootService.renderBootServicePlist(macPlan, macRenderOptions);
+
+  expect(plist).toContain(
+    [
+      "    <key>T3CODE_SERVER_CONFIG_DIR</key>",
+      "    <string></string>",
+      "    <key>T3CODE_SERVER_DATA_DIR</key>",
+      "    <string></string>",
+      "    <key>T3CODE_SERVER_CACHE_DIR</key>",
+      "    <string></string>",
+      "  </dict>",
+    ].join("\n"),
+  );
 });
 
 it("restarts the launch agent on the systemd cadence", () => {

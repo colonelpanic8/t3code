@@ -15,7 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { Argument, Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { Argument, Command, Flag, Prompt } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -29,7 +29,7 @@ import {
 import { compareExactServiceVersions, isExactServiceVersion } from "../cloud/serviceProtocol.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { installLocationFlags, resolveCliInstallConfig } from "./config.ts";
+import { installLocationFlags, resolveInstallLocations } from "./config.ts";
 import { createUpdateProgress } from "./updateProgress.ts";
 import * as CliService from "./service.ts";
 
@@ -234,8 +234,7 @@ export const updateCommand = Command.make("update", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveCliInstallConfig(flags, logLevel);
+      const config = yield* resolveInstallLocations(flags);
       return yield* runUpdate({
         baseDir: config.baseDir,
         logsDir: config.logsDir,
