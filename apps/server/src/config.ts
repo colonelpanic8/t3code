@@ -15,6 +15,7 @@ import * as LogLevel from "effect/LogLevel";
 import * as Path from "effect/Path";
 import type * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import type { T3StorageLayout } from "@t3tools/shared/storagePaths";
 
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
 import { DEFAULT_SIGNAL_EXPORT, type SignalExport } from "@t3tools/shared/observability";
@@ -33,13 +34,16 @@ export type StartupPresentation = typeof StartupPresentation.Type;
  * overrides. Consumers read the leaf paths.
  */
 export interface ServerDerivedPaths {
+  readonly layout: T3StorageLayout;
   /** Settings, keybindings, and themes. */
   readonly configDir: string;
-  /** Database, identity, secrets, attachments, and logs. */
+  /** Attachments, browser artifacts, and worktrees; everything in `stateDir` too unless split. */
   readonly dataDir: string;
   readonly cacheDir: string;
-  /** Same directory as `dataDir`. */
+  /** Database, identity, secrets, and logs. Same directory as `dataDir` unless split. */
   readonly stateDir: string;
+  /** Holds server-runtime.json. Same directory as `dataDir` unless split. */
+  readonly runtimeDir: string;
   readonly dbPath: string;
   readonly keybindingsConfigPath: string;
   readonly settingsPath: string;
@@ -68,8 +72,15 @@ export interface ServerLocationOverrides {
   readonly cacheDir?: string | undefined;
 }
 
+/** The split layout's own state and runtime roots, which the legacy layout keeps in the data dir. */
+export interface SplitStorageRoots {
+  readonly stateDir: string;
+  readonly runtimeDir: string;
+}
+
 export interface DeriveServerPathsOptions extends ServerLocationOverrides {
   readonly baseDirIsExplicit?: boolean;
+  readonly split?: SplitStorageRoots | undefined;
 }
 
 /**
@@ -162,20 +173,25 @@ export const deriveServerPaths = Effect.fn(function* (
   const configDir = options.configDir ?? legacyStateDir;
   const dataDir = options.dataDir ?? legacyStateDir;
   const cacheDir = options.cacheDir ?? join(baseDir, "caches");
-  const dbPath = join(dataDir, "statev2.sqlite");
+  const stateDir = options.split?.stateDir ?? dataDir;
+  const runtimeDir = options.split?.runtimeDir ?? dataDir;
+  const dbPath = join(stateDir, "statev2.sqlite");
   const attachmentsDir = join(dataDir, "attachments");
-  const logsDir = join(dataDir, "logs");
+  const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
   return {
+    layout: options.split === undefined ? "legacy" : "split",
     configDir,
     dataDir,
     cacheDir,
-    stateDir: dataDir,
+    stateDir,
+    runtimeDir,
     dbPath,
     keybindingsConfigPath: join(configDir, "keybindings.json"),
     settingsPath: join(configDir, "settings.json"),
     environmentThemesDir: join(configDir, "themes"),
-    providerStatusCacheDir: cacheDir,
+    providerStatusCacheDir:
+      options.split === undefined ? cacheDir : join(cacheDir, "provider-status"),
     // Worktrees sit beside userdata by default, so they follow only an explicit data dir.
     worktreesDir: join(options.dataDir ?? baseDir, "worktrees"),
     attachmentsDir,
@@ -185,10 +201,10 @@ export const deriveServerPaths = Effect.fn(function* (
     providerLogsDir,
     providerEventLogPath: join(providerLogsDir, "events.log"),
     terminalLogsDir: join(logsDir, "terminals"),
-    anonymousIdPath: join(dataDir, "anonymous-id"),
-    environmentIdPath: join(dataDir, "environment-id"),
-    serverRuntimeStatePath: join(dataDir, "server-runtime.json"),
-    secretsDir: join(dataDir, "secrets"),
+    anonymousIdPath: join(stateDir, "anonymous-id"),
+    environmentIdPath: join(stateDir, "environment-id"),
+    serverRuntimeStatePath: join(runtimeDir, "server-runtime.json"),
+    secretsDir: join(stateDir, "secrets"),
   };
 });
 

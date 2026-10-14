@@ -11,11 +11,16 @@ import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { installLocationFlags, resolveInstallLocations } from "./config.ts";
+import { installLocationFlags, resolveInstallLocations, type ServerStorage } from "./config.ts";
 
-export const layer = (config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir">) =>
+export const layer = (
+  config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir"> & {
+    readonly storage: ServerStorage;
+  },
+) =>
   BootService.layer({
     baseDir: config.baseDir,
+    ...(config.storage.layout === "split" ? { storageRoots: config.storage.roots } : {}),
     logsDir: config.logsDir,
     cliVersion: packageJson.version,
   }).pipe(
