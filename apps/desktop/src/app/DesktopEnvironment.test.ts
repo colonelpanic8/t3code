@@ -166,6 +166,26 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("expands ~ in --client-dir against the home directory", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({ clientDirSwitch: "~/c" });
+
+      assert.equal(environment.clientConfigDir, "/Users/alice/c");
+      assert.equal(environment.desktopSettingsPath, "/Users/alice/c/desktop-settings.json");
+    }),
+  );
+
+  it.effect("resolves a relative T3CODE_CLIENT_DIR against the working directory", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({}, { T3CODE_CLIENT_DIR: "t3-client" });
+
+      assert.equal(
+        environment.desktopSettingsPath,
+        `${process.cwd()}/t3-client/desktop-settings.json`,
+      );
+    }),
+  );
+
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({
