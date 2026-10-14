@@ -11,7 +11,7 @@ import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { installLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { installLocationFlags, resolveCliInstallConfig } from "./config.ts";
 
 export const layer = (config: ServerConfig.ServerConfig["Service"]) =>
   BootService.layer({
@@ -102,11 +102,11 @@ export function formatServiceStatus(
 }
 
 const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E>(
-  flags: { readonly baseDir: Parameters<typeof resolveCliAuthConfig>[0]["baseDir"] },
+  flags: { readonly baseDir: Parameters<typeof resolveCliInstallConfig>[0]["baseDir"] },
   run: Effect.Effect<A, E, BootService.BootService>,
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliAuthConfig(flags, logLevel);
+  const config = yield* resolveCliInstallConfig(flags, logLevel);
   return yield* run.pipe(Effect.provide(layer(config)));
 });
 
