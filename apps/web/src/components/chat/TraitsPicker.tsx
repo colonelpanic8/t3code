@@ -214,6 +214,83 @@ function getSelectedTraits(
   };
 }
 
+export interface TraitsSelectChange {
+  nextPrompt: string | null;
+  nextDescriptors: ReadonlyArray<ProviderOptionDescriptor> | null;
+}
+
+/**
+ * Decides how choosing `value` for a select trait changes the prompt and model
+ * options. Prompt-injected values (Claude's ultrathink) live in the prompt
+ * prefix rather than in the options.
+ */
+function resolveTraitsSelectChange(input: {
+  descriptors: ReadonlyArray<ProviderOptionDescriptor>;
+  primarySelectDescriptor: Extract<ProviderOptionDescriptor, { type: "select" }> | null;
+  ultrathinkPromptControlled: boolean;
+  ultrathinkInBodyText: boolean;
+  prompt: string;
+  descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>;
+  value: string;
+}): TraitsSelectChange {
+  const { descriptor, prompt, value } = input;
+  if (!value) return { nextPrompt: null, nextDescriptors: null };
+  if (descriptor.promptInjectedValues?.includes(value)) {
+    return {
+      nextPrompt:
+        prompt.trim().length === 0
+          ? ULTRATHINK_PROMPT_PREFIX
+          : applyClaudePromptEffortPrefix(prompt, "ultrathink"),
+      nextDescriptors: null,
+    };
+  }
+  const isPrimary = descriptor.id === input.primarySelectDescriptor?.id;
+  if (input.ultrathinkInBodyText && isPrimary) return { nextPrompt: null, nextDescriptors: null };
+  return {
+    nextPrompt:
+      input.ultrathinkPromptControlled && isPrimary ? prompt.replace(/^Ultrathink:\s*/i, "") : null,
+    nextDescriptors: replaceDescriptorCurrentValue(input.descriptors, descriptor.id, value),
+  };
+}
+
+/**
+ * Applies a reasoning effort to the model's primary select trait exactly as
+ * choosing it in the traits picker would. Returns null when the picker would
+ * not offer that effort.
+ */
+export function resolveReasoningEffortChange(input: {
+  provider: ProviderDriverKind;
+  models: ReadonlyArray<ServerProviderModel>;
+  model: string | null | undefined;
+  prompt: string;
+  modelOptions: ProviderOptions | null | undefined;
+  planModeEnabled: boolean;
+  effort: string;
+}): TraitsSelectChange | null {
+  const selected = getSelectedTraits(
+    input.provider,
+    input.models,
+    input.model,
+    input.prompt,
+    input.modelOptions,
+    true,
+    input.planModeEnabled,
+  );
+  const descriptor = selected.primarySelectDescriptor;
+  if (
+    selected.modelIsUnavailable ||
+    !descriptor?.options.some((option) => option.id === input.effort)
+  ) {
+    return null;
+  }
+  return resolveTraitsSelectChange({
+    ...selected,
+    prompt: input.prompt,
+    descriptor,
+    value: input.effort,
+  });
+}
+
 function getTraitsSectionVisibility(input: {
   provider: ProviderDriverKind;
   models: ReadonlyArray<ServerProviderModel>;
@@ -343,21 +420,17 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     descriptor: Extract<ProviderOptionDescriptor, { type: "select" }>,
     value: string,
   ) => {
-    if (!value) return;
-    if (descriptor.promptInjectedValues?.includes(value)) {
-      const nextPrompt =
-        prompt.trim().length === 0
-          ? ULTRATHINK_PROMPT_PREFIX
-          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
-      onPromptChange(nextPrompt);
-      return;
-    }
-    if (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) return;
-    if (ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id) {
-      const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
-      onPromptChange(stripped);
-    }
-    updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
+    const change = resolveTraitsSelectChange({
+      descriptors,
+      primarySelectDescriptor,
+      ultrathinkPromptControlled,
+      ultrathinkInBodyText,
+      prompt,
+      descriptor,
+      value,
+    });
+    if (change.nextPrompt !== null) onPromptChange(change.nextPrompt);
+    if (change.nextDescriptors !== null) updateDescriptors(change.nextDescriptors);
   };
 
   if (!hasAnyControls) {
