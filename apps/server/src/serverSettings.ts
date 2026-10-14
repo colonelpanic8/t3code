@@ -62,7 +62,10 @@ export {
 } from "@t3tools/shared/serverSettings";
 
 const encodeServerSettings = Schema.encodeEffect(ServerSettings);
-const encodeServerSettingsJson = Schema.encodeUnknownEffect(fromJsonStringPretty(ServerSettings));
+const encodeServerSettingsDocument = Schema.encodeUnknownEffect(ServerSettings);
+const encodeSettingsDocumentJson = Schema.encodeEffect(
+  fromJsonStringPretty(Schema.Record(Schema.String, Schema.Unknown)),
+);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 
 const textEncoder = new TextEncoder();
@@ -388,10 +391,18 @@ function migrateLegacyProviderSettings(
     if (Array.isArray(blob)) continue;
     const driver = kind;
     const instanceId = defaultInstanceIdForDriver(driver);
-    if (localInstanceIds.has(instanceId)) continue;
-
     const { enabled: rawEnabled, ...config } = blob as Record<string, unknown>;
     const explicitEnabled = typeof rawEnabled === "boolean" ? rawEnabled : undefined;
+    // A blob that adds nothing leaves an inherited entry alone; the loop above
+    // already enabled it if history shows use.
+    if (
+      localInstanceIds.has(instanceId) ||
+      (Object.hasOwn(settings.providerInstances, instanceId) &&
+        Object.keys(config).length === 0 &&
+        explicitEnabled === undefined)
+    ) {
+      continue;
+    }
     const enabled =
       explicitEnabled ??
       (HISTORY_RESTORED_DRIVERS.has(driver) && usedProviders.has(driver) ? true : undefined);
@@ -563,17 +574,24 @@ function restoreDocumentKeys(
  * Sensitive values the shared settings file supplies in plaintext, keyed by
  * secret name, for the entries `settings` still inherits unchanged. An edited
  * entry is saved whole to settings.json, so its secrets must go to the store.
+ * Redacted secrets in `settings` compare by the value `resolvedValues` gives them.
  */
 function inheritedSecretValues(
   settings: ServerSettings,
   baseline: ServerSettings,
+  resolvedValues: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyMap<string, string> {
-  const withoutSecrets = (value: ServerSettings) =>
+  const withPlainSecrets = (value: ServerSettings, stored: ReadonlyMap<string, string>) =>
     mapSettingsSecrets(value, (secret) =>
-      secret.sensitive ? { value: "", redacted: false } : secret,
+      secret.sensitive
+        ? {
+            value: secret.redacted ? (stored.get(secret.secretName) ?? "") : secret.value,
+            redacted: false,
+          }
+        : secret,
     );
-  const ours = withoutSecrets(settings);
-  const theirs = withoutSecrets(baseline);
+  const ours = withPlainSecrets(settings, resolvedValues);
+  const theirs = withPlainSecrets(baseline, new Map());
   const unchanged = <K extends "providerInstances" | "usageLimitSources">(key: K) =>
     Object.fromEntries(
       Object.entries(baseline[key]).filter(([id]) =>
@@ -747,11 +765,18 @@ const make = Effect.gen(function* () {
     function* (settings: ServerSettings, layer: SettingsLayer) {
       const sparse = (stripDefaultServerSettings(settings, layer.baseline) ??
         {}) as SettingsDocument;
-      const sparseSettingsJson = yield* encodeServerSettingsJson(
-        layer.keepLocalKeys
-          ? restoreDocumentKeys(sparse, settings, yield* readLocalDocument)
-          : sparse,
+      const document = layer.keepLocalKeys
+        ? restoreDocumentKeys(sparse, settings, yield* readLocalDocument)
+        : sparse;
+      const encoded = yield* encodeServerSettingsDocument(document);
+      // Some fields encode null as a missing key, which would let the shared value win again.
+      const nulls = Object.keys(document).filter(
+        (key) => document[key] === null && !Object.hasOwn(encoded, key),
       );
+      const sparseSettingsJson = yield* encodeSettingsDocumentJson({
+        ...encoded,
+        ...Object.fromEntries(nulls.map((key) => [key, null])),
+      });
 
       return yield* writeFileStringAtomically({
         filePath: settingsPath,
@@ -1094,13 +1119,55 @@ const make = Effect.gen(function* () {
     next: ServerSettings,
     baseline: ServerSettings,
   ) =>
-    Effect.sync(() => {
-      const inherited = inheritedSecretValues(next, baseline);
+    Effect.gen(function* () {
       const previous = new Map<string, SettingsSecret>();
       mapSettingsSecrets(current, (secret) => {
         previous.set(secret.secretName, secret);
         return secret;
       });
+      const inlineValueOf = (secretName: string) => {
+        const old = previous.get(secretName);
+        return old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
+      };
+      // What each redacted secret holds: its previous inline value, or the stored one where
+      // the shared file supplies that secret, so an entry reverted to shared matches it again.
+      const sharedSecretNames = new Set<string>();
+      mapSettingsSecrets(baseline, (secret) => {
+        if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
+          sharedSecretNames.add(secret.secretName);
+        }
+        return secret;
+      });
+      const resolvable: SettingsSecret[] = [];
+      mapSettingsSecrets(next, (secret) => {
+        if (secret.sensitive && secret.redacted) resolvable.push(secret);
+        return secret;
+      });
+      const resolvedValues = new Map<string, string>();
+      for (const secret of resolvable) {
+        const inline = inlineValueOf(secret.secretName);
+        if (inline !== undefined) {
+          resolvedValues.set(secret.secretName, inline);
+          continue;
+        }
+        if (!sharedSecretNames.has(secret.secretName)) continue;
+        const stored = yield* secretStore.get(secret.secretName).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ServerSettingsError({
+                settingsPath,
+                operation: "read-secret",
+                providerInstanceId: secret.providerInstanceId,
+                environmentVariable: secret.environmentVariable,
+                cause,
+              }),
+          ),
+        );
+        if (Option.isSome(stored)) {
+          resolvedValues.set(secret.secretName, textDecoder.decode(stored.value));
+        }
+      }
+      const inherited = inheritedSecretValues(next, baseline, resolvedValues);
       const changes: SecretChange[] = [];
       const nextSecretNames = new Set<string>();
       const settings = mapSettingsSecrets(next, (secret) => {
@@ -1117,10 +1184,11 @@ const make = Effect.gen(function* () {
           changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
           return { value: secret.value, redacted: false };
         }
-        const old = previous.get(secret.secretName);
-        const inlineValue =
-          old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
-        const value = secret.redacted ? inlineValue : secret.value;
+        const resolved = resolvedValues.get(secret.secretName);
+        const value = !secret.redacted
+          ? secret.value
+          : (inlineValueOf(secret.secretName) ??
+            (inherited.get(secret.secretName) === resolved ? resolved : undefined));
         if (value === undefined) {
           nextSecretNames.add(secret.secretName);
           return { value: "", redacted: true };
