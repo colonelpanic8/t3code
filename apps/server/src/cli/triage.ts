@@ -28,8 +28,14 @@ import { Command, Flag } from "effect/cli";
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { resolveServerLocations, serverLocationFlags } from "./config.ts";
+import {
+  resolveServerConfigFilePath,
+  resolveServerLocations,
+  serverLocationFlags,
+  traceFileConfig,
+} from "./config.ts";
 import { resolveCliCommand } from "./invocation.ts";
+import { readServerConfigFile } from "./serverConfigFile.ts";
 import {
   buildTriageContext,
   buildTriageLaunchPrompt,
@@ -169,6 +175,20 @@ export const triageCommand = Command.make("triage", {
       });
 
       const userdataLogsDir = path.join(baseDir, "userdata", "logs");
+      // A broken server config file is something to triage, not a reason to stop.
+      const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
+      const serverConfig = yield* readServerConfigFile(configFile.path, {
+        explicit: configFile.explicit,
+      }).pipe(
+        Effect.map((file) => ({ traceFile: file.traceFile, description: configFile.path })),
+        Effect.catchTags({
+          ServerConfigFileError: (error) =>
+            Effect.succeed({
+              traceFile: undefined,
+              description: `${configFile.path} (invalid, so the server will not start: ${error.detail})`,
+            }),
+        }),
+      );
 
       const now = yield* DateTime.now;
       const scratchDir = path.join(
@@ -205,7 +225,9 @@ export const triageCommand = Command.make("triage", {
             // DesktopObservability.ts.
             serviceLogPath: path.join(userdataLogsDir, BootService.BOOT_SERVICE_LOG_FILE),
             desktopBackendLogGlob: path.join(userdataLogsDir, "server-child*.log*"),
-            serverTracePath: paths.serverTracePath,
+            serverConfigFile: serverConfig.description,
+            serverTracePath:
+              (yield* traceFileConfig) ?? serverConfig.traceFile ?? paths.serverTracePath,
             providerEventLogPath: paths.providerEventLogPath,
             terminalLogsDir: paths.terminalLogsDir,
             providerStatusCacheDir: paths.providerStatusCacheDir,

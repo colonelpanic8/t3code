@@ -816,7 +816,11 @@ const http = require("node:http");
 const args = process.argv.slice(2);
 fs.appendFileSync(
   process.env.T3_FAKE_RECORD,
-  JSON.stringify({ args, dataDir: process.env.T3CODE_SERVER_DATA_DIR ?? null }) + "\\n",
+  JSON.stringify({
+    args,
+    dataDir: process.env.T3CODE_SERVER_DATA_DIR ?? null,
+    configFile: process.env.T3CODE_SERVER_CONFIG_FILE ?? null,
+  }) + "\\n",
 );
 if (args[0] === "serve") {
   const port = Number(args[args.indexOf("--port") + 1]);
@@ -851,7 +855,7 @@ if (args[0] === "serve") {
     });
 
   it.effect.skipIf(windowsHost)(
-    "pins the server and pairing to ~/.t3 even when the remote exports a data dir",
+    "pins the server and pairing to ~/.t3 even when the remote exports server overrides",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -868,6 +872,7 @@ if (args[0] === "serve") {
           HOME: home,
           T3_FAKE_RECORD: record,
           T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
+          T3CODE_SERVER_CONFIG_FILE: `${root}/elsewhere/server.json`,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
@@ -888,14 +893,23 @@ if (args[0] === "serve") {
         const invocations = (yield* fs.readFileString(record))
           .trim()
           .split("\n")
-          .map((line) => JSON.parse(line) as { args: Array<string>; dataDir: string | null });
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                args: Array<string>;
+                dataDir: string | null;
+                configFile: string | null;
+              },
+          );
         const serve = invocations.find((entry) => entry.args[0] === "serve");
         const pair = invocations.find((entry) => entry.args[0] === "auth");
         assert.deepEqual(serve?.args.slice(-2), ["--base-dir", `${home}/.t3`]);
         assert.isNull(serve?.dataDir);
+        assert.isNull(serve?.configFile);
         assert.deepEqual(pair, {
           args: ["auth", "pairing", "create", "--base-dir", `${home}/.t3`, "--json"],
           dataDir: null,
+          configFile: null,
         });
       }).pipe(Effect.provide(NodeServices.layer)),
     30_000,

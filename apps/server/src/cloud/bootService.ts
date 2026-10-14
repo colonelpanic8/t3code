@@ -89,13 +89,14 @@ export interface BootServicePlan {
 }
 
 /**
- * The service runs from its T3 home alone, so these must not reach it from the
- * user manager or launchd environment.
+ * The service runs from its T3 home and that home's server.json alone, so these
+ * must not reach it from the user manager or launchd environment.
  */
-const SERVER_LOCATION_ENV = [
+const SERVER_OVERRIDE_ENV = [
   "T3CODE_SERVER_CONFIG_DIR",
   "T3CODE_SERVER_DATA_DIR",
   "T3CODE_SERVER_CACHE_DIR",
+  "T3CODE_SERVER_CONFIG_FILE",
 ] as const;
 
 /** Pure renderer: service units cannot rely on the user's shell or PATH. */
@@ -112,7 +113,7 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "WorkingDirectory=%h",
     `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
-    `UnsetEnvironment=${SERVER_LOCATION_ENV.join(" ")}`,
+    `UnsetEnvironment=${SERVER_OVERRIDE_ENV.join(" ")}`,
     `ExecStart=${plan.program.map(quoteSystemdValue).join(" ")}`,
     // Let the launcher mark an explicit stop before it signals the server.
     // systemd still SIGKILLs the whole cgroup if graceful shutdown times out.
@@ -184,7 +185,7 @@ export function renderBootServicePlist(
     `    <key>${BOOT_SERVICE_UNIT_ENV}</key>`,
     `    <string>${BOOT_SERVICE_PLIST_FILE}</string>`,
     // launchd has no unset; the server treats an empty value as unset.
-    ...SERVER_LOCATION_ENV.flatMap((name) => [`    <key>${name}</key>`, `    <string></string>`]),
+    ...SERVER_OVERRIDE_ENV.flatMap((name) => [`    <key>${name}</key>`, `    <string></string>`]),
     `  </dict>`,
     `  <key>WorkingDirectory</key>`,
     `  <string>${escapeXmlText(options.homeDir)}</string>`,
