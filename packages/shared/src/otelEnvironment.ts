@@ -322,7 +322,7 @@ export const resolveSignalEndpoint = (
   otel: OtelEnvironment,
   signal: SignalName,
   t3: { readonly url: string | undefined; readonly export: SignalExport },
-  ...fallbackUrls: ReadonlyArray<string | undefined>
+  ...fallbacks: ReadonlyArray<string | SignalEndpoint | undefined>
 ): SignalEndpoint | undefined => {
   if (otel.disabled) {
     return undefined;
@@ -338,8 +338,15 @@ export const resolveSignalEndpoint = (
     }),
     Off: () => undefined,
     Unset: () => {
-      const url = fallbackUrls.map(blankAsUnset).find((candidate) => candidate !== undefined);
-      return url === undefined ? undefined : { url, export: t3.export };
+      for (const fallback of fallbacks) {
+        const endpoint =
+          typeof fallback === "object" ? fallback : { url: fallback, export: t3.export };
+        const url = blankAsUnset(endpoint.url);
+        if (url !== undefined) {
+          return { url, export: endpoint.export };
+        }
+      }
+      return undefined;
     },
   });
 };
