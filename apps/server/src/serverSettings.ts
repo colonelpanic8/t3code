@@ -49,6 +49,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { normalizeServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as ServerConfig from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
@@ -302,22 +303,23 @@ const PersistedResponseStreamingMode = Schema.Union([
     }),
   ),
 );
-const ServerSettingsJson = fromLenientJson(
-  Schema.Struct({
-    ...ServerSettings.fields,
-    responseStreamingMode: PersistedResponseStreamingMode.pipe(
-      Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
-    ),
-    projectSettingsOverrides: Schema.Record(
-      ProjectId,
-      Schema.Struct({
-        ...ProjectSettingsOverrides.fields,
-        responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
-      }),
-    ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-  }),
+const PersistedServerSettings = Schema.Struct({
+  ...ServerSettings.fields,
+  responseStreamingMode: PersistedResponseStreamingMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
+  ),
+  projectSettingsOverrides: Schema.Record(
+    ProjectId,
+    Schema.Struct({
+      ...ProjectSettingsOverrides.fields,
+      responseStreamingMode: Schema.optionalKey(PersistedResponseStreamingMode),
+    }),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+});
+const decodePersistedServerSettingsExit = Schema.decodeUnknownExit(PersistedServerSettings);
+const decodeSettingsDocumentExit = Schema.decodeUnknownExit(
+  fromLenientJson(Schema.Record(Schema.String, Schema.Unknown)),
 );
-const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson);
 /**
  * The retired `providers.<kind>` map, read without its old schemas. Before
  * `providerInstances` existed each built-in driver had one blob there; it
@@ -533,6 +535,49 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
   return Object.is(current, defaults) ? undefined : current;
 }
 
+type SettingsDocument = Record<string, unknown>;
+
+const isSettingsDocument = (value: unknown): value is SettingsDocument =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The inverse of `stripDefaultServerSettings`: objects merge key by key, while
+ * atomic keys, arrays, and scalars from `top` replace what `base` holds.
+ */
+function layerSettingsDocuments(base: SettingsDocument, top: SettingsDocument): SettingsDocument {
+  const next = { ...base };
+  for (const [key, value] of Object.entries(top)) {
+    const below = next[key];
+    next[key] =
+      !ATOMIC_SETTINGS_KEYS.has(key) && isSettingsDocument(value) && isSettingsDocument(below)
+        ? layerSettingsDocuments(below, value)
+        : value;
+  }
+  return next;
+}
+
+/** Sensitive values the shared settings file supplies in plaintext, keyed by secret name. */
+function inheritedSecretValues(baseline: ServerSettings): ReadonlyMap<string, string> {
+  const values = new Map<string, string>();
+  mapSettingsSecrets(baseline, (secret) => {
+    if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
+      values.set(secret.secretName, secret.value);
+    }
+    return secret;
+  });
+  return values;
+}
+
+interface SettingsState {
+  readonly settings: ServerSettings;
+  /**
+   * What a key missing from settings.json resolves to: the defaults, with the
+   * shared settings file applied when one is configured. settings.json
+   * persists only where `settings` differs from it.
+   */
+  readonly baseline: ServerSettings;
+}
+
 const decodeProjectScriptsJson = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Array(ProjectScript)),
 );
@@ -621,7 +666,7 @@ function foldLegacyProjectSettings(
 }
 
 const make = Effect.gen(function* () {
-  const { settingsPath } = yield* ServerConfig.ServerConfig;
+  const { settingsPath, sharedSettingsPath } = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -660,9 +705,9 @@ const make = Effect.gen(function* () {
   );
 
   const writeSettingsAtomically = Effect.fnUntraced(
-    function* (settings: ServerSettings) {
+    function* (settings: ServerSettings, baseline: ServerSettings) {
       const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, DEFAULT_SERVER_SETTINGS) ?? {},
+        stripDefaultServerSettings(settings, baseline) ?? {},
       );
 
       return yield* writeFileStringAtomically({
@@ -687,11 +732,18 @@ const make = Effect.gen(function* () {
    * Migrate plaintext schema-declared credentials on load. Failed moves stay usable from
    * the file and are retried next time; client redaction does not depend on migration.
    */
-  const moveInlineSettingsSecrets = (settings: ServerSettings) =>
+  const moveInlineSettingsSecrets = (settings: ServerSettings, baseline: ServerSettings) =>
     Effect.gen(function* () {
+      // A secret the shared file supplies stays there; moving it would pin a copy in settings.json.
+      const inherited = inheritedSecretValues(baseline);
       const pending: SettingsSecret[] = [];
       mapSettingsSecrets(settings, (secret) => {
-        if (secret.kind === "field" && !secret.redacted && secret.value.length > 0) {
+        if (
+          secret.kind === "field" &&
+          !secret.redacted &&
+          secret.value.length > 0 &&
+          inherited.get(secret.secretName) !== secret.value
+        ) {
           pending.push(secret);
         }
         return secret;
@@ -716,17 +768,76 @@ const make = Effect.gen(function* () {
       );
     });
 
+  interface SharedSettings {
+    readonly document: SettingsDocument;
+    readonly baseline: ServerSettings;
+    readonly trusted: boolean;
+  }
+
+  // An unusable shared file is ignored the way an unusable settings.json is.
+  const unusableSharedSettings = (cause: unknown) =>
+    Effect.logWarning("failed to read the shared settings file, ignoring it", {
+      path: sharedSettingsPath,
+      cause,
+    }).pipe(
+      Effect.as<SharedSettings>({
+        // It may hold an opt-out we can no longer read; never resume threads on a guess.
+        document: { continueThreadsAfterServerUpdate: false },
+        baseline: { ...DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false },
+        trusted: false,
+      }),
+    );
+
+  /** Read on every load like settings.json, and never written. */
+  const loadSharedSettings = Effect.gen(function* () {
+    if (sharedSettingsPath === undefined) return undefined;
+    if (!(yield* fs.exists(sharedSettingsPath).pipe(Effect.orElseSucceed(() => false)))) {
+      yield* Effect.logWarning("shared settings file not found, ignoring it", {
+        path: sharedSettingsPath,
+      });
+      return { document: {}, baseline: DEFAULT_SERVER_SETTINGS, trusted: true };
+    }
+    const raw = yield* Effect.exit(fs.readFileString(sharedSettingsPath));
+    if (Exit.isFailure(raw)) return yield* unusableSharedSettings(raw.cause);
+    const parsed = decodeSettingsDocumentExit(raw.value);
+    if (Exit.isFailure(parsed)) return yield* unusableSharedSettings(Cause.pretty(parsed.cause));
+    // The fold marker records this machine's migration history, not a preference.
+    const { projectSettingsFolded: _machineLocal, ...document } = parsed.value;
+    const decoded = decodePersistedServerSettingsExit(document);
+    if (Exit.isFailure(decoded)) return yield* unusableSharedSettings(Cause.pretty(decoded.cause));
+    const baseline = yield* Effect.exit(normalizeServerSettings(decoded.value));
+    if (Exit.isFailure(baseline)) return yield* unusableSharedSettings(baseline.cause);
+    return { document, baseline: baseline.value, trusted: true };
+  });
+
   const loadSettingsFromDisk = Effect.gen(function* () {
-    let settings = DEFAULT_SERVER_SETTINGS;
+    const shared = yield* loadSharedSettings;
+    // Every patch stores `backgroundActivity` normalized. Over a shared layer the
+    // loaded settings and the baseline must hold that same form, or each write
+    // would persist the shared value's normalized copy.
+    const normalizeBackgroundActivity = (settings: ServerSettings): ServerSettings =>
+      shared === undefined
+        ? settings
+        : { ...settings, backgroundActivity: normalizeServerBackgroundActivitySettings(settings) };
+    const baseline = normalizeBackgroundActivity(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
+    let settings = baseline;
     let legacyProviders: Readonly<Record<string, unknown>> | undefined;
     let legacySourceControl: Parameters<typeof migrateLegacySourceControlSettings>[1] = {};
     // A file that failed to decode must stay on disk for the user to repair;
     // the fold below only writes when it started from the file's real contents.
-    let settingsFileTrusted = true;
+    // An unusable shared file hides some of those contents too.
+    let settingsFileTrusted = shared?.trusted ?? true;
 
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
-      const decoded = decodeServerSettingsJsonExit(raw);
+      const document = decodeSettingsDocumentExit(raw);
+      const decoded = Exit.isFailure(document)
+        ? Exit.failCause(document.cause)
+        : decodePersistedServerSettingsExit(
+            shared === undefined
+              ? document.value
+              : layerSettingsDocuments(shared.document, document.value),
+          );
       const legacySettings = decodeLegacyProviderSettingsJsonExit(raw);
       if (legacySettings._tag === "Success") {
         legacyProviders = legacySettings.value.providers;
@@ -739,7 +850,7 @@ const make = Effect.gen(function* () {
         const failure = decoded._tag === "Failure" ? decoded : legacySettings;
         settingsFileTrusted = false;
         // The file may hold an opt-out we can no longer read; never resume threads on a guess.
-        settings = { ...DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false };
+        settings = { ...baseline, continueThreadsAfterServerUpdate: false };
         if (failure._tag === "Failure") {
           yield* Effect.logWarning("failed to parse settings.json, using defaults", {
             path: settingsPath,
@@ -748,7 +859,7 @@ const make = Effect.gen(function* () {
           });
         }
       } else {
-        settings = decoded.value;
+        settings = normalizeBackgroundActivity(decoded.value);
       }
     }
 
@@ -838,7 +949,7 @@ const make = Effect.gen(function* () {
       : { settings: folded, secretMoves: [] };
     // Only rewrite a file that decoded cleanly; an untrusted one stays for the user to repair.
     const migrated = settingsFileTrusted
-      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings)
+      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings, baseline)
       : folded;
     // A file still carrying the retired `providers`, `bitbucket`, or `github` keys is rewritten
     // once so the migrated values persist and the old keys disappear.
@@ -847,16 +958,16 @@ const make = Effect.gen(function* () {
       (settingsFileTrusted && legacyProviders !== undefined) ||
       hasLegacySourceControl
     ) {
-      yield* writeSettingsAtomically(migrated);
+      yield* writeSettingsAtomically(migrated, baseline);
       for (const move of sourceControlMigration.secretMoves) {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
     }
-    return migrated;
+    return { settings: migrated, baseline } satisfies SettingsState;
   });
 
   // A failed read is not kept: the next read retries instead of replaying the failure.
-  const settingsCache = yield* Cache.makeWith<typeof cacheKey, ServerSettings, ServerSettingsError>(
+  const settingsCache = yield* Cache.makeWith<typeof cacheKey, SettingsState, ServerSettingsError>(
     () => loadSettingsFromDisk,
     {
       capacity: 1,
@@ -864,7 +975,8 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
+  const getStateFromCache = Cache.get(settingsCache, cacheKey);
+  const getSettingsFromCache = getStateFromCache.pipe(Effect.map((state) => state.settings));
 
   const materializeSettingsSecrets = (
     settings: ServerSettings,
@@ -929,8 +1041,13 @@ const make = Effect.gen(function* () {
     | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
   );
 
-  const persistSettingsSecrets = (current: ServerSettings, next: ServerSettings) =>
+  const persistSettingsSecrets = (
+    current: ServerSettings,
+    next: ServerSettings,
+    baseline: ServerSettings,
+  ) =>
     Effect.sync(() => {
+      const inherited = inheritedSecretValues(baseline);
       const previous = new Map<string, SettingsSecret>();
       mapSettingsSecrets(current, (secret) => {
         // Duplicate environment names follow the provider's last-value-wins behavior.
@@ -961,6 +1078,8 @@ const make = Effect.gen(function* () {
           nextSecretNames.add(secret.secretName);
           return { value: "", redacted: true };
         }
+        // Left inline so the write sees it unchanged from the shared file and omits it.
+        if (inherited.get(secret.secretName) === value) return { value, redacted: false };
         if (value.length === 0) {
           changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
           return { value: "", redacted: false };
@@ -1068,9 +1187,9 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
-        const current = yield* getSettingsFromCache;
+        const { settings: current, baseline } = yield* getStateFromCache;
         const updated = yield* update(current);
-        const persisted = yield* persistSettingsSecrets(current, updated);
+        const persisted = yield* persistSettingsSecrets(current, updated, baseline);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
@@ -1080,7 +1199,7 @@ const make = Effect.gen(function* () {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(materializedExit.cause);
             }
-            const writeExit = yield* Effect.exit(writeSettingsAtomically(next));
+            const writeExit = yield* Effect.exit(writeSettingsAtomically(next, baseline));
             if (Exit.isFailure(writeExit)) {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(writeExit.cause);
@@ -1088,7 +1207,7 @@ const make = Effect.gen(function* () {
             return materializedExit.value;
           }),
         );
-        yield* Cache.set(settingsCache, cacheKey, next);
+        yield* Cache.set(settingsCache, cacheKey, { settings: next, baseline });
         yield* emitChange(next);
         return resolveTextGenerationProvider(materialized);
       }),
@@ -1146,40 +1265,59 @@ const make = Effect.gen(function* () {
     // A symlinked settings file is rewritten in its destination's directory,
     // which a watch on the link's directory never sees. The link is resolved
     // again whenever it changes, so repointing it moves the watch along.
-    const watchLinkTarget = Effect.gen(function* () {
-      const linkTargetPath = yield* resolveSymlinkTarget(settingsPath).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, pathService),
-      );
-      if (linkTargetPath === pathService.resolve(settingsPath)) {
-        return Option.none<string>();
-      }
-      yield* fs
-        .makeDirectory(pathService.dirname(linkTargetPath), { recursive: true })
-        .pipe(Effect.ignore({ log: true }));
-      return Option.some(linkTargetPath);
-    }).pipe(Effect.orElseSucceed(() => Option.none<string>()));
+    const watchSettingsFile = Effect.fnUntraced(function* (
+      filePath: string,
+      options: { readonly prepareLinkTargetDirectory: boolean },
+    ) {
+      const watchLinkTarget = Effect.gen(function* () {
+        const linkTargetPath = yield* resolveSymlinkTarget(filePath).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, pathService),
+        );
+        if (linkTargetPath === pathService.resolve(filePath)) {
+          return Option.none<string>();
+        }
+        if (options.prepareLinkTargetDirectory) {
+          yield* fs
+            .makeDirectory(pathService.dirname(linkTargetPath), { recursive: true })
+            .pipe(Effect.ignore({ log: true }));
+        }
+        return Option.some(linkTargetPath);
+      }).pipe(Effect.orElseSucceed(() => Option.none<string>()));
 
-    const initialLinkTarget = yield* watchLinkTarget;
-    const linkTargetEvents = Stream.make(initialLinkTarget).pipe(
-      Stream.concat(watchFileChanges(settingsPath).pipe(Stream.mapEffect(() => watchLinkTarget))),
-      Stream.changes,
-      Stream.switchMap(
-        Option.match({
-          onNone: () => Stream.empty,
-          onSome: (linkTargetPath) =>
-            watchFileChanges(linkTargetPath).pipe(Stream.ignore({ log: true })),
-        }),
-      ),
-    );
+      const initialLinkTarget = yield* watchLinkTarget;
+      const linkTargetEvents = Stream.make(initialLinkTarget).pipe(
+        Stream.concat(watchFileChanges(filePath).pipe(Stream.mapEffect(() => watchLinkTarget))),
+        Stream.changes,
+        Stream.switchMap(
+          Option.match({
+            onNone: () => Stream.empty,
+            onSome: (linkTargetPath) =>
+              watchFileChanges(linkTargetPath).pipe(Stream.ignore({ log: true })),
+          }),
+        ),
+      );
+      return Stream.merge(watchFileChanges(filePath), linkTargetEvents);
+    });
+
+    const settingsEvents = yield* watchSettingsFile(settingsPath, {
+      prepareLinkTargetDirectory: true,
+    });
+    // Nothing is created for the read-only shared file, and a watch that fails
+    // there must not take the settings.json watch down with it.
+    const sharedSettingsEvents =
+      sharedSettingsPath === undefined
+        ? Stream.empty
+        : (yield* watchSettingsFile(sharedSettingsPath, {
+            prepareLinkTargetDirectory: false,
+          })).pipe(Stream.ignore({ log: true }));
 
     // Debounce watch events so the file is fully written before we read it.
     // Editors emit multiple events per save (truncate, write, rename) and
     // `fs.watch` can fire before the content has been flushed to disk.
-    const debouncedSettingsEvents = Stream.merge(
-      watchFileChanges(settingsPath),
-      linkTargetEvents,
-    ).pipe(Stream.debounce(Duration.millis(100)));
+    const debouncedSettingsEvents = Stream.merge(settingsEvents, sharedSettingsEvents).pipe(
+      Stream.debounce(Duration.millis(100)),
+    );
 
     yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
       Effect.ignoreCause({ log: true }),

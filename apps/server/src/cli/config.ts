@@ -83,6 +83,12 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale-serve is enabled."),
   Flag.optional,
 );
+const sharedSettingsFileFlag = Flag.String("server-shared-settings-file").pipe(
+  Flag.withDescription(
+    "Read-only settings file applied beneath this machine's settings.json, for settings kept in a dotfiles repository (equivalent to T3CODE_SERVER_SHARED_SETTINGS_FILE).",
+  ),
+  Flag.optional,
+);
 
 // Trace file location, shared by the server and `t3 trace summary`.
 export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
@@ -164,6 +170,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  sharedSettingsFile: Config.String("T3CODE_SERVER_SHARED_SETTINGS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
 });
 
 const DevAuthTokenConfig = Config.Redacted("T3CODE_DEV_AUTH_TOKEN").pipe(
@@ -199,6 +209,7 @@ export interface CliServerFlags {
   readonly logWebSocketEvents: Option.Option<boolean>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
   readonly tailscaleServePort: Option.Option<number>;
+  readonly sharedSettingsFile: Option.Option<string>;
 }
 
 export interface CliAuthLocationFlags {
@@ -233,13 +244,14 @@ export const sharedServerCommandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
   tailscaleServeEnabled: tailscaleServeFlag,
   tailscaleServePort: tailscaleServePortFlag,
+  sharedSettingsFile: sharedSettingsFileFlag,
 } as const;
 
 const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
 
-const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
+const readPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const exists = yield* fs.exists(settingsPath).pipe(Effect.orElseSucceed(() => false));
   if (!exists) {
@@ -248,6 +260,20 @@ const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: st
 
   const raw = yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
   return parsePersistedServerObservabilitySettings(raw);
+});
+
+const loadPersistedObservabilitySettings = Effect.fn(function* (
+  settingsPath: string,
+  sharedSettingsPath: string | undefined,
+) {
+  const local = yield* readPersistedObservabilitySettings(settingsPath);
+  if (sharedSettingsPath === undefined) return local;
+  const shared = yield* readPersistedObservabilitySettings(sharedSettingsPath);
+  return {
+    otlpTracesUrl: local.otlpTracesUrl ?? shared.otlpTracesUrl,
+    otlpMetricsUrl: local.otlpMetricsUrl ?? shared.otlpMetricsUrl,
+    otlpLogsUrl: local.otlpLogsUrl ?? shared.otlpLogsUrl,
+  };
 });
 
 export const resolveServerConfig = (
@@ -277,6 +303,7 @@ export const resolveServerConfig = (
       logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
       tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
       tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
+      sharedSettingsFile: flags.sharedSettingsFile ?? Option.none(),
     } satisfies CliServerFlags;
     const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
     const bootstrapEnvelope =
@@ -342,8 +369,19 @@ export const resolveServerConfig = (
     }
     yield* fs.makeDirectory(cwd, { recursive: true });
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
+    const rawSharedSettingsFile = Option.getOrUndefined(
+      resolveOptionPrecedence(
+        normalizedFlags.sharedSettingsFile,
+        Option.fromUndefinedOr(env.sharedSettingsFile),
+      ).pipe(Option.filter((value) => value.trim().length > 0)),
+    );
+    const sharedSettingsPath =
+      rawSharedSettingsFile === undefined
+        ? undefined
+        : path.resolve(yield* expandHomePath(rawSharedSettingsFile.trim()));
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
       derivedPaths.settingsPath,
+      sharedSettingsPath,
     );
     const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
     yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
@@ -479,6 +517,7 @@ export const resolveServerConfig = (
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,
+      ...(sharedSettingsPath === undefined ? {} : { sharedSettingsPath }),
     };
 
     return config;
@@ -502,6 +541,7 @@ export const resolveCliAuthConfig = (
       logWebSocketEvents: Option.none(),
       tailscaleServeEnabled: Option.none(),
       tailscaleServePort: Option.none(),
+      sharedSettingsFile: Option.none(),
     },
     cliLogLevel,
   );
