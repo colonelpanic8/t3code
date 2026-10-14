@@ -59,7 +59,7 @@ const serverDataDirFlag = Flag.String("server-data-dir").pipe(
 );
 const serverCacheDirFlag = Flag.String("server-cache-dir").pipe(
   Flag.withDescription(
-    "Directory for regenerable caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
+    "Directory for provider status caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
   ),
   Flag.optional,
 );
@@ -250,10 +250,17 @@ export const resolveServerLocationOverrides = Effect.fn(function* (flags: CliSer
  * Resolves the base dir (flag, then T3CODE_HOME, then `fallbackBaseDir`, then
  * `~/.t3`) and every server path. Every command that reads or writes server
  * files resolves through here so the CLI and the server agree.
+ *
+ * `ignoreLocationOverrides` derives every path from the base dir alone, as the
+ * background service does, since it records only the base dir.
  */
 export const resolveServerLocations = Effect.fn(function* (
   flags: CliServerLocationFlags,
-  options: { readonly devUrl: URL | undefined; readonly fallbackBaseDir?: string | undefined },
+  options: {
+    readonly devUrl: URL | undefined;
+    readonly fallbackBaseDir?: string | undefined;
+    readonly ignoreLocationOverrides?: boolean | undefined;
+  },
 ) {
   const env = yield* ServerLocationEnv;
   const explicitBaseDir = Option.orElse(flags.baseDir, () => env.t3Home).pipe(
@@ -264,7 +271,7 @@ export const resolveServerLocations = Effect.fn(function* (
   );
   const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, options.devUrl, {
     baseDirIsExplicit: Option.isSome(explicitBaseDir),
-    ...(yield* resolveServerLocationOverrides(flags)),
+    ...(options.ignoreLocationOverrides ? {} : yield* resolveServerLocationOverrides(flags)),
   });
   return { baseDir, derivedPaths };
 });
@@ -349,6 +356,7 @@ export const resolveServerConfig = (
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
+    readonly ignoreLocationOverrides?: boolean;
   },
 ) =>
   Effect.gen(function* () {
@@ -414,6 +422,7 @@ export const resolveServerConfig = (
     const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
       devUrl,
       fallbackBaseDir: bootstrap?.t3Home,
+      ignoreLocationOverrides: options?.ignoreLocationOverrides,
     });
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
@@ -572,6 +581,7 @@ export const resolveServerConfig = (
 export const resolveCliAuthConfig = (
   flags: CliAuthLocationFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
+  options?: { readonly ignoreLocationOverrides?: boolean },
 ) =>
   resolveServerConfig(
     {
@@ -592,7 +602,18 @@ export const resolveCliAuthConfig = (
       tailscaleServePort: Option.none(),
     },
     cliLogLevel,
+    options,
   );
+
+/**
+ * Config for the install commands (service, update, uninstall). They resolve
+ * paths from the base dir alone so they agree with the service they manage,
+ * which runs without the location overrides whatever the invoking shell sets.
+ */
+export const resolveCliInstallConfig = (
+  flags: { readonly baseDir: Option.Option<string> },
+  cliLogLevel: Option.Option<LogLevel.LogLevel>,
+) => resolveCliAuthConfig(flags, cliLogLevel, { ignoreLocationOverrides: true });
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
 
