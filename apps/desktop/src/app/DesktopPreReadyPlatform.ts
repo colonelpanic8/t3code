@@ -31,11 +31,15 @@ function readCommandLineSwitchValue(
   return value.length > 0 ? value : null;
 }
 
+export const readClientDirSwitch = (): string | null =>
+  readCommandLineSwitchValue(Electron.app.commandLine, "client-dir");
+
 export const resolveEarlyLinuxElectronOptionsFromProcess = (
   homeDirectory: string,
 ): DesktopEarlyElectronStartup.EarlyLinuxElectronOptions =>
   DesktopEarlyElectronStartup.resolveEarlyLinuxElectronOptions({
     env: process.env,
+    clientDirSwitch: readClientDirSwitch(),
     homeDirectory,
     joinPath: NodePath.posix.join,
     readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
