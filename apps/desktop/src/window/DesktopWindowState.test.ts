@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -31,11 +32,31 @@ const layerWindowState = (baseDir: string) =>
 // Each call builds fresh services over the same files, like an app restart.
 const startApp = (baseDir: string) =>
   Effect.gen(function* () {
-    const settings = yield* DesktopAppSettings.DesktopAppSettings;
-    const windowState = yield* DesktopWindowState.DesktopWindowState;
-    yield* settings.load;
-    return yield* windowState.load;
+    yield* (yield* DesktopAppSettings.DesktopAppSettings).load;
+    return yield* (yield* DesktopWindowState.DesktopWindowState).get;
   }).pipe(Effect.provide(layerWindowState(baseDir)));
+
+const startAppCapturingLogs = (baseDir: string) =>
+  Effect.gen(function* () {
+    const messages: Array<unknown> = [];
+    const logger = Logger.make(({ message }) => {
+      messages.push(...(Array.isArray(message) ? message : [message]));
+    });
+    const state = yield* Effect.gen(function* () {
+      yield* (yield* DesktopAppSettings.DesktopAppSettings).load;
+      return yield* (yield* DesktopWindowState.DesktopWindowState).get;
+    }).pipe(
+      Effect.provide(
+        layerWindowState(baseDir).pipe(
+          Layer.provide(Logger.layer([logger], { mergeWithExisting: false })),
+        ),
+      ),
+    );
+    return { state, messages };
+  });
+
+const legacySettingsWithWindowState =
+  '{"mainWindowBounds":{"x":120,"y":80,"width":1320,"height":880},"mainWindowMaximized":true}\n';
 
 const withBaseDir = <A, E, R>(f: (baseDir: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
@@ -63,7 +84,6 @@ describe("DesktopWindowState", () => {
         yield* Effect.gen(function* () {
           const windowState = yield* DesktopWindowState.DesktopWindowState;
           yield* (yield* DesktopAppSettings.DesktopAppSettings).load;
-          yield* windowState.load;
           yield* windowState.setMainWindowBounds({ x: 10, y: 20, width: 1200, height: 800 }, false);
           yield* windowState.setMainWindowBounds(
             { x: 300, y: 40, width: 1200, height: 800 },
@@ -107,7 +127,6 @@ describe("DesktopWindowState", () => {
         yield* Effect.gen(function* () {
           const windowState = yield* DesktopWindowState.DesktopWindowState;
           yield* (yield* DesktopAppSettings.DesktopAppSettings).load;
-          yield* windowState.load;
           yield* windowState.setMainWindowBounds(
             { x: 200, y: 90, width: 1320, height: 880 },
             false,
@@ -143,6 +162,111 @@ describe("DesktopWindowState", () => {
           bounds: { x: 40, y: 30, width: 900, height: 700 },
           maximized: false,
         });
+      }),
+    ),
+  );
+
+  it.effect(
+    "saving the legacy window state unchanged does not create desktop-window-state.json",
+    () =>
+      withBaseDir((baseDir) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.writeFileString(
+            `${baseDir}/userdata/desktop-settings.json`,
+            legacySettingsWithWindowState,
+          );
+
+          yield* Effect.gen(function* () {
+            yield* (yield* DesktopAppSettings.DesktopAppSettings).load;
+            yield* (yield* DesktopWindowState.DesktopWindowState).setMainWindowBounds(
+              { x: 120, y: 80, width: 1320, height: 880 },
+              true,
+            );
+          }).pipe(Effect.provide(layerWindowState(baseDir)));
+
+          assert.isFalse(yield* fileSystem.exists(`${baseDir}/userdata/desktop-window-state.json`));
+        }),
+      ),
+  );
+
+  it.effect(
+    "a malformed desktop-window-state.json yields defaults and logs instead of using legacy bounds",
+    () =>
+      withBaseDir((baseDir) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.writeFileString(
+            `${baseDir}/userdata/desktop-settings.json`,
+            legacySettingsWithWindowState,
+          );
+          yield* fileSystem.writeFileString(
+            `${baseDir}/userdata/desktop-window-state.json`,
+            "{not-json",
+          );
+
+          const { state, messages } = yield* startAppCapturingLogs(baseDir);
+
+          assert.deepEqual(state, { bounds: null, maximized: false });
+          assert.include(messages, "desktop window state could not be read; using defaults");
+        }),
+      ),
+  );
+
+  it.effect(
+    "an unreadable desktop-window-state.json also yields defaults instead of legacy bounds",
+    () =>
+      withBaseDir((baseDir) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.writeFileString(
+            `${baseDir}/userdata/desktop-settings.json`,
+            legacySettingsWithWindowState,
+          );
+          yield* fileSystem.makeDirectory(`${baseDir}/userdata/desktop-window-state.json`);
+
+          const { state, messages } = yield* startAppCapturingLogs(baseDir);
+
+          assert.deepEqual(state, { bounds: null, maximized: false });
+          assert.include(messages, "desktop window state could not be read; using defaults");
+        }),
+      ),
+  );
+
+  it.effect("a wrongly typed mainWindowMaximized keeps the stored bounds", () =>
+    withBaseDir((baseDir) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.writeFileString(
+          `${baseDir}/userdata/desktop-window-state.json`,
+          '{"mainWindowBounds":{"x":40,"y":30,"width":900,"height":700},"mainWindowMaximized":"yes"}\n',
+        );
+
+        const { state, messages } = yield* startAppCapturingLogs(baseDir);
+
+        assert.deepEqual(state, {
+          bounds: { x: 40, y: 30, width: 900, height: 700 },
+          maximized: false,
+        });
+        assert.deepEqual(messages, []);
+      }),
+    ),
+  );
+
+  it.effect("drops maximized when the stored bounds are invalid", () =>
+    withBaseDir((baseDir) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.writeFileString(
+          `${baseDir}/userdata/desktop-settings.json`,
+          legacySettingsWithWindowState,
+        );
+        yield* fileSystem.writeFileString(
+          `${baseDir}/userdata/desktop-window-state.json`,
+          '{"mainWindowBounds":{"x":0,"y":0,"width":100,"height":100},"mainWindowMaximized":true}\n',
+        );
+
+        assert.deepEqual(yield* startApp(baseDir), { bounds: null, maximized: false });
       }),
     ),
   );
