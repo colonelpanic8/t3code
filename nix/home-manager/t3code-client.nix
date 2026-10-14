@@ -85,10 +85,9 @@ in {
     '';
 
     keybindings = managedFiles.keybindingsOption ''
-      Keybindings fixed for the backend the desktop app starts itself. Clients
-      read keybindings from the environment they are anchored to, so with
-      `backendMode = "client-only"` set {option}`services.t3code.keybindings`
-      on that environment instead.
+      Keybindings fixed for the desktop app. They replace any environment's
+      bindings for the same commands, including in client-only mode, and also
+      apply to the backend the app starts itself.
     '';
   };
 
