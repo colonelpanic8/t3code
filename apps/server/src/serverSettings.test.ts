@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProjectScript,
   ProviderDriverKind,
+  type ProviderInstanceConfig,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -2228,6 +2229,13 @@ const writeSharedSettings = (contents: unknown) =>
     return raw;
   });
 
+const readStoredSecret = (secretName: string) =>
+  Effect.gen(function* () {
+    const store = yield* ServerSecretStore.ServerSecretStore;
+    const stored = yield* store.get(secretName);
+    return Option.map(stored, (value) => new TextDecoder().decode(value));
+  });
+
 const SHARED_SETTINGS = {
   defaultAutoPull: true,
   worktreesDirectory: "/shared/worktrees",
@@ -2636,6 +2644,48 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
     }).pipe(Effect.provide(layerSharedServerSettings())),
   );
 
+  it.effect.each([
+    {
+      driver: "cursor",
+      shared: { driver: "cursor", enabled: true, config: { binaryPath: "/opt/cursor-agent" } },
+      legacy: { enabled: true },
+      expected: { driver: "cursor", enabled: true, config: { binaryPath: "/opt/cursor-agent" } },
+      local: {},
+    },
+    {
+      driver: "codex",
+      shared: { driver: "codex", config: { binaryPath: "/opt/codex" } },
+      legacy: { enabled: false },
+      expected: { driver: "codex", enabled: false, config: { binaryPath: "/opt/codex" } },
+      local: {
+        providerInstances: {
+          codex: { driver: "codex", enabled: false, config: { binaryPath: "/opt/codex" } },
+        },
+      },
+    },
+  ])(
+    "keeps the shared $driver config under a legacy enabled-only entry",
+    ({ driver, shared, legacy, expected, local }) =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* writeSharedSettings({ providerInstances: { [driver]: shared } });
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({ providers: { [driver]: legacy } }),
+        );
+
+        const settings = yield* service.getSettings;
+
+        assert.deepEqual(settings.providerInstances[ProviderInstanceId.make(driver)], {
+          ...expected,
+          driver: ProviderDriverKind.make(expected.driver),
+        });
+        assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), local);
+      }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
   it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
@@ -2682,11 +2732,15 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
         });
       yield* writeSharedSettings(sharedInstance("sk-shared"));
 
+      const storedApiKey = readStoredSecret("provider-env-Y29kZXhfd29yaw-T1BFTkFJX0FQSV9LRVk");
+
       yield* upsertBinaryPath("/usr/bin/codex");
       assert.notDeepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+      assert.deepEqual(yield* storedApiKey, Option.some("sk-shared"));
       const reverted = yield* upsertBinaryPath("/opt/codex");
 
       assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+      assert.deepEqual(yield* storedApiKey, Option.none());
       assert.equal(reverted.providerInstances[instanceId]?.environment?.[0]?.value, "sk-shared");
       yield* writeSharedSettings(sharedInstance("sk-rotated"));
       yield* service.start;
@@ -2695,6 +2749,86 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
         "sk-rotated",
       );
     }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect.each([
+    {
+      placeholder: "environment variable",
+      instanceId: "codex_work",
+      sharedSecretName: "provider-env-Y29kZXhfd29yaw-T1BFTkFJX0FQSV9LRVk",
+      shared: {
+        driver: "codex",
+        environment: [
+          { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true },
+          { name: "LOCAL_TOKEN", value: "", sensitive: true },
+        ],
+        config: {},
+      },
+      setLocal: (instance: ProviderInstanceConfig): ProviderInstanceConfig => ({
+        ...instance,
+        environment: (instance.environment ?? []).map((variable) =>
+          variable.name === "LOCAL_TOKEN" ? { ...variable, value: "tok-local" } : variable,
+        ),
+      }),
+      expected: {
+        driver: ProviderDriverKind.make("codex"),
+        environment: [
+          { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true, valueRedacted: true },
+          { name: "LOCAL_TOKEN", value: "tok-local", sensitive: true, valueRedacted: true },
+        ],
+        config: {},
+      },
+    },
+    {
+      placeholder: "config field",
+      instanceId: "antigravity_work",
+      sharedSecretName: "provider-env-YW50aWdyYXZpdHlfd29yaw-QVBJX1RPS0VO",
+      shared: {
+        driver: "antigravity",
+        environment: [{ name: "API_TOKEN", value: "sk-shared", sensitive: true }],
+        config: { apiKey: "" },
+      },
+      setLocal: (instance: ProviderInstanceConfig): ProviderInstanceConfig => ({
+        ...instance,
+        config: { ...(instance.config as object), apiKey: "tok-local" },
+      }),
+      expected: {
+        driver: ProviderDriverKind.make("antigravity"),
+        environment: [
+          { name: "API_TOKEN", value: "sk-shared", sensitive: true, valueRedacted: true },
+        ],
+        config: { apiKey: "tok-local" },
+      },
+    },
+  ])(
+    "keeps a shared secret out of settings.json beside a local $placeholder across a restart",
+    ({ instanceId, sharedSecretName, shared, setLocal, expected }) =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const id = ProviderInstanceId.make(instanceId);
+        yield* writeSharedSettings({ providerInstances: { [instanceId]: shared } });
+        const save = (edit: (instance: ProviderInstanceConfig) => ProviderInstanceConfig) =>
+          Effect.gen(function* () {
+            const forClient = ServerSettingsModule.redactServerSettingsForClient(
+              yield* service.getSettings,
+            );
+            yield* service.updateProviderInstance({
+              operation: "upsert",
+              instanceId: id,
+              instance: edit(forClient.providerInstances[id]!),
+            });
+            assert.notInclude(yield* fs.readFileString(config.settingsPath), "sk-shared");
+            assert.deepEqual(yield* readStoredSecret(sharedSecretName), Option.some("sk-shared"));
+          });
+
+        yield* save(setLocal);
+        yield* service.start;
+        yield* save((instance) => instance);
+
+        assert.deepEqual((yield* service.getSettings).providerInstances[id], expected);
+      }).pipe(Effect.provide(layerSharedServerSettings())),
   );
 
   it.effect("moves an inherited usage limit key into the store once its source is edited", () =>
