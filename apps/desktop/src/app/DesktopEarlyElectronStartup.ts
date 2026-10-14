@@ -53,7 +53,11 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): string {
+// Electron is not ready yet, so this mirrors DesktopEnvironment's storage selection cheaply:
+// an initialized legacy tree wins, otherwise the split config directory is used. A client
+// dir replaces both.
+function resolveEarlyDesktopSettingsPaths(input: EarlyDesktopSettingsInput): ReadonlyArray<string> {
+  const isDevelopment = isDevelopmentEnvironment(input.env);
   const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
   const baseDir = resolveDesktopBaseDir({
     homeDirectory: input.homeDirectory,
@@ -62,30 +66,55 @@ function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): stri
   });
   const stateDir = resolveDesktopStateDir({
     baseDir,
-    isDevelopment: isDevelopmentEnvironment(input.env),
+    isDevelopment,
     joinPath: input.joinPath,
     t3Home,
   });
-  return resolveDesktopClientPaths({
-    stateDir,
-    homeDirectory: input.homeDirectory,
-    clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
-    clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
-    joinPath: input.joinPath,
-    resolvePath: input.resolvePath,
-  }).desktopSettingsPath;
+  const settingsPathIn = (configDir: string) =>
+    resolveDesktopClientPaths({
+      configDir,
+      stateDir: configDir,
+      homeDirectory: input.homeDirectory,
+      clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
+      clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
+      joinPath: input.joinPath,
+      resolvePath: input.resolvePath,
+    }).desktopSettingsPath;
+  const legacyPath = settingsPathIn(stateDir);
+  if (trimNonEmpty(input.env.T3CODE_HOME) !== null) return [legacyPath];
+  const configDirOverride = trimNonEmpty(input.env.T3CODE_CONFIG_DIR);
+  if (configDirOverride !== null) return [settingsPathIn(configDirOverride)];
+  const xdgConfigHome = trimNonEmpty(input.env.XDG_CONFIG_HOME);
+  const configHome =
+    xdgConfigHome?.startsWith("/") === true
+      ? xdgConfigHome
+      : input.joinPath(input.homeDirectory, ".config");
+  return [
+    ...new Set([
+      legacyPath,
+      settingsPathIn(input.joinPath(configHome, isDevelopment ? "t3code-dev" : "t3code")),
+    ]),
+  ];
 }
 
 export function resolveEarlyLinuxPasswordStorePreference(
   input: EarlyDesktopSettingsInput,
 ): LinuxPasswordStorePreference {
-  const settingsPath = resolveEarlyDesktopSettingsPath(input);
-  try {
-    const parsed = decodeEarlyDesktopSettingsJson(input.readFileString(settingsPath));
-    return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
-  } catch {
-    return DEFAULT_LINUX_PASSWORD_STORE;
+  for (const settingsPath of resolveEarlyDesktopSettingsPaths(input)) {
+    let raw: string;
+    try {
+      raw = input.readFileString(settingsPath);
+    } catch {
+      continue;
+    }
+    try {
+      const parsed = decodeEarlyDesktopSettingsJson(raw);
+      return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
+    } catch {
+      return DEFAULT_LINUX_PASSWORD_STORE;
+    }
   }
+  return DEFAULT_LINUX_PASSWORD_STORE;
 }
 
 const WAYLAND_COLOR_MANAGER_FEATURE = "WaylandWpColorManagerV1";
