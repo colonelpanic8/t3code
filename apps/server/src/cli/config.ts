@@ -5,7 +5,11 @@ import {
   type SignalExport,
 } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import {
+  type PersistedServerObservabilitySettings,
+  parsePersistedServerObservabilitySettings,
+} from "@t3tools/shared/serverSettings";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
@@ -83,7 +87,7 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale-serve is enabled."),
   Flag.optional,
 );
-const sharedSettingsFileFlag = Flag.String("server-shared-settings-file").pipe(
+export const sharedSettingsFileFlag = Flag.String("server-shared-settings-file").pipe(
   Flag.withDescription(
     "Read-only settings file applied beneath this machine's settings.json, for settings kept in a dotfiles repository (equivalent to T3CODE_SERVER_SHARED_SETTINGS_FILE).",
   ),
@@ -215,6 +219,7 @@ export interface CliServerFlags {
 export interface CliAuthLocationFlags {
   readonly baseDir: Option.Option<string>;
   readonly devUrl?: Option.Option<URL>;
+  readonly sharedSettingsFile?: Option.Option<string>;
 }
 
 export const authLocationFlags = {
@@ -251,29 +256,39 @@ const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
 
-const readPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
+const readSettingsFile = Effect.fn(function* (settingsPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const exists = yield* fs.exists(settingsPath).pipe(Effect.orElseSucceed(() => false));
-  if (!exists) {
-    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined, otlpLogsUrl: undefined };
-  }
-
-  const raw = yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
-  return parsePersistedServerObservabilitySettings(raw);
+  if (!exists) return "";
+  return yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
 });
+
+const decodeObservabilityDocument = Schema.decodeUnknownOption(
+  fromLenientJson(Schema.Struct({ observability: Schema.Record(Schema.String, Schema.Unknown) })),
+);
 
 const loadPersistedObservabilitySettings = Effect.fn(function* (
   settingsPath: string,
   sharedSettingsPath: string | undefined,
 ) {
-  const local = yield* readPersistedObservabilitySettings(settingsPath);
+  const localRaw = yield* readSettingsFile(settingsPath);
+  const local = parsePersistedServerObservabilitySettings(localRaw);
   if (sharedSettingsPath === undefined) return local;
-  const shared = yield* readPersistedObservabilitySettings(sharedSettingsPath);
+  const shared = parsePersistedServerObservabilitySettings(
+    yield* readSettingsFile(sharedSettingsPath),
+  );
+  // A key settings.json holds wins even when empty, which turns the export off.
+  const localKeys = Option.match(decodeObservabilityDocument(localRaw), {
+    onNone: () => ({}),
+    onSome: (document) => document.observability,
+  });
+  const pick = (key: keyof PersistedServerObservabilitySettings) =>
+    Object.hasOwn(localKeys, key) ? local[key] : shared[key];
   return {
-    otlpTracesUrl: local.otlpTracesUrl ?? shared.otlpTracesUrl,
-    otlpMetricsUrl: local.otlpMetricsUrl ?? shared.otlpMetricsUrl,
-    otlpLogsUrl: local.otlpLogsUrl ?? shared.otlpLogsUrl,
-  };
+    otlpTracesUrl: pick("otlpTracesUrl"),
+    otlpMetricsUrl: pick("otlpMetricsUrl"),
+    otlpLogsUrl: pick("otlpLogsUrl"),
+  } satisfies PersistedServerObservabilitySettings;
 });
 
 export const resolveServerConfig = (
@@ -541,7 +556,7 @@ export const resolveCliAuthConfig = (
       logWebSocketEvents: Option.none(),
       tailscaleServeEnabled: Option.none(),
       tailscaleServePort: Option.none(),
-      sharedSettingsFile: Option.none(),
+      sharedSettingsFile: flags.sharedSettingsFile ?? Option.none(),
     },
     cliLogLevel,
   );

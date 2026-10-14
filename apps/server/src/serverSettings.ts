@@ -406,6 +406,8 @@ function migrateLegacyProviderSettings(
     readonly providerName: string;
     readonly providerInstanceId: string | null;
   }>,
+  /** Instances settings.json itself configures; a shared one is replaced by the migrated slot. */
+  localInstanceIds: ReadonlySet<string>,
 ): ServerSettings {
   // History rows are raw SQL text; compare them as strings.
   const usedProviders = new Set<string>(providerHistory.map(({ providerName }) => providerName));
@@ -437,7 +439,7 @@ function migrateLegacyProviderSettings(
     if (Array.isArray(blob)) continue;
     const driver = kind;
     const instanceId = defaultInstanceIdForDriver(driver);
-    if (Object.hasOwn(providerInstances, instanceId)) continue;
+    if (localInstanceIds.has(instanceId)) continue;
 
     const { enabled: rawEnabled, ...config } = blob as Record<string, unknown>;
     const explicitEnabled = typeof rawEnabled === "boolean" ? rawEnabled : undefined;
@@ -495,13 +497,30 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "backgroundActivity",
   "automaticGitFetchInterval",
   "providerHealthRefreshInterval",
+  "defaultModelSelection",
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
   "textGenerationModelSelection",
   "pullRequestMergeMethod",
+  "worktreeCleanup",
 ]);
 
-function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
+// Maps whose entries are compared as a whole: a partial entry fails to decode,
+// and a driver's config blob only means anything next to that driver.
+const ATOMIC_ENTRY_SETTINGS_KEYS: ReadonlySet<string> = new Set([
+  "providerInstances",
+  "usageLimitSources",
+  "usagePriceOverrides",
+]);
+
+const isAtomicSettingsValue = (key: string, inAtomicEntryMap: boolean) =>
+  inAtomicEntryMap || ATOMIC_SETTINGS_KEYS.has(key);
+
+function stripDefaultServerSettings(
+  current: unknown,
+  defaults: unknown,
+  inAtomicEntryMap = false,
+): unknown | undefined {
   if (Array.isArray(current) || Array.isArray(defaults)) {
     return Equal.equals(current, defaults) ? undefined : current;
   }
@@ -517,12 +536,16 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
     const next: Record<string, unknown> = {};
 
     for (const key of Object.keys(currentRecord)) {
-      if (ATOMIC_SETTINGS_KEYS.has(key)) {
+      if (isAtomicSettingsValue(key, inAtomicEntryMap)) {
         if (!Equal.equals(currentRecord[key], defaultsRecord[key])) {
           next[key] = currentRecord[key];
         }
       } else {
-        const stripped = stripDefaultServerSettings(currentRecord[key], defaultsRecord[key]);
+        const stripped = stripDefaultServerSettings(
+          currentRecord[key],
+          defaultsRecord[key],
+          ATOMIC_ENTRY_SETTINGS_KEYS.has(key),
+        );
         if (stripped !== undefined) {
           next[key] = stripped;
         }
@@ -542,24 +565,84 @@ const isSettingsDocument = (value: unknown): value is SettingsDocument =>
 
 /**
  * The inverse of `stripDefaultServerSettings`: objects merge key by key, while
- * atomic keys, arrays, and scalars from `top` replace what `base` holds.
+ * atomic values, arrays, and scalars from `top` replace what `base` holds.
  */
-function layerSettingsDocuments(base: SettingsDocument, top: SettingsDocument): SettingsDocument {
+function layerSettingsDocuments(
+  base: SettingsDocument,
+  top: SettingsDocument,
+  inAtomicEntryMap = false,
+): SettingsDocument {
   const next = { ...base };
   for (const [key, value] of Object.entries(top)) {
     const below = next[key];
     next[key] =
-      !ATOMIC_SETTINGS_KEYS.has(key) && isSettingsDocument(value) && isSettingsDocument(below)
-        ? layerSettingsDocuments(below, value)
+      !isAtomicSettingsValue(key, inAtomicEntryMap) &&
+      isSettingsDocument(value) &&
+      isSettingsDocument(below)
+        ? layerSettingsDocuments(below, value, ATOMIC_ENTRY_SETTINGS_KEYS.has(key))
         : value;
   }
   return next;
 }
 
-/** Sensitive values the shared settings file supplies in plaintext, keyed by secret name. */
-function inheritedSecretValues(baseline: ServerSettings): ReadonlyMap<string, string> {
+/** Adds back every key path `document` holds, taking its value from `settings`. */
+function restoreDocumentKeys(
+  sparse: SettingsDocument,
+  settings: SettingsDocument,
+  document: SettingsDocument,
+  inAtomicEntryMap = false,
+): SettingsDocument {
+  const next = { ...sparse };
+  for (const [key, below] of Object.entries(document)) {
+    if (!Object.hasOwn(settings, key)) continue;
+    const value = settings[key];
+    const kept = next[key];
+    next[key] =
+      !isAtomicSettingsValue(key, inAtomicEntryMap) &&
+      isSettingsDocument(value) &&
+      isSettingsDocument(below)
+        ? restoreDocumentKeys(
+            isSettingsDocument(kept) ? kept : {},
+            value,
+            below,
+            ATOMIC_ENTRY_SETTINGS_KEYS.has(key),
+          )
+        : value;
+  }
+  return next;
+}
+
+/**
+ * Sensitive values the shared settings file supplies in plaintext, keyed by
+ * secret name, for the entries `settings` still inherits unchanged. An edited
+ * entry is saved whole to settings.json, so its secrets must go to the store.
+ */
+function inheritedSecretValues(
+  settings: ServerSettings,
+  baseline: ServerSettings,
+): ReadonlyMap<string, string> {
+  const withoutSecrets = (value: ServerSettings) =>
+    mapSettingsSecrets(value, (secret) =>
+      secret.sensitive ? { value: "", redacted: false } : secret,
+    );
+  const ours = withoutSecrets(settings);
+  const theirs = withoutSecrets(baseline);
+  const unchanged = <K extends "providerInstances" | "usageLimitSources">(key: K) =>
+    Object.fromEntries(
+      Object.entries(baseline[key]).filter(([id]) =>
+        Equal.equals(
+          (ours[key] as Record<string, unknown>)[id],
+          (theirs[key] as Record<string, unknown>)[id],
+        ),
+      ),
+    ) as ServerSettings[K];
+  const inherited: ServerSettings = {
+    ...baseline,
+    providerInstances: unchanged("providerInstances"),
+    usageLimitSources: unchanged("usageLimitSources"),
+  };
   const values = new Map<string, string>();
-  mapSettingsSecrets(baseline, (secret) => {
+  mapSettingsSecrets(inherited, (secret) => {
     if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
       values.set(secret.secretName, secret.value);
     }
@@ -568,14 +651,22 @@ function inheritedSecretValues(baseline: ServerSettings): ReadonlyMap<string, st
   return values;
 }
 
-interface SettingsState {
-  readonly settings: ServerSettings;
+interface SettingsLayer {
   /**
    * What a key missing from settings.json resolves to: the defaults, with the
    * shared settings file applied when one is configured. settings.json
    * persists only where `settings` differs from it.
    */
   readonly baseline: ServerSettings;
+  /**
+   * The shared file is configured but missing or unusable, so `baseline` may
+   * lack values settings.json overrides; every key settings.json holds is kept.
+   */
+  readonly keepLocalKeys: boolean;
+}
+
+interface SettingsState extends SettingsLayer {
+  readonly settings: ServerSettings;
 }
 
 const decodeProjectScriptsJson = Schema.decodeUnknownOption(
@@ -704,10 +795,20 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  const readLocalDocument = Effect.gen(function* () {
+    if (!(yield* readConfigExists)) return {};
+    const document = decodeSettingsDocumentExit(yield* readRawConfig);
+    return Exit.isSuccess(document) ? document.value : {};
+  });
+
   const writeSettingsAtomically = Effect.fnUntraced(
-    function* (settings: ServerSettings, baseline: ServerSettings) {
+    function* (settings: ServerSettings, layer: SettingsLayer) {
+      const sparse = (stripDefaultServerSettings(settings, layer.baseline) ??
+        {}) as SettingsDocument;
       const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, baseline) ?? {},
+        layer.keepLocalKeys
+          ? restoreDocumentKeys(sparse, settings, yield* readLocalDocument)
+          : sparse,
       );
 
       return yield* writeFileStringAtomically({
@@ -735,7 +836,7 @@ const make = Effect.gen(function* () {
   const moveInlineSettingsSecrets = (settings: ServerSettings, baseline: ServerSettings) =>
     Effect.gen(function* () {
       // A secret the shared file supplies stays there; moving it would pin a copy in settings.json.
-      const inherited = inheritedSecretValues(baseline);
+      const inherited = inheritedSecretValues(settings, baseline);
       const pending: SettingsSecret[] = [];
       mapSettingsSecrets(settings, (secret) => {
         if (
@@ -771,7 +872,7 @@ const make = Effect.gen(function* () {
   interface SharedSettings {
     readonly document: SettingsDocument;
     readonly baseline: ServerSettings;
-    readonly trusted: boolean;
+    readonly status: "loaded" | "missing" | "unusable";
   }
 
   // An unusable shared file is ignored the way an unusable settings.json is.
@@ -784,7 +885,7 @@ const make = Effect.gen(function* () {
         // It may hold an opt-out we can no longer read; never resume threads on a guess.
         document: { continueThreadsAfterServerUpdate: false },
         baseline: { ...DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false },
-        trusted: false,
+        status: "unusable",
       }),
     );
 
@@ -795,7 +896,7 @@ const make = Effect.gen(function* () {
       yield* Effect.logWarning("shared settings file not found, ignoring it", {
         path: sharedSettingsPath,
       });
-      return { document: {}, baseline: DEFAULT_SERVER_SETTINGS, trusted: true };
+      return { document: {}, baseline: DEFAULT_SERVER_SETTINGS, status: "missing" } as const;
     }
     const raw = yield* Effect.exit(fs.readFileString(sharedSettingsPath));
     if (Exit.isFailure(raw)) return yield* unusableSharedSettings(raw.cause);
@@ -807,7 +908,7 @@ const make = Effect.gen(function* () {
     if (Exit.isFailure(decoded)) return yield* unusableSharedSettings(Cause.pretty(decoded.cause));
     const baseline = yield* Effect.exit(normalizeServerSettings(decoded.value));
     if (Exit.isFailure(baseline)) return yield* unusableSharedSettings(baseline.cause);
-    return { document, baseline: baseline.value, trusted: true };
+    return { document, baseline: baseline.value, status: "loaded" } as const;
   });
 
   const loadSettingsFromDisk = Effect.gen(function* () {
@@ -820,13 +921,18 @@ const make = Effect.gen(function* () {
         ? settings
         : { ...settings, backgroundActivity: normalizeServerBackgroundActivitySettings(settings) };
     const baseline = normalizeBackgroundActivity(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
+    const layer: SettingsLayer = {
+      baseline,
+      keepLocalKeys: shared !== undefined && shared.status !== "loaded",
+    };
     let settings = baseline;
     let legacyProviders: Readonly<Record<string, unknown>> | undefined;
     let legacySourceControl: Parameters<typeof migrateLegacySourceControlSettings>[1] = {};
     // A file that failed to decode must stay on disk for the user to repair;
     // the fold below only writes when it started from the file's real contents.
     // An unusable shared file hides some of those contents too.
-    let settingsFileTrusted = shared?.trusted ?? true;
+    let settingsFileTrusted = shared?.status !== "unusable";
+    let localInstanceIds: ReadonlySet<string> = new Set();
 
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
@@ -860,6 +966,9 @@ const make = Effect.gen(function* () {
         }
       } else {
         settings = normalizeBackgroundActivity(decoded.value);
+        if (Exit.isSuccess(document) && isSettingsDocument(document.value.providerInstances)) {
+          localInstanceIds = new Set(Object.keys(document.value.providerInstances));
+        }
       }
     }
 
@@ -915,7 +1024,12 @@ const make = Effect.gen(function* () {
     const loaded = foldProviderInstanceEnabledFlags(
       legacyProviders === undefined
         ? settings
-        : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
+        : migrateLegacyProviderSettings(
+            settings,
+            legacyProviders,
+            providerHistory,
+            localInstanceIds,
+          ),
     );
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)
@@ -958,12 +1072,12 @@ const make = Effect.gen(function* () {
       (settingsFileTrusted && legacyProviders !== undefined) ||
       hasLegacySourceControl
     ) {
-      yield* writeSettingsAtomically(migrated, baseline);
+      yield* writeSettingsAtomically(migrated, layer);
       for (const move of sourceControlMigration.secretMoves) {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
     }
-    return { settings: migrated, baseline } satisfies SettingsState;
+    return { ...layer, settings: migrated } satisfies SettingsState;
   });
 
   // A failed read is not kept: the next read retries instead of replaying the failure.
@@ -1047,7 +1161,7 @@ const make = Effect.gen(function* () {
     baseline: ServerSettings,
   ) =>
     Effect.sync(() => {
-      const inherited = inheritedSecretValues(baseline);
+      const inherited = inheritedSecretValues(next, baseline);
       const previous = new Map<string, SettingsSecret>();
       mapSettingsSecrets(current, (secret) => {
         // Duplicate environment names follow the provider's last-value-wins behavior.
@@ -1187,9 +1301,10 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
-        const { settings: current, baseline } = yield* getStateFromCache;
+        const state = yield* getStateFromCache;
+        const current = state.settings;
         const updated = yield* update(current);
-        const persisted = yield* persistSettingsSecrets(current, updated, baseline);
+        const persisted = yield* persistSettingsSecrets(current, updated, state.baseline);
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
@@ -1199,7 +1314,7 @@ const make = Effect.gen(function* () {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(materializedExit.cause);
             }
-            const writeExit = yield* Effect.exit(writeSettingsAtomically(next, baseline));
+            const writeExit = yield* Effect.exit(writeSettingsAtomically(next, state));
             if (Exit.isFailure(writeExit)) {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(writeExit.cause);
@@ -1207,7 +1322,7 @@ const make = Effect.gen(function* () {
             return materializedExit.value;
           }),
         );
-        yield* Cache.set(settingsCache, cacheKey, { settings: next, baseline });
+        yield* Cache.set(settingsCache, cacheKey, { ...state, settings: next });
         yield* emitChange(next);
         return resolveTextGenerationProvider(materialized);
       }),

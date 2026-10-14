@@ -39,7 +39,12 @@ import {
   readPersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import {
+  type CliAuthLocationFlags,
+  projectLocationFlags,
+  resolveCliAuthConfig,
+  sharedSettingsFileFlag,
+} from "./config.ts";
 
 type ProjectMutationTarget = {
   readonly id: ProjectId;
@@ -445,8 +450,14 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   );
 });
 
-const projectAddCommand = Command.make("add", {
+// Offline mutations save project settings, which must see the shared layer.
+const projectSettingsFlags = {
   ...projectLocationFlags,
+  sharedSettingsFile: sharedSettingsFileFlag,
+} as const;
+
+const projectAddCommand = Command.make("add", {
+  ...projectSettingsFlags,
   workspaceRoot: Argument.String("path").pipe(
     Argument.withDescription("Workspace root to add as a project."),
   ),
@@ -493,7 +504,7 @@ const projectAddCommand = Command.make("add", {
 );
 
 const projectRemoveCommand = Command.make("remove", {
-  ...projectLocationFlags,
+  ...projectSettingsFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to remove."),
   ),
@@ -532,7 +543,7 @@ const projectRemoveCommand = Command.make("remove", {
 );
 
 const projectRenameCommand = Command.make("rename", {
-  ...projectLocationFlags,
+  ...projectSettingsFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to rename."),
   ),
