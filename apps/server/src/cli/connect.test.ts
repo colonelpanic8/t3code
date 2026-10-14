@@ -22,6 +22,7 @@ import * as BootService from "../cloud/bootService.ts";
 import * as ServerConfig from "../config.ts";
 import {
   acquireRelayClientForLink,
+  finishConnectLink,
   finishConnectSetup,
   headlessSessionConfig,
   reportCloudDisconnectResults,
@@ -271,7 +272,12 @@ it.effect("points a failed relay unlink at retry and account deregistration", ()
 it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
   "connect with server location overrides",
   (it) => {
-    const setupHarness = Effect.fn(function* (overrides: ServerConfig.ServerLocationOverrides) {
+    const runHarness = Effect.fn(function* (
+      overrides: ServerConfig.ServerLocationOverrides,
+      finish: (
+        locations: Parameters<typeof finishConnectSetup>[0],
+      ) => ReturnType<typeof finishConnectSetup>,
+    ) {
       const logs: Array<string> = [];
       let statusCalls = 0;
       const service = BootService.BootService.of({
@@ -283,7 +289,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
           return { supported: false, installed: false, current: false, unitPath: "", logPath: "" };
         }),
       });
-      yield* finishConnectSetup({
+      yield* finish({
         command: yield* ServerConfig.deriveServerPaths("/srv/home", undefined, overrides),
         service: yield* ServerConfig.deriveServerPaths("/srv/home", undefined),
       }).pipe(
@@ -298,6 +304,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
       );
       return { logs, statusCalls };
     });
+    const setupHarness = (overrides: ServerConfig.ServerLocationOverrides) =>
+      runHarness(overrides, finishConnectSetup);
 
     it.effect("skips the background service when connect runs with other server locations", () =>
       Effect.gen(function* () {
@@ -305,7 +313,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
 
         assert.equal(statusCalls, 0);
         assert.deepEqual(logs, [
-          "\nSkipping background setup: the background service would not use the server locations set for this command.\n\nNext\n  Start the server with `t3 serve --server-data-dir '/srv/t3 data'` to make this machine reachable.",
+          "\nSkipping background setup: the background service would not use this command's server locations.\n\nNext\n  Start the server with `t3 serve --server-data-dir '/srv/t3 data'` to make this machine reachable.",
         ]);
       }),
     );
@@ -317,6 +325,19 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
         assert.equal(statusCalls, 1);
         assert.deepEqual(logs, [
           "\nNext\n  Start the server with `t3 serve` to make this machine reachable.",
+        ]);
+      }),
+    );
+
+    it.effect("names this command's server locations in the link next step", () =>
+      Effect.gen(function* () {
+        const { logs } = yield* runHarness(
+          { configDir: "/srv/t3 config", dataDir: "/srv/t3 data" },
+          (locations) => finishConnectLink({ ...locations, publishOnly: false }),
+        );
+
+        assert.deepEqual(logs, [
+          "\nNext\n  Start the server with `t3 serve --server-config-dir '/srv/t3 config' --server-data-dir '/srv/t3 data'` to make this machine reachable.",
         ]);
       }),
     );
