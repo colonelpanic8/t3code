@@ -43,8 +43,8 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ExternalLauncher from "../process/externalLauncher.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { serverLocationFlags, resolveCliAuthConfig, resolveCliInstallConfig } from "./config.ts";
-import { resolveCliCommand } from "./invocation.ts";
+import { serverLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
+import { resolveCliCommand, shellWord } from "./invocation.ts";
 import { offerServiceDuringOnboarding, recoverServiceOnboardingOffer } from "./service.ts";
 import * as CliService from "./service.ts";
 
@@ -443,7 +443,7 @@ const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
-  const installConfig = yield* resolveCliInstallConfig(flags, logLevel);
+  const serviceLocations = yield* resolveInstallLocations(flags);
   const minimumLogLevel = options?.quietLogs ? "Error" : config.logLevel;
   const layerRuntime = Layer.mergeAll(
     ServerSecretStore.layer,
@@ -453,7 +453,7 @@ const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E
     ),
     RelayClient.layerCloudflared({ baseDir: config.baseDir }),
     EnvironmentAuth.layerRuntime,
-    CliService.layer(installConfig),
+    CliService.layer(serviceLocations),
     RelayTracing.layerHeadlessRelayClient,
   ).pipe(
     Layer.provideMerge(FetchHttpClient.layer),
@@ -462,6 +462,56 @@ const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function* <A, E
   );
   return yield* run.pipe(Effect.provide(layerRuntime));
 });
+
+const SERVER_LOCATION_FLAGS = [
+  ["configDir", "--server-config-dir"],
+  ["dataDir", "--server-data-dir"],
+  ["cacheDir", "--server-cache-dir"],
+] as const;
+
+/**
+ * Offers the background service after `t3 connect` stores its authorization.
+ * The service records only the T3 home, so when this command runs with other
+ * server locations the service would start without the link it just stored;
+ * point at `t3 serve` with those locations instead.
+ */
+export const finishConnectSetup = Effect.fn("cloud.cli.finish_connect_setup")(
+  function* (locations: {
+    readonly command: ServerConfig.ServerDerivedPaths;
+    readonly service: ServerConfig.ServerDerivedPaths;
+  }) {
+    const serveCommand = yield* resolveCliCommand("serve");
+    const unservedLocations = SERVER_LOCATION_FLAGS.filter(
+      ([key]) => locations.command[key] !== locations.service[key],
+    );
+    if (unservedLocations.length > 0) {
+      const serveWithLocations = [
+        serveCommand,
+        ...unservedLocations.flatMap(([key, flag]) => [flag, shellWord(locations.command[key])]),
+      ].join(" ");
+      yield* Console.log(
+        `\nSkipping background setup: the background service would not use the server locations set for this command.\n\nNext\n  Start the server with \`${serveWithLocations}\` to make this machine reachable.`,
+      );
+      return;
+    }
+
+    // Authorization is stored. If service setup fails, preserve it and
+    // show how to run the server manually.
+    const background = yield* recoverServiceOnboardingOffer(offerServiceDuringOnboarding);
+    if (background) {
+      const platform = yield* HostProcess.Platform;
+      yield* Console.log(
+        platform === "darwin"
+          ? "\n✓ Background service ready\n\nT3 Code is set to run while you are logged in to this Mac. The server establishes the T3 Connect link on startup."
+          : "\n✓ Background service ready\n\nT3 Code is set to keep running after you log out. The server establishes the T3 Connect link on startup.",
+      );
+      return;
+    }
+    yield* Console.log(
+      `\nNext\n  Start the server with \`${serveCommand}\` to make this machine reachable.`,
+    );
+  },
+);
 
 const connectedAs = (identity: string | null): string => (identity ? ` as ${identity}` : "");
 
@@ -701,21 +751,10 @@ export const connectCommand = Command.make("connect", {
           return;
         }
         yield* Console.log(`✓ Authorized${connectedAs(linked.identity)}`);
-
-        const background = yield* recoverServiceOnboardingOffer(offerServiceDuringOnboarding);
-        if (background) {
-          const platform = yield* HostProcess.Platform;
-          yield* Console.log(
-            platform === "darwin"
-              ? "\n✓ Background service ready\n\nT3 Code is set to run while you are logged in to this Mac. The server establishes the T3 Connect link on startup."
-              : "\n✓ Background service ready\n\nT3 Code is set to keep running after you log out. The server establishes the T3 Connect link on startup.",
-          );
-          return;
-        }
-        const serveCommand = yield* resolveCliCommand("serve");
-        yield* Console.log(
-          `\nNext\n  Start the server with \`${serveCommand}\` to make this machine reachable.`,
-        );
+        yield* finishConnectSetup({
+          command: yield* ServerConfig.ServerConfig,
+          service: yield* resolveInstallLocations(flags),
+        });
       }),
     ),
   ),

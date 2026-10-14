@@ -27,7 +27,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import { resolveCliInstallConfig, resolveServerConfig } from "./config.ts";
+import { resolveInstallLocations, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -732,19 +732,17 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
-  it.effect("resolves install commands from the base dir alone, like the service", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-install-locations-" });
-      const home = path.join(root, "home");
+  it.effect(
+    "resolves install commands from the base dir alone, like the service, creating nothing",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-install-locations-" });
+        const home = path.join(root, "home");
 
-      const resolved = yield* resolveCliInstallConfig(
-        { baseDir: Option.some(home) },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
+        const resolved = yield* resolveInstallLocations({ baseDir: Option.some(home) }).pipe(
+          Effect.provide(
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
@@ -754,18 +752,17 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                 },
               }),
             ),
-            NetService.layer,
           ),
-        ),
-      );
+        );
 
-      expect(resolved.logsDir).toBe(path.join(home, "userdata", "logs"));
-      expect(resolved.serverRuntimeStatePath).toBe(
-        path.join(home, "userdata", "server-runtime.json"),
-      );
-      expect(resolved.settingsPath).toBe(path.join(home, "userdata", "settings.json"));
-      expect(resolved.providerStatusCacheDir).toBe(path.join(home, "caches"));
-    }),
+        expect(resolved.logsDir).toBe(path.join(home, "userdata", "logs"));
+        expect(resolved.serverRuntimeStatePath).toBe(
+          path.join(home, "userdata", "server-runtime.json"),
+        );
+        expect(resolved.settingsPath).toBe(path.join(home, "userdata", "settings.json"));
+        expect(resolved.providerStatusCacheDir).toBe(path.join(home, "caches"));
+        expect(yield* fs.exists(home)).toBe(false);
+      }),
   );
 
   it.effect("applies flag then env precedence over bootstrap envelope values", () =>
