@@ -253,7 +253,6 @@ function layerTest(input: {
 
   let mainWindowState = input.mainWindowState ?? { bounds: null, maximized: false };
   const layerDesktopWindowState = Layer.succeed(DesktopWindowState.DesktopWindowState, {
-    load: Effect.sync(() => mainWindowState),
     get: Effect.sync(() => mainWindowState),
     setMainWindowBounds: (bounds, isMaximized) =>
       Effect.gen(function* () {
@@ -429,7 +428,6 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           layerDesktopEnvironment,
           DesktopAppSettings.layerTest(),
           Layer.succeed(DesktopWindowState.DesktopWindowState, {
-            load: Effect.succeed({ bounds: null, maximized: false }),
             get: Effect.succeed({ bounds: null, maximized: false }),
             setMainWindowBounds: () => Effect.void,
           }),
