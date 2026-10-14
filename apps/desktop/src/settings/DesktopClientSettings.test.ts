@@ -161,6 +161,30 @@ describe("DesktopClientSettings", () => {
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
+  it.effect("reads the managed keybindings file, skipping invalid entries", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-keybindings-test-",
+      });
+      const managedPath = `${baseDir}/managed-keybindings.json`;
+      yield* fileSystem.writeFileString(
+        managedPath,
+        JSON.stringify([
+          { key: "alt+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+          { key: "alt+x", command: "not.a.command" },
+        ]),
+      );
+
+      yield* Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        assert.deepEqual(yield* settings.getManagedKeybindings, [
+          { key: "alt+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+        ]);
+      }).pipe(Effect.provide(layer(baseDir, { T3CODE_MANAGED_KEYBINDINGS_FILE: managedPath })));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
   it.effect("returns none when no client settings file exists", () =>
     withClientSettings(
       Effect.gen(function* () {

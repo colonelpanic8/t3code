@@ -511,6 +511,7 @@ const layerTest = (
             get: settingsGet,
             set: () => Effect.void,
             getManaged: Effect.succeed({}),
+            getManagedKeybindings: Effect.succeed([]),
           }),
         ),
         Layer.succeed(

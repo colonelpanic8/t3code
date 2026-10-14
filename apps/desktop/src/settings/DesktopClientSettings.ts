@@ -2,6 +2,7 @@ import {
   ClientSettingsPatch,
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
+  KeybindingRule,
   type ClientSettings,
 } from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
@@ -32,6 +33,10 @@ const decodeClientSettingsJson = Effect.fnUntraced(function* (raw: string) {
 });
 const encodeClientSettingsJson = Schema.encodeEffect(ClientSettingsJson);
 const decodeManagedClientSettingsJson = Schema.decodeEffect(fromLenientJson(ClientSettingsPatch));
+const decodeManagedKeybindingEntries = Schema.decodeEffect(
+  fromLenientJson(Schema.Array(Schema.Unknown)),
+);
+const decodeKeybindingRuleOption = Schema.decodeUnknownOption(KeybindingRule);
 
 export class DesktopClientSettingsReadError extends Schema.TaggedError<DesktopClientSettingsReadError>()(
   "DesktopClientSettingsReadError",
@@ -78,6 +83,8 @@ export class DesktopClientSettings extends Context.Service<
     ) => Effect.Effect<void, DesktopClientSettingsWriteError>;
     /** Settings fixed by the managed client settings file; `get` already applies them. */
     readonly getManaged: Effect.Effect<ClientSettingsPatch>;
+    /** Keybindings fixed by the managed keybindings file, layered over every environment's. */
+    readonly getManagedKeybindings: Effect.Effect<ReadonlyArray<KeybindingRule>>;
   }
 >()("@t3tools/desktop/settings/DesktopClientSettings") {}
 
@@ -96,6 +103,28 @@ const readManagedClientSettings = (
           Effect.logWarning("Ignoring managed client settings.", cause).pipe(
             Effect.annotateLogs({ path }),
             Effect.as({}),
+          ),
+        ),
+      ),
+  });
+
+// Invalid entries are skipped, like the server's managed keybindings file.
+const readManagedKeybindings = (
+  fileSystem: FileSystem.FileSystem,
+  managedPath: Option.Option<string>,
+): Effect.Effect<ReadonlyArray<KeybindingRule>> =>
+  Option.match(managedPath, {
+    onNone: () => Effect.succeed([]),
+    onSome: (path) =>
+      fileSystem.readFileString(path).pipe(
+        Effect.flatMap(decodeManagedKeybindingEntries),
+        Effect.map((entries) =>
+          entries.flatMap((entry) => Option.toArray(decodeKeybindingRuleOption(entry))),
+        ),
+        Effect.catch((cause) =>
+          Effect.logWarning("Ignoring managed keybindings.", cause).pipe(
+            Effect.annotateLogs({ path }),
+            Effect.as([]),
           ),
         ),
       ),
@@ -265,6 +294,7 @@ export const make = Effect.gen(function* () {
       return Option.some({ ...Option.getOrElse(user, () => DEFAULT_CLIENT_SETTINGS), ...managed });
     }).pipe(Effect.withSpan("desktop.clientSettings.get")),
     getManaged,
+    getManagedKeybindings: readManagedKeybindings(fileSystem, environment.managedKeybindingsPath),
     set: (requested) =>
       Effect.gen(function* () {
         const managed = yield* getManaged;
@@ -286,6 +316,7 @@ export const layerTest = (initialSettings: Option.Option<ClientSettings> = Optio
         get: Ref.get(settingsRef),
         set: (settings) => Ref.set(settingsRef, Option.some(settings)),
         getManaged: Effect.succeed({}),
+        getManagedKeybindings: Effect.succeed([]),
       });
     }),
   );
