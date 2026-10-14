@@ -57,7 +57,7 @@ const connectUnavailableCommand = Command.make("connect", {
 export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription("Run the T3 Code server."),
-    Command.withHandler(runDefaultServerCommand),
+    Command.withHandler((flags) => runDefaultServerCommand(flags)),
     Command.withSubcommands([
       Command.make("help").pipe(
         Command.withDescription("Show command help."),

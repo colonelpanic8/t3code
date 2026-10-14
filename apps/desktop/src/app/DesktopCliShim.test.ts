@@ -29,7 +29,10 @@ const writeExecutable = (path: string, content: string) => {
 /** Writes the launcher for `target` at `<root>/bin/t3`, with `<root>/home` as its T3 home. */
 const writeShim = (root: string, target: CliShimTarget) => {
   const shim = NodePath.join(root, "bin", "t3");
-  writeExecutable(shim, renderCliShim({ target, shimPath: shim, t3Home: `${root}/home` }));
+  writeExecutable(
+    shim,
+    renderCliShim({ target, shimPath: shim, storageEnvironment: { T3CODE_HOME: `${root}/home` } }),
+  );
   return shim;
 };
 
@@ -41,7 +44,7 @@ const run = (shim: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv =
 
 /** An app executable that reports its environment and arguments. */
 const REPORTER =
-  '#!/bin/sh\necho "node=$ELECTRON_RUN_AS_NODE cli=$T3CODE_CLI_PATH home=$T3CODE_HOME"\nprintf "%s\\n" "$@"\nexit 3\n';
+  '#!/bin/sh\necho "node=$ELECTRON_RUN_AS_NODE cli=$T3CODE_CLI_PATH home=$T3CODE_HOME state=$T3CODE_STATE_DIR"\nprintf "%s\\n" "$@"\nexit 3\n';
 
 /**
  * A stand-in AppImage whose image holds the reporter. `--appimage-mount`
@@ -77,7 +80,7 @@ describe("renderCliShim", () => {
     const result = run(shim, ["browser", "setup", "a b"]);
     expect(result.status).toBe(3);
     expect(result.stdout.split("\n")).toEqual([
-      `node=1 cli=${shim} home=${root}/home`,
+      `node=1 cli=${shim} home=${root}/home state=`,
       `${image}/resources/app.asar/apps/server/dist/bin.mjs`,
       "browser",
       "setup",
@@ -113,9 +116,26 @@ describe("renderCliShim", () => {
     // sudo clears the environment, so the launcher supplies its own.
     expect(run(shim, []).stdout).toContain(`home=${root}/home`);
     expect(run(shim, [], { T3CODE_HOME: "/elsewhere" }).stdout).toContain("home=/elsewhere");
+    // Any storage override from the caller replaces the launcher's whole layout.
+    expect(run(shim, [], { T3CODE_STATE_DIR: "/state" }).stdout).toContain("home= state=/state");
     // Run by a relative path, it still names itself absolutely.
     const relative = NodeChildProcess.spawnSync("./bin/t3", [], { cwd: root, encoding: "utf8" });
     expect(relative.stdout).toContain(`cli=${shim}`);
+  });
+
+  it("pins split storage directories instead of a T3 home", () => {
+    const root = tempRoot();
+    writeExecutable(NodePath.join(root, "app"), REPORTER);
+    const shim = NodePath.join(root, "bin", "t3");
+    writeExecutable(
+      shim,
+      renderCliShim({
+        target: { kind: "direct", executable: NodePath.join(root, "app"), entry: "/bin.mjs" },
+        shimPath: shim,
+        storageEnvironment: { T3CODE_CONFIG_DIR: "/config", T3CODE_STATE_DIR: "/state" },
+      }),
+    );
+    expect(run(shim, []).stdout).toContain("home= state=/state");
   });
 
   it("runs an installed app's server directly", () => {
@@ -152,7 +172,7 @@ describe("renderCliShim", () => {
     const script = renderCliShim({
       target: { kind: "windows", executable, entry: "C:\\Apps\\server.asar\\bin.mjs" },
       shimPath: "C:\\Users\\José\\.t3\\bin\\t3.cmd",
-      t3Home: "C:\\Users\\José\\.t3",
+      storageEnvironment: { T3CODE_HOME: "C:\\Users\\José\\.t3" },
     });
     const lines = script.split("\r\n");
     expect(lines).toContain("setlocal EnableExtensions DisableDelayedExpansion");
@@ -172,7 +192,7 @@ describe("renderCliShim", () => {
     const ascii = renderCliShim({
       target: { kind: "windows", executable: "C:\\T3\\T3 Code.exe", entry: "C:\\T3\\bin.mjs" },
       shimPath: "C:\\Users\\me\\.t3\\bin\\t3.cmd",
-      t3Home: "C:\\Users\\me\\.t3",
+      storageEnvironment: { T3CODE_HOME: "C:\\Users\\me\\.t3" },
     });
     // A Ctrl-C that ends the batch would leave the console switched.
     expect(ascii).not.toContain("chcp");
