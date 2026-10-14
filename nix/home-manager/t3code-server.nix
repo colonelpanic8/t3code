@@ -7,13 +7,19 @@
   cfg = config.services.t3code;
   managedFiles = import ./managed-files.nix {inherit lib pkgs;};
   # Set on the service rather than in the launch script so a replaced
-  # ExecStart or ProgramArguments still sees the managed files.
-  managedEnvironment =
+  # ExecStart or ProgramArguments still sees these files.
+  serviceEnvironment =
     lib.optionalAttrs (cfg.settings != {}) {
       T3CODE_MANAGED_SETTINGS_FILE = "${managedFiles.settingsFile "t3code-managed-settings.json" cfg.settings}";
     }
     // lib.optionalAttrs (cfg.keybindings != []) {
       T3CODE_MANAGED_KEYBINDINGS_FILE = "${managedFiles.keybindingsFile cfg.keybindings}";
+    }
+    // lib.optionalAttrs (cfg.sharedSettings != {}) {
+      T3CODE_SERVER_SHARED_SETTINGS_FILE = "${managedFiles.settingsFile "t3code-shared-settings.json" cfg.sharedSettings}";
+    }
+    // lib.optionalAttrs (cfg.serverConfig != {}) {
+      T3CODE_SERVER_CONFIG_FILE = "${managedFiles.settingsFile "t3code-server.json" cfg.serverConfig}";
     };
   serverCommand = pkgs.writeShellScript "t3code-headless-server" ''
     set -eu
@@ -110,6 +116,27 @@ in {
       `{ "$file" = "/run/agenix/github-token"; }` instead of writing them inline.
     '';
 
+    sharedSettings = managedFiles.settingsOption ''
+      Default server settings, in the format of the server's settings.json.
+      Unlike `settings`, nothing here is locked: the server reads this file
+      beneath settings.json, so a change made from any client is saved to that
+      machine's settings.json and overrides the value here for that machine
+      only. Settings left untouched keep following this file. The file lands in
+      the Nix store, which is world-readable, so keep credentials out of it.
+    '';
+
+    serverConfig = managedFiles.settingsOption ''
+      Server startup options, in the format of the server's server.json (for
+      example `logLevel`, `traceFile`, or `otlpTracesUrl`). The server reads it
+      once at startup and ignores it if the package predates server.json
+      support. The `host` and `port` options are always passed as flags, so
+      they win over the same keys here; `tailscaleServe` likewise wins over
+      `tailscaleServeEnabled` and `tailscaleServePort` while it is enabled.
+      Relative paths resolve against the file's directory in the Nix store, so
+      use absolute paths. The Nix store is world-readable: do not put
+      credentials such as `otlpHeaders` tokens here.
+    '';
+
     keybindings = managedFiles.keybindingsOption ''
       Keybindings fixed by system configuration. Each rule replaces the user's
       rules for the same command or the same shortcut, and clients cannot
@@ -185,8 +212,8 @@ in {
           RestartSec = 5;
           TimeoutStopSec = 15;
           UMask = "0077";
-          Environment = lib.mkIf (managedEnvironment != {}) (
-            lib.mapAttrsToList (name: value: "${name}=${value}") managedEnvironment
+          Environment = lib.mkIf (serviceEnvironment != {}) (
+            lib.mapAttrsToList (name: value: "${name}=${value}") serviceEnvironment
           );
         };
 
@@ -204,7 +231,7 @@ in {
           ProcessType = "Interactive";
           RunAtLoad = true;
           ThrottleInterval = 5;
-          EnvironmentVariables = lib.mkIf (managedEnvironment != {}) managedEnvironment;
+          EnvironmentVariables = lib.mkIf (serviceEnvironment != {}) serviceEnvironment;
           StandardOutPath = "${config.home.homeDirectory}/Library/Logs/t3code-headless.log";
           StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/t3code-headless.err.log";
         };
