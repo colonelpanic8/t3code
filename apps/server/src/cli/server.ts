@@ -11,10 +11,13 @@ import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
+/** Every location flag is present once the command line is parsed. */
+type ServerCommandFlags = Required<CliServerFlags>;
+
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 const runServerCommand = (
-  flags: CliServerFlags,
+  flags: ServerCommandFlags,
   options?: {
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
@@ -35,7 +38,7 @@ const runServerCommand = (
     );
   });
 
-export const runDefaultServerCommand = (flags: CliServerFlags) =>
+export const runDefaultServerCommand = (flags: ServerCommandFlags) =>
   Effect.gen(function* () {
     if (Option.isSome(flags.cwd)) {
       const cwd = flags.cwd.value.trim();

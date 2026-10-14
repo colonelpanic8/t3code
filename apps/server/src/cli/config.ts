@@ -45,6 +45,24 @@ export const baseDirFlag = Flag.String("base-dir").pipe(
   ),
   Flag.optional,
 );
+const serverConfigDirFlag = Flag.String("server-config-dir").pipe(
+  Flag.withDescription(
+    "Directory for settings.json, keybindings.json, and themes (equivalent to T3CODE_SERVER_CONFIG_DIR). Defaults to the base dir's state directory.",
+  ),
+  Flag.optional,
+);
+const serverDataDirFlag = Flag.String("server-data-dir").pipe(
+  Flag.withDescription(
+    "Directory for the database, secrets, attachments, logs, and worktrees (equivalent to T3CODE_SERVER_DATA_DIR). Defaults to the base dir's state directory, with worktrees beside it.",
+  ),
+  Flag.optional,
+);
+const serverCacheDirFlag = Flag.String("server-cache-dir").pipe(
+  Flag.withDescription(
+    "Directory for regenerable caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
+  ),
+  Flag.optional,
+);
 const devUrlFlag = Flag.String("dev-url").pipe(
   Flag.withSchema(Schema.URLFromString),
   Flag.withDescription("Dev web URL to proxy/redirect to (equivalent to VITE_DEV_SERVER_URL)."),
@@ -128,7 +146,6 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -185,11 +202,77 @@ const DevAuthTokenConfig = Config.Redacted("T3CODE_DEV_AUTH_TOKEN").pipe(
   Config.map(Option.getOrUndefined),
 );
 
-export interface CliServerFlags {
+const nonEmptyEnv = (name: string) =>
+  Config.String(name).pipe(
+    Config.option,
+    Config.map(Option.filter((value) => value.trim().length > 0)),
+  );
+
+const ServerLocationEnv = Config.all({
+  t3Home: Config.String("T3CODE_HOME").pipe(Config.option),
+  serverConfigDir: nonEmptyEnv("T3CODE_SERVER_CONFIG_DIR"),
+  serverDataDir: nonEmptyEnv("T3CODE_SERVER_DATA_DIR"),
+  serverCacheDir: nonEmptyEnv("T3CODE_SERVER_CACHE_DIR"),
+});
+
+/** Where the server keeps its files. Each value is a flag that wins over its env var. */
+export interface CliServerLocationFlags {
+  readonly baseDir: Option.Option<string>;
+  readonly serverConfigDir?: Option.Option<string>;
+  readonly serverDataDir?: Option.Option<string>;
+  readonly serverCacheDir?: Option.Option<string>;
+}
+
+const resolveLocationOverride = Effect.fn(function* (
+  flag: Option.Option<string> | undefined,
+  env: Option.Option<string>,
+) {
+  const raw = Option.orElse(
+    Option.filter(flag ?? Option.none(), (value) => value.trim().length > 0),
+    () => env,
+  );
+  if (Option.isNone(raw)) return undefined;
+  const path = yield* Path.Path;
+  return path.resolve(yield* expandHomePath(raw.value.trim()));
+});
+
+/** The config, data, and cache overrides from flags, then env. */
+export const resolveServerLocationOverrides = Effect.fn(function* (flags: CliServerLocationFlags) {
+  const env = yield* ServerLocationEnv;
+  return {
+    configDir: yield* resolveLocationOverride(flags.serverConfigDir, env.serverConfigDir),
+    dataDir: yield* resolveLocationOverride(flags.serverDataDir, env.serverDataDir),
+    cacheDir: yield* resolveLocationOverride(flags.serverCacheDir, env.serverCacheDir),
+  } satisfies ServerConfig.ServerLocationOverrides;
+});
+
+/**
+ * Resolves the base dir (flag, then T3CODE_HOME, then `fallbackBaseDir`, then
+ * `~/.t3`) and every server path. Every command that reads or writes server
+ * files resolves through here so the CLI and the server agree.
+ */
+export const resolveServerLocations = Effect.fn(function* (
+  flags: CliServerLocationFlags,
+  options: { readonly devUrl: URL | undefined; readonly fallbackBaseDir?: string | undefined },
+) {
+  const env = yield* ServerLocationEnv;
+  const explicitBaseDir = Option.orElse(flags.baseDir, () => env.t3Home).pipe(
+    Option.filter((value) => value.trim().length > 0),
+  );
+  const baseDir = yield* resolveBaseDir(
+    Option.getOrUndefined(explicitBaseDir) ?? options.fallbackBaseDir,
+  );
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, options.devUrl, {
+    baseDirIsExplicit: Option.isSome(explicitBaseDir),
+    ...(yield* resolveServerLocationOverrides(flags)),
+  });
+  return { baseDir, derivedPaths };
+});
+
+export interface CliServerFlags extends CliServerLocationFlags {
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
-  readonly baseDir: Option.Option<string>;
   readonly cwd: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
   readonly noBrowser: Option.Option<boolean>;
@@ -200,17 +283,27 @@ export interface CliServerFlags {
   readonly tailscaleServePort: Option.Option<number>;
 }
 
-export interface CliAuthLocationFlags {
-  readonly baseDir: Option.Option<string>;
+export interface CliAuthLocationFlags extends CliServerLocationFlags {
   readonly devUrl?: Option.Option<URL>;
 }
 
-export const authLocationFlags = {
+export const serverLocationFlags = {
   baseDir: baseDirFlag,
+  serverConfigDir: serverConfigDirFlag,
+  serverDataDir: serverDataDirFlag,
+  serverCacheDir: serverCacheDirFlag,
+} as const;
+
+export const authLocationFlags = {
+  ...serverLocationFlags,
   devUrl: devUrlFlag,
 } as const;
 
-export const projectLocationFlags = {
+/**
+ * Commands that manage the install (service, update, uninstall) record only
+ * the base dir, so they take no server location overrides.
+ */
+export const installLocationFlags = {
   baseDir: baseDirFlag,
 } as const;
 
@@ -218,7 +311,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
       "Working directory for provider sessions (defaults to the current directory).",
@@ -268,6 +361,9 @@ export const resolveServerConfig = (
       port: flags.port ?? Option.none(),
       host: flags.host ?? Option.none(),
       baseDir: flags.baseDir ?? Option.none(),
+      serverConfigDir: flags.serverConfigDir ?? Option.none(),
+      serverDataDir: flags.serverDataDir ?? Option.none(),
+      serverCacheDir: flags.serverCacheDir ?? Option.none(),
       cwd: flags.cwd ?? Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: flags.noBrowser ?? Option.none(),
@@ -315,20 +411,12 @@ export const resolveServerConfig = (
     );
     const devAuthToken =
       mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
-    const explicitBaseDir = resolveOptionPrecedence(
-      normalizedFlags.baseDir,
-      Option.fromUndefinedOr(env.t3Home),
-    ).pipe(Option.filter((value) => value.trim().length > 0));
-    const baseDir = yield* resolveBaseDir(
-      Option.getOrUndefined(
-        resolveOptionPrecedence(explicitBaseDir, Option.fromUndefinedOr(bootstrap?.t3Home)),
-      ),
-    );
+    const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
+      devUrl,
+      fallbackBaseDir: bootstrap?.t3Home,
+    });
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
-    const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
-      baseDirIsExplicit: Option.isSome(explicitBaseDir),
-    });
     // An interactive CLI must not start over a discovered server. Lifetime locking
     // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
     if (options?.rejectRunningServer && mode === "web") {
@@ -497,6 +585,9 @@ export const resolveCliAuthConfig = (
       port: Option.none(),
       host: Option.none(),
       baseDir: flags.baseDir,
+      serverConfigDir: flags.serverConfigDir ?? Option.none(),
+      serverDataDir: flags.serverDataDir ?? Option.none(),
+      serverCacheDir: flags.serverCacheDir ?? Option.none(),
       cwd: Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: Option.none(),

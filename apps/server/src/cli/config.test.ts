@@ -23,7 +23,10 @@ import * as NetService from "@t3tools/shared/Net";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { deriveServerPaths } from "../config.ts";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
@@ -670,6 +673,62 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(yield* fs.exists(directory)).toBe(true);
       }
       expect(resolved.cwd).toBe(path.resolve(customCwd));
+    }),
+  );
+
+  it.effect("reads settings from the config dir and opens the database in the data dir", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-locations-" });
+      const home = path.join(root, "home");
+      const configDir = path.join(root, "config");
+      const dataDir = path.join(root, "data");
+      const envDataDir = path.join(root, "env-data");
+      const cacheDir = path.join(root, "cache");
+      yield* fs.makeDirectory(configDir, { recursive: true });
+      yield* fs.writeFileString(
+        path.join(configDir, "settings.json"),
+        `${JSON.stringify({ observability: { otlpLogsUrl: "http://config-dir:4318/v1/logs" } })}\n`,
+      );
+
+      const resolved = yield* resolveServerConfig(
+        { ...minimalDesktopFlags(home), serverDataDir: Option.some(dataDir) },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_SERVER_CONFIG_DIR: configDir,
+                  T3CODE_SERVER_DATA_DIR: envDataDir,
+                  T3CODE_SERVER_CACHE_DIR: cacheDir,
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.otlpLogsUrl).toBe("http://config-dir:4318/v1/logs");
+      expect(resolved.settingsPath).toBe(path.join(root, "config", "settings.json"));
+      expect(resolved.dbPath).toBe(path.join(root, "data", "statev2.sqlite"));
+      expect(resolved.worktreesDir).toBe(path.join(root, "data", "worktrees"));
+      expect(resolved.providerStatusCacheDir).toBe(path.join(root, "cache"));
+
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`SELECT 1`;
+      }).pipe(
+        Effect.provide(
+          SqlitePersistence.layerConfig.pipe(Layer.provide(ServerConfigLayer(resolved))),
+        ),
+      );
+      expect(yield* fs.exists(path.join(root, "data", "statev2.sqlite"))).toBe(true);
+      expect(yield* fs.exists(envDataDir)).toBe(false);
+      expect(yield* fs.exists(home)).toBe(false);
     }),
   );
 
