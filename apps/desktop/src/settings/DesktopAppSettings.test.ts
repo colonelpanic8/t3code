@@ -161,7 +161,7 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("keeps saved preferences when a read fails before a bounds save", () =>
+  it.effect("keeps saved preferences when a read fails before a settings save", () =>
     withSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -192,9 +192,7 @@ describe("DesktopSettings", () => {
         );
 
         yield* Effect.exit(settings.load);
-        yield* Effect.exit(
-          settings.setMainWindowBounds({ x: 10, y: 20, width: 900, height: 600 }, false),
-        );
+        yield* Effect.exit(settings.setUpdateChannel("nightly"));
 
         const persisted = yield* decodeDesktopSettingsPatch(
           yield* fileSystem.readFileString(environment.desktopSettingsPath),
@@ -253,7 +251,7 @@ describe("DesktopSettings", () => {
         );
 
         assert.isFalse((yield* settings.load).localEnvironmentEnabled);
-        yield* settings.setMainWindowBounds({ x: 10, y: 20, width: 800, height: 600 }, false);
+        yield* settings.setUpdateChannel("nightly");
         assert.include(
           yield* fileSystem.readFileString(environment.desktopSettingsPath),
           `"localEnvironmentEnabled":false`,
@@ -286,14 +284,18 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("persists sparse desktop settings documents", () =>
+  it.effect("keeps legacy window state when persisting sparse desktop settings", () =>
     withSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* writeSettingsPatch({
+          mainWindowBounds: { x: -1200, y: 40, width: 400, height: 360 },
+          mainWindowMaximized: true,
+        });
 
-        yield* settings.setMainWindowBounds({ x: -1200, y: 40, width: 400, height: 360 }, true);
+        yield* settings.load;
         yield* settings.setServerExposureMode("network-accessible");
 
         const persisted = yield* decodeDesktopSettingsPatch(
