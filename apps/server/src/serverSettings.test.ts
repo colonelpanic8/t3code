@@ -2349,9 +2349,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   );
 });
 
-const layerSharedServerSettings = (secretStoreLayer = ServerSecretStore.layer) =>
+const layerSharedServerSettings = (
+  options: {
+    readonly managed?: boolean;
+    readonly secretStoreLayer?: typeof ServerSecretStore.layer;
+  } = {},
+) =>
   ServerSettingsModule.layer.pipe(
-    Layer.provideMerge(secretStoreLayer),
+    Layer.provideMerge(options.secretStoreLayer ?? ServerSecretStore.layer),
     Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
     Layer.provideMerge(
       Layer.effect(
@@ -2362,6 +2367,11 @@ const layerSharedServerSettings = (secretStoreLayer = ServerSecretStore.layer) =
           return {
             ...config,
             sharedSettingsPath: path.join(config.baseDir, "dotfiles", "t3code-settings.json"),
+            ...(options.managed
+              ? {
+                  managedSettingsPath: path.join(config.baseDir, "system", "managed-settings.json"),
+                }
+              : {}),
           };
         }),
       ).pipe(
@@ -2412,6 +2422,15 @@ const readStoredSecret = (secretName: string) =>
     const store = yield* ServerSecretStore.ServerSecretStore;
     const stored = yield* store.get(secretName);
     return Option.map(stored, (value) => new TextDecoder().decode(value));
+  });
+
+const writeManagedSettings = (contents: unknown) =>
+  Effect.gen(function* () {
+    const { managedSettingsPath } = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fs.makeDirectory(path.dirname(managedSettingsPath!), { recursive: true });
+    yield* fs.writeFileString(managedSettingsPath!, JSON.stringify(contents));
   });
 
 const SHARED_SETTINGS = {
@@ -2948,9 +2967,9 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
         assert.isFalse(settings.providerInstances[ProviderInstanceId.make("codex")]?.enabled);
       }).pipe(
         Effect.provide(
-          layerSharedServerSettings(
-            layerSecretStoreFailingSets((secretName) => secretName === failing),
-          ),
+          layerSharedServerSettings({
+            secretStoreLayer: layerSecretStoreFailingSets((secretName) => secretName === failing),
+          }),
         ),
       ),
   );
@@ -2986,7 +3005,9 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
         assert.equal(codex?.environment?.[0]?.value, "sk-shared");
       }).pipe(
         Effect.provide(
-          layerSharedServerSettings(layerSecretStoreFailingSets(() => !storeAvailable)),
+          layerSharedServerSettings({
+            secretStoreLayer: layerSecretStoreFailingSets(() => !storeAvailable),
+          }),
         ),
       );
     },
@@ -3483,7 +3504,7 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
       })),
     ).pipe(Layer.provide(ServerSecretStore.layer));
     const layerSettings = withShared
-      ? layerSharedServerSettings(layerSecret)
+      ? layerSharedServerSettings({ secretStoreLayer: layerSecret })
       : ServerSettingsModule.layer.pipe(
           Layer.provideMerge(layerSecret),
           Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
@@ -3716,5 +3737,144 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
           enableAgentBrowserAccess: false,
         });
       }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+});
+
+it.layer(NodeServices.layer)("managed settings over a shared file", (it) => {
+  it.effect("applies managed settings over settings.json over the shared file", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        defaultAutoPull: true,
+        worktreesDirectory: "/shared/worktrees",
+        branchNamePrefix: "shared/",
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ worktreesDirectory: "/local/worktrees", branchNamePrefix: "local/" }),
+      );
+      yield* writeManagedSettings({ branchNamePrefix: "nix/" });
+
+      const settings = yield* service.getSettings;
+
+      assert.isTrue(settings.defaultAutoPull);
+      assert.equal(settings.worktreesDirectory, "/local/worktrees");
+      assert.equal(settings.branchNamePrefix, "nix/");
+      assert.deepEqual(yield* service.managedSettingPaths, [["branchNamePrefix"]]);
+    }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
+  );
+
+  it.effect("writes only the patched key and no inherited or managed secret", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const secrets = yield* ServerSecretStore.ServerSecretStore;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const keyPath = path.join(config.baseDir, "system", "openai-key");
+      yield* writeSharedSettings(SHARED_SETTINGS);
+      yield* writeManagedSettings({
+        branchNamePrefix: "nix/",
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            environment: [{ name: "OPENAI_API_KEY", value: { $file: keyPath }, sensitive: true }],
+            config: { binaryPath: "/nix/store/codex/bin/codex" },
+          },
+        },
+        sourceControlHosts: { github: { tokens: { "github.com": { $file: keyPath } } } },
+      });
+      yield* fs.writeFileString(keyPath, "sk-managed\n");
+      const codexWork = ProviderInstanceId.make("codex_work");
+
+      const forClient = ServerSettingsModule.redactServerSettingsForClient(
+        yield* service.getSettings,
+      );
+      const updated = yield* service.updateSettings({
+        enableAgentBrowserAccess: false,
+        providerInstances: forClient.providerInstances,
+        sourceControlHosts: forClient.sourceControlHosts,
+      });
+
+      assert.equal(updated.providerInstances[codexWork]?.environment?.[0]?.value, "sk-managed");
+      assert.deepEqual(updated.sourceControlHosts.github?.tokens, { "github.com": "sk-managed" });
+      assert.equal(updated.branchNamePrefix, "nix/");
+      assert.isTrue(updated.defaultAutoPull);
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        enableAgentBrowserAccess: false,
+      });
+      assert.isTrue(
+        Option.isNone(
+          yield* secrets.get(
+            sourceControlHostSecretName({
+              kind: "github",
+              field: "tokens",
+              serverHost: "github.com",
+            }),
+          ),
+        ),
+      );
+    }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
+  );
+
+  it.effect("enforces a managed key that both lower layers set and persists neither", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        branchNamePrefix: "shared/",
+        worktreesDirectory: "/shared/worktrees",
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ branchNamePrefix: "local/" }),
+      );
+      yield* writeManagedSettings({
+        branchNamePrefix: "nix/",
+        worktreesDirectory: "/nix/worktrees",
+      });
+
+      const rejected = yield* Effect.flip(service.updateSettings({ branchNamePrefix: "other/" }));
+      assert.equal(rejected._tag, "ManagedSettingWriteError");
+      const updated = yield* service.updateSettings({ defaultAutoPull: true });
+
+      assert.equal(updated.branchNamePrefix, "nix/");
+      assert.equal(updated.worktreesDirectory, "/nix/worktrees");
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        branchNamePrefix: "local/",
+        defaultAutoPull: true,
+      });
+
+      yield* writeManagedSettings({});
+      yield* service.start;
+      const unmanaged = yield* service.getSettings;
+      assert.equal(unmanaged.branchNamePrefix, "local/");
+      assert.equal(unmanaged.worktreesDirectory, "/shared/worktrees");
+    }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
+  );
+
+  it.effect("keeps a managed key's local default while the shared file differs", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      assert.isFalse(DEFAULT_SERVER_SETTINGS.defaultAutoPull);
+      yield* writeSharedSettings({ defaultAutoPull: true });
+      yield* fs.writeFileString(config.settingsPath, JSON.stringify({ defaultAutoPull: false }));
+      yield* writeManagedSettings({ defaultAutoPull: true });
+
+      yield* service.updateSettings({ branchNamePrefix: "local/" });
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultAutoPull: false,
+        branchNamePrefix: "local/",
+      });
+      yield* writeManagedSettings({});
+      yield* service.start;
+      assert.isFalse((yield* service.getSettings).defaultAutoPull);
+    }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
   );
 });
