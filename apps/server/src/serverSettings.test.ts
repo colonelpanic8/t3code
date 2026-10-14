@@ -2420,4 +2420,214 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
       }),
     ).pipe(TestClock.withLive, Effect.provide(layerSharedServerSettings())),
   );
+  it.effect("saves an edited shared provider instance as a whole entry", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("codex_work");
+      const codex = ProviderDriverKind.make("codex");
+      yield* writeSharedSettings({
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            config: { binaryPath: "/opt/codex", homePath: "/shared/codex-home" },
+          },
+        },
+      });
+      const readLocal = Effect.map(fs.readFileString(config.settingsPath), JSON.parse);
+
+      yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId,
+        instance: {
+          driver: codex,
+          config: { binaryPath: "/usr/bin/codex", homePath: "/shared/codex-home" },
+        },
+      });
+      assert.deepEqual(yield* readLocal, {
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            config: { binaryPath: "/usr/bin/codex", homePath: "/shared/codex-home" },
+          },
+        },
+      });
+
+      yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId,
+        instance: {
+          driver: codex,
+          enabled: false,
+          config: { binaryPath: "/opt/codex", homePath: "/shared/codex-home" },
+        },
+      });
+      assert.deepEqual(yield* readLocal, {
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            enabled: false,
+            config: { binaryPath: "/opt/codex", homePath: "/shared/codex-home" },
+          },
+        },
+      });
+
+      yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId,
+        instance: { driver: codex, config: { binaryPath: "/opt/codex" } },
+      });
+      yield* service.start;
+      assert.deepEqual((yield* service.getSettings).providerInstances[instanceId], {
+        driver: codex,
+        config: { binaryPath: "/opt/codex" },
+      });
+
+      const claude = ProviderDriverKind.make("claudeAgent");
+      yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId,
+        instance: { driver: claude, config: { homePath: "/home/me/.claude" } },
+      });
+      assert.deepEqual(yield* readLocal, {
+        providerInstances: {
+          codex_work: { driver: "claudeAgent", config: { homePath: "/home/me/.claude" } },
+        },
+      });
+      assert.deepEqual((yield* service.getSettings).providerInstances[instanceId], {
+        driver: claude,
+        config: { homePath: "/home/me/.claude" },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("moves an inherited secret into the store once its instance is edited", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const instanceId = ProviderInstanceId.make("codex_work");
+      yield* writeSharedSettings(SHARED_SETTINGS);
+      const forClient = ServerSettingsModule.redactServerSettingsForClient(
+        yield* service.getSettings,
+      );
+
+      const updated = yield* service.updateProviderInstance({
+        operation: "upsert",
+        instanceId,
+        instance: { ...forClient.providerInstances[instanceId]!, enabled: false },
+      });
+
+      const raw = yield* fs.readFileString(config.settingsPath);
+      assert.isFalse(raw.includes("sk-shared"));
+      assert.deepEqual(JSON.parse(raw).providerInstances.codex_work.environment[0], {
+        name: "OPENAI_API_KEY",
+        value: "",
+        sensitive: true,
+        valueRedacted: true,
+      });
+      assert.equal(updated.providerInstances[instanceId]?.environment?.[0]?.value, "sk-shared");
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("saves a changed shared model selection or cleanup rule as a whole value", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const projectId = ProjectId.make("project-shared");
+      const rules = {
+        worktreeKeepWhen: "uncommitted-changes",
+        worktreeAfterDays: 7,
+        worktreeOnMerge: true,
+        worktreeOnDelete: false,
+        worktreeUnchanged: false,
+      } as const;
+      yield* writeSharedSettings({
+        defaultModelSelection: { instanceId: "codex", model: "gpt-5" },
+        worktreeCleanup: { mode: "custom", rules },
+        projectSettingsOverrides: {
+          [projectId]: { defaultModelSelection: { instanceId: "codex", model: "gpt-5" } },
+        },
+      });
+
+      const updated = yield* service.updateSettings({
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-mini",
+        },
+        worktreeCleanup: { mode: "custom", rules: { ...rules, worktreeAfterDays: 14 } },
+        projectSettingsOverrides: {
+          [projectId]: {
+            defaultModelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-nano",
+            },
+          },
+        },
+      });
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultModelSelection: { instanceId: "codex", model: "gpt-5-mini" },
+        worktreeCleanup: { mode: "custom", rules: { ...rules, worktreeAfterDays: 14 } },
+        projectSettingsOverrides: {
+          [projectId]: { defaultModelSelection: { instanceId: "codex", model: "gpt-5-nano" } },
+        },
+      });
+      assert.equal(updated.defaultModelSelection?.model, "gpt-5-mini");
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("migrates this machine's legacy codex path over a shared codex instance", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        providerInstances: { codex: { driver: "codex", config: { binaryPath: "/opt/codex" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ providers: { codex: { binaryPath: "/usr/local/bin/codex" } } }),
+      );
+
+      const settings = yield* service.getSettings;
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        providerInstances: {
+          codex: { driver: "codex", config: { binaryPath: "/usr/local/bin/codex" } },
+        },
+      });
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("codex")]?.config, {
+        binaryPath: "/usr/local/bin/codex",
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect.each([
+    ["malformed", '{"defaultAutoPull": tru'],
+    ["missing", undefined],
+  ] as const)(
+    "keeps every local key on an unrelated save while the shared file is %s",
+    ([, sharedContents]) =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        if (sharedContents !== undefined) yield* writeSharedSettings(sharedContents);
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({ defaultAutoPull: false, worktreesDirectory: "/local/worktrees" }),
+        );
+
+        yield* service.updateSettings({ enableAgentBrowserAccess: false });
+
+        assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+          defaultAutoPull: false,
+          worktreesDirectory: "/local/worktrees",
+          enableAgentBrowserAccess: false,
+        });
+      }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
 });
