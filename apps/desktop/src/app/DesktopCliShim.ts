@@ -2,13 +2,14 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import { T3_STORAGE_ENVIRONMENT_NAMES, t3StorageEnvironment } from "@t3tools/shared/storagePaths";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
 
 // A desktop install puts no `t3` on PATH, so commands the server asks a person
 // to run (`sudo t3 browser setup`) had nothing to call. The app keeps a small
-// launcher for its bundled CLI in the T3 home, which is never on PATH and so
+// launcher for its bundled CLI in its data directory, which is never on PATH and so
 // never shadows another `t3`, and the server names it by absolute path in those
 // commands through T3CODE_CLI_PATH. An AppImage mounts somewhere new each run,
 // so its launcher mounts the AppImage itself instead of pointing into it.
@@ -34,20 +35,25 @@ export type CliShimTarget =
 /**
  * The launcher script. Electron runs the server as plain Node with
  * `ELECTRON_RUN_AS_NODE`, which reads the entry from inside the asar archive.
- * The launcher's own path and the app's T3 home are written in, so the command
- * the server shows is absolute and `sudo`, which clears the environment, still
- * runs against this install's home.
+ * The launcher's own path and the app's storage directories are written in, so
+ * the command the server shows is absolute and `sudo`, which clears the
+ * environment, still runs against this install's storage. A caller that sets any
+ * storage variable keeps its own.
  */
 export const renderCliShim = (input: {
   readonly target: CliShimTarget;
   readonly shimPath: string;
-  readonly t3Home: string;
+  readonly storageEnvironment: Readonly<Record<string, string>>;
 }) => {
   const { target } = input;
+  const storageEntries = Object.entries(input.storageEnvironment);
   if (target.kind === "windows") {
-    const utf8 = [target.executable, target.entry, input.shimPath, input.t3Home].some((value) =>
-      [...value].some((character) => character.codePointAt(0)! > 0x7f),
-    );
+    const utf8 = [
+      target.executable,
+      target.entry,
+      input.shimPath,
+      ...storageEntries.map(([, value]) => value),
+    ].some((value) => [...value].some((character) => character.codePointAt(0)! > 0x7f));
     const restore = utf8 ? ["chcp %t3_codepage% >nul"] : [];
     return [
       "@echo off",
@@ -64,7 +70,11 @@ export const renderCliShim = (input: {
           ]
         : []),
       `set "T3CODE_CLI_PATH=${cmdText(input.shimPath)}"`,
-      `if not defined T3CODE_HOME set "T3CODE_HOME=${cmdText(input.t3Home)}"`,
+      'set "t3_storage=1"',
+      ...T3_STORAGE_ENVIRONMENT_NAMES.map((name) => `if defined ${name} set "t3_storage="`),
+      ...storageEntries.map(
+        ([name, value]) => `if defined t3_storage set "${name}=${cmdText(value)}"`,
+      ),
       'set "ELECTRON_RUN_AS_NODE=1"',
       // A goto, not a parenthesized block: "Program Files (x86)" would close the block early.
       `if exist ${cmdWord(target.executable)} goto run`,
@@ -83,8 +93,9 @@ export const renderCliShim = (input: {
     "#!/bin/sh",
     `# ${MARKER}`,
     `export T3CODE_CLI_PATH=${shellWord(input.shimPath)}`,
-    `home=${shellWord(input.t3Home)}`,
-    'export T3CODE_HOME="${T3CODE_HOME:-$home}"',
+    `if [ -z "${T3_STORAGE_ENVIRONMENT_NAMES.map((name) => `\${${name}:-}`).join("")}" ]; then`,
+    ...storageEntries.map(([name, value]) => `  export ${name}=${shellWord(value)}`),
+    "fi",
     "export ELECTRON_RUN_AS_NODE=1",
     `app=${shellWord(target.kind === "appimage" ? target.appImage : target.executable)}`,
     'if [ ! -x "$app" ]; then',
@@ -125,7 +136,7 @@ export const renderCliShim = (input: {
   ].join("\n");
 };
 
-/** Where the packaged app keeps its launcher: `<T3 home>/bin/t3`, `t3.cmd` on Windows. */
+/** Where the packaged app keeps its launcher: `<data dir>/bin/t3`, `t3.cmd` on Windows. */
 export const launcherPath = (environment: DesktopEnvironment.DesktopEnvironment["Service"]) =>
   environment.path.join(
     environment.baseDir,
@@ -134,7 +145,7 @@ export const launcherPath = (environment: DesktopEnvironment.DesktopEnvironment[
   );
 
 /**
- * Writes the packaged app's launcher to `<T3 home>/bin` and returns its path
+ * Writes the packaged app's launcher to `<data dir>/bin` and returns its path
  * for the backend's T3CODE_CLI_PATH. Development builds run from a checkout
  * and get none.
  */
@@ -157,7 +168,11 @@ export const install = Effect.gen(function* () {
         // macOS and .deb installs live at a fixed path, so the launcher runs the app directly.
         onNone: () => ({ kind: "direct" as const, executable: process.execPath, entry }),
       });
-  const content = renderCliShim({ target, shimPath, t3Home: environment.baseDir });
+  const content = renderCliShim({
+    target,
+    shimPath,
+    storageEnvironment: t3StorageEnvironment(environment.storageRoots),
+  });
 
   return yield* Effect.gen(function* () {
     const existing = yield* fs.readFileString(shimPath).pipe(Effect.option);
