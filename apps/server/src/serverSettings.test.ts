@@ -3806,4 +3806,73 @@ it.layer(NodeServices.layer)("managed settings over a shared file", (it) => {
       assert.isFalse((yield* service.getSettings).defaultAutoPull);
     }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
   );
+
+  it.effect("keeps a shared secret out of settings.json beside a local placeholder", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const keyPath = path.join(config.baseDir, "system", "github-token");
+      const codexWork = ProviderInstanceId.make("codex_work");
+      const githubTokenSecretName = sourceControlHostSecretName({
+        kind: "github",
+        field: "tokens",
+        serverHost: "github.com",
+      });
+      yield* writeSharedSettings({
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            environment: [
+              { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true },
+              { name: "LOCAL_TOKEN", value: "", sensitive: true },
+            ],
+            config: {},
+          },
+        },
+      });
+      yield* writeManagedSettings({
+        branchNamePrefix: "nix/",
+        sourceControlHosts: { github: { tokens: { "github.com": { $file: keyPath } } } },
+      });
+      yield* fs.writeFileString(keyPath, "sk-managed\n");
+      const save = (edit: (instance: ProviderInstanceConfig) => ProviderInstanceConfig) =>
+        Effect.gen(function* () {
+          const forClient = ServerSettingsModule.redactServerSettingsForClient(
+            yield* service.getSettings,
+          );
+          yield* service.updateProviderInstance({
+            operation: "upsert",
+            instanceId: codexWork,
+            instance: edit(forClient.providerInstances[codexWork]!),
+          });
+          const written = yield* fs.readFileString(config.settingsPath);
+          assert.notInclude(written, "sk-shared");
+          assert.notInclude(written, "sk-managed");
+          assert.deepEqual(
+            yield* readStoredSecret("provider-env-Y29kZXhfd29yaw-T1BFTkFJX0FQSV9LRVk"),
+            Option.some("sk-shared"),
+          );
+          assert.deepEqual(yield* readStoredSecret(githubTokenSecretName), Option.none());
+        });
+
+      yield* save((instance) => ({
+        ...instance,
+        environment: (instance.environment ?? []).map((variable) =>
+          variable.name === "LOCAL_TOKEN" ? { ...variable, value: "tok-local" } : variable,
+        ),
+      }));
+      yield* service.start;
+      yield* save((instance) => instance);
+
+      const settings = yield* service.getSettings;
+      assert.deepEqual(settings.providerInstances[codexWork]?.environment, [
+        { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true, valueRedacted: true },
+        { name: "LOCAL_TOKEN", value: "tok-local", sensitive: true, valueRedacted: true },
+      ]);
+      assert.equal(settings.branchNamePrefix, "nix/");
+      assert.deepEqual(settings.sourceControlHosts.github?.tokens, { "github.com": "sk-managed" });
+    }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
+  );
 });
