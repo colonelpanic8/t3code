@@ -1,4 +1,8 @@
-import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
+import type {
+  ComposerShortcutHintsTrigger,
+  KeybindingCommand,
+  ResolvedKeybindingsConfig,
+} from "@t3tools/contracts";
 import { type RefObject, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -38,6 +42,7 @@ function measureHints(
   modifiers: ShortcutModifierState,
   keybindings: ResolvedKeybindingsConfig,
   terminalFocus: boolean,
+  hintsTrigger: ComposerShortcutHintsTrigger,
 ): PlacedHint[] {
   const options = {
     context: {
@@ -65,6 +70,7 @@ function measureHints(
             modifiers,
             keybindings,
             options,
+            hintsTrigger,
           );
           return label ? [label] : [];
         }),
@@ -85,31 +91,72 @@ function measureHints(
   return hints;
 }
 
+const MODIFIER_KEYS = new Set(["Alt", "AltGraph", "Control", "Meta", "OS", "Shift"]);
+
 /**
- * While the held modifiers match a composer control binding, pins a keycap
- * callout above every control in the composer shell that the chord opens.
+ * True from the first non-modifier key pressed under a held modifier until
+ * every modifier is released, so the callouts get out of the way of the menu
+ * the chord just opened.
+ */
+function useChordConsumed(): boolean {
+  const [consumed, setConsumed] = useState(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (MODIFIER_KEYS.has(event.key)) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) setConsumed(true);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (!event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        setConsumed(false);
+      }
+    };
+    const reset = () => setConsumed(false);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", reset);
+    };
+  }, []);
+  return consumed;
+}
+
+/**
+ * While the hint trigger is held, pins a keycap callout above every composer
+ * control a shortcut opens.
  */
 export function ComposerShortcutHints(props: {
   anchorRef: RefObject<HTMLElement | null>;
   keybindings: ResolvedKeybindingsConfig;
+  trigger: ComposerShortcutHintsTrigger;
 }) {
-  const { anchorRef, keybindings } = props;
+  const { anchorRef, keybindings, trigger } = props;
   const modifiers = useShortcutModifierState();
+  const chordConsumed = useChordConsumed();
   const terminalFocus = useTerminalFocus();
   const { showThreadJumpHints: visible, updateThreadJumpHintsVisibility: updateVisibility } =
     useThreadJumpHintVisibility();
   const [hints, setHints] = useState<PlacedHint[]>([]);
 
-  const shouldShow = shouldShowComposerControlHintsForModifiers(modifiers, keybindings, {
-    context: {
-      terminalFocus,
-      terminalOpen: false,
-      previewFocus: false,
-      previewOpen: false,
-      isWeb: !isElectron,
-      isDesktop: isElectron,
-    },
-  });
+  const shouldShow =
+    !chordConsumed &&
+    shouldShowComposerControlHintsForModifiers(
+      modifiers,
+      keybindings,
+      {
+        context: {
+          terminalFocus,
+          terminalOpen: false,
+          previewFocus: false,
+          previewOpen: false,
+          isWeb: !isElectron,
+          isDesktop: isElectron,
+        },
+      },
+      trigger,
+    );
   useEffect(() => {
     updateVisibility(shouldShow);
   }, [shouldShow, updateVisibility]);
@@ -123,6 +170,7 @@ export function ComposerShortcutHints(props: {
           modifiers,
           keybindings,
           terminalFocus,
+          trigger,
         ),
       );
     update();
@@ -132,7 +180,7 @@ export function ComposerShortcutHints(props: {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [anchorRef, keybindings, modifiers, terminalFocus, visible]);
+  }, [anchorRef, keybindings, modifiers, terminalFocus, trigger, visible]);
 
   if (!visible || hints.length === 0) return null;
 
