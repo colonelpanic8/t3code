@@ -55,8 +55,10 @@ function expandHomeDir(dir: string, homeDirectory: string, joinPath: JoinPath): 
 
 // Shared by the pre-ready password-store read and DesktopEnvironment so both
 // see the same desktop-settings.json. `--client-dir` wins over
-// T3CODE_CLIENT_DIR; with neither, client files stay in the server's stateDir.
+// T3CODE_CLIENT_DIR; with neither, settings stay in the storage layout's
+// config dir and state in its state dir (both `userdata` in the legacy tree).
 export function resolveDesktopClientPaths(input: {
+  readonly configDir: string;
   readonly stateDir: string;
   readonly homeDirectory: string;
   readonly clientDirSwitch: Option.Option<string>;
@@ -67,10 +69,9 @@ export function resolveDesktopClientPaths(input: {
   const clientDir = normalizeConfiguredDir(input.clientDirSwitch).pipe(
     Option.orElse(() => normalizeConfiguredDir(input.clientDirEnv)),
     Option.map((dir) => input.resolvePath(expandHomeDir(dir, input.homeDirectory, input.joinPath))),
-    Option.getOrElse(() => input.stateDir),
   );
-  const clientConfigDir = clientDir;
-  const clientStateDir = clientDir;
+  const clientConfigDir = Option.getOrElse(clientDir, () => input.configDir);
+  const clientStateDir = Option.getOrElse(clientDir, () => input.stateDir);
   return {
     clientConfigDir,
     clientStateDir,
