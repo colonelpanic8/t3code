@@ -200,6 +200,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
 const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   cwd: string,
   baseDirOrPrefix: string | { readonly prefix: string },
+  overrides?: ServerLocationOverrides,
 ) {
   const devUrl = undefined;
   const fs = yield* FileSystem.FileSystem;
@@ -207,7 +208,7 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     typeof baseDirOrPrefix === "string"
       ? baseDirOrPrefix
       : yield* fs.makeTempDirectoryScoped({ prefix: baseDirOrPrefix.prefix });
-  const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+  const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, overrides);
   yield* ensureServerDirectories(derivedPaths);
 
   return ServerConfig.of({
@@ -248,8 +249,11 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   });
 });
 
-export const layerTest = (cwd: string, baseDirOrPrefix: string | { readonly prefix: string }) =>
-  Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix));
+export const layerTest = (
+  cwd: string,
+  baseDirOrPrefix: string | { readonly prefix: string },
+  overrides?: ServerLocationOverrides,
+) => Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix, overrides));
 
 export const resolveStaticDir = Effect.fn(function* () {
   const { join, resolve } = yield* Path.Path;

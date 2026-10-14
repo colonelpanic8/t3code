@@ -156,6 +156,8 @@ export const triageCommand = Command.make("triage", {
         devUrl: undefined,
       });
 
+      const userdataLogsDir = path.join(baseDir, "userdata", "logs");
+
       const now = yield* DateTime.now;
       const scratchDir = path.join(
         paths.stateDir,
@@ -179,8 +181,8 @@ export const triageCommand = Command.make("triage", {
             dbPath: paths.dbPath,
             settingsPath: paths.settingsPath,
             logsDir: paths.logsDir,
-            serviceLogPath: path.join(paths.logsDir, BootService.BOOT_SERVICE_LOG_FILE),
-            desktopBackendLogGlob: path.join(paths.logsDir, "server-child*.log*"),
+            serviceLogPath: path.join(userdataLogsDir, BootService.BOOT_SERVICE_LOG_FILE),
+            desktopBackendLogGlob: path.join(userdataLogsDir, "server-child*.log*"),
             serverTracePath: paths.serverTracePath,
             providerEventLogPath: paths.providerEventLogPath,
             terminalLogsDir: paths.terminalLogsDir,
