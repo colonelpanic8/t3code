@@ -38,6 +38,46 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("keeps desktop client files in T3CODE_CLIENT_DIR, apart from server state", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {},
+        { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: " /tmp/t3-client " },
+      );
+
+      assert.equal(environment.stateDir, "/tmp/t3-server/userdata");
+      assert.equal(environment.serverSettingsPath, "/tmp/t3-server/userdata/settings.json");
+      assert.equal(environment.logDir, "/tmp/t3-server/userdata/logs");
+      assert.equal(environment.browserArtifactsDir, "/tmp/t3-server/userdata/browser-artifacts");
+      assert.equal(environment.clientConfigDir, "/tmp/t3-client");
+      assert.equal(environment.clientStateDir, "/tmp/t3-client");
+      assert.equal(environment.desktopSettingsPath, "/tmp/t3-client/desktop-settings.json");
+      assert.equal(environment.clientSettingsPath, "/tmp/t3-client/client-settings.json");
+      assert.equal(environment.desktopWindowStatePath, "/tmp/t3-client/desktop-window-state.json");
+      assert.equal(environment.connectionCatalogPath, "/tmp/t3-client/connection-catalog.json");
+      assert.equal(
+        environment.savedEnvironmentRegistryPath,
+        "/tmp/t3-client/saved-environments.json",
+      );
+    }),
+  );
+
+  it.effect("prefers --client-dir over T3CODE_CLIENT_DIR", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { clientDirSwitch: "/tmp/t3-client-flag" },
+        { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: "/tmp/t3-client-env" },
+      );
+
+      assert.equal(environment.stateDir, "/tmp/t3-server/userdata");
+      assert.equal(environment.desktopSettingsPath, "/tmp/t3-client-flag/desktop-settings.json");
+      assert.equal(
+        environment.connectionCatalogPath,
+        "/tmp/t3-client-flag/connection-catalog.json",
+      );
+    }),
+  );
+
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({
