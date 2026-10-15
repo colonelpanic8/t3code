@@ -1312,6 +1312,17 @@ export class CodexAppServerClientFactory extends Context.Service<
  */
 export const CODEX_THREAD_CONFIG = { "tools.update_plan.enabled": true } as const;
 
+/**
+ * Blank-slate threads skip project AGENTS.md files, the skills catalog, and
+ * memories. Codex has no override for `$CODEX_HOME/AGENTS.md` or the MCP
+ * servers in the user's config.toml.
+ */
+export const CODEX_BLANK_SLATE_THREAD_CONFIG = {
+  project_doc_max_bytes: 0,
+  "skills.include_instructions": false,
+  "memories.use_memories": false,
+} as const;
+
 export function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly modelSelection?: { readonly model: string };
@@ -1327,6 +1338,7 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...(input.runtimePolicy?.blankSlate === true ? CODEX_BLANK_SLATE_THREAD_CONFIG : {}),
       ...(mcpSession === undefined
         ? {}
         : {

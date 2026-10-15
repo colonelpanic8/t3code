@@ -970,6 +970,8 @@ export function makeClaudeQueryOptions(input: {
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   readonly allowDangerouslySkipPermissions?: boolean;
+  /** See OrchestrationV2AppThread.blankSlate. */
+  readonly blankSlate?: boolean;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection);
   const {
@@ -983,6 +985,8 @@ export function makeClaudeQueryOptions(input: {
   if (requestThinkingSummaries && extraArgs["thinking-display"] === undefined) {
     extraArgs["thinking-display"] = "summarized";
   }
+  // The user's Claude in Chrome setting would otherwise add its browser tools.
+  if (input.blankSlate === true) extraArgs["no-chrome"] = null;
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -997,12 +1001,20 @@ export function makeClaudeQueryOptions(input: {
       : typeof input.sdkSettings === "object" && input.sdkSettings !== null
         ? ({ ...input.sdkSettings, ...selectionSettings } as ClaudeSdkSettings)
         : selectionSettings;
-  const effectiveQuerySettings =
+  const compactedQuerySettings =
     input.settings?.autoCompactWindow === undefined || input.settings.autoCompactWindow.length === 0
       ? querySettings
       : ({
           ...(typeof querySettings === "object" && querySettings !== null ? querySettings : {}),
           autoCompactWindow: Number(input.settings.autoCompactWindow),
+        } as ClaudeSdkSettings);
+  const effectiveQuerySettings =
+    input.blankSlate !== true || typeof compactedQuerySettings === "string"
+      ? compactedQuerySettings
+      : ({
+          ...compactedQuerySettings,
+          disableAllHooks: true,
+          autoMemoryEnabled: false,
         } as ClaudeSdkSettings);
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
@@ -1049,13 +1061,28 @@ export function makeClaudeQueryOptions(input: {
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
-    systemPrompt: {
-      type: "preset" as const,
-      preset: "claude_code" as const,
-      append:
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
-        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
-    },
+    systemPrompt:
+      input.blankSlate !== true
+        ? {
+            type: "preset" as const,
+            preset: "claude_code" as const,
+            append:
+              buildRuntimeInstructions({ harness: "Claude Code" }) +
+              (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+          }
+        : { type: "preset" as const, preset: "claude_code" as const },
+    ...(input.blankSlate !== true
+      ? {}
+      : {
+          // No CLAUDE.md, settings-defined hooks, plugins, or MCP servers.
+          settingSources: [],
+          skills: [],
+          mcpServers: input.mcpServers ?? {},
+          strictMcpConfig: true,
+          ...(input.environment === undefined
+            ? {}
+            : { env: { ...input.environment, ENABLE_CLAUDEAI_MCP_SERVERS: "false" } }),
+        }),
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
@@ -8374,6 +8401,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             canUseTool,
             onUserDialog,
             supportedDialogKinds: ["resume_return"],
+            ...(turnInput.runtimePolicy.blankSlate === true ? { blankSlate: true } : {}),
           });
           const querySession = yield* queryRunner
             .open({
