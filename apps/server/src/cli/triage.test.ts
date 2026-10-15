@@ -26,7 +26,15 @@ it.effect("reports a malformed server.json and still writes the context", () =>
     );
     assert.include(
       context,
-      `- Server config file (optional; the server reads it at startup): ${configFile} (invalid, so the server will not start: Invalid value\n  at ["mode"]\nmode must be one of: web, desktop)`,
+      [
+        `- Server config file (optional; the server reads it at startup): ${configFile} (invalid, so the server will not start):`,
+        "  ```",
+        "  Invalid value",
+        '    at ["mode"]',
+        "  mode must be one of: web, desktop",
+        "  ```",
+        "- Logs dir: ",
+      ].join("\n"),
     );
     assert.include(
       context,
