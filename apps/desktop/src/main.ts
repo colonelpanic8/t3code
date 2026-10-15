@@ -103,7 +103,13 @@ const layerDesktopEnvironment = Layer.unwrap(
       processArch,
       ...metadata,
       clientDirSwitch: DesktopPreReadyPlatform.readClientDirSwitch(),
-    });
+    }).pipe(
+      // Nothing can render yet, and a storage conflict or an unreadable ~/.t3
+      // is the user's to fix, so say why before exiting. Safe before ready.
+      Layer.tapError((error) =>
+        Effect.sync(() => Electron.dialog.showErrorBox("T3 Code failed to start", error.message)),
+      ),
+    );
   }),
 );
 
