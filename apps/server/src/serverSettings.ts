@@ -314,6 +314,30 @@ const LEGACY_BITBUCKET_SECRET_NAMES: Readonly<Record<string, string>> = {
 const legacyGitHubTokenSecretName = (host: string) =>
   `github-token-${Buffer.from(host.trim().toLowerCase(), "utf8").toString("base64url")}`;
 
+function dropUnstoredPlaceholders(
+  blob: Readonly<Record<string, unknown>>,
+  unstored: ReadonlySet<string>,
+  legacyName: (field: string, serverHost: string | null) => string | undefined,
+): Record<string, unknown> {
+  const isUnstored = (value: unknown, field: string, serverHost: string | null) => {
+    if (value !== SECRET_REDACTED) return false;
+    const name = legacyName(field, serverHost);
+    return name !== undefined && unstored.has(name);
+  };
+  const next: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(blob)) {
+    if (isUnstored(value, field, null)) continue;
+    next[field] = isSettingsDocument(value)
+      ? Object.fromEntries(
+          Object.entries(value).filter(
+            ([serverHost, entry]) => !isUnstored(entry, field, serverHost),
+          ),
+        )
+      : value;
+  }
+  return next;
+}
+
 function migrateLegacySourceControlSettings(
   settings: ServerSettings,
   legacy: {
@@ -321,18 +345,31 @@ function migrateLegacySourceControlSettings(
     readonly github?: Readonly<Record<string, unknown>> | undefined;
   },
   localKinds: ReadonlySet<string>,
+  unstoredSecrets: ReadonlySet<string> = new Set(),
 ): {
   readonly settings: ServerSettings;
   readonly secretMoves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
-  const fold = (kind: string, blob: Readonly<Record<string, unknown>>) => {
+  const fold = (
+    kind: string,
+    blob: Readonly<Record<string, unknown>>,
+    legacyName: (field: string, serverHost: string | null) => string | undefined,
+  ) => {
     const shared = sourceControlHosts[kind];
-    sourceControlHosts[kind] = shared === undefined ? blob : layerSettingsDocuments(shared, blob);
+    sourceControlHosts[kind] =
+      shared === undefined
+        ? blob
+        : layerSettingsDocuments(
+            shared,
+            dropUnstoredPlaceholders(blob, unstoredSecrets, legacyName),
+          );
   };
   if (legacy.bitbucket !== undefined && !localKinds.has("bitbucket")) {
-    fold("bitbucket", legacy.bitbucket);
+    fold("bitbucket", legacy.bitbucket, (field, serverHost) =>
+      serverHost === null ? LEGACY_BITBUCKET_SECRET_NAMES[field] : undefined,
+    );
     for (const [field, from] of Object.entries(LEGACY_BITBUCKET_SECRET_NAMES)) {
       if (legacy.bitbucket[field] !== SECRET_REDACTED) continue;
       secretMoves.push({
@@ -342,7 +379,11 @@ function migrateLegacySourceControlSettings(
     }
   }
   if (legacy.github !== undefined && !localKinds.has("github")) {
-    fold("github", legacy.github);
+    fold("github", legacy.github, (field, serverHost) =>
+      field === "tokens" && serverHost !== null
+        ? legacyGitHubTokenSecretName(serverHost)
+        : undefined,
+    );
     for (const [serverHost, value] of readSecretFieldValues(legacy.github.tokens)) {
       if (serverHost === null || value !== SECRET_REDACTED) continue;
       secretMoves.push({
@@ -841,7 +882,7 @@ const make = Effect.gen(function* () {
         if (stored) moved.add(secret.secretName);
       }
       const sharedPending = pending.filter(isShared);
-      const sharedStored = yield* applySettingsSecretChanges(
+      const rollbackSharedSecrets = yield* applySettingsSecretChanges(
         sharedPending.map((secret) => ({
           kind: "write" as const,
           secretName: secret.secretName,
@@ -854,14 +895,15 @@ const make = Effect.gen(function* () {
             : {}),
         })),
       ).pipe(
-        Effect.as(true),
         Effect.catch(() =>
           Effect.logWarning("failed to move shared settings secrets into the secret store").pipe(
-            Effect.as(false),
+            Effect.as(undefined),
           ),
         ),
       );
-      if (sharedStored) for (const secret of sharedPending) moved.add(secret.secretName);
+      if (rollbackSharedSecrets !== undefined) {
+        for (const secret of sharedPending) moved.add(secret.secretName);
+      }
       return {
         settings:
           moved.size === 0
@@ -869,7 +911,8 @@ const make = Effect.gen(function* () {
             : mapSettingsSecrets(settings, (secret) =>
                 moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
               ),
-        sharedSecretLeftInline: !sharedStored,
+        sharedSecretLeftInline: rollbackSharedSecrets === undefined,
+        rollbackSharedSecrets: rollbackSharedSecrets ?? Effect.void,
       };
     });
 
@@ -917,14 +960,21 @@ const make = Effect.gen(function* () {
 
   const loadSettingsFromDisk = Effect.gen(function* () {
     const shared = yield* loadSharedSettings;
-    // Every patch stores `backgroundActivity` normalized. Over a shared layer the
-    // loaded settings and the baseline must hold that same form, or each write
-    // would persist the shared value's normalized copy.
-    const normalizeBackgroundActivity = (settings: ServerSettings): ServerSettings =>
+    // Every patch stores `backgroundActivity` normalized, and every save rewrites secret fields
+    // through `mapSettingsSecrets` (host keys, redaction flags). Over a shared layer the loaded
+    // settings and the baseline must hold those same forms, or each write would persist the
+    // shared values' rewritten copies.
+    const normalizeLayered = (settings: ServerSettings): ServerSettings =>
       shared === undefined
         ? settings
-        : { ...settings, backgroundActivity: normalizeServerBackgroundActivitySettings(settings) };
-    const baseline = normalizeBackgroundActivity(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
+        : mapSettingsSecrets(
+            {
+              ...settings,
+              backgroundActivity: normalizeServerBackgroundActivitySettings(settings),
+            },
+            (secret) => secret,
+          );
+    const baseline = normalizeLayered(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
     const layer: SettingsLayer = {
       baseline,
       keepLocalKeys: shared !== undefined && shared.status !== "loaded",
@@ -970,7 +1020,7 @@ const make = Effect.gen(function* () {
           });
         }
       } else {
-        settings = normalizeBackgroundActivity(decoded.value);
+        settings = normalizeLayered(decoded.value);
         if (Exit.isSuccess(document) && isSettingsDocument(document.value.providerInstances)) {
           localInstanceIds = new Set(Object.keys(document.value.providerInstances));
         }
@@ -1045,6 +1095,7 @@ const make = Effect.gen(function* () {
     // Copied, not moved: the old entry is removed only after the new file is written. A token
     // that cannot be read or copied leaves the retired keys in place, so the migration runs again
     // on the next load instead of dropping it.
+    const unstoredLegacySecrets = new Set<string>();
     const legacySecretsCopied = yield* Effect.forEach(
       settingsFileTrusted
         ? migrateLegacySourceControlSettings(folded, legacySourceControl, localSourceControlKinds)
@@ -1052,9 +1103,11 @@ const make = Effect.gen(function* () {
         : [],
       (move) =>
         secretStore.get(move.from).pipe(
-          Effect.flatMap((secret) =>
-            Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
-          ),
+          Effect.flatMap((secret) => {
+            if (Option.isSome(secret)) return secretStore.set(move.to, secret.value);
+            unstoredLegacySecrets.add(move.from);
+            return Effect.void;
+          }),
           Effect.as(true),
           Effect.catch(() =>
             Effect.logWarning("failed to copy a source control secret to its new name", {
@@ -1068,18 +1121,29 @@ const make = Effect.gen(function* () {
       legacySecretsCopied &&
       (legacySourceControl.bitbucket !== undefined || legacySourceControl.github !== undefined);
     const sourceControlMigration = hasLegacySourceControl
-      ? migrateLegacySourceControlSettings(folded, legacySourceControl, localSourceControlKinds)
+      ? migrateLegacySourceControlSettings(
+          folded,
+          legacySourceControl,
+          localSourceControlKinds,
+          unstoredLegacySecrets,
+        )
       : { settings: folded, secretMoves: [] };
-    const { settings: migrated, sharedSecretLeftInline } = settingsFileTrusted
+    const {
+      settings: migrated,
+      sharedSecretLeftInline,
+      rollbackSharedSecrets,
+    } = settingsFileTrusted
       ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings, baseline)
-      : { settings: folded, sharedSecretLeftInline: false };
+      : { settings: folded, sharedSecretLeftInline: false, rollbackSharedSecrets: Effect.void };
     if (
       !sharedSecretLeftInline &&
       (migrated !== loaded ||
         (settingsFileTrusted && legacyProviders !== undefined) ||
         hasLegacySourceControl)
     ) {
-      yield* writeSettingsAtomically(migrated, layer);
+      yield* writeSettingsAtomically(migrated, layer).pipe(
+        Effect.tapError(() => rollbackSharedSecrets),
+      );
       for (const move of sourceControlMigration.secretMoves) {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
