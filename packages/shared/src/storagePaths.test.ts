@@ -7,7 +7,7 @@ import {
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
   resolveT3StorageDirectoryOverrides,
-  selectT3StorageRoots,
+  selectT3Storage,
   t3StorageEnvironment,
 } from "./storagePaths.ts";
 
@@ -59,7 +59,7 @@ describe("T3 storage paths", () => {
     });
   });
 
-  it("honors an independently configured XDG root on macOS", () => {
+  it("ignores XDG variables on macOS, where a Finder-launched app never sees them", () => {
     expect(
       resolveDefaultT3StorageRoots({
         platform: "darwin",
@@ -67,15 +67,15 @@ describe("T3 storage paths", () => {
         temporaryDirectory: "/tmp",
         userId: 501,
         isDevelopment: false,
-        environment: { XDG_CACHE_HOME: "/custom/cache" },
+        environment: { XDG_CACHE_HOME: "/custom/cache", XDG_CONFIG_HOME: "/custom/config" },
         path,
       }),
     ).toEqual({
       layout: "split",
-      configDir: "/Users/alice/.config/t3code",
-      dataDir: "/Users/alice/.local/share/t3code",
-      stateDir: "/Users/alice/.local/state/t3code",
-      cacheDir: "/custom/cache/t3code",
+      configDir: "/Users/alice/Library/Application Support/t3code/config",
+      dataDir: "/Users/alice/Library/Application Support/t3code/data",
+      stateDir: "/Users/alice/Library/Application Support/t3code/state",
+      cacheDir: "/Users/alice/Library/Caches/t3code",
       runtimeDir: "/tmp/t3code-501",
     });
   });
@@ -130,27 +130,110 @@ describe("T3 storage paths", () => {
     expect(t3StorageEnvironment(roots)).toEqual({ T3CODE_HOME: "/home/alice/.t3" });
   });
 
-  it("keeps initialized legacy storage unless a layout is explicitly selected", () => {
-    const split = linuxDefaults();
-    const legacy = resolveLegacyT3StorageRoots({
-      baseDir: "/home/alice/.t3",
-      stateDirectoryName: "userdata",
-      path,
+  describe("selectT3Storage", () => {
+    const select = (
+      input: {
+        readonly environment?: Readonly<Record<string, string | undefined>>;
+        readonly existing?: ReadonlyArray<string>;
+        readonly baseDir?: string;
+        readonly forcedLayout?: "xdg" | "legacy";
+        readonly isDevelopment?: boolean;
+        readonly exists?: (path: string) => boolean;
+      } = {},
+    ) =>
+      selectT3Storage({
+        platform: "linux",
+        homeDirectory: "/home/alice",
+        temporaryDirectory: "/tmp",
+        userId: 1000,
+        isDevelopment: input.isDevelopment ?? false,
+        environment: input.environment ?? {},
+        path,
+        baseDir: input.baseDir,
+        forcedLayout: input.forcedLayout,
+        exists: input.exists ?? ((candidate) => (input.existing ?? []).includes(candidate)),
+      });
+    const legacy = (stateDirectoryName: "userdata" | "dev" = "userdata") =>
+      resolveLegacyT3StorageRoots({ baseDir: "/home/alice/.t3", stateDirectoryName, path });
+
+    it("uses the split defaults for a new installation", () => {
+      expect(select()).toEqual({
+        _tag: "Selected",
+        roots: linuxDefaults(),
+        baseDirIsExplicit: false,
+      });
     });
-    expect(
-      selectT3StorageRoots({
-        defaultSplitRoots: split,
-        legacyRoots: legacy,
-        legacyStorageInitialized: true,
-      }),
-    ).toBe(legacy);
-    expect(
-      selectT3StorageRoots({
-        explicitSplitRoots: split,
-        defaultSplitRoots: split,
-        legacyRoots: legacy,
-        legacyStorageInitialized: true,
-      }),
-    ).toBe(split);
+
+    it("keeps an initialized ~/.t3", () => {
+      expect(select({ existing: ["/home/alice/.t3/userdata/statev2.sqlite"] })).toEqual({
+        _tag: "Selected",
+        roots: legacy(),
+        baseDirIsExplicit: false,
+      });
+    });
+
+    it("keeps an initialized split install when something later initializes ~/.t3", () => {
+      expect(
+        select({
+          existing: [
+            "/home/alice/.local/state/t3code/statev2.sqlite",
+            "/home/alice/.t3/userdata/statev2.sqlite",
+          ],
+        }),
+      ).toEqual({
+        _tag: "Selected",
+        roots: linuxDefaults(),
+        baseDirIsExplicit: false,
+        shadowedLegacyStateDir: "/home/alice/.t3/userdata",
+      });
+    });
+
+    it("names an explicit home's userdata even in development", () => {
+      expect(select({ environment: { T3CODE_HOME: "~/t3" }, isDevelopment: true })).toEqual({
+        _tag: "Selected",
+        roots: resolveLegacyT3StorageRoots({
+          baseDir: "/home/alice/t3",
+          stateDirectoryName: "userdata",
+          path,
+        }),
+        baseDirIsExplicit: true,
+      });
+      expect(select({ forcedLayout: "legacy", isDevelopment: true })).toMatchObject({
+        roots: legacy("dev"),
+        baseDirIsExplicit: false,
+      });
+    });
+
+    it("lets selectors or a forced layout skip detection", () => {
+      const existing = ["/home/alice/.t3/userdata/statev2.sqlite"];
+      expect(select({ existing, forcedLayout: "xdg" })).toMatchObject({ roots: linuxDefaults() });
+      expect(select({ existing, environment: { T3CODE_STATE_DIR: "/state" } })).toMatchObject({
+        roots: { ...linuxDefaults(), stateDir: "/state" },
+      });
+    });
+
+    it.each([
+      [{ environment: { T3CODE_HOME: "/t3", T3CODE_CACHE_DIR: "/c" } }, "home-with-selectors"],
+      [{ baseDir: "/t3", forcedLayout: "xdg" as const }, "xdg-with-home"],
+      [
+        { environment: { T3CODE_CONFIG_DIR: "/c" }, forcedLayout: "legacy" as const },
+        "legacy-with-selectors",
+      ],
+    ])("reports conflicting controls %#", (input, conflict) => {
+      const selection = select(input);
+      expect(selection._tag === "Conflict" && selection.error.conflict).toBe(conflict);
+    });
+
+    it("fails rather than guess when a marker cannot be checked", () => {
+      const selection = select({
+        exists: (candidate) => {
+          if (candidate.startsWith("/home/alice/.t3")) throw new Error("EACCES");
+          return false;
+        },
+      });
+      expect(selection._tag === "ProbeFailed" && selection.error.path).toBe(
+        "/home/alice/.t3/userdata/state.sqlite",
+      );
+    });
   });
 });

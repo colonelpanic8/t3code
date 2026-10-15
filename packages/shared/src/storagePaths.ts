@@ -1,12 +1,15 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as Schema from "effect/Schema";
+
 export const T3CODE_CONFIG_DIR_ENV = "T3CODE_CONFIG_DIR";
 export const T3CODE_DATA_DIR_ENV = "T3CODE_DATA_DIR";
 export const T3CODE_STATE_DIR_ENV = "T3CODE_STATE_DIR";
 export const T3CODE_CACHE_DIR_ENV = "T3CODE_CACHE_DIR";
 export const T3CODE_RUNTIME_DIR_ENV = "T3CODE_RUNTIME_DIR";
 
-/** Every variable that selects server storage, legacy home first. */
-export const T3_STORAGE_ENVIRONMENT_NAMES = [
-  "T3CODE_HOME",
+/** The split layout's root selectors. */
+export const T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES = [
   T3CODE_CONFIG_DIR_ENV,
   T3CODE_DATA_DIR_ENV,
   T3CODE_STATE_DIR_ENV,
@@ -14,17 +17,41 @@ export const T3_STORAGE_ENVIRONMENT_NAMES = [
   T3CODE_RUNTIME_DIR_ENV,
 ] as const;
 
-export type T3StorageLayout = "split" | "legacy";
+/** Every variable that selects server storage, legacy home first. */
+export const T3_STORAGE_ENVIRONMENT_NAMES = [
+  "T3CODE_HOME",
+  ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+] as const;
 
-export interface T3StorageRoots {
-  readonly layout: T3StorageLayout;
+/** Per-category server location overrides, which apply on top of either layout. */
+export const T3_SERVER_LOCATION_ENVIRONMENT_NAMES = [
+  "T3CODE_SERVER_CONFIG_DIR",
+  "T3CODE_SERVER_DATA_DIR",
+  "T3CODE_SERVER_CACHE_DIR",
+  "T3CODE_SERVER_CONFIG_FILE",
+] as const;
+
+export type T3StorageLayout = "split" | "legacy";
+export type T3ForcedStorageLayout = "xdg" | "legacy";
+
+interface T3StorageDirectories {
   readonly configDir: string;
   readonly dataDir: string;
   readonly stateDir: string;
   readonly cacheDir: string;
   readonly runtimeDir: string;
-  readonly legacyBaseDir?: string;
 }
+
+export interface T3SplitStorageRoots extends T3StorageDirectories {
+  readonly layout: "split";
+}
+
+export interface T3LegacyStorageRoots extends T3StorageDirectories {
+  readonly layout: "legacy";
+  readonly legacyBaseDir: string;
+}
+
+export type T3StorageRoots = T3SplitStorageRoots | T3LegacyStorageRoots;
 
 export interface T3StorageDirectoryOverrides {
   readonly configDir?: string;
@@ -63,7 +90,12 @@ const absoluteEnvironmentDirectory = (
   return candidate !== undefined && path.isAbsolute(candidate) ? candidate : undefined;
 };
 
-const expandHome = (value: string, homeDirectory: string, path: StoragePathOperations): string => {
+/** Expands a leading `~` to `homeDirectory`. */
+export const expandT3HomePath = (
+  value: string,
+  homeDirectory: string,
+  path: Pick<StoragePathOperations, "join">,
+): string => {
   if (value === "~") return homeDirectory;
   if (value.startsWith("~/") || value.startsWith("~\\")) {
     return path.join(homeDirectory, value.slice(2));
@@ -71,15 +103,16 @@ const expandHome = (value: string, homeDirectory: string, path: StoragePathOpera
   return value;
 };
 
-const resolveOverride = (
+/** A configured directory: trimmed, `~` expanded, and resolved; blank is unset. */
+export const resolveT3ConfiguredPath = (
   value: string | undefined,
   homeDirectory: string,
-  path: StoragePathOperations,
+  path: Pick<StoragePathOperations, "join" | "resolve">,
 ): string | undefined => {
   const candidate = trimmed(value);
   return candidate === undefined
     ? undefined
-    : path.resolve(expandHome(candidate, homeDirectory, path));
+    : path.resolve(expandT3HomePath(candidate, homeDirectory, path));
 };
 
 export function hasT3StorageDirectoryOverrides(overrides: T3StorageDirectoryOverrides): boolean {
@@ -92,11 +125,12 @@ export function resolveT3StorageDirectoryOverrides(input: {
   readonly path: StoragePathOperations;
 }): T3StorageDirectoryOverrides {
   const { environment, homeDirectory, path } = input;
-  const configDir = resolveOverride(environment[T3CODE_CONFIG_DIR_ENV], homeDirectory, path);
-  const dataDir = resolveOverride(environment[T3CODE_DATA_DIR_ENV], homeDirectory, path);
-  const stateDir = resolveOverride(environment[T3CODE_STATE_DIR_ENV], homeDirectory, path);
-  const cacheDir = resolveOverride(environment[T3CODE_CACHE_DIR_ENV], homeDirectory, path);
-  const runtimeDir = resolveOverride(environment[T3CODE_RUNTIME_DIR_ENV], homeDirectory, path);
+  const resolve = (name: string) => resolveT3ConfiguredPath(environment[name], homeDirectory, path);
+  const configDir = resolve(T3CODE_CONFIG_DIR_ENV);
+  const dataDir = resolve(T3CODE_DATA_DIR_ENV);
+  const stateDir = resolve(T3CODE_STATE_DIR_ENV);
+  const cacheDir = resolve(T3CODE_CACHE_DIR_ENV);
+  const runtimeDir = resolve(T3CODE_RUNTIME_DIR_ENV);
   return {
     ...(configDir === undefined ? {} : { configDir }),
     ...(dataDir === undefined ? {} : { dataDir }),
@@ -108,7 +142,7 @@ export function resolveT3StorageDirectoryOverrides(input: {
 
 export function resolveDefaultT3StorageRoots(
   input: ResolveDefaultT3StorageRootsInput,
-): T3StorageRoots {
+): T3SplitStorageRoots {
   const { environment, homeDirectory, isDevelopment, path, platform, temporaryDirectory } = input;
   const applicationDirectoryName = isDevelopment ? "t3code-dev" : "t3code";
   const runtimeFallbackName =
@@ -132,20 +166,9 @@ export function resolveDefaultT3StorageRoots(
     };
   }
 
-  const xdgConfigHome = absoluteEnvironmentDirectory(environment.XDG_CONFIG_HOME, path);
-  const xdgDataHome = absoluteEnvironmentDirectory(environment.XDG_DATA_HOME, path);
-  const xdgStateHome = absoluteEnvironmentDirectory(environment.XDG_STATE_HOME, path);
-  const xdgCacheHome = absoluteEnvironmentDirectory(environment.XDG_CACHE_HOME, path);
-  const xdgRuntimeHome = absoluteEnvironmentDirectory(environment.XDG_RUNTIME_DIR, path);
-
-  if (
-    platform === "darwin" &&
-    xdgConfigHome === undefined &&
-    xdgDataHome === undefined &&
-    xdgStateHome === undefined &&
-    xdgCacheHome === undefined &&
-    xdgRuntimeHome === undefined
-  ) {
+  // A Finder-launched app never sees a shell's XDG variables, so honoring them
+  // here would put the desktop and a terminal CLI in different directories.
+  if (platform === "darwin") {
     const applicationSupportRoot = path.join(
       homeDirectory,
       "Library",
@@ -162,24 +185,19 @@ export function resolveDefaultT3StorageRoots(
     };
   }
 
+  const xdgRuntimeHome = absoluteEnvironmentDirectory(environment.XDG_RUNTIME_DIR, path);
+  const xdgRoot = (name: string, fallback: ReadonlyArray<string>) =>
+    path.join(
+      absoluteEnvironmentDirectory(environment[name], path) ??
+        path.join(homeDirectory, ...fallback),
+      applicationDirectoryName,
+    );
   return {
     layout: "split",
-    configDir: path.join(
-      xdgConfigHome ?? path.join(homeDirectory, ".config"),
-      applicationDirectoryName,
-    ),
-    dataDir: path.join(
-      xdgDataHome ?? path.join(homeDirectory, ".local", "share"),
-      applicationDirectoryName,
-    ),
-    stateDir: path.join(
-      xdgStateHome ?? path.join(homeDirectory, ".local", "state"),
-      applicationDirectoryName,
-    ),
-    cacheDir: path.join(
-      xdgCacheHome ?? path.join(homeDirectory, ".cache"),
-      applicationDirectoryName,
-    ),
+    configDir: xdgRoot("XDG_CONFIG_HOME", [".config"]),
+    dataDir: xdgRoot("XDG_DATA_HOME", [".local", "share"]),
+    stateDir: xdgRoot("XDG_STATE_HOME", [".local", "state"]),
+    cacheDir: xdgRoot("XDG_CACHE_HOME", [".cache"]),
     runtimeDir:
       xdgRuntimeHome === undefined
         ? path.join(temporaryDirectory, runtimeFallbackName)
@@ -188,9 +206,9 @@ export function resolveDefaultT3StorageRoots(
 }
 
 export function applyT3StorageDirectoryOverrides(
-  defaults: T3StorageRoots,
+  defaults: T3SplitStorageRoots,
   overrides: T3StorageDirectoryOverrides,
-): T3StorageRoots {
+): T3SplitStorageRoots {
   return {
     layout: "split",
     configDir: overrides.configDir ?? defaults.configDir,
@@ -205,7 +223,7 @@ export function resolveLegacyT3StorageRoots(input: {
   readonly baseDir: string;
   readonly stateDirectoryName: "userdata" | "dev";
   readonly path: Pick<StoragePathOperations, "join">;
-}): T3StorageRoots {
+}): T3LegacyStorageRoots {
   const stateDir = input.path.join(input.baseDir, input.stateDirectoryName);
   return {
     layout: "legacy",
@@ -237,29 +255,166 @@ export function legacyT3StorageArtifactPaths(
   ];
 }
 
-export function selectT3StorageRoots(input: {
-  readonly explicitLegacyRoots?: T3StorageRoots;
-  readonly explicitSplitRoots?: T3StorageRoots;
-  readonly bootstrapRoots?: T3StorageRoots;
-  readonly defaultSplitRoots: T3StorageRoots;
-  readonly legacyRoots: T3StorageRoots;
-  readonly legacyStorageInitialized: boolean;
-}): T3StorageRoots {
-  if (input.explicitLegacyRoots !== undefined) return input.explicitLegacyRoots;
-  if (input.explicitSplitRoots !== undefined) return input.explicitSplitRoots;
-  if (input.bootstrapRoots !== undefined) return input.bootstrapRoots;
-  return input.legacyStorageInitialized ? input.legacyRoots : input.defaultSplitRoots;
+/** Files whose presence marks the split layout as holding a server's state. */
+export function splitT3StorageArtifactPaths(
+  roots: T3StorageRoots,
+  path: Pick<StoragePathOperations, "join">,
+): ReadonlyArray<string> {
+  return [
+    path.join(roots.stateDir, "statev2.sqlite"),
+    path.join(roots.stateDir, "environment-id"),
+    path.join(roots.stateDir, "secrets"),
+  ];
 }
 
-export function t3StorageEnvironment(roots: T3StorageRoots): Readonly<Record<string, string>> {
-  if (roots.layout === "legacy" && roots.legacyBaseDir !== undefined) {
-    return { T3CODE_HOME: roots.legacyBaseDir };
+/** `existsSync` that throws instead of answering when the answer is unknown. */
+export function t3StoragePathExists(path: string): boolean {
+  try {
+    NodeFS.statSync(path);
+    return true;
+  } catch (cause) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw cause;
   }
+}
+
+export type T3StorageConflict = "home-with-selectors" | "xdg-with-home" | "legacy-with-selectors";
+
+const SELECTOR_LIST =
+  "T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR";
+
+export class T3StorageConfigurationError extends Schema.TaggedError<T3StorageConfigurationError>()(
+  "T3StorageConfigurationError",
+  { conflict: Schema.Literals(["home-with-selectors", "xdg-with-home", "legacy-with-selectors"]) },
+) {
+  override get message(): string {
+    switch (this.conflict) {
+      case "home-with-selectors":
+        return `T3CODE_HOME/--base-dir cannot be combined with ${SELECTOR_LIST}.`;
+      case "xdg-with-home":
+        return "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.";
+      case "legacy-with-selectors":
+        return `--storage-layout legacy cannot be combined with ${SELECTOR_LIST}.`;
+    }
+  }
+}
+
+export class T3StorageProbeError extends Schema.TaggedError<T3StorageProbeError>()(
+  "T3StorageProbeError",
+  { path: Schema.String, cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return `Could not check whether '${this.path}' exists, so T3 Code cannot tell which storage layout holds its data.`;
+  }
+}
+
+export interface SelectT3StorageInput extends ResolveDefaultT3StorageRootsInput {
+  /** A --base-dir flag, which outranks T3CODE_HOME. */
+  readonly baseDir?: string | undefined;
+  readonly forcedLayout?: T3ForcedStorageLayout | undefined;
+  /** Roots a launching process already selected; only an explicit home outranks them. */
+  readonly pinned?: T3StorageRoots | undefined;
+  /** Whether a path exists. Throws when that cannot be determined. */
+  readonly exists: (path: string) => boolean;
+}
+
+export interface T3StorageSelected {
+  readonly _tag: "Selected";
+  readonly roots: T3StorageRoots;
+  /** Legacy only: a named home keeps `userdata` even in development. */
+  readonly baseDirIsExplicit: boolean;
+  /** An initialized legacy state dir the selected split layout leaves unused. */
+  readonly shadowedLegacyStateDir?: string;
+}
+
+export type T3StorageSelection =
+  | T3StorageSelected
+  | { readonly _tag: "Conflict"; readonly error: T3StorageConfigurationError }
+  | { readonly _tag: "ProbeFailed"; readonly error: T3StorageProbeError };
+
+/**
+ * The storage a T3 process uses: --base-dir or T3CODE_HOME, then pinned roots,
+ * then the T3CODE_*_DIR selectors or a forced layout, then whichever of the
+ * split layout and ~/.t3 already holds an installation (split first), and
+ * finally the platform's split defaults.
+ */
+export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection {
+  const { environment, homeDirectory, path } = input;
+  const explicitHome = resolveT3ConfiguredPath(
+    trimmed(input.baseDir) ?? environment.T3CODE_HOME,
+    homeDirectory,
+    path,
+  );
+  const selectors = resolveT3StorageDirectoryOverrides({ environment, homeDirectory, path });
+  const hasSelectors = hasT3StorageDirectoryOverrides(selectors);
+  const conflict = (value: T3StorageConflict): T3StorageSelection => ({
+    _tag: "Conflict",
+    error: new T3StorageConfigurationError({ conflict: value }),
+  });
+  if (explicitHome !== undefined && hasSelectors) return conflict("home-with-selectors");
+  if (input.forcedLayout === "xdg" && explicitHome !== undefined) return conflict("xdg-with-home");
+  if (input.forcedLayout === "legacy" && hasSelectors) return conflict("legacy-with-selectors");
+
+  const selected = (roots: T3StorageRoots, baseDirIsExplicit = false): T3StorageSelected => ({
+    _tag: "Selected",
+    roots,
+    baseDirIsExplicit,
+  });
+  if (explicitHome !== undefined) {
+    return selected(
+      resolveLegacyT3StorageRoots({ baseDir: explicitHome, stateDirectoryName: "userdata", path }),
+      true,
+    );
+  }
+  if (input.pinned !== undefined) return selected(input.pinned);
+
+  const splitRoots = applyT3StorageDirectoryOverrides(
+    resolveDefaultT3StorageRoots(input),
+    selectors,
+  );
+  if (hasSelectors || input.forcedLayout === "xdg") return selected(splitRoots);
+  const legacyRoots = resolveLegacyT3StorageRoots({
+    baseDir: path.join(homeDirectory, ".t3"),
+    stateDirectoryName: input.isDevelopment ? "dev" : "userdata",
+    path,
+  });
+  if (input.forcedLayout === "legacy") return selected(legacyRoots);
+
+  let probing = "";
+  try {
+    const initialized = (paths: ReadonlyArray<string>) =>
+      paths.some((candidate) => {
+        probing = candidate;
+        return input.exists(candidate);
+      });
+    const splitInitialized = initialized(splitT3StorageArtifactPaths(splitRoots, path));
+    const legacyInitialized = initialized(legacyT3StorageArtifactPaths(legacyRoots, path));
+    if (splitInitialized) {
+      return legacyInitialized
+        ? { ...selected(splitRoots), shadowedLegacyStateDir: legacyRoots.stateDir }
+        : selected(splitRoots);
+    }
+    return selected(legacyInitialized ? legacyRoots : splitRoots);
+  } catch (cause) {
+    return { _tag: "ProbeFailed", error: new T3StorageProbeError({ path: probing, cause }) };
+  }
+}
+
+/**
+ * The variables that pin `roots` for a child process. `includeRuntimeDir`
+ * false leaves the runtime dir to the child's own XDG_RUNTIME_DIR.
+ */
+export function t3StorageEnvironment(
+  roots: T3StorageRoots,
+  options: { readonly includeRuntimeDir?: boolean } = {},
+): Readonly<Record<string, string>> {
+  if (roots.layout === "legacy") return { T3CODE_HOME: roots.legacyBaseDir };
   return {
     [T3CODE_CONFIG_DIR_ENV]: roots.configDir,
     [T3CODE_DATA_DIR_ENV]: roots.dataDir,
     [T3CODE_STATE_DIR_ENV]: roots.stateDir,
     [T3CODE_CACHE_DIR_ENV]: roots.cacheDir,
-    [T3CODE_RUNTIME_DIR_ENV]: roots.runtimeDir,
+    ...(options.includeRuntimeDir === false ? {} : { [T3CODE_RUNTIME_DIR_ENV]: roots.runtimeDir }),
   };
 }
