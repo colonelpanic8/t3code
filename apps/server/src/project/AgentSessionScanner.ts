@@ -629,12 +629,14 @@ export const make = Effect.gen(function* () {
   // Windows filesystems are case-insensitive, so path prefix checks there
   // must case fold.
   const foldWorktreeCase = (yield* HostProcess.Platform) === "win32";
-  // The data dir holds triage scratch directories that agents run in.
+  // The state dir holds triage scratch directories that agents run in.
   const serverDirs = [
     serverConfig.baseDir,
     serverConfig.configDir,
     serverConfig.dataDir,
+    serverConfig.stateDir,
     serverConfig.cacheDir,
+    serverConfig.runtimeDir,
   ].map((directory) => normalizeForWorktreeMatch(path.resolve(directory), foldWorktreeCase));
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;

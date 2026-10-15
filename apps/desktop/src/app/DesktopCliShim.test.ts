@@ -136,6 +136,8 @@ describe("renderCliShim", () => {
       }),
     );
     expect(run(shim, []).stdout).toContain("home= state=/state");
+    // A caller's own server location override would conflict with pinned split roots.
+    expect(run(shim, [], { T3CODE_SERVER_DATA_DIR: "/data" }).stdout).toContain("home= state=\n");
   });
 
   it("runs an installed app's server directly", () => {

@@ -44,8 +44,9 @@ export interface UninstallPlan {
   /** `<home>/runtime`, holding every downloaded version, when it exists. */
   readonly runtimeDir: string | undefined;
   /**
-   * `<home>/userdata` plus any config, data, or cache dir set in the environment.
-   * Never removed; shown so the user knows where they are.
+   * The storage layout's directories (`<home>/userdata` in the legacy layout)
+   * plus any config, data, or cache dir set in the environment. Never removed;
+   * shown so the user knows where they are.
    */
   readonly keptDirs: ReadonlyArray<string>;
 }
@@ -80,6 +81,7 @@ export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(functi
 
 const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
   readonly baseDir: string;
+  readonly layoutDirs: ReadonlyArray<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -100,12 +102,9 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
       : undefined,
     keptDirs: [
       ...new Set(
-        [
-          path.join(input.baseDir, "userdata"),
-          overrides.configDir,
-          overrides.dataDir,
-          overrides.cacheDir,
-        ].filter((dir): dir is string => dir !== undefined),
+        [...input.layoutDirs, overrides.configDir, overrides.dataDir, overrides.cacheDir].filter(
+          (dir): dir is string => dir !== undefined,
+        ),
       ),
     ],
   };
@@ -128,22 +127,29 @@ export const uninstallCommand = Command.make("uninstall", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const config = yield* resolveInstallLocations(flags);
-      return yield* runUninstall({ baseDir: config.baseDir, assumeYes: flags.yes }).pipe(
-        Effect.provide(CliService.layer(config)),
-      );
+      const layoutDirs =
+        config.storage.roots.layout === "legacy"
+          ? [config.stateDir]
+          : [config.configDir, config.dataDir, config.stateDir, config.cacheDir];
+      return yield* runUninstall({
+        baseDir: config.baseDir,
+        layoutDirs,
+        assumeYes: flags.yes,
+      }).pipe(Effect.provide(CliService.layer(config)));
     }),
   ),
 );
 
 const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
   readonly baseDir: string;
+  readonly layoutDirs: ReadonlyArray<string>;
   readonly assumeYes: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcess.Platform;
   const environment = yield* HostProcess.Environment;
   const service = yield* BootService.BootService;
-  const plan = yield* planUninstall({ baseDir: input.baseDir });
+  const plan = yield* planUninstall({ baseDir: input.baseDir, layoutDirs: input.layoutDirs });
 
   if (!plan.service && plan.launcher === undefined && plan.runtimeDir === undefined) {
     yield* Console.log(`Nothing to remove: t3 is not installed for ${input.baseDir}.`);
