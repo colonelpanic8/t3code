@@ -11,7 +11,7 @@ import {
   useRoute,
   type StaticScreenProps,
 } from "@react-navigation/native";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ServerFleetEnvironment } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
@@ -24,11 +24,15 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { AppText as Text, AppTextInput, type AppTextInputProps } from "../../components/ui/AppText";
 import { FrostedCutout } from "../../components/ui/FrostedCutout";
 import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from "./pairing";
-import { useRemoteConnections } from "../../state/use-remote-environment-registry";
+import {
+  useRemoteConnections,
+  useSavedRemoteConnections,
+} from "../../state/use-remote-environment-registry";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
 import { autoConnectReport, devAutoConnectAttemptAtom } from "./devAutoConnect";
+import { FleetImportSection } from "./FleetImportSection";
 import { splitEnvironmentSections } from "./environmentSections";
 import { leaveSettingsPage } from "../settings/settings-navigation";
 import { workspaceHasColumns } from "../workspace/workspace-selection-store";
@@ -87,6 +91,11 @@ function PairingForm({
   const [scannerLocked, setScannerLocked] = useState(false);
   // A good scan parks the camera so it can't re-read the code over later edits.
   const [scanComplete, setScanComplete] = useState(false);
+  // An imported fleet machine the user chose. Pairing must then reach that
+  // machine, so any manual edit of the address or a scan drops the choice.
+  const [importedEnvironmentId, setImportedEnvironmentId] = useState<EnvironmentId | null>(null);
+  const { savedConnectionsById } = useSavedRemoteConnections();
+  const savedEnvironmentIds = new Set(Object.keys(savedConnectionsById) as EnvironmentId[]);
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
@@ -99,7 +108,31 @@ function PairingForm({
 
   const handleHostChange = (value: string) => {
     setHostInput(value);
+    setImportedEnvironmentId(null);
     clearError();
+  };
+
+  // The code is cleared so a code meant for another machine is never sent to
+  // the imported address.
+  const handleImportedSelect = (environment: ServerFleetEnvironment) => {
+    setImportedEnvironmentId(environment.environmentId);
+    setHostInput(environment.httpBaseUrl);
+    setCodeInput("");
+    setScanComplete(true);
+    clearError();
+  };
+
+  const handleImportedClear = () => {
+    if (importedEnvironmentId !== null) {
+      setHostInput("");
+      setCodeInput("");
+    }
+    setImportedEnvironmentId(null);
+    clearError();
+  };
+
+  const openSavedEnvironment = (environmentId: EnvironmentId) => {
+    navigation.navigate("SettingsEnvironmentDetail", { environmentId });
   };
 
   const handleCodeChange = (value: string) => {
@@ -136,6 +169,7 @@ function PairingForm({
       const { host, code } = parsePairingUrl(pairingUrl);
       setHostInput(host);
       setCodeInput(code);
+      setImportedEnvironmentId(null);
       onChangeConnectionPairingUrl(pairingUrl);
       setScanComplete(true);
       setScannerLocked(false);
@@ -152,12 +186,16 @@ function PairingForm({
   };
 
   const handleSubmit = async () => {
+    if (importedEnvironmentId !== null && savedEnvironmentIds.has(importedEnvironmentId)) {
+      setSubmitError("That machine is already saved.");
+      return;
+    }
     const pairingUrl = buildPairingUrl(hostInput, codeInput);
     setOwnAttempt(true);
     setSubmitError(null);
     setIsSubmitting(true);
     onChangeConnectionPairingUrl(pairingUrl);
-    const outcome = await onConnectPress(pairingUrl, routeFor);
+    const outcome = await onConnectPress(pairingUrl, routeFor ?? importedEnvironmentId ?? undefined);
     setIsSubmitting(false);
     setSubmitError(outcome.error);
     void Haptics.notificationAsync(
@@ -213,6 +251,16 @@ function PairingForm({
               void handleScanPress();
             }}
           />
+
+          {routeFor === undefined ? (
+            <FleetImportSection
+              savedEnvironmentIds={savedEnvironmentIds}
+              selectedEnvironmentId={importedEnvironmentId}
+              onSelect={handleImportedSelect}
+              onClearSelection={handleImportedClear}
+              onOpenSaved={openSavedEnvironment}
+            />
+          ) : null}
 
           <View collapsable={false} className="gap-2">
             <Text className="px-4 text-sm font-t3-medium text-foreground-muted">Or enter it</Text>

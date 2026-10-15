@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { LocalEnvironmentList } from "./LocalEnvironmentList";
+import { PendingFleetMemberRows } from "./PendingFleetMemberRows";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { LinkedEnvironmentsSection } from "./LinkedEnvironmentsSection";
 
@@ -79,6 +80,7 @@ export function ConnectionsRouteScreen() {
               environmentLabel={environment.environmentLabel}
             />
           ))}
+        <PendingFleetMemberRows />
         <PullRequestRoutingSettings />
       </ScrollView>
     </View>
