@@ -21,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import {
+  LegacyStorageMigratedError,
   selectT3Storage,
   T3StorageConfigurationError,
   T3StorageProbeError,
@@ -35,7 +36,6 @@ import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
   type CliServerFlags,
-  LegacyStorageMigratedError,
   resolveInstallLocations,
   resolveServerConfig,
   resolveServerStorage,

@@ -11,7 +11,7 @@ import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import {
   applyT3StorageDirectoryOverrides,
-  legacyT3StorageMigrationMarkerPath,
+  type LegacyStorageMigratedError,
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
   resolveT3ClientStorageRoots,
@@ -25,7 +25,7 @@ import {
   T3CODE_STATE_DIR_ENV,
   type T3StorageConfigurationError,
   type T3StorageDirectoryOverrides,
-  T3StorageProbeError,
+  type T3StorageProbeError,
   t3StoragePathExists,
   type T3StorageRoots,
 } from "@t3tools/shared/storagePaths";
@@ -305,15 +305,6 @@ export class ServerLocationSelectorConflictError extends Schema.TaggedError<Serv
 ) {
   override get message(): string {
     return `${this.override} names '${this.overrideDir}' but ${this.selector} names '${this.selectorDir}' for the same files. Unset one, or point both at the same directory.`;
-  }
-}
-
-export class LegacyStorageMigratedError extends Schema.TaggedError<LegacyStorageMigratedError>()(
-  "LegacyStorageMigratedError",
-  { stateDir: Schema.String },
-) {
-  override get message(): string {
-    return `The legacy storage at '${this.stateDir}' was copied to the split layout by \`t3 storage migrate\`. Unset T3CODE_HOME and drop --base-dir or --storage-layout legacy to use the copy, or run \`t3 storage migrate --rollback\` to return to the legacy tree.`;
   }
 }
 
@@ -623,21 +614,11 @@ export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* 
   switch (selection._tag) {
     case "Conflict":
     case "ProbeFailed":
+    case "Retired":
       return yield* selection.error;
     case "Selected":
-      break;
+      return selection;
   }
-  // A retired tree is a stale copy; serving or editing it would diverge from the migrated one.
-  const { roots } = selection;
-  if (roots.layout === "legacy") {
-    const markerPath = legacyT3StorageMigrationMarkerPath(roots, path);
-    const retired = yield* Effect.try({
-      try: () => t3StoragePathExists(markerPath),
-      catch: (cause) => new T3StorageProbeError({ path: markerPath, cause }),
-    });
-    if (retired) return yield* new LegacyStorageMigratedError({ stateDir: roots.stateDir });
-  }
-  return selection;
 });
 
 /** Every server path for `storage`, each location override winning for its category. */
