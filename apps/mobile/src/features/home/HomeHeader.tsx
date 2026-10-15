@@ -10,6 +10,8 @@ import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { createNativeMailSearchToolbarItem } from "../layout/native-mail-search-toolbar";
 import { useNativeMailSearchToolbar } from "../../native/use-native-mail-search-toolbar";
+import { useVoiceLiveTargets } from "../voice/useVoiceLive";
+import { voiceLiveStoreActions } from "../voice/voiceLiveStore";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
 import { createSidebarHeaderItems } from "../threads/sidebar-native-header-items";
 import type { HomeHeaderProps } from "./HomeHeader.types";
@@ -40,6 +42,7 @@ export function HomeHeader(props: HomeHeaderProps) {
     [navigation],
   );
   const iconColor = useUniwindTheme()["--color-icon"];
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   // The list uses a fixed creation order and ignores sort/group options, so
   // the filter menu only carries the filters and the "customized" icon state
   // keys off those alone.
@@ -56,6 +59,18 @@ export function HomeHeader(props: HomeHeaderProps) {
   }, [primaryColumn, panes.primarySidebarVisible, togglePrimarySidebar]);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
   const filterMenu = buildHomeListFilterMenu(props);
+  const voiceLiveHeaderItems = voiceLiveAvailable
+    ? [
+        withNativeGlassHeaderItem({
+          accessibilityLabel: "Start Live Voice",
+          icon: { name: "waveform", type: "sfSymbol" } as const,
+          identifier: "home-voice-live",
+          label: "",
+          onPress: voiceLiveStoreActions.openPicker,
+          type: "button",
+        }),
+      ]
+    : [];
 
   if (props.usesWorkspaceToolbar) {
     return null;
@@ -64,13 +79,14 @@ export function HomeHeader(props: HomeHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={[filterMenu.items, showsCompactCompose]}
+        optionsVersion={[filterMenu.items, showsCompactCompose, voiceLiveAvailable]}
         options={{
           // Static header config (glass, title, fonts) lives in Stack.tsx
           // (GLASS_HEADER_OPTIONS). Only dynamic values are set here.
           headerTintColor: iconColor,
-          unstable_headerRightItems: () =>
-            sidebarHeader
+          unstable_headerRightItems: () => [
+            ...voiceLiveHeaderItems,
+            ...(sidebarHeader
               ? [
                   ...createSidebarHeaderItems({
                     filterIcon: hasCustomListOptions
@@ -102,7 +118,8 @@ export function HomeHeader(props: HomeHeaderProps) {
                     onPress: props.onOpenSettings,
                     type: "button",
                   }),
-                ],
+                ]),
+          ],
           // The keys below are set per-branch (not `undefined`) so a later
           // reapply cannot clobber options owned by NativeHeaderToolbar.
           ...(sidebarHeader
