@@ -1778,9 +1778,8 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       expect(resolved.attachmentsDir).toBe(path.join(dataDir, "attachments"));
       expect(resolved.worktreesDir).toBe(path.join(dataDir, "worktrees"));
       expect(resolved.providerStatusCacheDir).toBe(path.join(cacheDir, "provider-status"));
-      expect(resolved.serverRuntimeStatePath).toBe(
-        path.join(root, "runtime", "t3code", "server-runtime.json"),
-      );
+      // A server with its own data dir must not share the main server's runtime file.
+      expect(resolved.serverRuntimeStatePath).toBe(path.join(dataDir, "server-runtime.json"));
     }),
   );
 
