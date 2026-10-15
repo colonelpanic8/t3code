@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import type { T3StorageRoots } from "@t3tools/shared/storagePaths";
+import { resolveLegacyT3StorageRoots, type T3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -22,10 +22,18 @@ import {
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
 
+const legacyRoots = (baseDir: string) =>
+  resolveLegacyT3StorageRoots({
+    baseDir,
+    stateDirectoryName: "userdata",
+    path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+  });
+
 const linuxRuntime = "/home/theo/.t3/runtime/versions/1.2.3/t3";
 const linuxPlan = {
   program: [linuxRuntime, "__service-launcher"],
   baseDir: "/home/theo/.t3",
+  storageRoots: legacyRoots("/home/theo/.t3"),
   logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
   unitPath: "/home/theo/.config/systemd/user/t3code.service",
 };
@@ -42,6 +50,7 @@ it("reads the served T3 home back out of a rendered unit or plist", () => {
   const plan = (baseDir: string) => ({
     program: [`${baseDir}/runtime/versions/1.2.3/t3`, "__service-launcher"],
     baseDir,
+    storageRoots: legacyRoots(baseDir),
     logPath: `${baseDir}/userdata/logs/boot-service.log`,
     unitPath: "/home/theo/.config/systemd/user/t3code.service",
   });
@@ -151,6 +160,7 @@ const macRuntime = "/Users/theo/.t3/runtime/versions/1.2.3/t3";
 const macPlan = {
   program: [macRuntime, "__service-launcher"],
   baseDir: "/Users/theo/.t3",
+  storageRoots: legacyRoots("/Users/theo/.t3"),
   logPath: "/Users/theo/.t3/userdata/logs/boot-service.log",
   unitPath: "/Users/theo/Library/LaunchAgents/com.t3tools.t3code.service.plist",
 };
@@ -307,7 +317,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
     environmentPath: string | undefined = installerPath,
     cliVersion = "1.2.3",
     serviceBaseDir = baseDir,
-    storageRoots?: T3StorageRoots,
+    storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
   ) =>
     Effect.gen(function* () {
       // Every version the tests install is present and verified on disk, so
@@ -318,7 +328,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
       yield* fs.writeFileString(paths.sentinelPath, `${cliVersion}\n`);
       return yield* BootService.make({
         baseDir: serviceBaseDir,
-        ...(storageRoots === undefined ? {} : { storageRoots }),
+        storageRoots,
         logsDir: path.join(serviceBaseDir, "userdata", "logs"),
         cliVersion,
         host: { execPath: "/usr/bin/t3" },
@@ -710,6 +720,33 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       commands.length = 0;
       expect(yield* service.restart).toBe(true);
       expect(yield* service.uninstall).toBe(true);
+    }),
+  );
+
+  it.effect("keeps a split service on its split roots when a newer CLI rewrites it", () =>
+    Effect.gen(function* () {
+      const { fs, makeService } = yield* makeHarness();
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-split-update-" });
+      const roots = {
+        layout: "split" as const,
+        configDir: path.join(root, "config"),
+        dataDir: path.join(root, "data"),
+        stateDir: path.join(root, "state"),
+        cacheDir: path.join(root, "cache"),
+        runtimeDir: path.join(root, "runtime"),
+      };
+      yield* (yield* makeService(undefined, "1.2.3", roots.dataDir, roots)).install();
+
+      // What `t3 update` does: the target version's service rewrites the unit.
+      const updated = yield* makeService(undefined, "1.2.4", roots.dataDir, roots);
+      const plan = yield* updated.install({ start: false });
+      const unit = yield* fs.readFileString(plan.unitPath);
+
+      expect(unit).toContain(`Environment=T3CODE_DATA_DIR=${roots.dataDir}`);
+      expect(unit).toContain(`Environment=T3CODE_STATE_DIR=${roots.stateDir}`);
+      expect(unit).not.toContain("Environment=T3CODE_HOME=");
+      expect((yield* updated.status).installedBaseDir).toBe(roots.dataDir);
     }),
   );
 

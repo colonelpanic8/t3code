@@ -101,7 +101,7 @@ export interface BootServicePlan {
    */
   readonly program: ReadonlyArray<string>;
   readonly baseDir: string;
-  readonly storageRoots?: T3StorageRoots;
+  readonly storageRoots: T3StorageRoots;
   readonly logPath: string;
   readonly unitPath: string;
 }
@@ -124,8 +124,11 @@ const serviceStorageEnvironment = (
   manager: "systemd" | "launchd",
 ): { readonly set: Readonly<Record<string, string>>; readonly cleared: ReadonlyArray<string> } => {
   const roots = plan.storageRoots;
-  if (roots === undefined || roots.layout === "legacy") {
-    return { set: { T3CODE_HOME: plan.baseDir }, cleared: T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES };
+  if (roots.layout === "legacy") {
+    return {
+      set: { T3CODE_HOME: plan.baseDir },
+      cleared: T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+    };
   }
   return {
     set: t3StorageEnvironment(roots, { includeRuntimeDir: manager === "launchd" }),
@@ -618,7 +621,7 @@ export interface BootServiceHost {
 
 export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   readonly baseDir: string;
-  readonly storageRoots?: T3StorageRoots;
+  readonly storageRoots: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
@@ -694,7 +697,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const plan: BootServicePlan = {
     program: [runtimePaths.entryPath, "__service-launcher"],
     baseDir: input.baseDir,
-    ...(input.storageRoots === undefined ? {} : { storageRoots: input.storageRoots }),
+    storageRoots: input.storageRoots,
     logPath,
     unitPath,
   };
@@ -1061,7 +1064,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
 export const layer = (input: {
   readonly baseDir: string;
-  readonly storageRoots?: T3StorageRoots;
+  readonly storageRoots: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
