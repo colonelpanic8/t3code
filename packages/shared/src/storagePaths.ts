@@ -236,7 +236,11 @@ export function resolveLegacyT3StorageRoots(input: {
   };
 }
 
-/** Files whose presence marks the legacy tree as an initialized installation. */
+/**
+ * Files whose presence marks the legacy tree as an initialized installation.
+ * The caches dir counts because a legacy server always creates it, even when
+ * location overrides put its config and data elsewhere; nothing split does.
+ */
 export function legacyT3StorageArtifactPaths(
   roots: T3StorageRoots,
   path: Pick<StoragePathOperations, "join">,
@@ -252,6 +256,7 @@ export function legacyT3StorageArtifactPaths(
     path.join(roots.stateDir, "connection-catalog.json"),
     path.join(roots.stateDir, "secrets"),
     path.join(roots.stateDir, "saved-environments.json"),
+    roots.cacheDir,
   ];
 }
 
