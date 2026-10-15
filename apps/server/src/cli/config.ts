@@ -487,18 +487,24 @@ const resolveLocationOverride = Effect.fn(function* (
   return path.resolve(yield* expandHomePath(raw.value.trim()));
 });
 
-/**
- * The config, data, and cache overrides from flags, then env. They win over the
- * storage layout's directories, so a selector naming another directory for the
- * same files is a conflict rather than something to pick between silently.
- */
+/** The config, data, and cache overrides from flags, then env. */
 export const resolveServerLocationOverrides = Effect.fn(function* (flags: CliServerLocationFlags) {
   const env = yield* ServerLocationEnv;
-  const overrides = {
+  return {
     configDir: yield* resolveLocationOverride(flags.serverConfigDir, env.serverConfigDir),
     dataDir: yield* resolveLocationOverride(flags.serverDataDir, env.serverDataDir),
     cacheDir: yield* resolveLocationOverride(flags.serverCacheDir, env.serverCacheDir),
   } satisfies ServerConfig.ServerLocationOverrides;
+});
+
+/**
+ * The overrides win over the split layout's directories, so a selector naming
+ * another directory for the same files is a conflict rather than something to
+ * pick between silently. The legacy layout ignores the selectors.
+ */
+const rejectSelectorConflicts = Effect.fn(function* (
+  overrides: ServerConfig.ServerLocationOverrides,
+) {
   const selectors = yield* resolveStorageSelectors(yield* HostProcess.HomeDirectory);
   for (const pair of OVERRIDE_SELECTORS) {
     const overrideDir = overrides[pair.category];
@@ -512,7 +518,6 @@ export const resolveServerLocationOverrides = Effect.fn(function* (flags: CliSer
       });
     }
   }
-  return overrides;
 });
 
 export interface StorageHost {
@@ -597,6 +602,7 @@ export const deriveServerStoragePaths = Effect.fn(function* (
   overrides: ServerConfig.ServerLocationOverrides,
 ) {
   const { roots } = storage;
+  if (roots.layout === "split") yield* rejectSelectorConflicts(overrides);
   if (roots.layout === "legacy") {
     return {
       baseDir: roots.legacyBaseDir,

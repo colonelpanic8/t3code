@@ -215,13 +215,27 @@ describe("T3 storage paths", () => {
     it.each([
       [{ environment: { T3CODE_HOME: "/t3", T3CODE_CACHE_DIR: "/c" } }, "home-with-selectors"],
       [{ baseDir: "/t3", forcedLayout: "xdg" as const }, "xdg-with-home"],
-      [
-        { environment: { T3CODE_CONFIG_DIR: "/c" }, forcedLayout: "legacy" as const },
-        "legacy-with-selectors",
-      ],
     ])("reports conflicting controls %#", (input, conflict) => {
       const selection = select(input);
       expect(selection._tag === "Conflict" && selection.error.conflict).toBe(conflict);
+    });
+
+    it("lets command-line controls outrank inherited variables", () => {
+      // A split service exports the selectors into every shell it starts.
+      const inherited = { T3CODE_CONFIG_DIR: "/c", T3CODE_STATE_DIR: "/s" };
+      expect(select({ baseDir: "/scratch", environment: inherited })).toMatchObject({
+        roots: { layout: "legacy", legacyBaseDir: "/scratch" },
+        baseDirIsExplicit: true,
+      });
+      expect(select({ forcedLayout: "legacy", environment: inherited })).toMatchObject({
+        roots: legacy(),
+      });
+      expect(
+        select({ forcedLayout: "legacy", environment: { ...inherited, T3CODE_HOME: "/t3" } }),
+      ).toMatchObject({ roots: { legacyBaseDir: "/t3" }, baseDirIsExplicit: true });
+      expect(select({ forcedLayout: "xdg", environment: { T3CODE_HOME: "/t3" } })).toMatchObject({
+        roots: linuxDefaults(),
+      });
     });
 
     it("fails rather than guess when a marker cannot be checked", () => {
