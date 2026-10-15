@@ -259,7 +259,7 @@ function sum<T>(items: readonly T[], value: (item: T) => number): number {
   return items.reduce((total, item) => total + value(item), 0);
 }
 
-export function usageMetricValue(
+function usageMetricValue(
   totals: Pick<UsageTotals, "costUsd" | "totalTokens">,
   metric: UsagePivotMetric,
 ): number {
@@ -268,7 +268,7 @@ export function usageMetricValue(
 
 /** Past this many series, the smallest fold into one "Other" band. */
 export const MAX_CHART_SERIES = 10;
-export const OTHER_SERIES_KEY = "other";
+const OTHER_SERIES_KEY = "other";
 
 export interface UsageStackedSeries {
   readonly key: string;
@@ -289,6 +289,8 @@ export interface UsageStack {
   readonly columns: readonly UsageStackedColumn[];
   /** The tallest column: the stack reaches the combined total. */
   readonly peak: number;
+  /** Keys of the series folded into "Other". */
+  readonly folded: readonly string[];
 }
 
 /**
@@ -337,5 +339,6 @@ export function buildStackedColumns(
     series,
     columns,
     peak: columns.reduce((peak, column) => Math.max(peak, column.total), 0),
+    folded: folded.map((entry) => entry.key),
   };
 }

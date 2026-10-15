@@ -2,7 +2,14 @@ import type { EnvironmentId, UsageDay, UsageProviderKind } from "@t3tools/contra
 import type { UsageEntry } from "@t3tools/shared/usageMerge";
 import { describe, expect, it } from "vite-plus/test";
 
-import { layoutBreakdownTable, withTableDimensions, withTableSort } from "./UsageBreakdownTable";
+import {
+  layoutBreakdownTable,
+  withTableDimensions,
+  withTableSort,
+  type UsageTableView,
+} from "./UsageBreakdownTable";
+import type { UsageChartDimension } from "./usagePagePreferences";
+import { buildUsageChartSeries } from "./usageSeries";
 
 function entry(
   environment: string,
@@ -40,6 +47,20 @@ const context = {
   timeZone: "UTC",
 };
 
+function layout(
+  entries: readonly UsageEntry[],
+  view: UsageTableView,
+  chartDimensions: readonly UsageChartDimension[] = [],
+) {
+  const periods = ["2026-08-07", "2026-08-08"];
+  return layoutBreakdownTable(
+    entries,
+    view,
+    context,
+    buildUsageChartSeries(entries, chartDimensions, "day", periods, "cost"),
+  );
+}
+
 describe("layoutBreakdownTable", () => {
   const entries = [
     entry("mac", "2026-08-07", "gpt-a", 3),
@@ -48,17 +69,13 @@ describe("layoutBreakdownTable", () => {
   ];
 
   it("heads each period group with its total and names rows without repeating the period", () => {
-    const table = layoutBreakdownTable(
-      entries,
-      {
-        tableDimensions: ["environment", "model", "period"],
-        sort: [
-          { field: "period", direction: "descending" },
-          { field: "costUsd", direction: "descending" },
-        ],
-      },
-      context,
-    );
+    const table = layout(entries, {
+      tableDimensions: ["environment", "model", "period"],
+      sort: [
+        { field: "period", direction: "descending" },
+        { field: "costUsd", direction: "descending" },
+      ],
+    });
 
     expect(table.grouped).toBe(true);
     expect(
@@ -74,14 +91,10 @@ describe("layoutBreakdownTable", () => {
   });
 
   it("lists rows flat with full names when sorted by a figure", () => {
-    const table = layoutBreakdownTable(
-      entries,
-      {
-        tableDimensions: ["model", "period"],
-        sort: [{ field: "costUsd", direction: "ascending" }],
-      },
-      context,
-    );
+    const table = layout(entries, {
+      tableDimensions: ["model", "period"],
+      sort: [{ field: "costUsd", direction: "ascending" }],
+    });
 
     expect(table.grouped).toBe(false);
     expect(table.groups.flatMap((group) => group.rows.map((row) => row.name.text))).toEqual([
@@ -92,17 +105,13 @@ describe("layoutBreakdownTable", () => {
   });
 
   it("heads each model with its periods when sorted by name", () => {
-    const table = layoutBreakdownTable(
-      entries,
-      {
-        tableDimensions: ["model", "period"],
-        sort: [
-          { field: "label", direction: "ascending" },
-          { field: "period", direction: "ascending" },
-        ],
-      },
-      context,
-    );
+    const table = layout(entries, {
+      tableDimensions: ["model", "period"],
+      sort: [
+        { field: "label", direction: "ascending" },
+        { field: "period", direction: "ascending" },
+      ],
+    });
 
     expect(
       table.groups.map((group) => [group.heading.text, group.rows.map((row) => row.name.text)]),
@@ -113,11 +122,10 @@ describe("layoutBreakdownTable", () => {
   });
 
   it("stays flat when sorting by name leaves nothing to head groups with", () => {
-    const table = layoutBreakdownTable(
-      entries,
-      { tableDimensions: ["period"], sort: [{ field: "label", direction: "ascending" }] },
-      context,
-    );
+    const table = layout(entries, {
+      tableDimensions: ["period"],
+      sort: [{ field: "label", direction: "ascending" }],
+    });
 
     expect(table.grouped).toBe(false);
     expect(table.groups.flatMap((group) => group.rows.map((row) => row.name.text))).toEqual([
@@ -136,25 +144,25 @@ describe("layoutBreakdownTable with one model name under two providers", () => {
   ];
 
   it("lists each provider's model as its own row, marked with its provider", () => {
-    const table = layoutBreakdownTable(
+    const table = layout(
       entries,
       { tableDimensions: ["model"], sort: [{ field: "label", direction: "ascending" }] },
-      context,
+      ["model"],
     );
 
     expect(table.grouped).toBe(false);
     expect(
       table.groups.flatMap((group) =>
-        group.rows.map(({ row, name }) => [name.text, name.provider, row.costUsd]),
+        group.rows.map(({ row, name }) => [name.text, name.provider, name.color, row.costUsd]),
       ),
     ).toEqual([
-      ["gpt-a", "codex", 4],
-      ["gpt-a", "opencode", 6],
+      ["gpt-a", "codex", "oklch(0.68 0.13 255)", 4],
+      ["gpt-a", "opencode", "oklch(0.68 0.13 40)", 6],
     ]);
   });
 
   it("heads each provider's model with its own periods when sorted by name", () => {
-    const table = layoutBreakdownTable(
+    const table = layout(
       entries,
       {
         tableDimensions: ["model", "period"],
@@ -163,33 +171,30 @@ describe("layoutBreakdownTable with one model name under two providers", () => {
           { field: "period", direction: "ascending" },
         ],
       },
-      context,
+      ["model"],
     );
 
     expect(
       table.groups.map((group) => [
-        group.heading.text,
-        group.heading.provider,
+        group.heading,
         group.costUsd,
-        group.rows.map(({ name }) => [name.text, name.provider]),
+        group.rows.map(({ name }) => name),
       ]),
     ).toEqual([
       [
-        "gpt-a",
-        "codex",
+        { text: "gpt-a", provider: "codex", color: "oklch(0.68 0.13 255)" },
         4,
         [
-          ["Aug 7", undefined],
-          ["Aug 8", undefined],
+          { text: "Aug 7", provider: undefined, color: undefined },
+          { text: "Aug 8", provider: undefined, color: undefined },
         ],
       ],
       [
-        "gpt-a",
-        "opencode",
+        { text: "gpt-a", provider: "opencode", color: "oklch(0.68 0.13 40)" },
         6,
         [
-          ["Aug 7", undefined],
-          ["Aug 8", undefined],
+          { text: "Aug 7", provider: undefined, color: undefined },
+          { text: "Aug 8", provider: undefined, color: undefined },
         ],
       ],
     ]);
