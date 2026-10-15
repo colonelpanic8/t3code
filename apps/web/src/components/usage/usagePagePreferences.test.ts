@@ -43,6 +43,61 @@ describe("Usage page preferences", () => {
     expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 30 });
   });
 
+  it("round-trips breakdown view settings", () => {
+    const preferences = {
+      metric: "cost",
+      windowDays: 90,
+      chartDimensions: ["environment", "model"],
+      tableDimensions: ["provider", "period"],
+      sort: [
+        { field: "period", direction: "descending" },
+        { field: "label", direction: "ascending" },
+      ],
+      timeGrouping: "week",
+    } as const;
+    saveUsagePagePreferences(preferences);
+    expect(readUsagePagePreferences()).toEqual(preferences);
+  });
+
+  it("drops only the view settings it cannot use and de-duplicates the rest", () => {
+    values.set(
+      key,
+      JSON.stringify({
+        metric: "tokens",
+        windowDays: 7,
+        hiddenProviders: ["pi"],
+        chartDimensions: ["provider", "machine"],
+        tableDimensions: ["model", "period", "model"],
+        sort: [
+          { field: "totalTokens", direction: "ascending" },
+          { field: "totalTokens", direction: "descending" },
+          { field: "costUsd", direction: "descending" },
+        ],
+        timeGrouping: "hour",
+      }),
+    );
+    expect(readUsagePagePreferences()).toEqual({
+      metric: "tokens",
+      windowDays: 7,
+      hiddenProviders: ["pi"],
+      tableDimensions: ["model", "period"],
+      sort: [
+        { field: "totalTokens", direction: "ascending" },
+        { field: "costUsd", direction: "descending" },
+      ],
+    });
+  });
+
+  it.each([
+    [{ sort: [] }],
+    [{ sort: [{ field: "costUsd", direction: "sideways" }] }],
+    [{ sort: [{ field: "sessions", direction: "ascending" }] }],
+    [{ timeGrouping: "year" }],
+  ])("ignores an unusable view setting: %j", (setting) => {
+    values.set(key, JSON.stringify({ metric: "cost", windowDays: 30, ...setting }));
+    expect(readUsagePagePreferences()).toEqual({ metric: "cost", windowDays: 30 });
+  });
+
   it.each([
     "not-json",
     '{"metric":"unknown","windowDays":7}',
