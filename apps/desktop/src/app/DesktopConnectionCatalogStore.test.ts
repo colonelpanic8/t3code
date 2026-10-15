@@ -236,7 +236,7 @@ describe("DesktopConnectionCatalogStore", () => {
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
-  it.effect("resolves file-backed managed tokens on every load without persisting them", () =>
+  it.effect("resolves file-backed managed tokens on every load into the encrypted catalog", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -245,10 +245,8 @@ describe("DesktopConnectionCatalogStore", () => {
       });
       const managedConnectionsPath = path.join(baseDir, "managed-connections.json");
       const tokenPath = path.join(baseDir, "fleet-token");
-      yield* fileSystem.writeFileString(
-        managedConnectionsPath,
-        JSON.stringify(managedConnectionsDocument({ $file: tokenPath })),
-      );
+      const managedConnections = JSON.stringify(managedConnectionsDocument({ $file: tokenPath }));
+      yield* fileSystem.writeFileString(managedConnectionsPath, managedConnections);
       yield* fileSystem.writeFileString(tokenPath, "  first-fleet-secret\n");
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
         Effect.provide(
@@ -265,10 +263,12 @@ describe("DesktopConnectionCatalogStore", () => {
       const persisted = yield* fileSystem.readFileString(
         path.join(baseDir, "userdata", "connection-catalog.json"),
       );
+      assert.notInclude(persisted, "first-fleet-secret");
       const encryptedCatalog = JSON.parse(persisted).encryptedCatalog as string;
       const decrypted = textDecoder.decode(Base64.decode(encryptedCatalog).pipe(Result.getOrThrow));
-      assert.include(decrypted, "managed:fleet:build-host");
-      assert.notInclude(decrypted, "first-fleet-secret");
+      assert.isTrue(decrypted.startsWith("encrypted:"));
+      assert.include(decrypted, "first-fleet-secret");
+      assert.equal(yield* fileSystem.readFileString(managedConnectionsPath), managedConnections);
 
       yield* fileSystem.writeFileString(tokenPath, "rotated-fleet-secret\n");
       assert.equal((yield* getManagedToken(store)).token, "rotated-fleet-secret");
