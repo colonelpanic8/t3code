@@ -37,6 +37,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -85,6 +86,20 @@ const RATES_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** An explicit refresh ignores the TTL, but not a table fetched this recently. */
 const RATES_REFRESH_FLOOR_MS = 60 * 1000;
+
+/**
+ * A failed fetch is not retried sooner, since each attempt can hold a scan for
+ * its timeout. An explicit refresh still tries.
+ */
+const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+/**
+ * Most scans change the cache, and each write serializes all of it, so a burst
+ * of scans writes once, this long after the last one, but no later than
+ * `SCAN_CACHE_PERSIST_MAX_WAIT_MS` after the first change since the last write.
+ */
+const SCAN_CACHE_PERSIST_DELAY_MS = 5 * 1000;
+const SCAN_CACHE_PERSIST_MAX_WAIT_MS = 30 * 1000;
 
 /**
  * Files are filtered by mtime before opening. The slack covers a session whose
@@ -252,6 +267,9 @@ export const make = Effect.gen(function* () {
   let rates: RateTable = new Map();
   let ratesFetchedAtMs: number | null = null;
   let ratesStatus: UsagePricing["status"] = "unavailable";
+  let ratesFailedAtMs: number | null = null;
+  const ratesBackingOff = (now: number) =>
+    ratesFailedAtMs !== null && now - ratesFailedAtMs < RATES_RETRY_BACKOFF_MS;
   // One fetch at a time. A burst of refreshes from several clients waits on
   // the first fetch and then sees a table young enough to skip its own.
   const ratesLock = yield* Semaphore.make(1);
@@ -291,21 +309,22 @@ export const make = Effect.gen(function* () {
       }
     }
 
+    if (!force && ratesBackingOff(now)) return;
+
     const fetched = yield* httpClient.get(LITELLM_RATES_URL).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap((response) => response.json),
       Effect.timeout(10_000),
       Effect.catchCause(() => Effect.succeed(null)),
     );
-    if (fetched === null) {
-      // The refresh failed; whatever we are serving is now past its TTL and
-      // must not keep claiming to be fresh.
+    const parsed = fetched === null ? null : parseRateTable(fetched);
+    if (parsed === null || parsed.size === 0) {
+      // Whatever we are serving is now past its TTL and must not keep
+      // claiming to be fresh.
       if (rates.size > 0) ratesStatus = "cached";
+      ratesFailedAtMs = now;
       return;
     }
-
-    const parsed = parseRateTable(fetched);
-    if (parsed.size === 0) return;
 
     rates = parsed;
     ratesFetchedAtMs = now;
@@ -318,6 +337,12 @@ export const make = Effect.gen(function* () {
   });
 
   const ensureRates = (force: boolean) => ratesLock.withPermit(loadRates(force));
+
+  // During backoff a scan skips the lock too, so it never waits on an explicit
+  // refresh that is likely to fail the same way.
+  const ensureScanRates = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+    ratesBackingOff(now) ? Effect.void : ensureRates(false),
+  );
 
   const refreshRates = ensureRates(true).pipe(
     Effect.map(pricing),
@@ -464,13 +489,18 @@ export const make = Effect.gen(function* () {
   // keeps an older snapshot from landing after a newer one.
   const persistLock = yield* Semaphore.make(1);
 
+  /** When the first change since the last write must be written by. */
+  let persistDeadlineMs: number | undefined;
+
   // The dirty flag is cleared before encoding, so a change while the write is
   // in flight marks it dirty again. A failed write restores the flag, so the
   // next persist retries instead of leaving disk stale. A cache we cannot
-  // write is a slower next start, not a failed read.
+  // write is a slower next start, not a failed read. Uninterruptible, so
+  // rescheduling never drops a write whose flag it already cleared.
   const persistCaches = Effect.gen(function* () {
     if (cacheDirty) {
       cacheDirty = false;
+      persistDeadlineMs = undefined;
       yield* Effect.sync(() =>
         writeScanCache(fileCache, { sources: Object.fromEntries(sourceCache) }),
       ).pipe(
@@ -482,22 +512,34 @@ export const make = Effect.gen(function* () {
         ),
       );
     }
-  }).pipe(persistLock.withPermit, Effect.withSpan("UsageService.persistCaches"));
+  }).pipe(
+    Effect.uninterruptible,
+    persistLock.withPermit,
+    Effect.withSpan("UsageService.persistCaches"),
+  );
 
-  const pendingPersists = new Set<Fiber.Fiber<void>>();
-  /** Writes dirty caches in the background, after the summary that dirtied them answers. */
-  const schedulePersist = Effect.forkDetach(persistCaches).pipe(
-    Effect.map((fiber) => {
-      pendingPersists.add(fiber);
-      fiber.addObserver(() => pendingPersists.delete(fiber));
-    }),
-  );
-  /** Waits for every write scheduled so far, as a restart would need. */
-  const awaitPersisted = Effect.suspend(() => Fiber.awaitAll([...pendingPersists])).pipe(
-    Effect.asVoid,
-  );
-  // A write still running when the service shuts down finishes first, so the
-  // next start does not lose the last scan.
+  /** The write waiting out its delay, if any. */
+  let pendingPersist: Fiber.Fiber<void> | undefined;
+  /** Restarts the delay, capped at the deadline, before writing dirty caches in the background. */
+  const schedulePersist = Effect.gen(function* () {
+    if (!cacheDirty) return;
+    const now = yield* Clock.currentTimeMillis;
+    persistDeadlineMs ??= now + SCAN_CACHE_PERSIST_MAX_WAIT_MS;
+    const delayMs = Math.max(0, Math.min(SCAN_CACHE_PERSIST_DELAY_MS, persistDeadlineMs - now));
+    const previous = pendingPersist;
+    pendingPersist = yield* Effect.sleep(Duration.millis(delayMs)).pipe(
+      Effect.andThen(persistCaches),
+      Effect.forkDetach,
+    );
+    if (previous !== undefined) yield* Fiber.interrupt(previous);
+  });
+  /** Writes pending changes now and waits for any write in flight, as a restart would need. */
+  const awaitPersisted = Effect.suspend(() => {
+    const pending = pendingPersist;
+    pendingPersist = undefined;
+    return pending === undefined ? Effect.void : Fiber.interrupt(pending);
+  }).pipe(Effect.andThen(persistCaches));
+  // The next start must not lose the last scan.
   yield* Effect.addFinalizer(() => awaitPersisted);
 
   /**
@@ -759,7 +801,7 @@ export const make = Effect.gen(function* () {
     // fetch on a slow network no longer delays the scan by its own timeout.
     const [, scannedDirs] = yield* Effect.all(
       [
-        ensureRates(false),
+        ensureScanRates,
         collectDirs(windowStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
       ],
       { concurrency: 2 },
@@ -915,13 +957,13 @@ export const make = Effect.gen(function* () {
         inflightScans.set(key, created);
         // Detached so one departing client cannot tear the scan out from under
         // the fibers awaiting it; a finished scan warms the cache either way.
-        // The cache write is registered before the waiters resume, so they
-        // can await it, but its fiber starts after they have the summary.
+        // The waiters resume before the cache write is scheduled, since
+        // rescheduling waits out any write already in flight.
         yield* scanSummary(input, settings).pipe(
           Effect.onExit((exit) =>
             Effect.sync(() => inflightScans.delete(key)).pipe(
-              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
               Effect.andThen(Deferred.done(created, exit)),
+              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
             ),
           ),
           Effect.forkDetach,
@@ -935,7 +977,7 @@ export const make = Effect.gen(function* () {
   });
 
   // `awaitPersisted` is outside the service interface: tests use it to restart
-  // against what a previous instance wrote.
+  // against what a previous instance wrote without waiting out the delay.
   return { readSummary, refreshRates, awaitPersisted } as const;
 });
 
