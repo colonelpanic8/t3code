@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeUtil from "node:util";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -13,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
@@ -34,6 +38,38 @@ const encodeLegacySavedEnvironments = Schema.encodeEffect(
     Schema.Struct({ version: Schema.Literal(1), records: Schema.Array(Schema.Unknown) }),
   ),
 );
+function managedConnectionsDocument(token: unknown) {
+  return {
+    version: 1,
+    connections: [
+      {
+        environmentId: "fleet:build-host",
+        label: "build-host",
+        httpBaseUrl: "https://build-host/",
+        wsBaseUrl: "wss://build-host/",
+        token,
+      },
+    ],
+  };
+}
+
+const getManagedToken = Effect.fn(function* (
+  store: DesktopConnectionCatalogStore.DesktopConnectionCatalogStore["Service"],
+) {
+  const catalog = yield* store.get.pipe(
+    Effect.flatMap((value) =>
+      Option.isSome(value) ? Effect.succeed(value.value) : Effect.die("Expected a catalog."),
+    ),
+  );
+  const credential = (yield* decodeConnectionCatalog(catalog)).credentials.find(
+    (entry) => entry.connectionId === "managed:fleet:build-host",
+  )?.credential;
+  if (credential?._tag !== "BearerConnectionCredential") {
+    return yield* Effect.die("Expected a managed bearer credential.");
+  }
+  return { catalog, token: credential.token };
+});
+
 function layerSafeStorageFor(available: boolean, failDecrypt: Ref.Ref<boolean> | null = null) {
   return Layer.succeed(ElectronSafeStorage.ElectronSafeStorage, {
     isEncryptionAvailable: Effect.succeed(available),
@@ -196,6 +232,107 @@ describe("DesktopConnectionCatalogStore", () => {
         assert.deepEqual(catalog.profiles, []);
         assert.deepEqual(catalog.credentials, []);
         assert.deepEqual(catalog.disabledEnvironmentIds, []);
+      }
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("resolves file-backed managed tokens on every load without persisting them", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-token-file-test-",
+      });
+      const managedConnectionsPath = path.join(baseDir, "managed-connections.json");
+      const tokenPath = path.join(baseDir, "fleet-token");
+      yield* fileSystem.writeFileString(
+        managedConnectionsPath,
+        JSON.stringify(managedConnectionsDocument({ $file: tokenPath })),
+      );
+      yield* fileSystem.writeFileString(tokenPath, "  first-fleet-secret\n");
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(
+          layerFor(baseDir, true, null, NodeServices.layer, {
+            T3CODE_MANAGED_CONNECTIONS_FILE: managedConnectionsPath,
+          }),
+        ),
+      );
+
+      const first = yield* getManagedToken(store);
+      assert.equal(first.token, "first-fleet-secret");
+
+      assert.isTrue(yield* store.set(first.catalog));
+      const persisted = yield* fileSystem.readFileString(
+        path.join(baseDir, "userdata", "connection-catalog.json"),
+      );
+      const encryptedCatalog = JSON.parse(persisted).encryptedCatalog as string;
+      const decrypted = textDecoder.decode(Base64.decode(encryptedCatalog).pipe(Result.getOrThrow));
+      assert.include(decrypted, "managed:fleet:build-host");
+      assert.notInclude(decrypted, "first-fleet-secret");
+
+      yield* fileSystem.writeFileString(tokenPath, "rotated-fleet-secret\n");
+      assert.equal((yield* getManagedToken(store)).token, "rotated-fleet-secret");
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("fails closed on an unusable managed token without revealing it", () =>
+    Effect.gen(function* () {
+      const secret = "sentinel-fleet-secret";
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-token-invalid-test-",
+      });
+      const managedConnectionsPath = path.join(baseDir, "managed-connections.json");
+      const tokenPath = path.join(baseDir, "fleet-token");
+      const emptyPath = path.join(baseDir, "empty-token");
+      yield* fileSystem.writeFileString(tokenPath, secret);
+      yield* fileSystem.writeFileString(emptyPath, " \n");
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(
+          layerFor(baseDir, true, null, NodeServices.layer, {
+            T3CODE_MANAGED_CONNECTIONS_FILE: managedConnectionsPath,
+          }),
+        ),
+      );
+      yield* fileSystem.writeFileString(
+        managedConnectionsPath,
+        JSON.stringify(managedConnectionsDocument({ $file: tokenPath })),
+      );
+      assert.isTrue(yield* store.set((yield* getManagedToken(store)).catalog));
+
+      for (const [document, expected] of [
+        [
+          JSON.stringify(managedConnectionsDocument({ $file: "fleet-token" })),
+          "Managed connection fleet:build-host cannot use credential file fleet-token: relative-path.",
+        ],
+        [
+          JSON.stringify(managedConnectionsDocument({ $file: path.join(baseDir, "missing") })),
+          `Managed connection fleet:build-host cannot use credential file ${path.join(baseDir, "missing")}: unreadable.`,
+        ],
+        [
+          JSON.stringify(managedConnectionsDocument({ $file: emptyPath })),
+          `Managed connection fleet:build-host cannot use credential file ${emptyPath}: empty.`,
+        ],
+        [
+          JSON.stringify(managedConnectionsDocument({ $file: tokenPath, inline: secret })),
+          `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
+        ],
+        [
+          JSON.stringify({ ...managedConnectionsDocument(secret), version: secret }),
+          `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
+        ],
+        [
+          JSON.stringify(managedConnectionsDocument(secret)).slice(0, -3),
+          `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
+        ],
+      ] as const) {
+        yield* fileSystem.writeFileString(managedConnectionsPath, document);
+        const error = yield* store.get.pipe(Effect.flip);
+        assert.equal(error.message, expected);
+        assert.notInclude(String(error), secret);
+        assert.notInclude(JSON.stringify(error), secret);
+        assert.notInclude(NodeUtil.inspect(error, { depth: null }), secret);
       }
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
