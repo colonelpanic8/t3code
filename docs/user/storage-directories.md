@@ -56,18 +56,17 @@ The server location overrides from [Install](./install.md#where-the-server-keeps
 `--server-config-dir`, `--server-data-dir`, and `--server-cache-dir` (or their
 `T3CODE_SERVER_*_DIR` variables), work in both layouts and win over the layout's
 directory for their files. In the split layout a data directory override also
-takes the state directory's files, as the data directory holds both in the
-legacy layout; the runtime directory stays put. They can be combined with
+takes the state directory's files and the runtime file, as the data directory
+holds all of them in the legacy layout, so a second server with its own data
+directory never mistakes the first for itself. They can be combined with
 `T3CODE_HOME`. If one of them and a root override above name different
 directories for the same files, for example `T3CODE_SERVER_DATA_DIR` and
-`T3CODE_STATE_DIR`, the server refuses to start rather than pick one. Since a
-data directory override leaves the runtime directory alone, two servers that
-differ only in their data directory share one runtime file and cannot tell
-which is running; give each its own `T3CODE_RUNTIME_DIR` as well.
+`T3CODE_STATE_DIR`, the server refuses to start rather than pick one.
 
 A background service records the split directories it was installed with,
 except the runtime directory, which follows the service manager's
-`XDG_RUNTIME_DIR` on Linux.
+`XDG_RUNTIME_DIR` on Linux. Development servers use their own `t3code-dev` directories in
+the split layout, where the legacy tree used `~/.t3/dev`.
 
 Use `--storage-layout xdg` to force the platform-native split layout, even when
 an initialized legacy installation exists or `T3CODE_HOME` is set. Use
