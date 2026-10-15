@@ -1270,6 +1270,7 @@ fs.appendFileSync(
     args,
     dataDir: process.env.T3CODE_SERVER_DATA_DIR ?? null,
     configFile: process.env.T3CODE_SERVER_CONFIG_FILE ?? null,
+    selectors: ["T3CODE_CONFIG_DIR", "T3CODE_DATA_DIR", "T3CODE_STATE_DIR", "T3CODE_CACHE_DIR", "T3CODE_RUNTIME_DIR"].filter((name) => process.env[name] !== undefined),
   }) + "\\n",
 );
 if (args[0] === "serve") {
@@ -1323,6 +1324,11 @@ if (args[0] === "serve") {
           T3_FAKE_RECORD: record,
           T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
           T3CODE_SERVER_CONFIG_FILE: `${root}/elsewhere/server.json`,
+          T3CODE_CONFIG_DIR: `${root}/xdg/config`,
+          T3CODE_DATA_DIR: `${root}/xdg/data`,
+          T3CODE_STATE_DIR: `${root}/xdg/state`,
+          T3CODE_CACHE_DIR: `${root}/xdg/cache`,
+          T3CODE_RUNTIME_DIR: `${root}/xdg/runtime`,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
@@ -1349,6 +1355,7 @@ if (args[0] === "serve") {
                 args: Array<string>;
                 dataDir: string | null;
                 configFile: string | null;
+                selectors: Array<string>;
               },
           );
         const serve = invocations.find((entry) => entry.args[0] === "serve");
@@ -1356,10 +1363,12 @@ if (args[0] === "serve") {
         assert.deepEqual(serve?.args.slice(-2), ["--base-dir", `${home}/.t3`]);
         assert.isNull(serve?.dataDir);
         assert.isNull(serve?.configFile);
+        assert.deepEqual(serve?.selectors, []);
         assert.deepEqual(pair, {
           args: ["auth", "pairing", "create", "--base-dir", `${home}/.t3`, "--json"],
           dataDir: null,
           configFile: null,
+          selectors: [],
         });
       }).pipe(Effect.provide(NodeServices.layer)),
     30_000,

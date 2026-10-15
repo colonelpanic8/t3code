@@ -2,7 +2,10 @@ import * as NodeOS from "node:os";
 
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
-import { T3_STORAGE_ENVIRONMENT_NAMES } from "@t3tools/shared/storagePaths";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -90,10 +93,7 @@ const WINDOWS_SERVER_LOCATION_ENV_NAMES = new Set<string>([
   "XDG_STATE_HOME",
   "XDG_CACHE_HOME",
   "XDG_RUNTIME_DIR",
-  "T3CODE_SERVER_CONFIG_DIR",
-  "T3CODE_SERVER_DATA_DIR",
-  "T3CODE_SERVER_CACHE_DIR",
-  "T3CODE_SERVER_CONFIG_FILE",
+  ...T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
 ]);
 
 // Env vars that the WSL backend needs but Windows process.env won't forward

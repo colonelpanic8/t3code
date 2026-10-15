@@ -550,9 +550,10 @@ exec "$T3_RUNTIME_DIR/t3" "$@"
 // The launcher pins the server to ~/.t3 and finds a running one by its
 // runtime file there. The directory variables outrank --base-dir, so an
 // inherited one would hide a running server and point a second one at the same
-// database. An inherited config file would replace ~/.t3's server.json.
+// database. An inherited config file would replace ~/.t3's server.json. The
+// storage selectors cannot be combined with --base-dir at all.
 const CLEAR_SERVER_LOCATION_ENV =
-  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE";
+  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE T3CODE_CONFIG_DIR T3CODE_DATA_DIR T3CODE_STATE_DIR T3CODE_CACHE_DIR T3CODE_RUNTIME_DIR";
 
 const REMOTE_LAUNCH_SCRIPT = `set -eu
 ${CLEAR_SERVER_LOCATION_ENV}
