@@ -8,6 +8,7 @@ import { orchestrationProtocolCompatibilityError } from "./compatibility.ts";
 
 import * as ConnectionResolver from "./resolver.ts";
 import * as ConnectionDriver from "./driver.ts";
+import * as FleetMembership from "./fleet.ts";
 import * as EnvironmentRegistry from "./registry.ts";
 import * as ConnectionOnboarding from "./onboarding.ts";
 import { connectionRoutes, hasRelayRoute } from "./routes.ts";
@@ -78,8 +79,10 @@ export function layerWithOptions(options: RpcSession.RpcSessionOptions) {
   );
   const layerRegistry = EnvironmentRegistry.layer.pipe(Layer.provide(layerDriver));
   const layerOnboarding = ConnectionOnboarding.layer.pipe(Layer.provide(layerRegistry));
+  const layerFleetMembership = FleetMembership.layer.pipe(Layer.provide(layerRegistry));
   const layerConnectionServices = Layer.mergeAll(
     layerRegistry,
+    layerFleetMembership,
     RelayEnvironmentDiscovery.layer,
     layerOnboarding,
     // Exposed for updating hosts too old to connect through the driver.
