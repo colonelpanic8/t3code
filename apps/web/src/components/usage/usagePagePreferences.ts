@@ -44,7 +44,8 @@ export interface UsagePagePreferences {
   readonly hiddenProviders?: readonly UsageProviderKind[];
   readonly chartDimensions?: readonly UsageChartDimension[];
   readonly tableDimensions?: readonly UsageDimension[];
-  readonly sort?: readonly UsageSortCriterion[];
+  /** Absent until the user picks a sort: the default follows the metric. */
+  readonly sort?: readonly UsageSortCriterion[] | undefined;
   readonly timeGrouping?: UsageDayGrouping;
 }
 
@@ -57,10 +58,9 @@ export const DEFAULT_USAGE_VIEW = {
   // Matches the per-provider chart from before series became configurable.
   chartDimensions: ["provider"],
   tableDimensions: ["model"],
-  sort: [{ field: "costUsd", direction: "descending" }],
   timeGrouping: "day",
 } as const satisfies Required<
-  Pick<UsagePagePreferences, "chartDimensions" | "tableDimensions" | "sort" | "timeGrouping">
+  Pick<UsagePagePreferences, "chartDimensions" | "tableDimensions" | "timeGrouping">
 >;
 
 function isOneOf<const T extends string>(options: readonly T[], value: string): value is T {
