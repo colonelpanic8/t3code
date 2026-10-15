@@ -20,10 +20,12 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Argument, Command } from "effect/cli";
 
-import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
-import { baseDirFlag } from "./config.ts";
+import { expandHomePath } from "../os-jank.ts";
+import { baseDirFlag, currentStorageHost, resolveServerLocations } from "./config.ts";
 
 const CLI_RESPONSE_TIMEOUT_MS = 17_000;
+// Only its presence selects the development state directory.
+const DEV_VARIANT_PLACEHOLDER_URL = new URL("http://localhost");
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const isDesktopAppActivationResponse = Schema.is(DesktopAppActivationResponse);
 
@@ -193,21 +195,31 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
   }
 
   const path = yield* Path.Path;
-  const configuredBaseDir = Option.getOrUndefined(flags.baseDir) ?? environment.t3Home;
-  const baseDir = yield* resolveBaseDir(configuredBaseDir);
   const allowDevFallback = Option.isNone(flags.baseDir) && !environment.t3Home?.trim();
   const rawWorkspaceRoot =
     Option.getOrUndefined(flags.workspaceRoot) ?? (yield* HostProcess.WorkingDirectory);
   const workspaceRoot = path.resolve(yield* expandHomePath(rawWorkspaceRoot));
   const userId = yield* HostProcess.UserId;
-  const resolveAddress = (stateSubdirectory: "userdata" | "dev") =>
-    resolveDesktopAppControlAddress({
-      stateDir: path.join(baseDir, stateSubdirectory),
+  const storageHost = { ...(yield* currentStorageHost), platform: hostPlatform, userId };
+  // The desktop keys its control socket on the state directory it selected,
+  // which no server location override moves.
+  const resolveAddress = Effect.fn(function* (isDevelopment: boolean) {
+    const { derivedPaths } = yield* resolveServerLocations(
+      { baseDir: flags.baseDir },
+      {
+        devUrl: isDevelopment ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
+        ignoreLocationOverrides: true,
+        host: storageHost,
+      },
+    );
+    return resolveDesktopAppControlAddress({
+      stateDir: derivedPaths.stateDir,
       platform: hostPlatform,
       tempDir: NodeOS.tmpdir(),
       userId,
       joinPath: path.join,
     }).address;
+  });
   const crypto = yield* Crypto.Crypto;
   const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
   const request: DesktopAppActivationRequest = {
@@ -217,8 +229,8 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
     workspaceRoot,
     platform: hostPlatform,
   };
-  const address = resolveAddress("userdata");
-  const fallbackAddress = allowDevFallback ? resolveAddress("dev") : undefined;
+  const address = yield* resolveAddress(false);
+  const fallbackAddress = allowDevFallback ? yield* resolveAddress(true) : undefined;
 
   const response = yield* Effect.tryPromise({
     try: () =>
