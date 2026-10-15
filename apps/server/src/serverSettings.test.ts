@@ -2561,6 +2561,103 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }),
   );
 
+  it.effect.each([
+    {
+      name: "a misspelled provider secret field",
+      managed: (file: unknown) => ({
+        providerInstances: { ag: { driver: "antigravity", config: { apikey: file } } },
+      }),
+    },
+    {
+      name: "a secret field of an unknown driver",
+      managed: (file: unknown) => ({
+        providerInstances: { x: { driver: "antigravityy", config: { apiKey: file } } },
+      }),
+    },
+    {
+      name: "a provider display name",
+      managed: (file: unknown) => ({
+        providerInstances: { codex_x: { driver: "codex", displayName: file } },
+      }),
+    },
+    { name: "a plain setting", managed: (file: unknown) => ({ branchNamePrefix: file }) },
+  ])("drops a managed file reference in $name", ({ managed }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-misplaced-" });
+      const secretPath = `${baseDir}/secret`;
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(secretPath, "sk-FILESECRET\n");
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({ defaultAutoPull: true, ...managed({ $file: secretPath }) }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.isTrue(settings.defaultAutoPull);
+        assert.deepEqual(yield* service.managedSettingPaths, [["defaultAutoPull"]]);
+        assert.notInclude(
+          JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
+          "sk-FILESECRET",
+        );
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
+  it.effect("reads managed file references in every credential position", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-positions-" });
+      const secretPath = `${baseDir}/secret`;
+      const file = { $file: secretPath };
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(secretPath, "sk-FILESECRET\n");
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({
+          providerInstances: {
+            ag: { driver: "antigravity", config: { apiKey: file } },
+            codex_x: {
+              driver: "codex",
+              environment: [{ name: "OPENAI_API_KEY", value: file, sensitive: true }],
+            },
+          },
+          sourceControlHosts: { github: { tokens: { "github.com": file } } },
+          usageLimitSources: {
+            hub: { kind: "cliproxy", url: "http://hub.test", managementKey: file },
+          },
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.deepEqual(yield* service.managedSettingPaths, [
+          ["providerInstances", "ag"],
+          ["providerInstances", "codex_x"],
+          ["sourceControlHosts", "github", "tokens", "github.com"],
+          ["usageLimitSources", "hub"],
+        ]);
+        const ag = settings.providerInstances[ProviderInstanceId.make("ag")];
+        assert.equal((ag?.config as { apiKey?: string } | undefined)?.apiKey, "sk-FILESECRET");
+        assert.equal(
+          settings.providerInstances[ProviderInstanceId.make("codex_x")]?.environment?.[0]?.value,
+          "sk-FILESECRET",
+        );
+        assert.deepEqual(settings.sourceControlHosts.github?.tokens, {
+          "github.com": "sk-FILESECRET",
+        });
+        assert.equal(Object.values(settings.usageLimitSources)[0]?.managementKey, "sk-FILESECRET");
+        assert.notInclude(
+          JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
+          "sk-FILESECRET",
+        );
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
   it.effect("keeps a managed null and a referenced secret marked as redacted", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
