@@ -25,13 +25,7 @@ import {
   usageLoadingState,
 } from "@t3tools/client-runtime/state/usage-progress";
 
-import {
-  isCompatibleUsageContractVersion,
-  isModelCostUnknown,
-  type DailyTotals,
-  type HourlyTotals,
-  type MergedUsage,
-} from "@t3tools/shared/usageMerge";
+import { isCompatibleUsageContractVersion, type MergedUsage } from "@t3tools/shared/usageMerge";
 import { enumeratePeriods, type UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 
 import { cn } from "../../lib/utils";
@@ -51,7 +45,6 @@ import {
   formatCount,
   formatDateTimeShort,
   formatDayShort,
-  formatHourShort,
   formatPercent,
   formatTokens,
   formatUsageContractMismatch,
@@ -84,16 +77,11 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
+import { UsageBreakdownTable, withTableSort, type UsageTableView } from "./UsageBreakdownTable";
 import { UsageChart } from "./UsageChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
-import {
-  costTypeSegments,
-  modelShare,
-  sortModelsByTokens,
-  speedCostSegments,
-  tokenTypeSegments,
-} from "./usageBreakdown";
+import { costTypeSegments, speedCostSegments, tokenTypeSegments } from "./usageBreakdown";
 import {
   METRIC_OPTIONS,
   WINDOW_OPTIONS,
@@ -358,6 +346,11 @@ export function UsagePage() {
     : (preferences.timeGrouping ?? DEFAULT_USAGE_VIEW.timeGrouping);
   const periods = enumeratePeriods(shownHourly ? hours : days, grouping);
   const chartDimensions = preferences.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const storedTableView = {
+    tableDimensions: preferences.tableDimensions ?? DEFAULT_USAGE_VIEW.tableDimensions,
+    sort: preferences.sort ?? DEFAULT_USAGE_VIEW.sort,
+  };
+  const tableView = withTableSort(storedTableView, storedTableView.sort);
   const environmentLabels = new Map(
     environments.map((environment) => [environment.environmentId, environment.label]),
   );
@@ -569,6 +562,7 @@ export function UsagePage() {
                 periods={periods}
                 grouping={grouping}
                 chartDimensions={chartDimensions}
+                tableView={tableView}
                 environmentLabels={environmentLabels}
                 onPreferencesChange={updatePreferences}
                 showingKept={showingKept}
@@ -624,6 +618,7 @@ function UsageOverview({
   periods,
   grouping,
   chartDimensions,
+  tableView,
   environmentLabels,
   onPreferencesChange,
   showingKept,
@@ -642,6 +637,7 @@ function UsageOverview({
   readonly periods: readonly string[];
   readonly grouping: UsageTimeGrouping;
   readonly chartDimensions: readonly UsageChartDimension[];
+  readonly tableView: UsageTableView;
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly showingKept: boolean;
@@ -654,7 +650,6 @@ function UsageOverview({
   readonly onCursorEnabled: () => void;
   readonly onSelectModel: (key: string) => void;
 }) {
-  const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const shownHourly = shownWindow.resolution === "hour";
   const groupingOptions: readonly UsageTimeGrouping[] = shownHourly
     ? ["hour"]
@@ -692,17 +687,6 @@ function UsageOverview({
       ),
     ),
   ];
-  const breakdownPeriods: readonly (DailyTotals | HourlyTotals)[] = (
-    shownHourly ? merged.hourly : merged.daily
-  ).toReversed();
-  const breakdownModels =
-    breakdown === "model" && metric === "tokens"
-      ? sortModelsByTokens(merged.models)
-      : merged.models;
-  const breakdownPeak = breakdownModels.reduce(
-    (peak, model) => Math.max(peak, metric === "tokens" ? model.totalTokens : model.costUsd),
-    0,
-  );
   const cursorInsertAt =
     Math.max(activeProviders.indexOf("codex"), activeProviders.indexOf("claude")) + 1;
   const summaryRows: ReadonlyArray<
@@ -961,184 +945,19 @@ function UsageOverview({
         </section>
       ) : null}
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
-          <ToggleGroup
-            aria-label="Usage breakdown"
-            variant="segmented"
-            value={[breakdown]}
-            onValueChange={(next) => {
-              const value = next[0];
-              if (value === "model" || value === "time") setBreakdown(value);
-            }}
-          >
-            {(
-              [
-                { value: "model", label: "Model" },
-                { value: "time", label: shownHourly ? "Hour" : "Day" },
-              ] as const
-            ).map((option) => (
-              <Toggle key={option.value} value={option.value}>
-                {option.label}
-              </Toggle>
-            ))}
-          </ToggleGroup>
-        </div>
-
-        {breakdown === "model" ? (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border text-right text-xs text-muted-foreground">
-                <th className="py-2 pr-3 text-left font-normal">#</th>
-                <th className="w-full py-2 text-left font-normal">Model</th>
-                <th className="py-2 pl-6 font-normal">Cost</th>
-                <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
-                <th className="py-2 pl-6 font-normal">Tokens</th>
-              </tr>
-            </thead>
-            <tbody>
-              {breakdownModels.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-muted-foreground">
-                    No activity in this window.
-                  </td>
-                </tr>
-              ) : (
-                breakdownModels.map((model, index) => {
-                  const key = `${model.provider}:${model.model}`;
-                  const value = metric === "tokens" ? model.totalTokens : model.costUsd;
-                  const hasBar = value > 0 && breakdownPeak > 0;
-                  const share = modelShare(model, metric === "tokens" ? "tokens" : "cost");
-                  const rowFigures = figureClass(loadingProviders.has(model.provider));
-                  return (
-                    <tr
-                      key={key}
-                      className="relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50 has-focus-visible:bg-muted/50"
-                    >
-                      <td className="py-2.5 pr-3 text-left text-xs">{index + 1}</td>
-                      <td className="py-2.5 text-left whitespace-normal">
-                        <button
-                          type="button"
-                          onClick={() => onSelectModel(key)}
-                          className={cn(
-                            "flex items-center gap-2 text-left text-foreground outline-none after:absolute after:inset-0",
-                            !hasBar && "py-1",
-                          )}
-                        >
-                          <ProviderMark provider={model.provider} className="size-3.5" />
-                          {model.model}
-                        </button>
-                        {hasBar ? (
-                          <div aria-hidden className={cn("mt-1.5 h-0.5 max-w-48", rowFigures)}>
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `max(0.5rem, ${(value / breakdownPeak) * 100}%)`,
-                                backgroundColor: PROVIDER_PRESENTATION[model.provider].color,
-                              }}
-                            />
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className={cn("py-2.5 pl-6 text-foreground", rowFigures)}>
-                        {isModelCostUnknown(model) ? (
-                          <span className="text-muted-foreground">Unpriced</span>
-                        ) : (
-                          formatUsd(model.costUsd)
-                        )}
-                      </td>
-                      <td className={cn("hidden py-2.5 pl-6 sm:table-cell", rowFigures)}>
-                        {share === null ? "" : formatPercent(share)}
-                      </td>
-                      <td className={cn("py-2.5 pl-6", rowFigures)}>
-                        {formatTokens(model.totalTokens)}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        ) : (
-          <div
-            className="overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            role="region"
-            aria-label="Usage breakdown by time"
-            tabIndex={0}
-          >
-            <table className="w-full text-sm whitespace-nowrap">
-              <colgroup>
-                <col className="w-2/5" />
-              </colgroup>
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="py-2 font-normal">{shownHourly ? "Hour" : "Day"}</th>
-                  {activeProviders.map((provider) => (
-                    <th key={provider} className="py-2 pl-4 text-right font-normal">
-                      {PROVIDER_PRESENTATION[provider].label}
-                    </th>
-                  ))}
-                  <th className="py-2 pl-4 text-right font-normal">Total</th>
-                  <th className="py-2 pl-4 text-right font-normal">Tokens</th>
-                </tr>
-              </thead>
-              <tbody>
-                {breakdownPeriods.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={activeProviders.length + 3}
-                      className="py-6 text-center text-muted-foreground"
-                    >
-                      No activity in this window.
-                    </td>
-                  </tr>
-                ) : (
-                  breakdownPeriods.map((period) => (
-                    <tr
-                      key={"hourStart" in period ? period.hourStart : period.day}
-                      className="border-b border-border/50 transition-colors hover:bg-muted/50"
-                    >
-                      <td className="py-2 text-foreground">
-                        {"hourStart" in period
-                          ? formatHourShort(period.hourStart, shownWindow.timeZone, hour12)
-                          : formatDayShort(period.day)}
-                      </td>
-                      {activeProviders.map((provider) => (
-                        <td
-                          key={provider}
-                          className={cn(
-                            "py-2 pl-4 text-right text-muted-foreground tabular-nums",
-                            figureClass(loadingProviders.has(provider)),
-                          )}
-                        >
-                          {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
-                        </td>
-                      ))}
-                      <td
-                        className={cn(
-                          "py-2 pl-4 text-right text-foreground tabular-nums",
-                          figureClass(loadingPartial),
-                        )}
-                      >
-                        {formatUsd(period.costUsd)}
-                      </td>
-                      <td
-                        className={cn(
-                          "py-2 pl-4 text-right text-muted-foreground tabular-nums",
-                          figureClass(loadingPartial),
-                        )}
-                      >
-                        {formatTokens(period.totalTokens)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <UsageBreakdownTable
+        entries={merged.entries}
+        view={tableView}
+        onViewChange={onPreferencesChange}
+        grouping={grouping}
+        metric={metric}
+        environmentLabels={environmentLabels}
+        timeZone={shownWindow.timeZone}
+        isRowLoading={(row) =>
+          row.provider === undefined ? loadingPartial : loadingProviders.has(row.provider)
+        }
+        onOpenModel={(row) => onSelectModel(`${row.provider}:${row.model}`)}
+      />
     </div>
   );
 }
