@@ -77,6 +77,7 @@ describe("pivotUsage", () => {
     expect(rows).toEqual([
       {
         key: '["mac","claude opus"]',
+        seriesKey: '["mac","claude opus"]',
         environmentId: "mac",
         provider: "claude",
         model: "opus",
@@ -89,6 +90,7 @@ describe("pivotUsage", () => {
       },
       {
         key: '["linux","claude opus"]',
+        seriesKey: '["linux","claude opus"]',
         environmentId: "linux",
         provider: "claude",
         model: "opus",
@@ -101,6 +103,7 @@ describe("pivotUsage", () => {
       },
       {
         key: '["mac","codex opus"]',
+        seriesKey: '["mac","codex opus"]',
         environmentId: "mac",
         provider: "codex",
         model: "opus",
@@ -209,6 +212,45 @@ describe("sortUsageRows", () => {
   });
 });
 
+describe("sorting and grouping two series named alike", () => {
+  const rows = pivotUsage(
+    [
+      entry("mac", { provider: "opencode", model: "gpt", day: "2026-08-07" }),
+      entry("mac", { provider: "codex", model: "gpt", day: "2026-08-08" }),
+      entry("mac", { provider: "codex", model: "gpt", day: "2026-08-07" }),
+      entry("mac", { provider: "opencode", model: "gpt", day: "2026-08-08" }),
+    ],
+    ["model", "period"],
+    "day",
+  );
+  const sorted = sortUsageRows(
+    rows,
+    [
+      { field: "label", direction: "ascending" },
+      { field: "period", direction: "ascending" },
+    ],
+    (row) => row.model ?? "",
+  );
+
+  it("keeps each series' rows together under a shared label", () => {
+    expect(sorted.map((row) => [row.provider, row.period])).toEqual([
+      ["codex", "2026-08-07"],
+      ["codex", "2026-08-08"],
+      ["opencode", "2026-08-07"],
+      ["opencode", "2026-08-08"],
+    ]);
+  });
+
+  it("groups by identity, never merging the two series", () => {
+    expect(
+      groupUsageRows(sorted, ["model"]).map((group) => [group.key, group.rows.length]),
+    ).toEqual([
+      ['["codex gpt","2026-08-07"]', 2],
+      ['["opencode gpt","2026-08-07"]', 2],
+    ]);
+  });
+});
+
 describe("groupUsageRows", () => {
   it("totals each consecutive run that shares the primary value", () => {
     const rows = sortUsageRows(
@@ -229,7 +271,7 @@ describe("groupUsageRows", () => {
     );
 
     expect(
-      groupUsageRows(rows, "period", label).map((group) => ({
+      groupUsageRows(rows, ["period"]).map((group) => ({
         period: group.rows[0]?.period,
         environments: group.rows.map((row) => row.environmentId),
         costUsd: group.costUsd,
