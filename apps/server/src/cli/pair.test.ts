@@ -237,6 +237,34 @@ describe("t3 pair", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("finds the server and mints into the database under --server-data-dir", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-data-dir-test-"));
+        const baseDir = NodePath.join(root, "home");
+        const dataDir = NodePath.join(root, "data");
+        yield* persistServerRuntimeState({
+          path: NodePath.join(dataDir, "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined },
+            port: Number(new URL(origin).port),
+          }),
+        });
+        const locationArgs = ["--base-dir", baseDir, "--server-data-dir", dataDir];
+
+        const output = yield* captureStdout(runCli(["pair", ...locationArgs]));
+        assert.include(output, `Pairing with pair-test (${origin})`);
+
+        const listed = yield* captureStdout(
+          runCli(["auth", "pairing", "list", ...locationArgs, "--json"]),
+        );
+        assert.lengthOf(JSON.parse(listed) as ReadonlyArray<unknown>, 1);
+        assert.isTrue(NodeFS.existsSync(NodePath.join(dataDir, "statev2.sqlite")));
+        assert.isFalse(NodeFS.existsSync(NodePath.join(baseDir, "userdata", "statev2.sqlite")));
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("pairs through the recorded dev web URL for dev servers", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {

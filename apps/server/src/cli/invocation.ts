@@ -144,7 +144,7 @@ export const resolveCliCommand = (subcommand: string) =>
   );
 
 /** Quotes `value` for a POSIX shell when it needs it. */
-const shellWord = (value: string) =>
+export const shellWord = (value: string) =>
   /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 
 /**
