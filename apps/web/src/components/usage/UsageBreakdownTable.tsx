@@ -7,7 +7,6 @@ import {
   groupUsageRows,
   pivotUsage,
   sortUsageRows,
-  usageRowKey,
   type UsageDimension,
   type UsagePivotRow,
   type UsageSortCriterion,
@@ -36,7 +35,8 @@ import {
   DIMENSION_NAMES,
   GROUPING_NAMES,
   usageRowLabel,
-  usageSeriesColors,
+  usageRowSeriesColor,
+  type UsageChartSeries,
   type UsageLabelContext,
 } from "./usageSeries";
 
@@ -94,6 +94,7 @@ export function layoutBreakdownTable(
   entries: readonly UsageEntry[],
   { tableDimensions: dimensions, sort }: UsageTableView,
   context: UsageLabelContext,
+  chartSeries: UsageChartSeries,
 ) {
   const seriesDimensions = dimensions.filter((dimension) => dimension !== "period");
   // Periods have their own sort field, so names sort without them.
@@ -107,16 +108,11 @@ export function layoutBreakdownTable(
   const grouped = groupDimensions.length > 0 && groups.length < sorted.length;
   const headingDimensions = grouped ? groupDimensions : [];
   const rowDimensions = dimensions.filter((dimension) => !headingDimensions.includes(dimension));
-  const colorKey = (row: UsagePivotRow) => usageRowKey(row, seriesDimensions);
-  const colors = usageSeriesColors(
-    sorted.map((row) => ({ ...row, key: colorKey(row) })),
-    seriesDimensions,
-  );
   const name = (row: UsagePivotRow, nameDimensions: readonly UsageDimension[]): BreakdownName => {
     const namesSeries = nameDimensions.some((dimension) => dimension !== "period");
     return {
       text: dimensions.length === 0 ? "Total" : usageRowLabel(row, nameDimensions, context),
-      color: namesSeries ? colors.get(colorKey(row)) : undefined,
+      color: namesSeries ? usageRowSeriesColor(chartSeries, row) : undefined,
       provider: nameDimensions.includes("model") ? row.provider : undefined,
     };
   };
@@ -133,6 +129,7 @@ export function layoutBreakdownTable(
 interface UsageBreakdownTableProps {
   readonly entries: readonly UsageEntry[];
   readonly view: UsageTableView;
+  readonly chartSeries: UsageChartSeries;
   readonly onViewChange: (view: UsageTableView) => void;
   readonly grouping: UsageTimeGrouping;
   readonly metric: "cost" | "tokens";
@@ -145,6 +142,7 @@ interface UsageBreakdownTableProps {
 export function UsageBreakdownTable({
   entries,
   view,
+  chartSeries,
   onViewChange,
   grouping,
   metric,
@@ -154,7 +152,12 @@ export function UsageBreakdownTable({
   onOpenModel,
 }: UsageBreakdownTableProps) {
   const { tableDimensions: dimensions, sort } = view;
-  const table = layoutBreakdownTable(entries, view, { environmentLabels, grouping, timeZone });
+  const table = layoutBreakdownTable(
+    entries,
+    view,
+    { environmentLabels, grouping, timeZone },
+    chartSeries,
+  );
 
   const shareOf = (totals: UsageTotals) => modelShare(totals, metric);
 
