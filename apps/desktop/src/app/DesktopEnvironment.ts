@@ -280,8 +280,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
     ...clientPaths,
     serverSettingsPath: path.join(serverConfigDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
+    // The same directory as the server's, which prunes both by age.
     browserArtifactsDir: path.join(
-      storageRoots.layout === "legacy" ? stateDir : cacheDir,
+      storageRoots.layout === "legacy" ? stateDir : dataDir,
       "browser-artifacts",
     ),
     electronUserDataPath: path.join(stateDir, "electron"),

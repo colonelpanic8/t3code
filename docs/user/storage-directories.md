@@ -14,13 +14,14 @@ On Linux, the default roots are:
 | Runtime       | `$XDG_RUNTIME_DIR/t3code`, with a per-user temporary fallback |
 
 Settings, keybindings, `server.json`, and published themes live in the
-configuration directory. Attachments and worktrees live in the data directory.
-The SQLite database, identity, secrets, and logs live in the state directory.
-Provider status caches live in `provider-status/` in the cache directory, next
-to desktop browser artifacts. Live-server discovery state lives in the runtime
-directory. The desktop app's own settings and window state follow the
-same split unless a [client directory](./install.md#where-the-desktop-app-keeps-its-files)
-holds them.
+configuration directory. Attachments, worktrees, and saved browser screenshots
+(the server's and the desktop app's alike, pruned together) live in the data
+directory. The SQLite database, identity, secrets, and logs live in the state
+directory. Provider status caches live in `provider-status/` in the cache
+directory. Live-server discovery state lives in the runtime directory. The
+desktop app's own settings and window state follow the same split unless a
+[client directory](./install.md#where-the-desktop-app-keeps-its-files) holds
+them.
 
 On macOS they live in `~/Library/Application Support/t3code` and
 `~/Library/Caches/t3code`, and the XDG variables are not used, because an app
