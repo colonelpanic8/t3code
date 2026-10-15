@@ -216,7 +216,7 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
-  it.effect("splits the desktop's own files by layout and moves them all with a client dir", () =>
+  it.effect("keeps the desktop's own files in client roots and moves them with a client dir", () =>
     Effect.gen(function* () {
       const linux = {
         platform: "linux" as const,
@@ -228,10 +228,13 @@ describe("DesktopEnvironment", () => {
 
       const split = yield* makeEnvironment(linux, xdg);
       assert.equal(split.storageLayout, "split");
-      assert.equal(split.desktopSettingsPath, "/xdg/config/t3code/desktop-settings.json");
-      assert.equal(split.clientSettingsPath, "/xdg/config/t3code/client-settings.json");
-      assert.equal(split.desktopWindowStatePath, "/xdg/state/t3code/desktop-window-state.json");
-      assert.equal(split.connectionCatalogPath, "/xdg/state/t3code/connection-catalog.json");
+      assert.equal(split.desktopSettingsPath, "/xdg/config/t3code-client/desktop-settings.json");
+      assert.equal(split.clientSettingsPath, "/xdg/config/t3code-client/client-settings.json");
+      assert.equal(
+        split.desktopWindowStatePath,
+        "/xdg/state/t3code-client/desktop-window-state.json",
+      );
+      assert.equal(split.connectionCatalogPath, "/xdg/state/t3code-client/connection-catalog.json");
 
       const relocated = yield* makeEnvironment(
         { ...linux, clientDirSwitch: "~/t3-client" },
@@ -245,9 +248,12 @@ describe("DesktopEnvironment", () => {
         relocated.desktopWindowStatePath,
         "/home/alice/t3-client/desktop-window-state.json",
       );
-      // The server's files and the Electron profile stay with the layout.
+      // The server's files and everything under the client roots stay put.
       assert.equal(relocated.serverSettingsPath, "/xdg/config/t3code/settings.json");
-      assert.equal(relocated.electronUserDataPath, "/xdg/state/t3code/electron");
+      assert.equal(relocated.clientRoots.stateDir, "/xdg/state/t3code-client");
+      assert.equal(relocated.electronUserDataPath, "/xdg/state/t3code-client/electron");
+      assert.equal(relocated.logDir, "/xdg/state/t3code-client/logs");
+      assert.equal(relocated.clientCacheDir, "/home/alice/.cache/t3code-client");
     }),
   );
 
@@ -347,7 +353,36 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.serverSettingsPath, "/xdg/config/t3code/settings.json");
       // The server prunes these with its own, so both share the data dir.
       assert.equal(environment.browserArtifactsDir, "/xdg/data/t3code/browser-artifacts");
-      assert.equal(environment.electronUserDataPath, "/xdg/state/t3code/electron");
+      assert.equal(environment.electronUserDataPath, "/xdg/state/t3code-client/electron");
+    }),
+  );
+
+  it.effect("keeps client storage apart from overridden server storage", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { platform: "linux", homeDirectory: "/home/alice", temporaryDirectory: "/tmp" },
+        {
+          T3CODE_CONFIG_DIR: "/srv/t3/config",
+          T3CODE_STATE_DIR: "/srv/t3/state",
+          T3CODE_CLIENT_STATE_DIR: "~/client-state",
+        },
+      );
+
+      assert.equal(environment.stateDir, "/srv/t3/state");
+      assert.equal(environment.serverSettingsPath, "/srv/t3/config/settings.json");
+      assert.deepStrictEqual(environment.clientRoots, {
+        configDir: "/home/alice/.config/t3code-client",
+        stateDir: "/home/alice/client-state",
+        cacheDir: "/home/alice/.cache/t3code-client",
+      });
+      assert.equal(
+        environment.desktopSettingsPath,
+        "/home/alice/.config/t3code-client/desktop-settings.json",
+      );
+      assert.equal(
+        environment.savedEnvironmentRegistryPath,
+        "/home/alice/client-state/saved-environments.json",
+      );
     }),
   );
 

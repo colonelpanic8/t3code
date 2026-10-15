@@ -59,7 +59,7 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "auto");
   });
 
-  it("reads the split-layout config directory when no legacy settings exist", () => {
+  it("reads the split-layout client config directory when no legacy settings exist", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { XDG_CONFIG_HOME: "/home/user/.xdg" },
       clientDirSwitch: null,
@@ -67,7 +67,9 @@ describe("DesktopEarlyElectronStartup", () => {
       joinPath,
       resolvePath,
       readFileString: (path) => {
-        if (path !== "/home/user/.xdg/t3code/desktop-settings.json") throw new Error("missing");
+        if (path !== "/home/user/.xdg/t3code-client/desktop-settings.json") {
+          throw new Error("missing");
+        }
         return JSON.stringify({ linuxPasswordStore: "kwallet5" });
       },
     });
@@ -92,9 +94,9 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "kwallet5");
   });
 
-  it("expands ~ in T3CODE_CONFIG_DIR", () => {
+  it("reads T3CODE_CLIENT_CONFIG_DIR, not the server's T3CODE_CONFIG_DIR", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
-      env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" },
+      env: { T3CODE_CONFIG_DIR: "/srv/t3/config", T3CODE_CLIENT_CONFIG_DIR: "~/dotfiles/t3code" },
       clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,

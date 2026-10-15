@@ -6,7 +6,9 @@ import type {
 } from "@t3tools/contracts";
 import {
   expandT3HomePath,
+  resolveT3ClientStorageRoots,
   selectT3Storage,
+  type T3ClientStorageRoots,
   type T3StorageConfigurationError,
   type T3StorageLayout,
   t3StoragePathExists,
@@ -59,12 +61,17 @@ export class DesktopEnvironment extends Context.Service<
     readonly appDataDirectory: string;
     readonly storageLayout: T3StorageLayout;
     readonly storageRoots: T3StorageRoots;
+    /** The desktop's own roots, apart from any server's. A client dir does not move them. */
+    readonly clientRoots: T3ClientStorageRoots;
     readonly configDir: string;
     readonly dataDir: string;
     readonly baseDir: string;
     readonly stateDir: string;
+    // Where the desktop's settings and small state files live: the client
+    // roots, unless a client dir holds them.
     readonly clientConfigDir: string;
     readonly clientStateDir: string;
+    readonly clientCacheDir: string;
     readonly cacheDir: string;
     readonly runtimeDir: string;
     readonly desktopSettingsPath: string;
@@ -197,8 +204,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     resolve: (...paths: ReadonlyArray<string>) => path.resolve(...paths),
     isAbsolute: (candidate: string) => path.isAbsolute(candidate),
   };
-  // Synchronous probes: this runs before Electron is ready (see main.ts).
-  const selection = selectT3Storage({
+  const storageHost = {
     platform: input.platform,
     homeDirectory,
     temporaryDirectory: input.temporaryDirectory ?? NodeOS.tmpdir(),
@@ -206,10 +212,18 @@ const make = Effect.fn("desktop.environment.make")(function* (
     isDevelopment,
     environment: config.storageEnvironment,
     path: pathOperations,
+  };
+  // Synchronous probes: this runs before Electron is ready (see main.ts).
+  const selection = selectT3Storage({
+    ...storageHost,
     exists: t3StoragePathExists,
   });
   if (selection._tag !== "Selected") return yield* selection.error;
   const storageRoots = selection.roots;
+  const clientRoots = resolveT3ClientStorageRoots({
+    ...storageHost,
+    serverRoots: storageRoots,
+  });
   const { cacheDir, configDir, dataDir, runtimeDir, stateDir } = storageRoots;
   const baseDir = dataDir;
   const rootDir = path.resolve(input.dirname, "../../..");
@@ -224,8 +238,8 @@ const make = Effect.fn("desktop.environment.make")(function* (
   });
   const displayName = branding.displayName;
   const clientPaths = resolveDesktopClientPaths({
-    configDir,
-    stateDir,
+    configDir: clientRoots.configDir,
+    stateDir: clientRoots.stateDir,
     homeDirectory,
     clientDirSwitch: Option.fromNullishOr(input.clientDirSwitch),
     clientDirEnv: config.clientDir,
@@ -264,6 +278,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appDataDirectory,
     storageLayout: storageRoots.layout,
     storageRoots,
+    clientRoots,
     configDir,
     dataDir,
     baseDir,
@@ -271,10 +286,11 @@ const make = Effect.fn("desktop.environment.make")(function* (
     cacheDir,
     runtimeDir,
     ...clientPaths,
+    clientCacheDir: clientRoots.cacheDir,
     serverSettingsPath: path.join(serverConfigDir, "settings.json"),
-    logDir: path.join(stateDir, "logs"),
+    logDir: path.join(clientRoots.stateDir, "logs"),
     browserArtifactsDir: path.join(serverDataDir, "browser-artifacts"),
-    electronUserDataPath: path.join(stateDir, "electron"),
+    electronUserDataPath: path.join(clientRoots.stateDir, "electron"),
     rootDir,
     appRoot,
     serverRoot,

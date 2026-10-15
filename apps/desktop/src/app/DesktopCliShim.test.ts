@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { type CliShimTarget, renderCliShim } from "./DesktopCliShim.ts";
+import { type CliShimTarget, launcherStorageEnvironment, renderCliShim } from "./DesktopCliShim.ts";
 
 const directories: Array<string> = [];
 afterEach(() => {
@@ -138,6 +138,51 @@ describe("renderCliShim", () => {
     expect(run(shim, []).stdout).toContain("home= state=/state");
     // A caller's own server location override would conflict with pinned split roots.
     expect(run(shim, [], { T3CODE_SERVER_DATA_DIR: "/data" }).stdout).toContain("home= state=\n");
+  });
+
+  it("pins the client state root so `t3 app` finds the desktop", () => {
+    const splitRoots = {
+      layout: "split" as const,
+      configDir: "/config",
+      dataDir: "/data",
+      stateDir: "/state",
+      cacheDir: "/cache",
+      runtimeDir: "/runtime",
+    };
+    const clientRoots = { configDir: "/c/config", stateDir: "/c/state", cacheDir: "/c/cache" };
+    const storageEnvironment = launcherStorageEnvironment({
+      storageRoots: splitRoots,
+      clientRoots,
+    });
+    expect(storageEnvironment).toMatchObject({
+      T3CODE_STATE_DIR: "/state",
+      T3CODE_CLIENT_STATE_DIR: "/c/state",
+    });
+    expect(
+      launcherStorageEnvironment({
+        storageRoots: { ...splitRoots, layout: "legacy", legacyBaseDir: "/t3" },
+        clientRoots,
+      }),
+    ).toEqual({ T3CODE_HOME: "/t3" });
+
+    const root = tempRoot();
+    writeExecutable(
+      NodePath.join(root, "app"),
+      '#!/bin/sh\necho "state=$T3CODE_STATE_DIR client=$T3CODE_CLIENT_STATE_DIR"\n',
+    );
+    const shim = NodePath.join(root, "bin", "t3");
+    writeExecutable(
+      shim,
+      renderCliShim({
+        target: { kind: "direct", executable: NodePath.join(root, "app"), entry: "/bin.mjs" },
+        shimPath: shim,
+        storageEnvironment,
+      }),
+    );
+    expect(run(shim, []).stdout).toBe("state=/state client=/c/state\n");
+    expect(run(shim, [], { T3CODE_CLIENT_STATE_DIR: "/mine" }).stdout).toBe(
+      "state= client=/mine\n",
+    );
   });
 
   it("runs an installed app's server directly", () => {
