@@ -377,11 +377,7 @@ export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): num
   return removed;
 }
 
-/** Mutates seen; share it across incremental line/tail batches to deduplicate the whole file. */
-export function dedupeWithinFile(
-  records: readonly UsageRecord[],
-  seen: Set<string> = new Set(),
-): readonly UsageRecord[] {
+export function dedupeWithinFile(records: readonly UsageRecord[]): readonly UsageRecord[] {
   const kept: UsageRecord[] = [];
   const keptIndexes = new Map<string, number>();
   for (const record of records) {
@@ -397,8 +393,6 @@ export function dedupeWithinFile(
       }
       continue;
     }
-    if (seen.has(record.dedupeKey)) continue;
-    seen.add(record.dedupeKey);
     keptIndexes.set(record.dedupeKey, kept.length);
     kept.push(record);
   }
