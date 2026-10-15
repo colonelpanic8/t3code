@@ -46,27 +46,35 @@ Node.js for `npx`).
 
 ### Where the server keeps its files
 
-The server keeps everything under its T3 home, `~/.t3` by default. Set
-`--base-dir` or `T3CODE_HOME` to move all of it. To move one kind of file on its
-own, for example to keep configuration in a dotfiles repository or the database
-on another disk, set any of these. Each falls back to its usual place in the T3
-home when unset, and none moves the others.
+A new install keeps its files in the platform's usual places, with
+configuration, data, state, caches, and live-process files in separate
+directories (on Linux, `~/.config/t3code`, `~/.local/share/t3code`,
+`~/.local/state/t3code`, and so on). An existing `~/.t3` that holds an
+installation keeps being used, as one T3 home, and `--base-dir` or
+`T3CODE_HOME` names a T3 home to use instead.
+[Storage directories](./storage-directories.md) lists the defaults and how the
+server picks between them.
 
-| Files                                                                      | Flag                  | Environment variable       | Default          |
-| -------------------------------------------------------------------------- | --------------------- | -------------------------- | ---------------- |
-| `settings.json`, `keybindings.json`, `themes/`                             | `--server-config-dir` | `T3CODE_SERVER_CONFIG_DIR` | `~/.t3/userdata` |
-| Database, secrets, attachments, logs, `worktrees/`, and other server state | `--server-data-dir`   | `T3CODE_SERVER_DATA_DIR`   | `~/.t3/userdata` |
-| Provider status caches                                                     | `--server-cache-dir`  | `T3CODE_SERVER_CACHE_DIR`  | `~/.t3/caches`   |
+To move one kind of file on its own, for example to keep configuration in a
+dotfiles repository or the database on another disk, set any of these. Each
+falls back to its usual place when unset, and none moves the others.
 
-New worktrees go in `worktrees/` inside the data directory when you set one,
-and in `~/.t3/worktrees` otherwise. Model and usage caches live in the data
-directory too, so they move with it. Existing files are not moved for you: stop
-the server and move them yourself before pointing it at a new location.
+| Files                                                                      | Flag                  | Environment variable       | Default                                             |
+| -------------------------------------------------------------------------- | --------------------- | -------------------------- | --------------------------------------------------- |
+| `settings.json`, `keybindings.json`, `themes/`                             | `--server-config-dir` | `T3CODE_SERVER_CONFIG_DIR` | the config directory, or `~/.t3/userdata`           |
+| Database, secrets, attachments, logs, `worktrees/`, and other server state | `--server-data-dir`   | `T3CODE_SERVER_DATA_DIR`   | the data and state directories, or `~/.t3/userdata` |
+| Provider status caches                                                     | `--server-cache-dir`  | `T3CODE_SERVER_CACHE_DIR`  | the cache directory, or `~/.t3/caches`              |
+
+New worktrees go in `worktrees/` inside the data directory, or in
+`~/.t3/worktrees` for a T3 home without a data directory set. Model and usage
+caches live in the data directory too, so they move with it. Existing files are
+not moved for you: stop the server and move them yourself before pointing it at
+a new location.
 
 Setting or changing a data directory signs every browser out once, since login
-sessions are tied to where the server keeps its data. The desktop app keeps its
-own saved browser screenshots in `~/.t3/userdata/browser-artifacts`, and a
-server with a data directory does not clean those up.
+sessions are tied to where the server keeps its data. The desktop app
+saves its browser screenshots in the data directory too, where the server
+prunes them, when `T3CODE_SERVER_DATA_DIR` is set in its environment.
 
 Use absolute paths in these variables. A relative value is resolved against the
 working directory of each process that reads it, which differs between your
@@ -79,9 +87,9 @@ for that.
 Commands that work with a server's files, such as `t3 pair`, `t3 auth`,
 `t3 project`, `t3 theme`, and `t3 connect`, need the same settings as the server
 to find it; the environment variables are the easiest way to share them. The
-background service records only the T3 home, so `t3 service`, `t3 update`, and
-`t3 uninstall` ignore these settings and use the T3 home's usual locations.
-Set them in the service's environment yourself if it should use them.
+background service records only its storage directories (its T3 home, or the
+config, data, state, and cache directories), and clears these settings from its
+environment, so `t3 service`, `t3 update`, and `t3 uninstall` ignore them too.
 
 ### Server options file
 
@@ -145,7 +153,7 @@ the key. `t3 auth`, `t3 project`, `t3 connect`, and `t3 trace summary` read the
 file too, so they fail with the same error. Keys the server does not know are skipped with a
 warning in its log. `t3 trace summary` uses the file's trace settings, and
 `t3 triage` reports a broken file instead of stopping. The background service
-reads `server.json` from `userdata` in its T3 home. `t3 service`, `t3 update`,
+reads `server.json` from its config directory, `userdata` in a T3 home. `t3 service`, `t3 update`,
 and `t3 uninstall` never read the file, so a broken one does not stop you from
 managing the install.
 
@@ -219,11 +227,12 @@ from npm, it stays as it is.
 
 ### Where the desktop app keeps its files
 
-The desktop app keeps its preferences, client settings, window position, and
-saved connections in the server's `userdata` directory, `~/.t3/userdata` by
-default. To keep them somewhere else, start the app with `--client-dir=<path>`
-or set `T3CODE_CLIENT_DIR=<path>`. The command-line option wins when both are
-set. Write the option with `=`; `--client-dir <path>` is ignored. A leading `~`
+The desktop app keeps its preferences and client settings in the
+[configuration directory](./storage-directories.md), and its window position
+and saved connections in the state directory, both `userdata` in a T3 home such
+as `~/.t3`. To keep all of them in one other place, start the app with
+`--client-dir=<path>` or set `T3CODE_CLIENT_DIR=<path>`. The command-line option
+wins when both are set. Write the option with `=`; `--client-dir <path>` is ignored. A leading `~`
 means your home directory, and a relative path is resolved against the
 directory the app starts in.
 
@@ -233,10 +242,10 @@ command-line options. To use a client directory every time, set
 
 This relocates only `desktop-settings.json`, `client-settings.json`,
 `desktop-window-state.json`, `connection-catalog.json`, and the older
-`saved-environments.json`. The server's data, the sign-in tokens in
-`clerk-tokens.json`, Electron's browser profile, and caches stay where they
-are. Existing files are not moved; copy them into the new directory before the
-first launch to keep them.
+`saved-environments.json`, whichever storage layout is in use. The server's
+data, the sign-in tokens in `clerk-tokens.json`, Electron's browser profile,
+and caches stay where they are. Existing files are not moved; copy them into the
+new directory before the first launch to keep them.
 
 ### Windows Subsystem for Linux
 

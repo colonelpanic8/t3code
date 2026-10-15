@@ -44,8 +44,9 @@ export interface UninstallPlan {
   /** `<home>/runtime`, holding every downloaded version, when it exists. */
   readonly runtimeDir: string | undefined;
   /**
-   * `<home>/userdata` plus any config, data, or cache dir set in the environment.
-   * Never removed; shown so the user knows where they are.
+   * The storage layout's directories (`<home>/userdata` in the legacy layout)
+   * plus any config, data, or cache dir set in the environment. Never removed;
+   * shown so the user knows where they are.
    */
   readonly keptDirs: ReadonlyArray<string>;
 }
@@ -78,8 +79,32 @@ export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(functi
   return launcherOwnsVersionsDir(path, input.versionsDir, resolved) ? input.launchedAs : undefined;
 });
 
+/**
+ * What uninstall leaves behind. A legacy T3 home has to go as a whole, since a
+ * later install keeps using it while anything, even its caches, is left. Its
+ * worktrees may hold uncommitted work, so they are named before any deletion.
+ */
+export const keptStorageMessage = (input: {
+  readonly keptDirs: ReadonlyArray<string>;
+  readonly legacyHome: string | undefined;
+  readonly worktreesDir: string;
+}) => {
+  const kept = `Your projects, threads, and settings under ${input.keptDirs.join(", ")} are kept.`;
+  if (input.legacyHome === undefined) {
+    return `${kept} Delete ${input.keptDirs.length === 1 ? "that directory" : "those directories"} yourself if you want them gone too, after moving anything you want out of ${input.worktreesDir}.`;
+  }
+  const home = input.legacyHome;
+  const inHome = (dir: string) =>
+    dir === home || dir.startsWith(`${home}/`) || dir.startsWith(`${home}\\`);
+  const others = input.keptDirs.some((dir) => !inHome(dir))
+    ? " and the other directories listed"
+    : "";
+  return `${kept} To remove them too, move anything you want out of ${input.worktreesDir}, then delete ${home} entirely${others}; a later install keeps using anything left in it.`;
+};
+
 const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
   readonly baseDir: string;
+  readonly layoutDirs: ReadonlyArray<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -100,12 +125,9 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
       : undefined,
     keptDirs: [
       ...new Set(
-        [
-          path.join(input.baseDir, "userdata"),
-          overrides.configDir,
-          overrides.dataDir,
-          overrides.cacheDir,
-        ].filter((dir): dir is string => dir !== undefined),
+        [...input.layoutDirs, overrides.configDir, overrides.dataDir, overrides.cacheDir].filter(
+          (dir): dir is string => dir !== undefined,
+        ),
       ),
     ],
   };
@@ -128,22 +150,34 @@ export const uninstallCommand = Command.make("uninstall", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const config = yield* resolveInstallLocations(flags);
-      return yield* runUninstall({ baseDir: config.baseDir, assumeYes: flags.yes }).pipe(
-        Effect.provide(CliService.layer(config)),
-      );
+      const legacy = config.storage.roots.layout === "legacy";
+      // The runtime dir persists on macOS and Windows, so it is listed too.
+      const layoutDirs = legacy
+        ? [config.stateDir, config.cacheDir, config.worktreesDir]
+        : [config.configDir, config.dataDir, config.stateDir, config.cacheDir, config.runtimeDir];
+      return yield* runUninstall({
+        baseDir: config.baseDir,
+        layoutDirs,
+        legacyHome: legacy ? config.baseDir : undefined,
+        worktreesDir: config.worktreesDir,
+        assumeYes: flags.yes,
+      }).pipe(Effect.provide(CliService.layer(config)));
     }),
   ),
 );
 
 const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
   readonly baseDir: string;
+  readonly layoutDirs: ReadonlyArray<string>;
+  readonly legacyHome: string | undefined;
+  readonly worktreesDir: string;
   readonly assumeYes: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcess.Platform;
   const environment = yield* HostProcess.Environment;
   const service = yield* BootService.BootService;
-  const plan = yield* planUninstall({ baseDir: input.baseDir });
+  const plan = yield* planUninstall({ baseDir: input.baseDir, layoutDirs: input.layoutDirs });
 
   if (!plan.service && plan.launcher === undefined && plan.runtimeDir === undefined) {
     yield* Console.log(`Nothing to remove: t3 is not installed for ${input.baseDir}.`);
@@ -162,7 +196,11 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
     yield* Console.log(`  every downloaded version under ${plan.runtimeDir}`);
   }
   yield* Console.log(
-    `Your projects, threads, and settings under ${plan.keptDirs.join(", ")} are kept. Delete ${plan.keptDirs.length === 1 ? "that directory" : "those directories"} yourself if you want them gone too.`,
+    keptStorageMessage({
+      keptDirs: plan.keptDirs,
+      legacyHome: input.legacyHome,
+      worktreesDir: input.worktreesDir,
+    }),
   );
 
   if (!input.assumeYes) {
