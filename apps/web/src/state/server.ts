@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type EditorId,
   type EnvironmentTheme,
+  type KeybindingRule,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleLegacyThreadMigrationPayload,
@@ -12,7 +13,8 @@ import {
 import { createServerEnvironmentAtoms } from "@t3tools/client-runtime/state/server";
 import { createOutdatedServerUpdateCommand } from "@t3tools/client-runtime/state/outdatedServerUpdate";
 import { createEnvironmentServerConfigsAtom } from "@t3tools/client-runtime/state/shell";
-import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
+import { applyManagedKeybindings, mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -106,8 +108,27 @@ export const primaryServerProvidersAtom = Atom.make(
     get(primaryServerConfigAtom)?.providers ?? EMPTY_SERVER_PROVIDERS,
 ).pipe(Atom.withLabel("web-primary-server-providers"));
 
+const EMPTY_MANAGED_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [];
+
+// The desktop's managed keybindings file. A client-only desktop has no primary
+// environment, so these are the only bindings it carries beyond the defaults.
+const clientManagedKeybindingsAtom = Atom.make(
+  Effect.promise(
+    async () =>
+      (typeof window === "undefined"
+        ? undefined
+        : await window.desktopBridge?.getManagedKeybindings?.()) ?? EMPTY_MANAGED_KEYBINDINGS,
+  ),
+).pipe(Atom.keepAlive, Atom.withLabel("web-client-managed-keybindings"));
+
 export const primaryServerKeybindingsAtom = Atom.make((get): ServerConfig["keybindings"] =>
-  mergeWithDefaultKeybindings(get(primaryServerConfigAtom)?.keybindings ?? []),
+  applyManagedKeybindings(
+    mergeWithDefaultKeybindings(get(primaryServerConfigAtom)?.keybindings ?? []),
+    Option.getOrElse(
+      AsyncResult.value(get(clientManagedKeybindingsAtom)),
+      () => EMPTY_MANAGED_KEYBINDINGS,
+    ),
+  ),
 ).pipe(Atom.withLabel("web-primary-server-keybindings"));
 
 export const primaryServerAvailableEditorsAtom = Atom.make(
