@@ -5,7 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
-import { findOwnedLauncher } from "./uninstall.ts";
+import { findOwnedLauncher, keptStorageMessage } from "./uninstall.ts";
 
 it.layer(NodeServices.layer)("t3 uninstall launcher", (it) => {
   it.effect("claims only a launcher that points into this home's runtime tree", () =>
@@ -33,5 +33,27 @@ it.layer(NodeServices.layer)("t3 uninstall launcher", (it) => {
       assert.isUndefined(yield* findOwnedLauncher({ launchedAs: copy, versionsDir }));
       assert.isUndefined(yield* findOwnedLauncher({ launchedAs: undefined, versionsDir }));
     }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+});
+
+it("tells a legacy install to remove its whole T3 home", () => {
+  // A leftover ~/.t3/caches alone keeps a later install on the legacy layout.
+  assert.equal(
+    keptStorageMessage({
+      keptDirs: ["/home/a/.t3/userdata", "/home/a/.t3/caches"],
+      legacyHome: "/home/a/.t3",
+    }),
+    "Your projects, threads, and settings under /home/a/.t3/userdata, /home/a/.t3/caches are kept. To remove them too, delete /home/a/.t3 entirely; a later install keeps using anything left in it.",
+  );
+  assert.equal(
+    keptStorageMessage({
+      keptDirs: ["/home/a/.t3/userdata", "/home/a/.t3/caches", "/srv/t3"],
+      legacyHome: "/home/a/.t3",
+    }),
+    "Your projects, threads, and settings under /home/a/.t3/userdata, /home/a/.t3/caches, /srv/t3 are kept. To remove them too, delete /home/a/.t3 entirely and the other directories listed; a later install keeps using anything left in it.",
+  );
+  assert.equal(
+    keptStorageMessage({ keptDirs: ["/c", "/d"], legacyHome: undefined }),
+    "Your projects, threads, and settings under /c, /d are kept. Delete those directories yourself if you want them gone too.",
   );
 });
