@@ -1,4 +1,8 @@
 import type { DesktopCliCommandState } from "@t3tools/contracts";
+import {
+  legacyT3StorageMigrationMarkerPath,
+  resolveLegacyT3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -61,6 +65,12 @@ export class DesktopCliCommand extends Context.Service<
     readonly state: Effect.Effect<DesktopCliCommandState>;
     readonly install: Effect.Effect<DesktopCliCommandState, DesktopCliCommandError>;
     readonly uninstall: Effect.Effect<DesktopCliCommandState, DesktopCliCommandError>;
+    /**
+     * Points an installed command at this app's launcher when it still runs
+     * the launcher of a T3 home that `t3 storage migrate` retired, since that
+     * launcher pins the stale tree. Run at startup; Install does the same.
+     */
+    readonly followLauncher: Effect.Effect<void, DesktopCliCommandError>;
   }
 >()("@t3tools/desktop/app/DesktopCliCommand") {}
 
@@ -249,7 +259,55 @@ export const make = Effect.gen(function* () {
     return yield* state;
   }).pipe(Effect.withSpan("desktop.cliCommand.uninstall"));
 
-  return DesktopCliCommand.of({ state, install, uninstall });
+  /** A launcher lives in `<T3 home>/bin`, so its home is the folder above. */
+  const isRetiredLauncherDirectory = (directory: string) =>
+    exists(
+      legacyT3StorageMigrationMarkerPath(
+        resolveLegacyT3StorageRoots({
+          baseDir: path.dirname(directory),
+          stateDirectoryName: "userdata",
+          path,
+        }),
+        path,
+      ),
+    );
+
+  const followLauncher: DesktopCliCommand["Service"]["followLauncher"] = Effect.gen(function* () {
+    if (!environment.isPackaged) return;
+    if (windows) {
+      const recorded = yield* fs.readFileString(ownedPathMarker).pipe(Effect.option);
+      if (Option.isNone(recorded)) return;
+      const previous = recorded.value.trim();
+      if (sameWindowsPath(previous, binDirectory)) return;
+      if (!(yield* isRetiredLauncherDirectory(previous))) return;
+      const entries = pathEntries(yield* readUserPath, ";");
+      if (!entries.some((entry) => sameWindowsPath(entry, previous))) return;
+      yield* ensureLauncher;
+      const kept = entries.filter(
+        (entry) => !sameWindowsPath(entry, previous) && !sameWindowsPath(entry, binDirectory),
+      );
+      const at = entries.findIndex((entry) => sameWindowsPath(entry, previous));
+      yield* writeUserPath([...kept.slice(0, at), binDirectory, ...kept.slice(at)].join(";"));
+      yield* fs
+        .writeFileString(ownedPathMarker, `${binDirectory}\n`)
+        .pipe(Effect.mapError(() => fail("Moved t3 on your PATH but could not record it.")));
+      return;
+    }
+    const existing = yield* installedAt;
+    if (Option.isNone(existing)) return;
+    const target = yield* fs.readLink(existing.value).pipe(Effect.option);
+    if (Option.isNone(target) || target.value === launcher) return;
+    if (!(yield* isRetiredLauncherDirectory(path.dirname(target.value)))) return;
+    yield* ensureLauncher;
+    yield* fs
+      .remove(existing.value)
+      .pipe(Effect.mapError(() => fail(`Could not replace ${existing.value}.`)));
+    yield* fs
+      .symlink(launcher, existing.value)
+      .pipe(Effect.mapError(() => fail(`Could not link ${existing.value} to ${launcher}.`)));
+  }).pipe(Effect.withSpan("desktop.cliCommand.followLauncher"));
+
+  return DesktopCliCommand.of({ state, install, uninstall, followLauncher });
 });
 
 export const layer = Layer.effect(DesktopCliCommand, make);
