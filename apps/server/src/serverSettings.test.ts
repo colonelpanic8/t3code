@@ -2304,6 +2304,18 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       },
     },
     {
+      name: "a map key that decodes differently",
+      managed: { usageModelAliases: { " foo ": "bar" } },
+    },
+    {
+      name: "a project id that decodes differently",
+      managed: { projectSettingsOverrides: { " p1 ": { defaultAutoPull: true } } },
+    },
+    {
+      name: "an unknown nested key",
+      managed: { observability: { otlpTracesUrlTypo: "http://collector" } },
+    },
+    {
       name: "an entry referencing a missing file",
       managed: {
         providerInstances: {
@@ -2335,6 +2347,24 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const settings = yield* service.getSettings;
         assert.equal(settings.branchNamePrefix, "nix/");
         assert.deepEqual(yield* service.managedSettingPaths, [["branchNamePrefix"]]);
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
+  it.effect("hands a dropped managed map key back to the user", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-alias-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({ usageModelAliases: { " foo ": "bar" } }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const updated = yield* service.updateSettings({ usageModelAliases: { foo: "baz" } });
+        assert.deepEqual(updated.usageModelAliases, { foo: "baz" });
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
     }),
   );
