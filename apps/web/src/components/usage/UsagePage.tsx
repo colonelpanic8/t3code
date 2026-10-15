@@ -100,7 +100,13 @@ import {
   type UsageChartDimension,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
-import { DIMENSION_NAMES, GROUPING_ADJECTIVES, GROUPING_NAMES } from "./usageSeries";
+import {
+  DIMENSION_NAMES,
+  GROUPING_ADJECTIVES,
+  GROUPING_NAMES,
+  buildUsageChartSeries,
+  type UsageChartSeries,
+} from "./usageSeries";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -346,6 +352,13 @@ export function UsagePage() {
     : (preferences.timeGrouping ?? DEFAULT_USAGE_VIEW.timeGrouping);
   const periods = enumeratePeriods(shownHourly ? hours : days, grouping);
   const chartDimensions = preferences.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const chartSeries = buildUsageChartSeries(
+    merged.entries,
+    chartDimensions,
+    grouping,
+    periods,
+    metric === "tokens" ? "tokens" : "cost",
+  );
   const storedTableView = {
     tableDimensions: preferences.tableDimensions ?? DEFAULT_USAGE_VIEW.tableDimensions,
     sort: preferences.sort ?? DEFAULT_USAGE_VIEW.sort,
@@ -554,9 +567,9 @@ export function UsagePage() {
               <UsageOverview
                 merged={merged}
                 shownWindow={shownWindow}
-                periods={periods}
                 grouping={grouping}
                 chartDimensions={chartDimensions}
+                chartSeries={chartSeries}
                 tableView={tableView}
                 environmentLabels={environmentLabels}
                 onPreferencesChange={updatePreferences}
@@ -608,9 +621,9 @@ export function UsagePage() {
 function UsageOverview({
   merged,
   shownWindow,
-  periods,
   grouping,
   chartDimensions,
+  chartSeries,
   tableView,
   environmentLabels,
   onPreferencesChange,
@@ -626,9 +639,9 @@ function UsageOverview({
 }: {
   readonly merged: MergedUsage;
   readonly shownWindow: UsageSummaryInput;
-  readonly periods: readonly string[];
   readonly grouping: UsageTimeGrouping;
   readonly chartDimensions: readonly UsageChartDimension[];
+  readonly chartSeries: UsageChartSeries;
   readonly tableView: UsageTableView;
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
@@ -863,10 +876,8 @@ function UsageOverview({
             </div>
           </div>
           <UsageChart
-            entries={merged.entries}
-            dimensions={chartDimensions}
+            series={chartSeries}
             grouping={grouping}
-            periods={periods}
             metric={metric}
             environmentLabels={environmentLabels}
             loadingProviders={chartLoadingProviders}
@@ -940,6 +951,7 @@ function UsageOverview({
       <UsageBreakdownTable
         entries={merged.entries}
         view={tableView}
+        chartSeries={chartSeries}
         onViewChange={onPreferencesChange}
         grouping={grouping}
         metric={metric}

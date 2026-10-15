@@ -1,24 +1,17 @@
 import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import type { UsageEntry } from "@t3tools/shared/usageMerge";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
-import {
-  buildStackedColumns,
-  type UsageStackedColumn,
-  type UsageTimeGrouping,
-} from "@t3tools/shared/usagePivot";
+import type { UsageStackedColumn, UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
-import type { UsageChartDimension } from "./usagePagePreferences";
 import {
   DIMENSION_NAMES,
   GROUPING_ADJECTIVES,
-  OTHER_SERIES_COLOR,
   formatPeriod,
   formatPeriodShort,
-  usageSeriesColors,
   usageSeriesLabels,
+  type UsageChartSeries,
 } from "./usageSeries";
 
 const VIEW_WIDTH = 960;
@@ -31,10 +24,8 @@ const NO_ENVIRONMENT_LABELS: ReadonlyMap<EnvironmentId, string> = new Map();
 export type UsageChartMetric = "tokens" | "cost";
 
 interface UsageChartProps {
-  readonly entries: readonly UsageEntry[];
-  readonly dimensions: readonly UsageChartDimension[];
+  readonly series: UsageChartSeries;
   readonly grouping: UsageTimeGrouping;
-  readonly periods: readonly string[];
   readonly metric: UsageChartMetric;
   readonly environmentLabels?: ReadonlyMap<EnvironmentId, string>;
   /** Providers whose figures are still coming in: their series are muted. */
@@ -366,28 +357,16 @@ function UsageChartPlot({
 }
 
 export function UsageChart({
-  entries,
-  dimensions,
+  series: chartSeries,
   grouping,
-  periods,
   metric,
   environmentLabels = NO_ENVIRONMENT_LABELS,
   loadingProviders = NONE_LOADING,
   referenceTime,
   timeZone,
 }: UsageChartProps) {
-  const stack = buildStackedColumns(
-    entries,
-    dimensions,
-    grouping,
-    periods,
-    metric === "tokens" ? "tokens" : "cost",
-  );
+  const { stack, colors, dimensions } = chartSeries;
   const scale = chartScale(stack.peak, loadingProviders.size > 0);
-  const colors = usageSeriesColors(
-    stack.series.flatMap((series) => (series.row === null ? [] : [series.row])),
-    dimensions,
-  );
   const labels = usageSeriesLabels(stack.series, dimensions, {
     environmentLabels,
     grouping,
@@ -396,7 +375,7 @@ export function UsageChart({
   const series = stack.series.map((entry, index) => ({
     key: entry.key,
     label: labels[index] ?? "",
-    color: colors.get(entry.key) ?? OTHER_SERIES_COLOR,
+    color: colors.get(entry.key) ?? "",
     loading:
       entry.row?.provider === undefined
         ? loadingProviders.size > 0
@@ -411,6 +390,7 @@ export function UsageChart({
     return { ...entry, line: curvePath(top), area: bandAreaPath(top, boundaries[index] ?? []) };
   });
   const columns = stack.columns;
+  const periods = columns.map((column) => column.period);
 
   const toY = (value: number) => valueToY(value, scale.max);
   const seriesClassName = (loading: boolean) =>
