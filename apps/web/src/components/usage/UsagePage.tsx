@@ -79,6 +79,7 @@ import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
 import { UsageBreakdownTable, withTableSort, type UsageTableView } from "./UsageBreakdownTable";
 import { UsageChart } from "./UsageChart";
+import { ProviderMark } from "./ProviderMark";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
 import { costTypeSegments, speedCostSegments, tokenTypeSegments } from "./usageBreakdown";
@@ -1078,23 +1079,6 @@ function CursorEnableLimits({
         </div>
       </div>
     </section>
-  );
-}
-
-function ProviderMark({
-  provider,
-  className,
-}: {
-  readonly provider: UsageProviderKind;
-  readonly className: string;
-}) {
-  const presentation = PROVIDER_PRESENTATION[provider];
-  return (
-    <ProviderInstanceIcon
-      driverKind={presentation.driverKind}
-      displayName={presentation.label}
-      iconClassName={className}
-    />
   );
 }
 
