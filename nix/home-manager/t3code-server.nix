@@ -158,12 +158,16 @@ in {
       Server settings fixed by system configuration, in the format of the
       server's settings.json. Each entry of `providerInstances`,
       `usageLimitSources`, and `usagePriceOverrides` is managed whole: it must
-      be complete, including `driver`, and replaces the local entry with the
-      same key. Other objects merge key by key, anything else replaces the
-      user's value, and keys left out stay editable. The server ignores an
-      invalid managed entry with a warning. The file lands in the Nix store,
-      so reference credentials such as GitHub tokens as
-      `{ "$file" = "/run/agenix/github-token"; }` instead of writing them inline.
+      be complete (a provider instance needs its `driver`, a usage limit
+      source its `kind`) and replaces the local entry with the same key. Other
+      objects merge key by key, anything else replaces the user's value, and
+      keys left out stay editable. The server ignores an invalid managed entry
+      with a warning. The file lands in the Nix store, so reference credentials
+      such as GitHub tokens as `{ "$file" = "/run/agenix/github-token"; }`.
+      A credential written inline makes the server ignore the whole file, and
+      `$file` works only where a credential goes: an environment variable's
+      value, a provider's secret config fields, source control host tokens,
+      and a usage limit source's `managementKey`.
     '';
 
     sharedSettings = managedFiles.settingsOption ''
