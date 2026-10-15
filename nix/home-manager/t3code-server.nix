@@ -6,6 +6,52 @@
 }: let
   cfg = config.services.t3code;
   managedFiles = import ./managed-files.nix {inherit lib pkgs;};
+  # The server refuses to start on a server.json it cannot decode, so every
+  # key it knows is typed to match apps/server/src/cli/serverConfigFile.ts.
+  serverConfigType = let
+    inherit (lib) types;
+    optional = type: description:
+      lib.mkOption {
+        type = types.nullOr type;
+        default = null;
+        inherit description;
+      };
+    nonBlankStr =
+      types.addCheck types.str (value: lib.trim value != "")
+      // {description = "non-blank string";};
+    serverPort = types.ints.between 1 65535;
+    logLevel = types.enum ["All" "Fatal" "Error" "Warn" "Info" "Debug" "Trace" "None"];
+  in
+    types.submodule {
+      freeformType = (pkgs.formats.json {}).type;
+      options = {
+        port = optional serverPort "Port the server listens on.";
+        host = optional nonBlankStr "Address the server listens on.";
+        mode = optional (types.enum ["web" "desktop"]) "Runtime mode.";
+        noBrowser = optional types.bool "Whether to skip opening a browser.";
+        tailscaleServeEnabled = optional types.bool "Whether to publish the server with Tailscale Serve.";
+        tailscaleServePort = optional serverPort "Tailnet-only HTTPS port exposed by Tailscale Serve.";
+        logLevel = optional logLevel "Minimum log level.";
+        logWebSocketEvents = optional types.bool "Whether to log WebSocket events.";
+        traceFile = optional nonBlankStr "Trace file path. Use an absolute path.";
+        traceMinLevel = optional logLevel "Minimum level written to the trace file.";
+        traceTimingEnabled = optional types.bool "Whether to record span timings.";
+        traceBatchWindowMs = optional types.ints.unsigned "Trace batch window in milliseconds.";
+        traceMaxBytes = optional types.ints.unsigned "Maximum size of one trace file in bytes.";
+        traceMaxFiles = optional types.ints.unsigned "Number of rotated trace files kept.";
+        otlpTracesUrl = optional nonBlankStr "OTLP traces endpoint.";
+        otlpMetricsUrl = optional nonBlankStr "OTLP metrics endpoint.";
+        otlpLogsUrl = optional nonBlankStr "OTLP logs endpoint.";
+        otlpProtocol = optional (types.enum ["http/json" "http/protobuf"]) "OTLP export protocol.";
+        otlpHeaders = optional (types.attrsOf types.str) "Headers sent with OTLP exports.";
+        otlpExportIntervalMs = optional types.ints.unsigned "OTLP export interval in milliseconds.";
+      };
+    };
+  serverConfig = lib.filterAttrs (_: value: value != null) cfg.serverConfig;
+  # Keys the launch script always passes as flags, which outrank server.json.
+  overriddenServerConfigKeys =
+    ["host" "port"]
+    ++ lib.optionals cfg.tailscaleServe.enable ["tailscaleServeEnabled" "tailscaleServePort"];
   # Set on the service rather than in the launch script so a replaced
   # ExecStart or ProgramArguments still sees these files.
   serviceEnvironment =
@@ -18,8 +64,8 @@
     // lib.optionalAttrs (cfg.sharedSettings != {}) {
       T3CODE_SERVER_SHARED_SETTINGS_FILE = "${managedFiles.settingsFile "t3code-shared-settings.json" cfg.sharedSettings}";
     }
-    // lib.optionalAttrs (cfg.serverConfig != {}) {
-      T3CODE_SERVER_CONFIG_FILE = "${managedFiles.settingsFile "t3code-server.json" cfg.serverConfig}";
+    // lib.optionalAttrs (serverConfig != {}) {
+      T3CODE_SERVER_CONFIG_FILE = "${managedFiles.settingsFile "t3code-server.json" serverConfig}";
     };
   serverCommand = pkgs.writeShellScript "t3code-headless-server" ''
     set -eu
@@ -110,9 +156,13 @@ in {
 
     settings = managedFiles.settingsOption ''
       Server settings fixed by system configuration, in the format of the
-      server's settings.json. Objects merge key by key and anything else
-      replaces the user's value; keys left out stay editable. The file lands in
-      the Nix store, so reference credentials such as GitHub tokens as
+      server's settings.json. Each entry of `providerInstances`,
+      `usageLimitSources`, and `usagePriceOverrides` is managed whole: it must
+      be complete, including `driver`, and replaces the local entry with the
+      same key. Other objects merge key by key, anything else replaces the
+      user's value, and keys left out stay editable. The server ignores an
+      invalid managed entry with a warning. The file lands in the Nix store,
+      so reference credentials such as GitHub tokens as
       `{ "$file" = "/run/agenix/github-token"; }` instead of writing them inline.
     '';
 
@@ -121,21 +171,37 @@ in {
       Unlike `settings`, nothing here is locked: the server reads this file
       beneath settings.json, so a change made from any client is saved to that
       machine's settings.json and overrides the value here for that machine
-      only. Settings left untouched keep following this file. The file lands in
-      the Nix store, which is world-readable, so keep credentials out of it.
+      only. Settings left untouched keep following this file.
+
+      One invalid value makes the server ignore the whole file, with a
+      warning. `$file` references are not resolved here, and the file lands
+      in the Nix store, which is world-readable, so put credential-bearing
+      keys in `settings` instead. The file is set only in the service's
+      environment: `t3` commands run from a shell while the service is
+      stopped do not see it. Requires a package with shared settings file
+      support; older packages ignore it.
     '';
 
-    serverConfig = managedFiles.settingsOption ''
-      Server startup options, in the format of the server's server.json (for
-      example `logLevel`, `traceFile`, or `otlpTracesUrl`). The server reads it
-      once at startup and ignores it if the package predates server.json
-      support. The `host` and `port` options are always passed as flags, so
-      they win over the same keys here; `tailscaleServe` likewise wins over
-      `tailscaleServeEnabled` and `tailscaleServePort` while it is enabled.
-      Relative paths resolve against the file's directory in the Nix store, so
-      use absolute paths. The Nix store is world-readable: do not put
-      credentials such as `otlpHeaders` tokens here.
-    '';
+    serverConfig = lib.mkOption {
+      type = serverConfigType;
+      default = {};
+      description = ''
+        Server startup options, in the format of the server's server.json (for
+        example `logLevel`, `traceFile`, or `otlpTracesUrl`). The server reads
+        it once at startup, in place of `<configDir>/server.json`: the two are
+        not merged. Requires a package with server.json support; older
+        packages ignore it. Keys the server knows are type-checked here
+        because it refuses to start on an invalid value; unknown keys pass
+        through and only draw a warning from the server.
+
+        The `host` and `port` options are always passed as flags, so they win
+        over the same keys here; `tailscaleServe` likewise wins over
+        `tailscaleServeEnabled` and `tailscaleServePort` while it is enabled.
+        Relative paths resolve against the file's directory in the Nix store,
+        so use absolute paths. The Nix store is world-readable: do not put
+        credentials such as `otlpHeaders` tokens here.
+      '';
+    };
 
     keybindings = managedFiles.keybindingsOption ''
       Keybindings fixed by system configuration. Each rule replaces the user's
@@ -192,6 +258,12 @@ in {
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
       home.packages = [cfg.package];
+
+      warnings =
+        map (key: "services.t3code.serverConfig.${key} has no effect: the service always passes it as a flag.")
+        (builtins.filter (key: serverConfig ? ${key}) overriddenServerConfigKeys)
+        ++ lib.optional (!cfg.tailscaleServe.enable && serverConfig.tailscaleServeEnabled or false)
+        "services.t3code.serverConfig.tailscaleServeEnabled = true publishes the server with Tailscale Serve even though services.t3code.tailscaleServe.enable is false.";
     }
 
     (lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
