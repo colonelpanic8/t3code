@@ -18,7 +18,9 @@ configuration directory. Attachments and worktrees live in the data directory.
 The SQLite database, identity, secrets, and logs live in the state directory.
 Provider status caches live in `provider-status/` in the cache directory, next
 to desktop browser artifacts. Live-server discovery state lives in the runtime
-directory.
+directory. The desktop app's own settings and window state follow the
+same split unless a [client directory](./install.md#where-the-desktop-app-keeps-its-files)
+holds them.
 
 On macOS they live in `~/Library/Application Support/t3code` and
 `~/Library/Caches/t3code`, and the XDG variables are not used, because an app

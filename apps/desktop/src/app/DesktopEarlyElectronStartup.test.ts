@@ -75,6 +75,23 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "kwallet5");
   });
 
+  it("reads the client dir's settings in the split layout too", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { XDG_CONFIG_HOME: "/home/user/.xdg", T3CODE_CLIENT_DIR: "~/t3-client" },
+      clientDirSwitch: null,
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath,
+      exists: () => false,
+      readFileString: (path) => {
+        assert.equal(path, "/home/user/t3-client/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet5" });
+      },
+    });
+
+    assert.equal(preference, "kwallet5");
+  });
+
   it("expands ~ in T3CODE_CONFIG_DIR", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" },

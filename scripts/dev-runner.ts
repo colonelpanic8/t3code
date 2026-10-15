@@ -341,6 +341,9 @@ export function createDevRunnerEnv({
     delete output.T3CODE_STATE_DIR;
     delete output.T3CODE_CACHE_DIR;
     delete output.T3CODE_RUNTIME_DIR;
+    // A dev desktop would otherwise share the real desktop's settings, window
+    // state, and saved connections.
+    delete output.T3CODE_CLIENT_DIR;
 
     // A dev-runner server is never launcher-managed. When the shell that runs
     // this script was itself spawned by the machine's managed t3 service (an
