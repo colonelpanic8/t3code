@@ -149,6 +149,33 @@ reads `server.json` from `userdata` in its T3 home. `t3 service`, `t3 update`,
 and `t3 uninstall` never read the file, so a broken one does not stop you from
 managing the install.
 
+### Share settings across machines
+
+To keep server settings in a dotfiles repository, start the server with
+`--server-shared-settings-file <path>` or set `T3CODE_SERVER_SHARED_SETTINGS_FILE`.
+The file uses the same format as the server's `settings.json`. T3 Code reads it
+but never writes to it. Changes you make in Settings are saved to that machine's
+`settings.json` and override the shared file for those settings only. Every
+other setting follows the shared file, including later edits to it.
+
+A setting saved with the same value the shared file holds is dropped from
+`settings.json`, and that setting goes back to following the shared file.
+
+Some settings are saved whole: each provider instance, usage limit source, and
+model price override, every model selection, worktree cleanup rules, and
+background activity. Changing any part of one copies all of it into
+`settings.json`, where it stops following the shared file. A credential in a
+copied provider instance or usage limit source moves to that machine's secret
+store. Entries the shared file adds can be edited on one machine but not removed
+there.
+
+If the shared file is missing or cannot be read or parsed, T3 Code logs a
+warning and ignores it until it is fixed. Saving in the meantime keeps every
+setting already in `settings.json`.
+
+`t3 project` saves project settings itself when no server is running, so give
+it the same `--server-shared-settings-file` flag or environment variable.
+
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To
