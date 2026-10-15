@@ -1,35 +1,5 @@
+import { resolveT3ConfiguredPath, type StoragePathOperations } from "@t3tools/shared/storagePaths";
 import * as Option from "effect/Option";
-
-export type JoinPath = (first: string, ...segments: string[]) => string;
-export type ResolvePath = (...segments: string[]) => string;
-
-function normalizeConfiguredDir(dir: Option.Option<string>): Option.Option<string> {
-  if (Option.isNone(dir)) {
-    return Option.none();
-  }
-  const trimmed = dir.value.trim();
-  return trimmed.length > 0 ? Option.some(trimmed) : Option.none();
-}
-
-export function resolveDesktopBaseDir(input: {
-  readonly homeDirectory: string;
-  readonly joinPath: JoinPath;
-  readonly t3Home: Option.Option<string>;
-}): string {
-  return Option.getOrElse(normalizeConfiguredDir(input.t3Home), () =>
-    input.joinPath(input.homeDirectory, ".t3"),
-  );
-}
-
-export function resolveDesktopStateDir(input: {
-  readonly baseDir: string;
-  readonly isDevelopment: boolean;
-  readonly joinPath: JoinPath;
-  readonly t3Home: Option.Option<string>;
-}): string {
-  const useDevSubdir = input.isDevelopment && Option.isNone(normalizeConfiguredDir(input.t3Home));
-  return input.joinPath(input.baseDir, useDevSubdir ? "dev" : "userdata");
-}
 
 export interface DesktopClientPaths {
   readonly clientConfigDir: string;
@@ -41,44 +11,43 @@ export interface DesktopClientPaths {
   readonly savedEnvironmentRegistryPath: string;
 }
 
-// Shells leave `~` unexpanded after `=` and in .desktop Exec lines, so expand
-// it here, matching the server's location overrides.
-function expandHomeDir(dir: string, homeDirectory: string, joinPath: JoinPath): string {
-  if (dir === "~") {
-    return homeDirectory;
-  }
-  if (dir.startsWith("~/") || dir.startsWith("~\\")) {
-    return joinPath(homeDirectory, dir.slice(2));
-  }
-  return dir;
-}
-
-// Shared by the pre-ready password-store read and DesktopEnvironment so both
-// see the same desktop-settings.json. `--client-dir` wins over
-// T3CODE_CLIENT_DIR; with neither, settings stay in the storage layout's
-// config dir and state in its state dir (both `userdata` in the legacy tree).
+/**
+ * Where the desktop app keeps its own files. Shared by the pre-ready
+ * password-store read and DesktopEnvironment so both see the same
+ * desktop-settings.json. `--client-dir` wins over T3CODE_CLIENT_DIR and holds
+ * everything; with neither, settings go in the storage layout's config dir and
+ * state in its state dir (both `userdata` in the legacy tree). Shells leave `~`
+ * unexpanded after `=` and in .desktop Exec lines, so it is expanded here.
+ */
 export function resolveDesktopClientPaths(input: {
   readonly configDir: string;
   readonly stateDir: string;
   readonly homeDirectory: string;
   readonly clientDirSwitch: Option.Option<string>;
   readonly clientDirEnv: Option.Option<string>;
-  readonly joinPath: JoinPath;
-  readonly resolvePath: ResolvePath;
+  readonly path: Pick<StoragePathOperations, "join" | "resolve">;
 }): DesktopClientPaths {
-  const clientDir = normalizeConfiguredDir(input.clientDirSwitch).pipe(
-    Option.orElse(() => normalizeConfiguredDir(input.clientDirEnv)),
-    Option.map((dir) => input.resolvePath(expandHomeDir(dir, input.homeDirectory, input.joinPath))),
-  );
-  const clientConfigDir = Option.getOrElse(clientDir, () => input.configDir);
-  const clientStateDir = Option.getOrElse(clientDir, () => input.stateDir);
+  const clientDir =
+    resolveT3ConfiguredPath(
+      Option.getOrUndefined(input.clientDirSwitch),
+      input.homeDirectory,
+      input.path,
+    ) ??
+    resolveT3ConfiguredPath(
+      Option.getOrUndefined(input.clientDirEnv),
+      input.homeDirectory,
+      input.path,
+    );
+  const clientConfigDir = clientDir ?? input.configDir;
+  const clientStateDir = clientDir ?? input.stateDir;
+  const { join } = input.path;
   return {
     clientConfigDir,
     clientStateDir,
-    desktopSettingsPath: input.joinPath(clientConfigDir, "desktop-settings.json"),
-    clientSettingsPath: input.joinPath(clientConfigDir, "client-settings.json"),
-    desktopWindowStatePath: input.joinPath(clientStateDir, "desktop-window-state.json"),
-    connectionCatalogPath: input.joinPath(clientStateDir, "connection-catalog.json"),
-    savedEnvironmentRegistryPath: input.joinPath(clientStateDir, "saved-environments.json"),
+    desktopSettingsPath: join(clientConfigDir, "desktop-settings.json"),
+    clientSettingsPath: join(clientConfigDir, "client-settings.json"),
+    desktopWindowStatePath: join(clientStateDir, "desktop-window-state.json"),
+    connectionCatalogPath: join(clientStateDir, "connection-catalog.json"),
+    savedEnvironmentRegistryPath: join(clientStateDir, "saved-environments.json"),
   };
 }

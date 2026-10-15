@@ -20,7 +20,7 @@ export const layer = (
 ) =>
   BootService.layer({
     baseDir: config.baseDir,
-    ...(config.storage.layout === "split" ? { storageRoots: config.storage.roots } : {}),
+    storageRoots: config.storage.roots,
     logsDir: config.logsDir,
     cliVersion: packageJson.version,
   }).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(FetchHttpClient.layer));

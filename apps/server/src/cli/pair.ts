@@ -5,6 +5,7 @@ import {
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
@@ -19,6 +20,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag } from "effect/cli";
@@ -222,9 +224,12 @@ interface DiscoveredPairTarget extends PairCandidate {
   readonly descriptor: ExecutionEnvironmentDescriptor;
 }
 
-const legacyCandidates = (baseDir: string): ReadonlyArray<PairCandidate> =>
+const legacyCandidates = (baseDir: string, path: Path.Path): ReadonlyArray<PairCandidate> =>
   (["userdata", "dev"] as const).map((variant) => ({
-    storage: { layout: "legacy", baseDir, baseDirIsExplicit: false },
+    storage: {
+      roots: resolveLegacyT3StorageRoots({ baseDir, stateDirectoryName: variant, path }),
+      baseDirIsExplicit: false,
+    },
     variant,
   }));
 
@@ -241,6 +246,7 @@ const candidatePaths = (
 const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   flags: CliServerLocationFlags,
 ) {
+  const path = yield* Path.Path;
   const overrides = yield* resolveServerLocationOverrides(flags);
   const candidates: Array<PairCandidate> = [];
   if (Option.isNone(Option.filter(flags.baseDir, (value) => value.trim().length > 0))) {
@@ -249,7 +255,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     // server under test rather than the daily-driver install.
     const worktreeHome = yield* resolveWorktreeT3Home(process.cwd());
     if (worktreeHome !== undefined) {
-      candidates.push(...legacyCandidates(worktreeHome));
+      candidates.push(...legacyCandidates(worktreeHome, path));
     }
   }
   const host = yield* currentStorageHost;
@@ -262,7 +268,9 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     });
     // A legacy home holds both variants whichever one this pass asked for.
     candidates.push(
-      ...(storage.layout === "legacy" ? legacyCandidates(storage.baseDir) : [{ storage, variant }]),
+      ...(storage.roots.layout === "legacy"
+        ? legacyCandidates(storage.roots.legacyBaseDir, path)
+        : [{ storage, variant }]),
     );
   }
 
@@ -270,7 +278,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   for (const candidate of candidates) {
     const statePath = (yield* candidatePaths(candidate, overrides)).derivedPaths
       .serverRuntimeStatePath;
-    // A data dir override pins the state file, so candidates can share it.
+    // Candidates can name the same state file, as when a data dir override pins it.
     if (checkedStatePaths.includes(statePath)) {
       continue;
     }
