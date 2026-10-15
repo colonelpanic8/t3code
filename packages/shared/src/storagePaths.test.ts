@@ -275,6 +275,16 @@ describe("T3 storage paths", () => {
           ],
         }),
       ).toEqual({ _tag: "Selected", roots: linuxDefaults(), baseDirIsExplicit: false });
+      // A migration that never finished leaves the legacy tree in use.
+      expect(
+        select({
+          existing: [
+            "/home/alice/.local/state/t3code/statev2.sqlite",
+            "/home/alice/.t3/userdata/statev2.sqlite",
+            "/home/alice/.t3/userdata/storage-migration.pending.json",
+          ],
+        }),
+      ).toMatchObject({ roots: legacy() });
       // An explicit choice still names the retired tree; the server refuses to serve it.
       expect(
         select({
