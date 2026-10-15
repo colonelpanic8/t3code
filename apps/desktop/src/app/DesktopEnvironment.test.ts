@@ -7,6 +7,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
+import {
+  selectT3Storage,
+  T3StorageConfigurationError,
+  t3StoragePathExists,
+} from "@t3tools/shared/storagePaths";
+
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 
@@ -301,10 +307,7 @@ describe("DesktopEnvironment", () => {
         },
       ).pipe(Effect.flip);
 
-      assert.instanceOf(
-        error,
-        DesktopEnvironment.DesktopStorageDirectoryConfigurationConflictError,
-      );
+      assert.instanceOf(error, T3StorageConfigurationError);
     }),
   );
 
@@ -458,5 +461,54 @@ describe("DesktopEnvironment", () => {
         Option.some("/Users/alice/project"),
       );
     }),
+  );
+
+  it.effect.each([
+    { name: "a new install", files: [], env: {} },
+    { name: "an initialized ~/.t3", files: [".t3/userdata/settings.json"], env: {} },
+    {
+      name: "a split install beside a later ~/.t3",
+      files: [".t3/userdata/statev2.sqlite", "state/t3code/statev2.sqlite"],
+      env: {},
+    },
+    { name: "selectors", files: [], env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" } },
+    {
+      name: "T3CODE_HOME with a server override",
+      files: [],
+      env: { T3CODE_HOME: "~/t3", T3CODE_SERVER_CONFIG_DIR: "/etc/t3" },
+    },
+  ])("picks the shared selector's roots for $name", ({ files, env }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-desktop-same-roots-" });
+      const home = path.join(root, "home");
+      const xdg = {
+        XDG_STATE_HOME: path.join(home, "state"),
+        XDG_CONFIG_HOME: path.join(home, "config"),
+      };
+      for (const file of files) {
+        const target = path.join(home, file);
+        yield* fs.makeDirectory(path.dirname(target), { recursive: true });
+        yield* fs.writeFileString(target, "");
+      }
+
+      const environment = yield* makeEnvironment(
+        { platform: "linux", homeDirectory: home, temporaryDirectory: root, userId: 1000 },
+        { ...xdg, ...env },
+      );
+      const selection = selectT3Storage({
+        platform: "linux",
+        homeDirectory: home,
+        temporaryDirectory: root,
+        userId: 1000,
+        isDevelopment: false,
+        environment: { ...xdg, ...env },
+        path,
+        exists: t3StoragePathExists,
+      });
+
+      assert.deepEqual(selection._tag === "Selected" && selection.roots, environment.storageRoots);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

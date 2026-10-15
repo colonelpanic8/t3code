@@ -113,6 +113,8 @@ export class ServerConfig extends Context.Service<
     readonly serverConfigFile?:
       | { readonly path: string; readonly unknownKeys: ReadonlyArray<string> }
       | undefined;
+    /** An initialized ~/.t3 state dir the split layout in use leaves unused. */
+    readonly shadowedLegacyStateDir?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (
@@ -220,7 +222,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
 const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   cwd: string,
   baseDirOrPrefix: string | { readonly prefix: string },
-  overrides?: ServerLocationOverrides,
+  overrides?: DeriveServerPathsOptions,
 ) {
   const devUrl = undefined;
   const fs = yield* FileSystem.FileSystem;
@@ -272,7 +274,7 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
 export const layerTest = (
   cwd: string,
   baseDirOrPrefix: string | { readonly prefix: string },
-  overrides?: ServerLocationOverrides,
+  overrides?: DeriveServerPathsOptions,
 ) => Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix, overrides));
 
 export const resolveStaticDir = Effect.fn(function* () {
