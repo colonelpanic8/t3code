@@ -550,30 +550,61 @@ exec "$T3_RUNTIME_DIR/t3" "$@"
 // t3 predates the split layout, stays pinned to ~/.t3 as before. The server
 // location variables would hide a running server and point a second one at
 // the same database, and an inherited config file would replace the install's
-// server.json, so they are always cleared; the split layout's own selectors
-// are kept for it and cleared for ~/.t3.
-const SELECT_REMOTE_STORAGE = `T3_SPLIT_STATE_DIR="\${T3CODE_STATE_DIR:-}"
-if [ -z "$T3_SPLIT_STATE_DIR" ]; then
-  if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
-    T3_SPLIT_STATE_DIR="$HOME/Library/Application Support/t3code/state"
-  else
-    case "\${XDG_STATE_HOME:-}" in
-      /*) T3_SPLIT_STATE_DIR="$XDG_STATE_HOME/t3code" ;;
-      *) T3_SPLIT_STATE_DIR="$HOME/.local/state/t3code" ;;
-    esac
+// server.json, so they are always cleared. The split layout keeps its own
+// selectors and drops T3CODE_HOME; ~/.t3 drops the selectors. The launch
+// records its decision in the state dir, so pairing, which may run in a shell
+// that read a different profile, uses the same storage.
+const T3_SELECTOR_NAMES = T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.join(" ");
+const REMOTE_STORAGE_FUNCTIONS = `t3_select_storage() {
+  T3_SPLIT_STATE_DIR="\${T3CODE_STATE_DIR:-}"
+  if [ -z "$T3_SPLIT_STATE_DIR" ]; then
+    if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+      T3_SPLIT_STATE_DIR="$HOME/Library/Application Support/t3code/state"
+    else
+      case "\${XDG_STATE_HOME:-}" in
+        /*) T3_SPLIT_STATE_DIR="$XDG_STATE_HOME/t3code" ;;
+        *) T3_SPLIT_STATE_DIR="$HOME/.local/state/t3code" ;;
+      esac
+    fi
   fi
-fi
-T3_STORAGE=legacy
-if [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; then
-  T3_STORAGE=split
-fi
-unset ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
-if [ "$T3_STORAGE" = "legacy" ]; then
-  unset ${T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.join(" ")}
-fi`;
+  T3_STORAGE="legacy"
+  if [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; then
+    T3_STORAGE="split"
+  fi
+  unset ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
+  if [ "$T3_STORAGE" = "split" ]; then
+    unset T3CODE_HOME
+  else
+    unset ${T3_SELECTOR_NAMES}
+  fi
+}
+t3_record_storage() {
+  {
+    printf 'T3_STORAGE=%s\\n' "$T3_STORAGE"
+    for T3_NAME in ${T3_SELECTOR_NAMES}; do
+      eval "T3_VALUE=\\\${$T3_NAME:-}"
+      if [ -n "$T3_VALUE" ]; then
+        printf '%s=%s\\n' "$T3_NAME" "$T3_VALUE"
+      fi
+    done
+  } >"$STATE_DIR/storage"
+}
+t3_restore_storage() {
+  unset T3CODE_HOME ${T3_SELECTOR_NAMES} ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
+  T3_STORAGE="legacy"
+  # Each line is NAME=value for one of the names above, exported as it is.
+  # shellcheck disable=SC2163
+  while IFS= read -r T3_LINE; do
+    case "$T3_LINE" in
+      T3_STORAGE=split) T3_STORAGE="split" ;;
+      ${T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.map((name) => `${name}=*`).join("|")}) export "$T3_LINE" ;;
+    esac
+  done <"$STATE_DIR/storage"
+}`;
 
 const REMOTE_LAUNCH_SCRIPT = `set -eu
-${SELECT_REMOTE_STORAGE}
+${REMOTE_STORAGE_FUNCTIONS}
+t3_select_storage
 @@T3_NODE_ENV_SCRIPT@@
 STATE_KEY="$1"
 STATE_DIR="$HOME/.t3/ssh-launch/$STATE_KEY"
@@ -586,6 +617,7 @@ LOG_FILE="$STATE_DIR/server.log"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
 RUNNER_NEXT="$STATE_DIR/run-t3.next.$$"
 mkdir -p "$STATE_DIR"
+t3_record_storage
 cleanup_runner_next() {
   rm -f "$RUNNER_NEXT"
 }
@@ -647,6 +679,7 @@ runtime_file_candidates() {
       /*) printf '%s\\n' "$XDG_RUNTIME_DIR/t3code/server-runtime.json" ;;
     esac
     T3_UID="$(id -u)"
+    printf '%s\\n' "$HOME/Library/Application Support/t3code/runtime/server-runtime.json"
     printf '%s\\n' "/run/user/$T3_UID/t3code/server-runtime.json"
     printf '%s\\n' "\${TMPDIR:-/tmp}/t3code-$T3_UID/server-runtime.json"
   fi
@@ -783,8 +816,13 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 `;
 
 const REMOTE_PAIRING_SCRIPT = `set -eu
-${SELECT_REMOTE_STORAGE}
+${REMOTE_STORAGE_FUNCTIONS}
 STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
+if [ -f "$STATE_DIR/storage" ]; then
+  t3_restore_storage
+else
+  t3_select_storage
+fi
 DEFAULT_SERVER_HOME="$HOME/.t3"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
 mkdir -p "$STATE_DIR"
@@ -1002,7 +1040,8 @@ export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingT
     stateKey,
   });
   const result = yield* runSshCommand(target, {
-    remoteCommandArgs: ["sh", "-s"],
+    // A login shell like the launch's, so both read the same profile.
+    remoteCommandArgs: ["sh", "-l", "-s"],
     stdin: buildRemotePairingScript(stateKey, runner),
     // Pairing may be the first command on a cold remote, so it can install
     // the archive on the way.
