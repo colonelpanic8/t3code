@@ -201,6 +201,18 @@ export function formatRelativeHourShort(
   return formatDateTimeShort(hourStart, timeZone, hour12);
 }
 
+export function startOfLocalDay(now: Date): Date {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+export function msUntilNextLocalDay(now = new Date()): number {
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  return next.getTime() - now.getTime();
+}
+
 export function makeWindow(
   days: number,
   now = new Date(),
