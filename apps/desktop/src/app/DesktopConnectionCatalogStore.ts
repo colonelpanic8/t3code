@@ -392,25 +392,6 @@ function removeStaleManagedConnections(
   );
 }
 
-// Managed credentials are resolved from their source on every load, so a
-// stale copy never outlives a rotated or removed source.
-const withoutManagedCredentials = (catalog: string) =>
-  decodeRuntimeConnectionCatalogDocumentJson(catalog).pipe(
-    Effect.flatMap((document) =>
-      document.credentials.some(isManagedCredential)
-        ? encodeRuntimeConnectionCatalogDocumentJson({
-            ...document,
-            credentials: document.credentials.filter((entry) => !isManagedCredential(entry)),
-          })
-        : Effect.succeed(catalog),
-    ),
-    Effect.orElseSucceed(() => catalog),
-  );
-
-function isManagedCredential(entry: { readonly connectionId: string }): boolean {
-  return entry.connectionId.startsWith(MANAGED_CONNECTION_ID_PREFIX);
-}
-
 const migrateSavedEnvironmentRecords = Effect.fn(
   "desktop.connectionCatalogStore.migrateSavedEnvironmentRecords",
 )(function* (
@@ -727,7 +708,7 @@ export const make = Effect.gen(function* () {
       if (!(yield* encryptionAvailable)) {
         return false;
       }
-      yield* writeCatalog(yield* withoutManagedCredentials(catalog));
+      yield* writeCatalog(catalog);
       return true;
     }),
     clear: fileSystem.remove(catalogPath, { force: true }).pipe(
