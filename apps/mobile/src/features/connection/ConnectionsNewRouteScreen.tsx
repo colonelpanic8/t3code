@@ -11,7 +11,7 @@ import {
   useRoute,
   type StaticScreenProps,
 } from "@react-navigation/native";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ServerFleetEnvironment } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { useEffect, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
@@ -27,10 +27,12 @@ import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from
 import {
   setPendingConnectionError,
   useRemoteConnections,
+  useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
+import { FleetImportSection } from "./FleetImportSection";
 import { splitEnvironmentSections } from "./environmentSections";
 import { leaveSettingsPage } from "../settings/settings-navigation";
 import { workspaceHasColumns } from "../workspace/workspace-selection-store";
@@ -70,6 +72,11 @@ export function ConnectionsNewRouteScreen({
   // A good scan parks the camera so it can't re-read the code over later edits.
   const [scanComplete, setScanComplete] = useState(false);
   const attemptedAutoConnectRef = useRef<string | null>(null);
+  // An imported fleet machine the user chose. Pairing must then reach that
+  // machine, so any manual edit of the address or a scan drops the choice.
+  const [importedEnvironmentId, setImportedEnvironmentId] = useState<EnvironmentId | null>(null);
+  const { savedConnectionsById } = useSavedRemoteConnections();
+  const savedEnvironmentIds = new Set(Object.keys(savedConnectionsById) as EnvironmentId[]);
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
@@ -102,7 +109,31 @@ export function ConnectionsNewRouteScreen({
 
   const handleHostChange = (value: string) => {
     setHostInput(value);
+    setImportedEnvironmentId(null);
     setPendingConnectionError(null);
+  };
+
+  // The code is cleared so a code meant for another machine is never sent to
+  // the imported address.
+  const handleImportedSelect = (environment: ServerFleetEnvironment) => {
+    setImportedEnvironmentId(environment.environmentId);
+    setHostInput(environment.httpBaseUrl);
+    setCodeInput("");
+    setScanComplete(true);
+    setPendingConnectionError(null);
+  };
+
+  const handleImportedClear = () => {
+    if (importedEnvironmentId !== null) {
+      setHostInput("");
+      setCodeInput("");
+    }
+    setImportedEnvironmentId(null);
+    setPendingConnectionError(null);
+  };
+
+  const openSavedEnvironment = (environmentId: EnvironmentId) => {
+    navigation.navigate("SettingsEnvironmentDetail", { environmentId });
   };
 
   const handleCodeChange = (value: string) => {
@@ -141,6 +172,7 @@ export function ConnectionsNewRouteScreen({
       const { host, code } = parsePairingUrl(pairingUrl);
       setHostInput(host);
       setCodeInput(code);
+      setImportedEnvironmentId(null);
       onChangeConnectionPairingUrl(pairingUrl);
       setScanComplete(true);
       setScannerLocked(false);
@@ -156,10 +188,13 @@ export function ConnectionsNewRouteScreen({
     }
   };
 
-  const connectAndClose = async (pairingUrl: string) => {
+  const connectAndClose = async (
+    pairingUrl: string,
+    expectedEnvironmentId: EnvironmentId | undefined,
+  ) => {
     setIsSubmitting(true);
     onChangeConnectionPairingUrl(pairingUrl);
-    const result = await onConnectPress(pairingUrl, params.routeFor);
+    const result = await onConnectPress(pairingUrl, expectedEnvironmentId);
     setIsSubmitting(false);
     void Haptics.notificationAsync(
       AsyncResult.isSuccess(result)
@@ -178,7 +213,14 @@ export function ConnectionsNewRouteScreen({
   };
 
   const handleSubmit = async () => {
-    await connectAndClose(buildPairingUrl(hostInput, codeInput));
+    if (importedEnvironmentId !== null && savedEnvironmentIds.has(importedEnvironmentId)) {
+      setPendingConnectionError("That machine is already saved.");
+      return;
+    }
+    await connectAndClose(
+      buildPairingUrl(hostInput, codeInput),
+      params.routeFor ?? importedEnvironmentId ?? undefined,
+    );
   };
 
   useEffect(() => {
@@ -187,8 +229,8 @@ export function ConnectionsNewRouteScreen({
     }
 
     attemptedAutoConnectRef.current = routePairingUrl;
-    void connectAndClose(routePairingUrl);
-  }, [connectAndClose, routePairingUrl, shouldAutoConnect]);
+    void connectAndClose(routePairingUrl, params.routeFor);
+  }, [connectAndClose, params.routeFor, routePairingUrl, shouldAutoConnect]);
 
   return (
     <SettingsScreen
@@ -227,6 +269,16 @@ export function ConnectionsNewRouteScreen({
               void handleScanPress();
             }}
           />
+
+          {params.routeFor === undefined ? (
+            <FleetImportSection
+              savedEnvironmentIds={savedEnvironmentIds}
+              selectedEnvironmentId={importedEnvironmentId}
+              onSelect={handleImportedSelect}
+              onClearSelection={handleImportedClear}
+              onOpenSaved={openSavedEnvironment}
+            />
+          ) : null}
 
           <View collapsable={false} className="gap-2">
             <Text className="px-4 text-sm font-t3-medium text-foreground-muted">Or enter it</Text>
