@@ -1,6 +1,7 @@
 /**
  * Usage history for Codex: the rollout format of `<home>/sessions/**.jsonl`
- * and where each instance's shared home keeps them.
+ * and `<home>/archived_sessions/*.jsonl`, and where each instance's shared
+ * home keeps them.
  *
  * @module provider/Drivers/codexUsage
  */
@@ -256,6 +257,10 @@ export const codexUsageReader: ProviderUsageReader<CodexSettings, Path.Path> = {
         ? { ...config, homePath: environmentHome }
         : config,
     );
-    return [{ dir: path.resolve(layout.sharedHomePath, "sessions") }];
+    // Archiving moves a finished rollout out of `sessions`, so the archive holds
+    // the only copy. Each directory is its own usage source.
+    return ["sessions", "archived_sessions"].map((subdir) => ({
+      dir: path.resolve(layout.sharedHomePath, subdir),
+    }));
   }),
 };
