@@ -31,13 +31,18 @@ function readCommandLineSwitchValue(
   return value.length > 0 ? value : null;
 }
 
+export const readClientDirSwitch = (): string | null =>
+  readCommandLineSwitchValue(Electron.app.commandLine, "client-dir");
+
 export const resolveEarlyLinuxElectronOptionsFromProcess = (
   homeDirectory: string,
 ): DesktopEarlyElectronStartup.EarlyLinuxElectronOptions =>
   DesktopEarlyElectronStartup.resolveEarlyLinuxElectronOptions({
     env: process.env,
+    clientDirSwitch: readClientDirSwitch(),
     homeDirectory,
     joinPath: NodePath.posix.join,
+    resolvePath: NodePath.posix.resolve,
     readFileString: (path) => NodeFS.readFileSync(path, "utf8"),
   });
 
@@ -46,6 +51,8 @@ export class DesktopPreReadyElectronOptions extends Context.Service<
   {
     readonly linux: DesktopEarlyElectronStartup.EarlyLinuxElectronOptions | null;
     readonly linuxPasswordStoreCommandLine: string | null;
+    // `--client-dir /path` (no `=`) reaches Chromium as an empty value.
+    readonly clientDirSwitchMissingValue: boolean;
   }
 >()("@t3tools/desktop/app/DesktopPreReadyPlatform/DesktopPreReadyElectronOptions") {}
 
@@ -136,7 +143,10 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    return { linux, linuxPasswordStoreCommandLine };
+    const clientDirSwitchMissingValue =
+      Electron.app.commandLine.hasSwitch("client-dir") && readClientDirSwitch() === null;
+
+    return { linux, linuxPasswordStoreCommandLine, clientDirSwitchMissingValue };
   });
 }).pipe(Effect.withSpan("desktop.electron.configureBeforeReady"));
 
