@@ -296,6 +296,9 @@ export const LoadBalancingWeights = Schema.Record(
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
 /** Maximum width of the chat timeline and composer on wide screens. */
+export const ComposerShortcutHintsTrigger = Schema.Literals(["auto", "alt", "off"]);
+export type ComposerShortcutHintsTrigger = typeof ComposerShortcutHintsTrigger.Type;
+
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
 
@@ -455,6 +458,9 @@ export const ClientSettingsSchema = Schema.Struct({
   composerRichTextEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sendShortcut: Schema.Literals(["enter", "mod-enter-multiline", "mod-enter"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("enter")),
+  ),
+  composerShortcutHints: ComposerShortcutHintsTrigger.pipe(
+    Schema.withDecodingDefault(Effect.succeed("auto")),
   ),
   followUpBehavior: Schema.Literals(["queue", "steer"]).pipe(
     Schema.withDecodingDefault(Effect.succeed("queue")),
@@ -1769,6 +1775,7 @@ export const ClientSettingsPatch = Schema.Struct({
   composerCollapseOnScroll: Schema.optionalKey(Schema.Boolean),
   composerRichTextEnabled: Schema.optionalKey(Schema.Boolean),
   sendShortcut: Schema.optionalKey(Schema.Literals(["enter", "mod-enter-multiline", "mod-enter"])),
+  composerShortcutHints: Schema.optionalKey(ComposerShortcutHintsTrigger),
   followUpBehavior: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
   proactivePanelsEnabled: Schema.optionalKey(Schema.Boolean),
   showSkillsInSlashMenu: Schema.optionalKey(Schema.Boolean),
