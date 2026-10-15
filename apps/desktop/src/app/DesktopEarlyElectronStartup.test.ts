@@ -75,6 +75,23 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "kwallet5");
   });
 
+  it("expands ~ in T3CODE_CONFIG_DIR", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" },
+      clientDirSwitch: null,
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath,
+      exists: () => false,
+      readFileString: (path) => {
+        assert.equal(path, "/home/user/dotfiles/t3code/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+      },
+    });
+
+    assert.equal(preference, "kwallet6");
+  });
+
   it("preserves absolute root paths when resolving early settings", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/" },
@@ -116,7 +133,7 @@ describe("DesktopEarlyElectronStartup", () => {
     });
   });
 
-  it("keeps implicit development state under ~/.t3/dev when T3CODE_HOME is unset", () => {
+  it("keeps an initialized ~/.t3/dev in development when T3CODE_HOME is unset", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: {
         VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
@@ -125,6 +142,7 @@ describe("DesktopEarlyElectronStartup", () => {
       homeDirectory: "/home/user",
       joinPath,
       resolvePath,
+      exists: (path) => path === "/home/user/.t3/dev/desktop-settings.json",
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet" });
@@ -144,6 +162,7 @@ describe("DesktopEarlyElectronStartup", () => {
       homeDirectory: "/home/user",
       joinPath,
       resolvePath,
+      exists: (path) => path === "/home/user/.t3/dev/desktop-settings.json",
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "gnome-libsecret" });

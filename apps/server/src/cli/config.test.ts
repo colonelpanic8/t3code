@@ -17,6 +17,12 @@ import {
   type DesktopBackendBootstrap as DesktopBackendBootstrapValue,
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
+import {
+  selectT3Storage,
+  T3StorageConfigurationError,
+  T3StorageProbeError,
+  t3StoragePathExists,
+} from "@t3tools/shared/storagePaths";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -26,14 +32,12 @@ import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
   type CliServerFlags,
-  ForcedLegacyLayoutConflictError,
-  ForcedXdgLayoutConflictError,
   resolveInstallLocations,
   resolveServerConfig,
+  resolveServerStorage,
   RuntimeDirectoryOpenError,
   RuntimeDirectoryOwnerMismatchError,
   ServerLocationSelectorConflictError,
-  StorageDirectoryConfigurationConflictError,
   type StorageHost,
 } from "./config.ts";
 
@@ -1790,7 +1794,10 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         storageHost,
       ).pipe(Effect.flip);
 
-      expect(error).toBeInstanceOf(StorageDirectoryConfigurationConflictError);
+      expect(error).toBeInstanceOf(T3StorageConfigurationError);
+      expect(error.message).toBe(
+        "T3CODE_HOME/--base-dir cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.",
+      );
     }),
   );
 
@@ -1889,7 +1896,7 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       yield* fs.makeDirectory(userdata, { recursive: true });
       yield* fs.makeDirectory(path.join(root, "state", "t3code"), { recursive: true });
       yield* fs.writeFileString(path.join(userdata, "state.sqlite"), "legacy");
-      yield* fs.writeFileString(path.join(root, "state", "t3code", "statev2.sqlite"), "");
+      yield* fs.makeDirectory(path.join(root, "state", "t3code", "logs"), { recursive: true });
 
       const resolved = yield* resolveWith(xdgEnv, storageHost);
 
@@ -1939,7 +1946,10 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         storageLayout: Option.some("xdg"),
       }).pipe(Effect.flip);
 
-      expect(error).toBeInstanceOf(ForcedXdgLayoutConflictError);
+      expect(error).toBeInstanceOf(T3StorageConfigurationError);
+      expect(error.message).toBe(
+        "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.",
+      );
     }),
   );
 
@@ -1951,7 +1961,7 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         storageLayout: Option.some("legacy"),
       }).pipe(Effect.flip);
 
-      expect(error).toBeInstanceOf(ForcedLegacyLayoutConflictError);
+      expect(error).toBeInstanceOf(T3StorageConfigurationError);
     }),
   );
 
@@ -2007,8 +2017,90 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         ),
       );
 
-      expect(locations.storage.layout).toBe("split");
+      expect(locations.storage.roots.layout).toBe("split");
       expect(locations.dbPath).toBe(path.join(root, "state", "t3code", "statev2.sqlite"));
+    }),
+  );
+
+  it.effect("keeps an initialized split install when ~/.t3 is initialized later", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-split-sticky-");
+      const splitState = path.join(root, "state", "t3code");
+      yield* fs.makeDirectory(splitState, { recursive: true });
+      yield* fs.writeFileString(path.join(splitState, "statev2.sqlite"), "");
+      // What `--base-dir ~/.t3` from the SSH launcher or an older build leaves behind.
+      yield* fs.makeDirectory(path.join(home, ".t3", "userdata"), { recursive: true });
+      yield* fs.writeFileString(path.join(home, ".t3", "userdata", "statev2.sqlite"), "");
+
+      const resolved = yield* resolveWith(xdgEnv, storageHost);
+
+      expect(resolved.layout).toBe("split");
+      expect(resolved.dbPath).toBe(path.join(splitState, "statev2.sqlite"));
+      expect(resolved.shadowedLegacyStateDir).toBe(path.join(home, ".t3", "userdata"));
+    }),
+  );
+
+  it.effect("refuses to pick a layout when ~/.t3 cannot be checked", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-unreadable-");
+      yield* fs.makeDirectory(path.join(home, ".t3"), { recursive: true });
+      yield* fs.chmod(path.join(home, ".t3"), 0o000);
+      yield* Effect.addFinalizer(() => fs.chmod(path.join(home, ".t3"), 0o700).pipe(Effect.ignore));
+
+      const error = yield* resolveWith(xdgEnv, storageHost).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(T3StorageProbeError);
+    }),
+  );
+
+  it.effect.each([
+    { name: "a new install", files: [], env: {} },
+    { name: "an initialized ~/.t3", files: [".t3/userdata/settings.json"], env: {} },
+    {
+      name: "a split install beside a later ~/.t3",
+      files: [".t3/userdata/statev2.sqlite", "state/t3code/statev2.sqlite"],
+      env: {},
+    },
+    { name: "selectors", files: [], env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" } },
+    { name: "T3CODE_HOME", files: [], env: { T3CODE_HOME: "~/t3" } },
+  ])("picks the shared selector's roots for $name", ({ files, env }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, root, storageHost } = yield* makeRoot("t3-cli-config-same-roots-");
+      const xdg = {
+        XDG_STATE_HOME: path.join(home, "state"),
+        XDG_CONFIG_HOME: path.join(home, "config"),
+      };
+      for (const file of files) {
+        yield* fs.makeDirectory(path.dirname(path.join(home, file)), { recursive: true });
+        yield* fs.writeFileString(path.join(home, file), "");
+      }
+
+      const storage = yield* resolveServerStorage({
+        baseDir: Option.none(),
+        storageLayout: Option.none(),
+        isDevelopment: false,
+        host: storageHost,
+      }).pipe(
+        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: { ...xdg, ...env } }))),
+      );
+      const selection = selectT3Storage({
+        platform: "linux",
+        homeDirectory: home,
+        temporaryDirectory: root,
+        userId: storageHost.userId,
+        isDevelopment: false,
+        environment: { ...xdg, ...env },
+        path,
+        exists: t3StoragePathExists,
+      });
+
+      expect(selection._tag === "Selected" && selection.roots).toEqual(storage.roots);
     }),
   );
 });

@@ -105,9 +105,6 @@ const layerDesktopEnvironment = Layer.unwrap(
       clientDirSwitch: DesktopPreReadyPlatform.readClientDirSwitch(),
     });
   }),
-).pipe(
-  // The Clerk layer builds this before Electron is ready, so its filesystem probes must not yield.
-  Layer.provide(DesktopPreReadyFileSystem.layer),
 );
 
 // The remote runs the exact release this app is on, from its self-contained
