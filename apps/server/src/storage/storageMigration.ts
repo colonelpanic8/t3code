@@ -1,11 +1,13 @@
-// @effect-diagnostics nodeBuiltinImport:off - node:sqlite snapshots and verifies databases.
+// @effect-diagnostics nodeBuiltinImport:off - names temporary copies with random suffixes.
+import * as NodeCrypto from "node:crypto";
 import * as NodeOS from "node:os";
-import * as NodeSqlite from "node:sqlite";
 
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import {
+  LEGACY_STORAGE_MIGRATION_JOURNAL,
   LEGACY_STORAGE_MIGRATION_MARKER,
   legacyT3StorageArtifactPaths,
+  legacyT3StorageMigrationJournalPath,
   legacyT3StorageMigrationMarkerPath,
   type T3ClientStorageRoots,
   type T3LegacyStorageRoots,
@@ -18,14 +20,36 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { bootServiceBaseDirOf } from "../cloud/bootService.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import {
+  absoluteLinkTarget,
+  copyTree,
+  DATABASE_SIDECAR_SUFFIXES,
+  databaseFingerprint,
+  firstDifference,
+  moveWithSidecars,
+  pathExists,
+  removeWithSidecars,
+  sameFile,
+  snapshotDatabase,
+  tryDatabase,
+  walk,
+} from "./storageMigrationFiles.ts";
 
-// One-time, user-invoked copy of a legacy ~/.t3/userdata tree into the split server roots and the
-// separate client roots. Files that a location override or client dir keeps elsewhere in either
-// layout are left alone: the live copy is already where the migrated app reads it. Sources are only ever read. Every destination entry is written under a
-// temporary name and renamed into place, all of them are verified against their sources, and only
-// then is the marker written into the legacy tree; the marker is what makes layout selection stop
-// choosing that tree. Without it nothing the migration wrote is used.
+// One-time, user-invoked copy of a legacy ~/.t3/userdata tree into the split
+// server roots and the separate client roots. Sources are only ever read.
+//
+// A run stages every copy under a temporary name beside its destination and
+// verifies it there, so nothing the app reads changes until every copy is
+// known good. It then writes a journal into the legacy tree, renames the copies
+// into place with the files that mark a split install last, writes the marker,
+// and removes the journal. Selection keeps the legacy tree while the journal
+// exists, so a run killed at any point leaves the app on ~/.t3, and the next
+// run or rollback undoes what the journal names before doing anything else.
+//
+// Files that a location override or client dir keeps elsewhere in either
+// layout are left alone: the live copy is already where the migrated app reads.
 
 export class StorageMigrationBlockedError extends Schema.TaggedError<StorageMigrationBlockedError>()(
   "StorageMigrationBlockedError",
@@ -59,7 +83,7 @@ export class StorageMigrationMoveError extends Schema.TaggedError<StorageMigrati
   { from: Schema.String, to: Schema.String, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return `Could not move ${this.from} to ${this.to}. The migration marker is still in place; rerun the rollback once the cause is fixed.`;
+    return `Could not move ${this.from} to ${this.to}. Rerun the command once the cause is fixed; it picks up where this one stopped.`;
   }
 }
 
@@ -77,7 +101,7 @@ export class StorageMigrationMarkerError extends Schema.TaggedError<StorageMigra
   { markerPath: Schema.String, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return `Could not read the storage migration marker at ${this.markerPath}.`;
+    return `Could not read or write the storage migration record at ${this.markerPath}.`;
   }
 }
 
@@ -89,12 +113,30 @@ const StorageMigrationMarker = Schema.Struct({
       source: Schema.String,
       destination: Schema.String,
       replaced: Schema.optionalKey(Schema.String),
+      /** Already held these contents before the migration, so rollback leaves it. */
+      preexisting: Schema.optionalKey(Schema.Boolean),
     }),
   ),
 });
 type StorageMigrationMarker = typeof StorageMigrationMarker.Type;
+type MarkerEntry = StorageMigrationMarker["entries"][number];
 const decodeMarker = Schema.decodeUnknownEffect(Schema.fromJsonString(StorageMigrationMarker));
 const encodeMarker = Schema.encodeEffect(Schema.fromJsonString(StorageMigrationMarker));
+
+const StorageMigrationJournal = Schema.Struct({
+  version: Schema.Literal(1),
+  startedAt: Schema.String,
+  entries: Schema.Array(
+    Schema.Struct({
+      destination: Schema.String,
+      staged: Schema.String,
+      replaced: Schema.optionalKey(Schema.String),
+    }),
+  ),
+});
+type StorageMigrationJournal = typeof StorageMigrationJournal.Type;
+const decodeJournal = Schema.decodeUnknownEffect(Schema.fromJsonString(StorageMigrationJournal));
+const encodeJournal = Schema.encodeEffect(Schema.fromJsonString(StorageMigrationJournal));
 
 export interface StorageMigrationInput {
   /** The legacy tree to copy from; `stateDir` is its userdata directory. */
@@ -109,16 +151,20 @@ export interface StorageMigrationInput {
   };
   /** Holds the desktop's settings and small state files in both layouts. */
   readonly clientDir?: string | undefined;
-  /** Candidate legacy Electron profiles, in the order the desktop selects them. */
-  readonly legacyElectronProfiles: ReadonlyArray<string>;
+  /** The legacy desktop's Electron profile; see DesktopUserData.resolveUserDataPath. */
+  readonly legacyElectronProfile: string;
   readonly electronProfile: string;
+  /** This host's background service unit, installed or not. */
+  readonly serviceUnitPath?: string | undefined;
 }
 
 export interface StorageMigrationEntry {
   readonly owner: "server" | "client";
-  readonly kind: "database" | "file" | "directory";
+  readonly kind: "database" | "file" | "directory" | "symlink";
   readonly source: string;
   readonly destination: string;
+  /** For a symlink: the absolute path it resolves to, which the recreated link names. */
+  readonly linkTarget?: string;
   readonly status: "copy" | "present" | "conflict";
   readonly files: number;
   readonly bytes: number;
@@ -133,6 +179,8 @@ export interface StorageMigrationPlan {
   readonly input: StorageMigrationInput;
   /** Set when the legacy tree already carries the marker. */
   readonly migratedAt: string | undefined;
+  /** Set when a run was killed while placing its copies; the next run undoes it first. */
+  readonly interruptedAt: string | undefined;
   readonly entries: ReadonlyArray<StorageMigrationEntry>;
   readonly skipped: ReadonlyArray<StorageMigrationSkip>;
   readonly blockers: ReadonlyArray<string>;
@@ -159,13 +207,34 @@ const CLIENT_ROOT_STATE_FILES = new Set([
   "cli-command-path-entry",
   "snap-shots",
 ]);
+/** What makes selection treat the split layout as installed; placed last. */
+const SPLIT_INSTALL_MARKERS = new Set(["statev2.sqlite", "environment-id", "secrets"]);
+const LAUNCHER_SKIP_REASON =
+  "the desktop's t3 launcher, which pins this tree; the desktop writes a new one and points the t3 command at it";
 const LEGACY_SKIPPED: Record<string, string> = {
   "server-runtime.json": "live-process state; the server rewrites it on start",
   logs: "log history stays in the legacy tree",
   "wsl-server-tree": "extracted cache; the desktop rebuilds it",
+  bin: LAUNCHER_SKIP_REASON,
+  [LEGACY_STORAGE_MIGRATION_MARKER]: "migration record",
+  [LEGACY_STORAGE_MIGRATION_JOURNAL]: "migration record",
 };
-/** Chromium's per-run profile lock; copying it would make the copy look in use. */
-const ELECTRON_EXCLUDED = new Set(["SingletonLock", "SingletonCookie", "SingletonSocket"]);
+/** Chromium's per-run locks, and caches it rebuilds. A copied lock would make the copy look in use. */
+const ELECTRON_EXCLUDED = new Set([
+  "SingletonLock",
+  "SingletonCookie",
+  "SingletonSocket",
+  "Cache",
+  "Code Cache",
+  "GPUCache",
+  "DawnCache",
+  "DawnGraphiteCache",
+  "DawnWebGPUCache",
+  "GrShaderCache",
+  "ShaderCache",
+  "component_crx_cache",
+]);
+const NO_EXCLUSIONS: ReadonlySet<string> = new Set();
 
 const databaseSidecar = /-(wal|shm|journal)$/;
 
@@ -181,12 +250,7 @@ const routeLegacyEntry = (
 ): StorageMigrationRoute => {
   const { clientDir, clientRoots, serverOverrides, serverRoots } = input;
   const fixedSkipReason =
-    LEGACY_SKIPPED[name] ??
-    (name === LEGACY_STORAGE_MIGRATION_MARKER
-      ? "migration marker"
-      : name.startsWith(".")
-        ? "temporary file"
-        : undefined);
+    LEGACY_SKIPPED[name] ?? (name.startsWith(".") ? "temporary file" : undefined);
   if (fixedSkipReason !== undefined) return { skipReason: fixedSkipReason };
   // An override holds the live copy in either layout, so the migrated app already reads it there.
   const liveElsewhere = (location: string, control: string) => ({
@@ -230,166 +294,17 @@ const runtimeStatePaths = (input: StorageMigrationInput, path: Path.Path) => [
     : [path.join(input.serverOverrides.dataDir, "server-runtime.json")]),
 ];
 
-const DATABASE_SIDECAR_SUFFIXES = ["-wal", "-shm", "-journal"];
-
-/**
- * Renames `from` to `to`, carrying any SQLite sidecars along: a WAL left beside a different
- * database file would be replayed into it, and an uncheckpointed WAL holds the newest writes.
- */
-const moveWithSidecars = Effect.fn("storageMigration.moveWithSidecars")(function* (
-  from: string,
-  to: string,
-) {
-  const fs = yield* FileSystem.FileSystem;
-  const moved = yield* fs.exists(from);
-  if (moved) yield* fs.rename(from, to);
-  for (const suffix of DATABASE_SIDECAR_SUFFIXES) {
-    if (yield* fs.exists(`${from}${suffix}`))
-      yield* fs.rename(`${from}${suffix}`, `${to}${suffix}`);
-  }
-  return moved;
-});
-
-const anyExists = Effect.fn("storageMigration.anyExists")(function* (paths: ReadonlyArray<string>) {
-  const fs = yield* FileSystem.FileSystem;
-  for (const candidate of paths) {
-    if (yield* fs.exists(candidate).pipe(Effect.orElseSucceed(() => false))) return true;
-  }
-  return false;
-});
-
-interface WalkedFile {
-  readonly relativePath: string;
-  readonly size: number;
-}
-
-/** Regular files and symlinks under `root`, skipping `exclude` at the top level. */
-const walk = Effect.fn("storageMigration.walk")(function* (
-  root: string,
-  exclude: ReadonlySet<string> = new Set(),
-) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const files: Array<WalkedFile> = [];
-  const visit = (relativeDirectory: string): Effect.Effect<void, never> =>
-    Effect.gen(function* () {
-      const names = yield* fs
-        .readDirectory(path.join(root, relativeDirectory))
-        .pipe(Effect.orElseSucceed(() => [] as Array<string>));
-      for (const name of names.toSorted()) {
-        if (relativeDirectory === "" && exclude.has(name)) continue;
-        const relativePath = relativeDirectory === "" ? name : path.join(relativeDirectory, name);
-        const absolutePath = path.join(root, relativePath);
-        if (Option.isSome(yield* fs.readLink(absolutePath).pipe(Effect.option))) {
-          files.push({ relativePath, size: 0 });
-          continue;
-        }
-        const info = yield* fs.stat(absolutePath).pipe(Effect.option);
-        if (Option.isNone(info)) continue;
-        if (info.value.type === "Directory") {
-          yield* visit(relativePath);
-        } else if (info.value.type === "File") {
-          files.push({ relativePath, size: Number(info.value.size) });
-        }
-      }
-    });
-  yield* visit("");
-  return files;
-});
-
-const sameBytes = (left: Uint8Array, right: Uint8Array) =>
-  left.length === right.length && left.every((byte, index) => byte === right[index]);
-
-const sameFile = Effect.fn("storageMigration.sameFile")(function* (left: string, right: string) {
-  const fs = yield* FileSystem.FileSystem;
-  const leftLink = yield* fs.readLink(left).pipe(Effect.option);
-  const rightLink = yield* fs.readLink(right).pipe(Effect.option);
-  if (Option.isSome(leftLink) || Option.isSome(rightLink)) {
-    return Option.getOrUndefined(leftLink) === Option.getOrUndefined(rightLink);
-  }
-  const [leftBytes, rightBytes] = yield* Effect.all([
-    fs.readFile(left).pipe(Effect.option),
-    fs.readFile(right).pipe(Effect.option),
-  ]);
-  return (
-    Option.isSome(leftBytes) &&
-    Option.isSome(rightBytes) &&
-    sameBytes(leftBytes.value, rightBytes.value)
-  );
-});
-
-/** The first file that differs between the trees, or undefined when they match. */
-const firstDifference = Effect.fn("storageMigration.firstDifference")(function* (
-  source: string,
-  destination: string,
-  exclude: ReadonlySet<string>,
-) {
-  const path = yield* Path.Path;
-  const sourceFiles = yield* walk(source, exclude);
-  const destinationFiles = yield* walk(destination, exclude);
-  const destinationPaths = new Set(destinationFiles.map((file) => file.relativePath));
-  if (sourceFiles.length !== destinationFiles.length) return "file count";
-  for (const file of sourceFiles) {
-    if (!destinationPaths.has(file.relativePath)) return file.relativePath;
-    if (
-      !(yield* sameFile(
-        path.join(source, file.relativePath),
-        path.join(destination, file.relativePath),
-      ))
-    ) {
-      return file.relativePath;
-    }
-  }
-  return undefined;
-});
-
-class StorageMigrationDatabaseError extends Schema.TaggedError<StorageMigrationDatabaseError>()(
-  "StorageMigrationDatabaseError",
-  { databasePath: Schema.String, cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return `Could not read the database at ${this.databasePath}.`;
-  }
-}
-
-const tryDatabase = <A>(databasePath: string, use: (database: NodeSqlite.DatabaseSync) => A) =>
-  Effect.try({
-    try: () => {
-      const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
-      try {
-        return use(database);
-      } finally {
-        database.close();
-      }
-    },
-    catch: (cause) => new StorageMigrationDatabaseError({ databasePath, cause }),
-  });
-
-/** Row counts per table and the schema version, the facts a snapshot must reproduce. */
-const databaseFingerprint = (databasePath: string) =>
-  tryDatabase(databasePath, (database) => {
-    const tables = database
-      .prepare(
-        "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-      )
-      .all()
-      .map((row) => String(row.name));
-    const counts = tables.map((table) => {
-      const row = database
-        .prepare(`SELECT count(*) AS count FROM "${table.replaceAll('"', '""')}"`)
-        .get();
-      return `${table}=${String(row?.count)}`;
-    });
-    const userVersion = database.prepare("PRAGMA user_version").get();
-    return `${counts.join(",")};user_version=${String(userVersion?.user_version)}`;
-  });
-
-const quoteSqlString = (value: string) => `'${value.replaceAll("'", "''")}'`;
+const excludedFor = (input: StorageMigrationInput, destination: string) =>
+  destination === input.electronProfile ? ELECTRON_EXCLUDED : NO_EXCLUSIONS;
 
 const timestampSuffix = (now: DateTime.Utc) =>
   DateTime.formatIso(now)
     .replaceAll(":", "")
     .replace(/\.\d+Z$/, "Z");
+
+/** A suffix no earlier run used, so an aside or staged name never lands on an existing one. */
+const uniqueSuffix = (now: DateTime.Utc) =>
+  `${timestampSuffix(now)}-${NodeCrypto.randomBytes(4).toString("hex")}`;
 
 const liveServerBlocker = Effect.fn("storageMigration.liveServerBlocker")(function* (
   runtimeStatePath: string,
@@ -419,15 +334,69 @@ const runningDesktopBlocker = Effect.fn("storageMigration.runningDesktopBlocker"
   return `The T3 Code desktop app is running with the profile at ${profile} (pid ${String(pid)}). Quit it first.`;
 });
 
-const readMarker = Effect.fn("storageMigration.readMarker")(function* (markerPath: string) {
+/**
+ * A background service keeps serving the tree its unit names and would
+ * restart against it forever once the migration or rollback retires it.
+ */
+const serviceBlocker = Effect.fn("storageMigration.serviceBlocker")(function* (
+  input: StorageMigrationInput,
+  retiring: string,
+  then: string,
+) {
+  if (input.serviceUnitPath === undefined) return undefined;
   const fs = yield* FileSystem.FileSystem;
-  const raw = yield* fs.readFileString(markerPath).pipe(Effect.option);
-  if (Option.isNone(raw)) return Option.none<StorageMigrationMarker>();
-  return Option.some(
-    yield* decodeMarker(raw.value).pipe(
-      Effect.mapError((cause) => new StorageMigrationMarkerError({ markerPath, cause })),
-    ),
+  const path = yield* Path.Path;
+  const unit = yield* fs.readFileString(input.serviceUnitPath).pipe(Effect.option);
+  if (Option.isNone(unit)) return undefined;
+  const baseDir = bootServiceBaseDirOf(unit.value);
+  if (baseDir === undefined || path.resolve(baseDir) !== path.resolve(retiring)) return undefined;
+  return `The background service at ${input.serviceUnitPath} serves ${retiring}. Run \`t3 service uninstall\`, ${then}, then \`t3 service install\` so it serves the right storage.`;
+});
+
+const readRecord = <A, E>(recordPath: string, decode: (raw: string) => Effect.Effect<A, E>) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const raw = yield* fs.readFileString(recordPath).pipe(Effect.option);
+    if (Option.isNone(raw)) return Option.none<A>();
+    return Option.some(
+      yield* decode(raw.value).pipe(
+        Effect.mapError(
+          (cause) => new StorageMigrationMarkerError({ markerPath: recordPath, cause }),
+        ),
+      ),
+    );
+  });
+
+const writeRecord = (recordPath: string, contents: string) =>
+  writeFileStringAtomically({ filePath: recordPath, contents: `${contents}\n` }).pipe(
+    Effect.mapError((cause) => new StorageMigrationMarkerError({ markerPath: recordPath, cause })),
   );
+
+/** A database's sidecars would be replayed into the copy placed beside them. */
+const databaseSidecarsOf = (entry: Pick<StorageMigrationEntry, "kind" | "destination">) =>
+  entry.kind === "database"
+    ? DATABASE_SIDECAR_SUFFIXES.map((suffix) => `${entry.destination}${suffix}`)
+    : [];
+
+type EntryKind =
+  | { readonly kind: "symlink"; readonly linkTarget: string }
+  | { readonly kind: "database" | "directory" | "file" };
+
+const classify = Effect.fn("storageMigration.classify")(function* (source: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const linkTarget = yield* absoluteLinkTarget(source);
+  if (Option.isSome(linkTarget)) {
+    return Option.some<EntryKind>({ kind: "symlink", linkTarget: linkTarget.value });
+  }
+  const info = yield* fs.stat(source).pipe(Effect.option);
+  if (Option.isNone(info)) return Option.none<EntryKind>();
+  return Option.some<EntryKind>({
+    kind: source.endsWith(".sqlite")
+      ? "database"
+      : info.value.type === "Directory"
+        ? "directory"
+        : "file",
+  });
 });
 
 /** Decides what goes where without writing anything. */
@@ -438,7 +407,14 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
   const path = yield* Path.Path;
   const { legacyRoots, serverOverrides, serverRoots } = input;
   const legacyStateDir = legacyRoots.stateDir;
-  const marker = yield* readMarker(legacyT3StorageMigrationMarkerPath(legacyRoots, path));
+  const marker = yield* readRecord(
+    legacyT3StorageMigrationMarkerPath(legacyRoots, path),
+    decodeMarker,
+  );
+  const journal = yield* readRecord(
+    legacyT3StorageMigrationJournalPath(legacyRoots, path),
+    decodeJournal,
+  );
   const blockers: Array<string> = [];
   const skipped: Array<StorageMigrationSkip> = [];
   const sources: Array<Omit<StorageMigrationEntry, "status" | "files" | "bytes">> = [];
@@ -462,30 +438,29 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
       skipped.push({ path: source, reason: route.skipReason });
       continue;
     }
-    const info = yield* fs.stat(source).pipe(Effect.option);
-    if (Option.isNone(info)) continue;
-    const kind = name.endsWith(".sqlite")
-      ? ("database" as const)
-      : info.value.type === "Directory"
-        ? ("directory" as const)
-        : ("file" as const);
-    sources.push({ owner: route.owner, kind, source, destination: path.join(route.root, name) });
+    const kind = yield* classify(source);
+    if (Option.isNone(kind)) continue;
+    sources.push({
+      owner: route.owner,
+      source,
+      destination: path.join(route.root, name),
+      ...kind.value,
+    });
   }
 
-  for (const profile of input.legacyElectronProfiles) {
-    if (!(yield* fs.exists(profile).pipe(Effect.orElseSucceed(() => false)))) continue;
+  const legacyProfile = yield* classify(input.legacyElectronProfile);
+  if (Option.isSome(legacyProfile)) {
     sources.push({
       owner: "client",
-      kind: "directory",
-      source: profile,
+      source: input.legacyElectronProfile,
       destination: input.electronProfile,
+      ...legacyProfile.value,
     });
+  }
+  for (const profile of [input.legacyElectronProfile, input.electronProfile]) {
     const desktop = yield* runningDesktopBlocker(profile);
     if (desktop !== undefined) blockers.push(desktop);
-    break;
   }
-  const splitDesktop = yield* runningDesktopBlocker(input.electronProfile);
-  if (splitDesktop !== undefined) blockers.push(splitDesktop);
 
   const siblings = yield* fs
     .readDirectory(legacyRoots.legacyBaseDir)
@@ -500,7 +475,9 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
           ? `threads reference these worktrees by path; new worktrees go to ${path.join(serverOverrides.dataDir ?? serverRoots.dataDir, "worktrees")}`
           : name === "caches"
             ? `regenerated under ${serverRoots.cacheDir}`
-            : "not part of the userdata tree; left in place",
+            : name === "bin"
+              ? LAUNCHER_SKIP_REASON
+              : "not part of the userdata tree; left in place",
     });
   }
 
@@ -508,34 +485,37 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
     const server = yield* liveServerBlocker(runtimeStatePath);
     if (server !== undefined) blockers.push(server);
   }
+  if (Option.isNone(marker)) {
+    const service = yield* serviceBlocker(input, legacyRoots.legacyBaseDir, "migrate");
+    if (service !== undefined) blockers.push(service);
+  }
 
   const entries: Array<StorageMigrationEntry> = [];
   for (const entry of sources) {
-    const exclude =
-      entry.destination === input.electronProfile ? ELECTRON_EXCLUDED : new Set<string>();
+    const exclude = excludedFor(input, entry.destination);
     const files =
       entry.kind === "directory"
         ? yield* walk(entry.source, exclude)
-        : [{ relativePath: "", size: Number((yield* fs.stat(entry.source)).size) }];
-    const exists = yield* anyExists(
-      entry.kind === "database"
-        ? [
-            entry.destination,
-            ...DATABASE_SIDECAR_SUFFIXES.map((suffix) => `${entry.destination}${suffix}`),
-          ]
-        : [entry.destination],
-    );
-    const status: StorageMigrationEntry["status"] = !exists
-      ? "copy"
+        : entry.kind === "symlink"
+          ? []
+          : [{ relativePath: "", size: Number((yield* fs.stat(entry.source)).size) }];
+    const status: StorageMigrationEntry["status"] = !(yield* pathExists(entry.destination))
+      ? (yield* Effect.forEach(databaseSidecarsOf(entry), pathExists)).some(Boolean)
+        ? "conflict"
+        : "copy"
       : entry.kind === "database"
         ? "conflict"
-        : entry.kind === "file"
-          ? (yield* sameFile(entry.source, entry.destination))
+        : entry.kind === "symlink"
+          ? Option.getOrUndefined(yield* absoluteLinkTarget(entry.destination)) === entry.linkTarget
             ? "present"
             : "conflict"
-          : (yield* firstDifference(entry.source, entry.destination, exclude)) === undefined
-            ? "present"
-            : "conflict";
+          : entry.kind === "file"
+            ? (yield* sameFile(entry.source, entry.destination))
+              ? "present"
+              : "conflict"
+            : (yield* firstDifference(entry.source, entry.destination, exclude)) === undefined
+              ? "present"
+              : "conflict";
     entries.push({
       ...entry,
       status,
@@ -547,103 +527,145 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
   return {
     input,
     migratedAt: Option.getOrUndefined(Option.map(marker, (value) => value.migratedAt)),
+    interruptedAt: Option.getOrUndefined(Option.map(journal, (value) => value.startedAt)),
     entries,
     skipped,
     blockers,
   } satisfies StorageMigrationPlan;
 });
 
-/** Copies one entry under a temporary sibling name, then renames it into place. */
+/** Writes `entry` to `target`, a path that does not exist yet. */
 const copyEntry = Effect.fn("storageMigration.copyEntry")(function* (
   entry: StorageMigrationEntry,
+  target: string,
   exclude: ReadonlySet<string>,
-  suffix: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const temporary = `${entry.destination}.migrating-${suffix}`;
-  const parent = path.dirname(entry.destination);
-  yield* Effect.gen(function* () {
-    yield* fs.makeDirectory(parent, { recursive: true, mode: 0o700 });
-    if (entry.kind === "database") {
-      yield* tryDatabase(entry.source, (database) =>
-        database.exec(`VACUUM INTO ${quoteSqlString(temporary)}`),
-      );
-      yield* fs.chmod(temporary, 0o600);
-    } else if (entry.kind === "file") {
-      yield* fs.copyFile(entry.source, temporary);
-      yield* fs.chmod(temporary, (yield* fs.stat(entry.source)).mode & 0o777);
-    } else {
-      yield* fs.makeDirectory(temporary, { mode: (yield* fs.stat(entry.source)).mode & 0o777 });
-      for (const file of yield* walk(entry.source, exclude)) {
-        const from = path.join(entry.source, file.relativePath);
-        const to = path.join(temporary, file.relativePath);
-        let directory = path.dirname(file.relativePath);
-        const missing: Array<string> = [];
-        while (directory !== "." && !(yield* fs.exists(path.join(temporary, directory)))) {
-          missing.unshift(directory);
-          directory = path.dirname(directory);
-        }
-        for (const relativeDirectory of missing) {
-          const mode = (yield* fs.stat(path.join(entry.source, relativeDirectory))).mode & 0o777;
-          yield* fs.makeDirectory(path.join(temporary, relativeDirectory), { mode });
-        }
-        const link = yield* fs.readLink(from).pipe(Effect.option);
-        if (Option.isSome(link)) {
-          yield* fs.symlink(link.value, to);
-        } else {
-          yield* fs.copyFile(from, to);
-          yield* fs.chmod(to, (yield* fs.stat(from)).mode & 0o777);
-        }
-      }
-    }
-    yield* fs.rename(temporary, entry.destination);
-  }).pipe(
-    Effect.onError(() =>
-      fs.remove(temporary, { recursive: true, force: true }).pipe(Effect.ignore),
-    ),
-    Effect.mapError(
-      (cause) =>
-        new StorageMigrationCopyError({
-          source: entry.source,
-          destination: entry.destination,
-          cause,
-        }),
-    ),
-  );
+  yield* fs.makeDirectory(path.dirname(target), { recursive: true, mode: 0o700 });
+  switch (entry.kind) {
+    case "symlink":
+      return yield* fs.symlink(entry.linkTarget!, target);
+    case "database":
+      yield* snapshotDatabase(entry.source, target);
+      return yield* fs.chmod(target, 0o600);
+    case "file":
+      yield* fs.copyFile(entry.source, target);
+      return yield* fs.chmod(target, (yield* fs.stat(entry.source)).mode & 0o777);
+    case "directory":
+      return yield* copyTree(entry.source, target, exclude);
+  }
 });
 
+/** Checks the copy at `copy` against the entry's source. */
 const verifyEntry = Effect.fn("storageMigration.verifyEntry")(function* (
   entry: StorageMigrationEntry,
+  copy: string,
   exclude: ReadonlySet<string>,
 ) {
   const fail = (check: string) =>
     new StorageMigrationVerificationError({ destination: entry.destination, check });
-  if (entry.kind === "database") {
-    const integrity = yield* tryDatabase(entry.destination, (database) =>
-      String(database.prepare("PRAGMA integrity_check").get()?.integrity_check),
-    ).pipe(Effect.mapError(() => fail("could not open the copy")));
-    if (integrity !== "ok") return yield* fail(`integrity_check: ${integrity}`);
-    const [source, copy] = yield* Effect.all([
-      databaseFingerprint(entry.source),
-      databaseFingerprint(entry.destination),
-    ]).pipe(Effect.mapError(() => fail("could not count rows")));
-    if (source !== copy) return yield* fail("row counts differ from the source");
-    return;
-  }
-  if (entry.kind === "file") {
-    if (!(yield* sameFile(entry.source, entry.destination))) {
-      return yield* fail("contents differ from the source");
+  switch (entry.kind) {
+    case "symlink": {
+      const target = yield* absoluteLinkTarget(copy);
+      if (Option.getOrUndefined(target) !== entry.linkTarget) {
+        return yield* fail("the link names a different target");
+      }
+      return;
     }
-    return;
+    case "database": {
+      const integrity = yield* tryDatabase(copy, (database) =>
+        String(database.prepare("PRAGMA integrity_check").get()?.integrity_check),
+      ).pipe(Effect.mapError(() => fail("could not open the copy")));
+      if (integrity !== "ok") return yield* fail(`integrity_check: ${integrity}`);
+      const [source, copied] = yield* Effect.all([
+        databaseFingerprint(entry.source),
+        databaseFingerprint(copy),
+      ]).pipe(Effect.mapError(() => fail("could not count rows")));
+      if (source !== copied) return yield* fail("row counts differ from the source");
+      return;
+    }
+    case "file":
+      if (!(yield* sameFile(entry.source, copy))) {
+        return yield* fail("contents differ from the source");
+      }
+      return;
+    case "directory": {
+      const difference = yield* firstDifference(entry.source, copy, exclude);
+      if (difference !== undefined) return yield* fail(`${difference} differs from the source`);
+    }
   }
-  const difference = yield* firstDifference(entry.source, entry.destination, exclude);
-  if (difference !== undefined) return yield* fail(`${difference} differs from the source`);
+});
+
+/** Copies that a killed run left beside these destinations before it wrote a journal. */
+const removeStaleStagedCopies = Effect.fn("storageMigration.removeStaleStagedCopies")(function* (
+  destinations: ReadonlyArray<string>,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  for (const destination of destinations) {
+    const prefix = `${path.basename(destination)}.migrating-`;
+    const names = yield* fs
+      .readDirectory(path.dirname(destination))
+      .pipe(Effect.orElseSucceed(() => [] as Array<string>));
+    for (const name of names) {
+      if (name.startsWith(prefix)) {
+        yield* removeWithSidecars(path.join(path.dirname(destination), name));
+      }
+    }
+  }
 });
 
 /**
- * Copies, verifies, then marks the legacy tree as migrated. A rerun after success is a no-op;
- * a failure removes what this run wrote and restores anything it moved aside.
+ * Undoes a run that stopped while placing its copies. The journal is written
+ * only once every staged copy exists, so a missing staged copy means it was
+ * placed, and a missing `replaced` means its original was already restored.
+ * While the journal exists selection never uses the split layout, so the
+ * placed copies were never read and are removed.
+ */
+const undoJournal = Effect.fn("storageMigration.undoJournal")(function* (
+  journalPath: string,
+  journal: StorageMigrationJournal,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  for (const entry of journal.entries.toReversed()) {
+    const staged = yield* pathExists(entry.staged);
+    if (entry.replaced !== undefined && !(yield* pathExists(entry.replaced))) {
+      if (staged) yield* removeWithSidecars(entry.staged);
+      continue;
+    }
+    if (staged) {
+      yield* removeWithSidecars(entry.staged);
+    } else {
+      yield* removeWithSidecars(entry.destination);
+    }
+    if (entry.replaced !== undefined) {
+      yield* moveWithSidecars(entry.replaced, entry.destination).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StorageMigrationMoveError({ from: entry.replaced!, to: entry.destination, cause }),
+        ),
+      );
+    }
+  }
+  yield* fs.remove(journalPath, { force: true });
+});
+
+const undoInterruptedRun = Effect.fn("storageMigration.undoInterruptedRun")(function* (
+  input: StorageMigrationInput,
+) {
+  const path = yield* Path.Path;
+  const journalPath = legacyT3StorageMigrationJournalPath(input.legacyRoots, path);
+  const journal = yield* readRecord(journalPath, decodeJournal);
+  if (Option.isNone(journal)) return false;
+  yield* undoJournal(journalPath, journal.value);
+  return true;
+});
+
+/**
+ * Copies, verifies, then marks the legacy tree as migrated. A rerun after
+ * success is a no-op; a failure, or a rerun after a killed run, removes what
+ * the run wrote and restores anything it moved aside.
  */
 export const runStorageMigration = Effect.fn("storageMigration.run")(function* (
   input: StorageMigrationInput,
@@ -651,109 +673,124 @@ export const runStorageMigration = Effect.fn("storageMigration.run")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const plan = yield* planStorageMigration(input);
-  if (plan.migratedAt !== undefined) return { plan, migrated: false, replaced: [] } as const;
-  if (plan.blockers.length > 0) {
-    return yield* new StorageMigrationBlockedError({ blockers: plan.blockers });
+  const markerPath = legacyT3StorageMigrationMarkerPath(input.legacyRoots, path);
+  const journalPath = legacyT3StorageMigrationJournalPath(input.legacyRoots, path);
+  const firstPlan = yield* planStorageMigration(input);
+  if (firstPlan.migratedAt !== undefined) {
+    // A run killed after its marker but before removing its journal had finished.
+    yield* fs.remove(journalPath, { force: true });
+    return { plan: firstPlan, migrated: false, replaced: [] } as const;
   }
+  if (firstPlan.blockers.length > 0) {
+    return yield* new StorageMigrationBlockedError({ blockers: firstPlan.blockers });
+  }
+  const plan = (yield* undoInterruptedRun(input)) ? yield* planStorageMigration(input) : firstPlan;
   const conflicts = plan.entries.filter((entry) => entry.status === "conflict");
   if (conflicts.length > 0 && !options.replaceExisting) {
     return yield* new StorageMigrationConflictError({
       destinations: conflicts.map((entry) => entry.destination),
     });
   }
+  yield* removeStaleStagedCopies(plan.entries.map((entry) => entry.destination));
 
   const now = yield* DateTime.now;
-  const suffix = timestampSuffix(now);
-  type MarkerEntry = StorageMigrationMarker["entries"][number];
-  const markerEntries: Array<MarkerEntry> = [];
-  // Only what this run wrote; a destination that already matched is not ours to remove.
-  const writtenByThisRun: Array<MarkerEntry> = [];
-  const undo = Effect.suspend(() =>
-    Effect.forEach(
-      writtenByThisRun.toReversed(),
-      (entry) =>
-        Effect.gen(function* () {
-          yield* fs.remove(entry.destination, { recursive: true, force: true });
-          if (entry.replaced !== undefined)
-            yield* moveWithSidecars(entry.replaced, entry.destination);
-        }).pipe(Effect.ignore),
-      { discard: true },
+  const suffix = uniqueSuffix(now);
+  const toPlace = plan.entries
+    .filter((entry) => entry.status !== "present")
+    .map((entry) => ({
+      entry,
+      staged: `${entry.destination}.migrating-${suffix}`,
+      ...(entry.status === "conflict"
+        ? { replaced: `${entry.destination}.pre-migration-${suffix}` }
+        : {}),
+    }))
+    .toSorted(
+      (left, right) =>
+        Number(SPLIT_INSTALL_MARKERS.has(path.basename(left.entry.destination))) -
+        Number(SPLIT_INSTALL_MARKERS.has(path.basename(right.entry.destination))),
+    );
+
+  yield* Effect.forEach(
+    toPlace,
+    ({ entry, staged }) => {
+      const exclude = excludedFor(input, entry.destination);
+      return copyEntry(entry, staged, exclude).pipe(
+        Effect.mapError(
+          (cause) =>
+            new StorageMigrationCopyError({
+              source: entry.source,
+              destination: entry.destination,
+              cause,
+            }),
+        ),
+        Effect.andThen(verifyEntry(entry, staged, exclude)),
+      );
+    },
+    { discard: true },
+  ).pipe(
+    Effect.onError(() =>
+      Effect.forEach(toPlace, ({ staged }) => removeWithSidecars(staged).pipe(Effect.ignore), {
+        discard: true,
+      }),
     ),
   );
 
+  const journal: StorageMigrationJournal = {
+    version: 1,
+    startedAt: DateTime.formatIso(now),
+    entries: toPlace.map(({ entry, staged, replaced }) => ({
+      destination: entry.destination,
+      staged,
+      ...(replaced === undefined ? {} : { replaced }),
+    })),
+  };
+  yield* writeRecord(journalPath, yield* encodeJournal(journal));
   yield* Effect.gen(function* () {
-    for (const entry of plan.entries) {
-      const exclude =
-        entry.destination === input.electronProfile ? ELECTRON_EXCLUDED : new Set<string>();
-      if (entry.status === "present") {
-        markerEntries.push({ source: entry.source, destination: entry.destination });
-        continue;
-      }
-      const written: MarkerEntry =
-        entry.status === "conflict"
-          ? {
-              source: entry.source,
-              destination: entry.destination,
-              replaced: `${entry.destination}.pre-migration-${suffix}`,
-            }
-          : { source: entry.source, destination: entry.destination };
-      if (written.replaced !== undefined) {
-        yield* moveWithSidecars(entry.destination, written.replaced).pipe(
-          Effect.mapError(
-            (cause) =>
-              new StorageMigrationCopyError({
-                source: entry.source,
-                destination: entry.destination,
-                cause,
-              }),
-          ),
-        );
-        writtenByThisRun.push(written);
-        yield* copyEntry(entry, exclude, suffix);
-      } else {
-        yield* copyEntry(entry, exclude, suffix);
-        writtenByThisRun.push(written);
-      }
-      markerEntries.push(written);
-    }
-    for (const entry of plan.entries) {
-      yield* verifyEntry(
-        entry,
-        entry.destination === input.electronProfile ? ELECTRON_EXCLUDED : new Set<string>(),
+    for (const { entry, staged, replaced } of toPlace) {
+      const place = Effect.gen(function* () {
+        if (replaced !== undefined) yield* moveWithSidecars(entry.destination, replaced);
+        yield* moveWithSidecars(staged, entry.destination);
+      });
+      yield* place.pipe(
+        Effect.mapError(
+          (cause) => new StorageMigrationMoveError({ from: staged, to: entry.destination, cause }),
+        ),
       );
     }
-    const marker = yield* encodeMarker({
-      version: 1,
-      migratedAt: DateTime.formatIso(now),
-      entries: markerEntries,
+    const placed = new Map(toPlace.map((item) => [item.entry.destination, item]));
+    const markerEntries: Array<MarkerEntry> = plan.entries.map((entry) => {
+      const replaced = placed.get(entry.destination)?.replaced;
+      return {
+        source: entry.source,
+        destination: entry.destination,
+        ...(replaced === undefined ? {} : { replaced }),
+        ...(entry.status === "present" ? { preexisting: true } : {}),
+      };
     });
-    yield* writeFileStringAtomically({
-      filePath: legacyT3StorageMigrationMarkerPath(input.legacyRoots, path),
-      contents: `${marker}\n`,
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new StorageMigrationMarkerError({
-            markerPath: legacyT3StorageMigrationMarkerPath(input.legacyRoots, path),
-            cause,
-          }),
-      ),
+    yield* writeRecord(
+      markerPath,
+      yield* encodeMarker({
+        version: 1,
+        migratedAt: DateTime.formatIso(now),
+        entries: markerEntries,
+      }),
     );
-  }).pipe(Effect.onError(() => undo));
+  }).pipe(Effect.onError(() => undoJournal(journalPath, journal).pipe(Effect.ignore)));
+  yield* fs.remove(journalPath, { force: true }).pipe(Effect.ignore);
 
   return {
     plan,
     migrated: true,
-    replaced: markerEntries.flatMap((entry) =>
-      entry.replaced === undefined ? [] : [entry.replaced],
-    ),
+    replaced: toPlace.flatMap(({ replaced }) => (replaced === undefined ? [] : [replaced])),
   } as const;
 });
 
 /**
- * Returns to the legacy tree: each copy the migration placed is renamed aside (never deleted, so
- * anything written since survives), anything it replaced is restored, and the marker is removed.
+ * Returns to the legacy tree: each copy the migration placed is renamed aside
+ * (never deleted, so anything written since survives), anything it replaced is
+ * restored, and the marker is removed. Entries already restored are skipped, so
+ * a rollback that stopped partway can be rerun. After a killed migration it
+ * undoes that run instead.
  */
 export const rollbackStorageMigration = Effect.fn("storageMigration.rollback")(function* (
   input: StorageMigrationInput,
@@ -761,9 +798,7 @@ export const rollbackStorageMigration = Effect.fn("storageMigration.rollback")(f
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const markerPath = legacyT3StorageMigrationMarkerPath(input.legacyRoots, path);
-  const marker = yield* readMarker(markerPath);
-  if (Option.isNone(marker)) return { rolledBack: [] as ReadonlyArray<string> };
-
+  const marker = yield* readRecord(markerPath, decodeMarker);
   const blockers: Array<string> = [];
   for (const runtimeStatePath of runtimeStatePaths(input, path)) {
     const server = yield* liveServerBlocker(runtimeStatePath);
@@ -771,26 +806,32 @@ export const rollbackStorageMigration = Effect.fn("storageMigration.rollback")(f
   }
   const desktop = yield* runningDesktopBlocker(input.electronProfile);
   if (desktop !== undefined) blockers.push(desktop);
+  const service = yield* serviceBlocker(input, input.serverRoots.dataDir, "roll back");
+  if (service !== undefined) blockers.push(service);
   if (blockers.length > 0) return yield* new StorageMigrationBlockedError({ blockers });
+  if (Option.isNone(marker)) {
+    return {
+      outcome: (yield* undoInterruptedRun(input)) ? "undid-interrupted-run" : "not-migrated",
+      rolledBack: [] as ReadonlyArray<string>,
+    } as const;
+  }
 
-  const suffix = timestampSuffix(yield* DateTime.now);
+  yield* fs.remove(legacyT3StorageMigrationJournalPath(input.legacyRoots, path), { force: true });
+  const suffix = uniqueSuffix(yield* DateTime.now);
   const rolledBack: Array<string> = [];
   for (const entry of marker.value.entries) {
+    if (entry.preexisting === true) continue;
+    if (entry.replaced !== undefined && !(yield* pathExists(entry.replaced))) continue;
+    const aside = `${entry.destination}.rolled-back-${suffix}`;
     yield* Effect.gen(function* () {
-      const aside = `${entry.destination}.rolled-back-${suffix}`;
       if (yield* moveWithSidecars(entry.destination, aside)) rolledBack.push(aside);
       if (entry.replaced !== undefined) yield* moveWithSidecars(entry.replaced, entry.destination);
     }).pipe(
       Effect.mapError(
-        (cause) =>
-          new StorageMigrationMoveError({
-            from: entry.destination,
-            to: `${entry.destination}.rolled-back-${suffix}`,
-            cause,
-          }),
+        (cause) => new StorageMigrationMoveError({ from: entry.destination, to: aside, cause }),
       ),
     );
   }
   yield* fs.remove(markerPath);
-  return { rolledBack };
+  return { outcome: "rolled-back", rolledBack } as const;
 });
