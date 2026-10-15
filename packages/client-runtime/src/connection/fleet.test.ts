@@ -89,7 +89,13 @@ describe("fleet sync plan", () => {
       fleet: [member(A), member(B), member(C)],
     });
 
-    expect(plan).toEqual({ root: A, join: [member(B), member(C)], update: [], remove: [] });
+    expect(plan).toEqual({
+      root: A,
+      join: [member(B), member(C)],
+      relabel: [],
+      rejoin: [],
+      remove: [],
+    });
   });
 
   it("ignores a server that does not list itself", () => {
@@ -109,8 +115,27 @@ describe("fleet sync plan", () => {
     expect(plan).toEqual({
       root: A,
       join: [],
-      update: [{ ...member(B), label: "renamed" }],
+      relabel: [{ ...member(B), label: "renamed" }],
+      rejoin: [],
       remove: [C],
+    });
+  });
+
+  it("joins a member again when either of its URLs changes, even alongside a new label", () => {
+    const movedHttp = { ...member(B), httpBaseUrl: "https://b-new.example.ts.net/" };
+    const movedWs = { ...member(C), label: "renamed", wsBaseUrl: "wss://c-new.example.ts.net/" };
+    const plan = planFleetSync({
+      entries: catalog(pairedEntry(A), joinedEntry(member(B), A), joinedEntry(member(C), A)),
+      source: A,
+      fleet: [member(A), movedHttp, movedWs],
+    });
+
+    expect(plan).toEqual({
+      root: A,
+      join: [],
+      relabel: [],
+      rejoin: [movedHttp, movedWs],
+      remove: [],
     });
   });
 
@@ -124,10 +149,13 @@ describe("fleet sync plan", () => {
         joinedEntry(member(C), other),
       ),
       source: A,
-      fleet: [member(A), { ...member(B), label: "renamed" }],
+      fleet: [
+        member(A),
+        { ...member(B), label: "renamed", httpBaseUrl: "https://elsewhere.example.ts.net/" },
+      ],
     });
 
-    expect(plan).toEqual({ root: A, join: [], update: [], remove: [] });
+    expect(plan).toEqual({ root: A, join: [], relabel: [], rejoin: [], remove: [] });
   });
 
   it("takes a fleet off the device with the machine it joined through", () => {
