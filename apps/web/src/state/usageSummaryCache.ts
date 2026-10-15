@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 const DATABASE_NAME = "t3code:usage-summaries";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "summaries";
+const SAVED_AT_INDEX = "savedAt";
 /** Every window option for eight environments. */
 export const MAX_STORED_USAGE_SUMMARIES = 32;
 
@@ -27,8 +28,9 @@ export interface UsageSummaryBackend {
   readonly get: (id: string) => Effect.Effect<unknown, Cause.UnknownError>;
   readonly put: (id: string, record: StoredUsageSummary) => Effect.Effect<void, Cause.UnknownError>;
   readonly remove: (ids: ReadonlyArray<string>) => Effect.Effect<void, Cause.UnknownError>;
-  readonly entries: Effect.Effect<
-    ReadonlyArray<readonly [id: string, record: unknown]>,
+  /** Read from an index, so pruning never loads the summaries themselves. */
+  readonly savedAt: Effect.Effect<
+    ReadonlyArray<readonly [id: string, savedAt: number]>,
     Cause.UnknownError
   >;
 }
@@ -39,19 +41,18 @@ export function makeUsageSummaryStore(
   backend: UsageSummaryBackend,
   { now = Date.now, maxEntries = MAX_STORED_USAGE_SUMMARIES } = {},
 ): QueryStore {
-  const prune = backend.entries.pipe(
+  const prune = backend.savedAt.pipe(
     Effect.flatMap((entries) => {
       // Housekeeping only: whether a summary still fits a window is decided
       // when it is loaded.
       const today = startOfLocalDay(new Date(now())).getTime();
-      const current = entries
-        .flatMap(([id, record]) =>
-          isStoredUsageSummary(record) && record.savedAt >= today
-            ? [{ id, savedAt: record.savedAt }]
-            : [],
-        )
-        .toSorted((a, b) => b.savedAt - a.savedAt);
-      const kept = new Set(current.slice(0, maxEntries).map(({ id }) => id));
+      const kept = new Set(
+        entries
+          .filter(([, savedAt]) => savedAt >= today)
+          .toSorted(([, a], [, b]) => b - a)
+          .slice(0, maxEntries)
+          .map(([id]) => id),
+      );
       const dropped = entries.flatMap(([id]) => (kept.has(id) ? [] : [id]));
       return dropped.length === 0 ? Effect.void : backend.remove(dropped);
     }),
@@ -84,9 +85,7 @@ function openDatabase() {
   database ??= new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
     request.addEventListener("upgradeneeded", () => {
-      if (!request.result.objectStoreNames.contains(STORE_NAME)) {
-        request.result.createObjectStore(STORE_NAME);
-      }
+      request.result.createObjectStore(STORE_NAME).createIndex(SAVED_AT_INDEX, "savedAt");
     });
     request.addEventListener("success", () => {
       const opened = request.result;
@@ -101,7 +100,6 @@ function openDatabase() {
       resolve(opened);
     });
     request.addEventListener("error", () => reject(request.error));
-    request.addEventListener("blocked", () => reject(new Error("Usage cache is blocked.")));
   }).catch((cause: unknown) => {
     database = undefined;
     throw cause;
@@ -139,10 +137,16 @@ const indexedDbBackend: UsageSummaryBackend = {
       for (const id of ids) store.delete(id);
       return () => undefined;
     }),
-  entries: transact("readonly", (store) => {
-    const keys = store.getAllKeys();
-    const values = store.getAll();
-    return () => keys.result.map((key, index) => [String(key), values.result[index]] as const);
+  savedAt: transact("readonly", (store) => {
+    const entries: Array<readonly [string, number]> = [];
+    const request = store.index(SAVED_AT_INDEX).openKeyCursor();
+    request.addEventListener("success", () => {
+      const cursor = request.result;
+      if (cursor === null) return;
+      entries.push([String(cursor.primaryKey), Number(cursor.key)]);
+      cursor.continue();
+    });
+    return () => entries;
   }),
 };
 

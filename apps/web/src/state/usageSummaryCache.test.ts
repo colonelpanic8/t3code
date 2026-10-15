@@ -52,7 +52,13 @@ function harness(start: string, maxEntries?: number) {
     get: (id) => Effect.sync(() => records.get(id)),
     put: (id, record) => Effect.sync(() => void records.set(id, record)),
     remove: (ids) => Effect.sync(() => ids.forEach((id) => records.delete(id))),
-    entries: Effect.sync(() => [...records]),
+    // Like the IndexedDB index, it lists only records that carry a save time.
+    savedAt: Effect.sync(() =>
+      [...records].flatMap(([id, record]) => {
+        const savedAt = (record as { readonly savedAt?: unknown }).savedAt;
+        return typeof savedAt === "number" ? [[id, savedAt] as const] : [];
+      }),
+    ),
   };
   const store = makeUsageSummaryStore(backend, {
     now: () => now,
@@ -60,6 +66,7 @@ function harness(start: string, maxEntries?: number) {
   });
   return {
     records,
+    store,
     setNow: (instant: string) => {
       now = Date.parse(instant);
     },
@@ -133,7 +140,7 @@ describe("usage summary cache", () => {
   });
 
   it.effect("drops records this client can no longer read", () => {
-    const { run, records } = harness("2026-10-14T09:00:00Z");
+    const { run, records, store } = harness("2026-10-14T09:00:00Z");
     return run(
       Effect.gen(function* () {
         yield* cache.save(environmentId, morning, summary);
@@ -145,9 +152,8 @@ describe("usage summary cache", () => {
         });
         records.set("local:malformed", { payload: 42 });
         expect(yield* cache.load(environmentId, evening)).toEqual(Option.none());
-        expect([...records.keys()]).toEqual(["local:malformed"]);
-        yield* cache.save(environmentId, week, summary);
-        expect([...records.keys()]).toEqual([`local:["usage-summary","UTC","7d"]`]);
+        expect(yield* store.load(environmentId, "malformed")).toEqual(Option.none());
+        expect([...records.keys()]).toEqual([]);
       }),
     );
   });
