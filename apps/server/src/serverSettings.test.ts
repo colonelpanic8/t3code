@@ -3082,6 +3082,163 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
     }),
   );
 
+  const GITHUB_COM_TOKEN_SECRET = sourceControlHostSecretName({
+    kind: "github",
+    field: "tokens",
+    serverHost: "github.com",
+  });
+
+  it.effect("keeps settings.json's token over a shared host spelled two ways", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "github.com": "B", "GitHub.com": "A" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({
+          sourceControlHosts: { github: { tokens: { "github.com": "plain_local" } } },
+        }),
+      );
+
+      assert.deepEqual((yield* service.getSettings).sourceControlHosts.github?.tokens, {
+        "github.com": "plain_local",
+      });
+      yield* service.updateSettings({ defaultAutoPull: true });
+
+      assert.deepEqual(
+        yield* readStoredSecret(GITHUB_COM_TOKEN_SECRET),
+        Option.some("plain_local"),
+      );
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultAutoPull: true,
+        sourceControlHosts: {
+          github: { tokens: { "github.com": "\u2022\u2022\u2022\u2022\u2022\u2022" } },
+        },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("keeps the last of two spellings of one host within settings.json", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "github.com": "ghp_shared" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({
+          sourceControlHosts: {
+            github: { tokens: { "GitHub.com": "first", "github.com": "last" } },
+          },
+        }),
+      );
+
+      assert.deepEqual((yield* service.getSettings).sourceControlHosts.github?.tokens, {
+        "github.com": "last",
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("does not pin a retired token that matches a shared one but for its host's case", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "github.com": "ghp_shared" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ github: { tokens: { "GitHub.com": "ghp_shared" } } }),
+      );
+
+      assert.deepEqual((yield* service.getSettings).sourceControlHosts.github?.tokens, {
+        "github.com": "ghp_shared",
+      });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("keeps a mixed-case shared host token out of a provider migration's rewrite", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "GitHub.com": "ghp_shared" } } },
+      });
+      yield* fs.writeFileString(config.settingsPath, LEGACY_CODEX_DISABLED);
+
+      yield* service.getSettings;
+
+      const raw = yield* fs.readFileString(config.settingsPath);
+      assert.notInclude(raw, "ghp_shared");
+      assert.deepEqual(JSON.parse(raw), {
+        providerInstances: { codex: { driver: "codex", enabled: false, config: {} } },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("keeps a token stored under its new name behind a retired placeholder", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const secrets = yield* ServerSecretStore.ServerSecretStore;
+      yield* secrets.set(GITHUB_COM_TOKEN_SECRET, new TextEncoder().encode("LOCAL_NEW"));
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "github.com": "SHARED" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({
+          github: { tokens: { "github.com": "\u2022\u2022\u2022\u2022\u2022\u2022" } },
+        }),
+      );
+
+      assert.deepEqual((yield* service.getSettings).sourceControlHosts.github?.tokens, {
+        "github.com": "LOCAL_NEW",
+      });
+      yield* service.updateSettings({ defaultAutoPull: true });
+
+      assert.deepEqual(yield* readStoredSecret(GITHUB_COM_TOKEN_SECRET), Option.some("LOCAL_NEW"));
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultAutoPull: true,
+        sourceControlHosts: {
+          github: { tokens: { "github.com": "\u2022\u2022\u2022\u2022\u2022\u2022" } },
+        },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("lets a shared bitbucket key win over a retired placeholder with nothing stored", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: {
+          bitbucket: { email: "shared@example.com", accessToken: "bb-shared" },
+        },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ bitbucket: { accessToken: "\u2022\u2022\u2022\u2022\u2022\u2022" } }),
+      );
+
+      assert.deepEqual((yield* service.getSettings).sourceControlHosts.bitbucket, {
+        email: "shared@example.com",
+        accessToken: "bb-shared",
+      });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
   it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
