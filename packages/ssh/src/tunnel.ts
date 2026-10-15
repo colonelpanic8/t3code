@@ -9,6 +9,8 @@ import {
 import { cliReleaseDownloadBaseUrl } from "@t3tools/shared/cliRelease";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import {
+  LEGACY_STORAGE_MIGRATION_JOURNAL,
+  LEGACY_STORAGE_MIGRATION_MARKER,
   T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
   T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
 } from "@t3tools/shared/storagePaths";
@@ -546,12 +548,13 @@ exec "$T3_RUNTIME_DIR/t3" "$@"
 
 // The launcher serves the remote's own install and finds a running server by
 // its runtime file. A remote whose t3 already keeps its state in the split
-// layout is served there; anything else, including a remote whose installed
-// t3 predates the split layout, stays pinned to ~/.t3 as before. The server
-// location variables would hide a running server and point a second one at
-// the same database, and an inherited config file would replace the install's
-// server.json, so they are always cleared. The split layout keeps its own
-// selectors and drops T3CODE_HOME; ~/.t3 drops the selectors. The launch
+// layout (and is not mid-migration into it), or whose ~/.t3 `t3 storage
+// migrate` retired, is served there; anything else, including a remote whose
+// installed t3 predates the split layout, stays pinned to ~/.t3 as before. The
+// server location variables would hide a running server and point a second one
+// at the same database, and an inherited config file would replace the
+// install's server.json, so they are always cleared. The split layout keeps its
+// own selectors and drops T3CODE_HOME; ~/.t3 drops the selectors. The launch
 // records its decision in the state dir, so pairing, which may run in a shell
 // that read a different profile, uses the same storage.
 const T3_SELECTOR_NAMES = T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.join(" ");
@@ -568,7 +571,10 @@ const REMOTE_STORAGE_FUNCTIONS = `t3_select_storage() {
     fi
   fi
   T3_STORAGE="legacy"
-  if [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; then
+  if [ -e "$HOME/.t3/userdata/${LEGACY_STORAGE_MIGRATION_MARKER}" ] || {
+    { [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; } &&
+      [ ! -e "$HOME/.t3/userdata/${LEGACY_STORAGE_MIGRATION_JOURNAL}" ]
+  }; then
     T3_STORAGE="split"
   fi
   unset ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
