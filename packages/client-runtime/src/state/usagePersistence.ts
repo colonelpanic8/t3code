@@ -14,11 +14,45 @@ const DAY_MS = 24 * HOUR_MS;
  * minute, so a stored summary is keyed by the window's shape, not its bounds.
  */
 export function usageWindowShapeKey(input: UsageSummaryInput): string {
+  const hours = hourBounds(input);
   const span =
-    input.resolution === "hour" && input.sinceTime !== undefined && input.untilTime !== undefined
-      ? `${Math.round((Date.parse(input.untilTime) - Date.parse(input.sinceTime)) / HOUR_MS)}h`
-      : `${Math.round((Date.parse(input.untilDay) - Date.parse(input.sinceDay)) / DAY_MS) + 1}d`;
+    hours === null
+      ? `${Math.round((Date.parse(input.untilDay) - Date.parse(input.sinceDay)) / DAY_MS) + 1}d`
+      : `${Math.round((hours.until - hours.since) / HOUR_MS)}h`;
   return JSON.stringify(["usage-summary", input.timeZone, span]);
+}
+
+function hourBounds(input: UsageSummaryInput) {
+  return input.resolution === "hour" &&
+    input.sinceTime !== undefined &&
+    input.untilTime !== undefined
+    ? { since: Date.parse(input.sinceTime), until: Date.parse(input.untilTime) }
+    : null;
+}
+
+/**
+ * A stored summary is judged by the window it answered, not by when it was
+ * saved: a request can finish after midnight for the day before. An hourly
+ * summary read before the window began says nothing about it; otherwise it
+ * keeps only the hours inside the window. Its session counts cover its whole
+ * window and cannot be clipped, which is acceptable for usage drawn as stale.
+ */
+function fitToWindow(summary: UsageSummary, input: UsageSummaryInput): Option.Option<UsageSummary> {
+  const hours = hourBounds(input);
+  if (hours === null) {
+    return summary.sinceDay === input.sinceDay && summary.untilDay === input.untilDay
+      ? Option.some(summary)
+      : Option.none();
+  }
+  if (Date.parse(summary.readAt) <= hours.since) return Option.none();
+  return Option.some({
+    ...summary,
+    buckets: summary.buckets.filter((bucket) => {
+      if (bucket.hourStart === undefined) return false;
+      const start = Date.parse(bucket.hourStart);
+      return start >= hours.since && start < hours.until;
+    }),
+  });
 }
 
 /**
@@ -34,20 +68,22 @@ function withoutRefreshingSources(summary: UsageSummary): UsageSummary {
 
 export function persistUsageSummary(): QueryPersistence<UsageSummary> {
   const stored = persistQuery(UsageSummary, UsageQueryStore);
-  const shapeKey = (key: string) =>
-    Schema.decodeEffect(requestKey)(key).pipe(
-      Effect.map(([, input]) => usageWindowShapeKey(input)),
-    );
+  const requestInput = (key: string) =>
+    Schema.decodeEffect(requestKey)(key).pipe(Effect.map(([, input]) => input));
   return {
     load: (environmentId, key) =>
-      shapeKey(key).pipe(
-        Effect.flatMap((shape) => stored.load(environmentId, shape)),
+      requestInput(key).pipe(
+        Effect.flatMap((input) =>
+          stored
+            .load(environmentId, usageWindowShapeKey(input))
+            .pipe(Effect.map(Option.flatMap((summary) => fitToWindow(summary, input)))),
+        ),
         Effect.map(Option.map(withoutRefreshingSources)),
         Effect.orElseSucceed(() => Option.none()),
       ),
     save: (environmentId, key, summary) =>
-      shapeKey(key).pipe(
-        Effect.flatMap((shape) => stored.save(environmentId, shape, summary)),
+      requestInput(key).pipe(
+        Effect.flatMap((input) => stored.save(environmentId, usageWindowShapeKey(input), summary)),
         Effect.ignore,
       ),
   };
