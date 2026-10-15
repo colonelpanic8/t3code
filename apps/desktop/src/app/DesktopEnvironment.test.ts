@@ -65,6 +65,21 @@ describe("DesktopEnvironment", () => {
     }),
   );
 
+  it.effect("keeps browser screenshots in the server data dir override the backend prunes", () =>
+    Effect.gen(function* () {
+      const legacy = yield* makeEnvironment(
+        { isPackaged: true },
+        { T3CODE_HOME: "/Users/alice/.t3", T3CODE_SERVER_DATA_DIR: "~/t3-data" },
+      );
+      assert.equal(legacy.browserArtifactsDir, "/Users/alice/t3-data/browser-artifacts");
+      const split = yield* makeEnvironment(
+        { platform: "linux", homeDirectory: "/home/alice", temporaryDirectory: "/tmp" },
+        { XDG_DATA_HOME: "/xdg/data", T3CODE_SERVER_DATA_DIR: "/srv/t3" },
+      );
+      assert.equal(split.browserArtifactsDir, "/srv/t3/browser-artifacts");
+    }),
+  );
+
   it.effect("derives state paths and development identity inside Effect", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(
