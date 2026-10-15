@@ -327,7 +327,8 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.cacheDir, "/xdg/cache/t3code");
       assert.equal(environment.runtimeDir, "/run/user/1000/t3code");
       assert.equal(environment.serverSettingsPath, "/xdg/config/t3code/settings.json");
-      assert.equal(environment.browserArtifactsDir, "/xdg/cache/t3code/browser-artifacts");
+      // The server prunes these with its own, so both share the data dir.
+      assert.equal(environment.browserArtifactsDir, "/xdg/data/t3code/browser-artifacts");
       assert.equal(environment.electronUserDataPath, "/xdg/state/t3code/electron");
     }),
   );
