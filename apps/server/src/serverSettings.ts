@@ -839,6 +839,18 @@ const markFileReferences = (value: unknown): unknown =>
           )
         : value;
 
+// A managed environment value comes from the file or a reference, never from the secret store.
+const dropRedactionFlags = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(dropRedactionFlags)
+    : isSettingsDocument(value)
+      ? Object.fromEntries(
+          Object.entries(value).flatMap(([key, entry]) =>
+            key === "valueRedacted" ? [] : [[key, dropRedactionFlags(entry)]],
+          ),
+        )
+      : value;
+
 // Normalizing rebuilds these from `projectSettingsOverrides`, so a managed value would never hold.
 const DERIVED_SETTINGS_KEYS: ReadonlySet<string> = new Set(
   Object.keys(deriveLegacyProjectOverrides({ projectSettingsOverrides: {} })),
@@ -849,6 +861,35 @@ function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unkno
     (current, segment) => (isSettingsDocument(current) ? current[segment] : undefined),
     document,
   );
+}
+
+/** Whether `kept` holds every key of a managed object value, at every depth. */
+function holdsEveryKey(managed: unknown, kept: unknown): boolean {
+  if (!isSettingsDocument(managed)) return true;
+  return (
+    isSettingsDocument(kept) &&
+    Object.entries(managed).every(
+      ([key, value]) => Object.hasOwn(kept, key) && holdsEveryKey(value, kept[key]),
+    )
+  );
+}
+
+/**
+ * Whether settings hold a managed leaf as written: present in their encoded or decoded form
+ * (encoding omits some nulls), not coerced to null, and with every key of an object value.
+ */
+function keepsManagedLeaf(
+  managed: SettingsDocument,
+  encoded: unknown,
+  decoded: unknown,
+  path: ReadonlyArray<string>,
+): boolean {
+  const value = readSettingsPath(managed, path);
+  const kept = [readSettingsPath(encoded, path), readSettingsPath(decoded, path)].filter(
+    (candidate) => candidate !== undefined,
+  );
+  if (value !== null && kept.every((candidate) => candidate === null)) return false;
+  return kept.some((candidate) => holdsEveryKey(value, candidate));
 }
 
 const decodeProviderInstanceOption = Schema.decodeUnknownOption(ProviderInstanceConfig);
@@ -1495,7 +1536,7 @@ const make = Effect.gen(function* () {
       );
       if (resolved === undefined) continue;
       if (hasFileReference(entry.document)) fromFiles.add(entry.setting);
-      const canonical = canonicalizeSecretFields(resolved);
+      const canonical = canonicalizeSecretFields(dropRedactionFlags(resolved) as SettingsDocument);
       yield* warnDuplicateSecretHosts(managedSettingsPath, canonical.duplicates);
       document = layerSettingsDocuments(document, canonical.document);
     }
@@ -1529,7 +1570,7 @@ const make = Effect.gen(function* () {
       Effect.flatMap(normalizeServerSettings),
     );
 
-  /** Applies `managed`, also returning the managed leaf paths decoding renamed or dropped. */
+  /** Applies `managed`, also returning the managed leaf paths decoding renamed, dropped, or coerced. */
   const enforceManagedLayer = (settings: ServerSettings, managed: SettingsDocument) =>
     applyManagedLayer(settings, managed).pipe(
       Effect.flatMap((effective) =>
@@ -1538,7 +1579,7 @@ const make = Effect.gen(function* () {
           Effect.map((encoded) => ({
             effective,
             dropped: managedLeafPaths(managed)
-              .filter((path) => readSettingsPath(encoded, path) === undefined)
+              .filter((path) => !keepsManagedLeaf(managed, encoded, effective, path))
               .map((path) => path.join(".")),
           })),
         ),
@@ -1571,7 +1612,10 @@ const make = Effect.gen(function* () {
           Effect.map(({ dropped }) =>
             dropped.length === 0
               ? undefined
-              : { reason: "is renamed or dropped by the settings schema", paths: dropped },
+              : {
+                  reason: "is renamed, dropped, or coerced by the settings schema",
+                  paths: dropped,
+                },
           ),
           Effect.catch((error) =>
             Effect.succeed({
