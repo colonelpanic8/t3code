@@ -3057,6 +3057,51 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
   );
 
+  it.live("writes the scan cache 30 seconds after the first change of a steady stream", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(CURSOR_NOW);
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+
+      yield* Effect.gen(function* () {
+        const { stateDir } = yield* ServerConfig.ServerConfig;
+        const { service, writes } = yield* makeCountingScanCacheWrites;
+        const changedScan = (id: number) =>
+          Effect.gen(function* () {
+            yield* Effect.promise(() => NodeFSP.appendFile(transcript, claudeLine(id, 5)));
+            assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), id * 5);
+          });
+
+        yield* service.readSummary(WINDOW);
+        for (let id = 2; id <= 10; id += 1) {
+          yield* TestClock.adjust(Duration.seconds(3));
+          yield* changedScan(id);
+          assert.strictEqual(writes.count, 0);
+        }
+
+        yield* TestClock.adjust(Duration.seconds(3));
+        yield* Deferred.await(writes.landed);
+        assert.strictEqual(writes.count, 1);
+        assert.deepStrictEqual(yield* readCachedRecordCounts(stateDir), [10]);
+
+        // The next change starts a fresh 30 second window.
+        yield* changedScan(11);
+        for (let id = 12; id <= 14; id += 1) {
+          yield* TestClock.adjust(Duration.seconds(3));
+          yield* changedScan(id);
+        }
+        yield* TestClock.adjust(Duration.seconds(1));
+        yield* service.awaitPersisted;
+        assert.strictEqual(writes.count, 2);
+        assert.deepStrictEqual(yield* readCachedRecordCounts(stateDir), [14]);
+      }).pipe(
+        Effect.provide(
+          layerService({ prefix: "usage-service-persist-max-wait-test", home, settings }),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
   it.live("writes a pending scan cache change when the service shuts down", () =>
     Effect.gen(function* () {
       yield* TestClock.setTime(CURSOR_NOW);
