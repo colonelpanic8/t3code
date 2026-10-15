@@ -160,9 +160,9 @@ scheme uses HTTP, so include `https://` when your server uses HTTPS.
 ## Declarative fleets
 
 Managed installations can declare several servers as one fleet, so pairing a device with one of
-them pairs it with all of them. Give every server the same `T3CODE_MANAGED_ACCESS_TOKEN`, its own
-stable `T3CODE_ENVIRONMENT_ID`, and a `T3CODE_FLEET_MANIFEST_FILE` that lists every member,
-itself included:
+them pairs it with all of them. Set `T3CODE_MANAGED_ACCESS_TOKEN_FILE` to a runtime file holding
+the same shared token on every server. Give each server its own stable `T3CODE_ENVIRONMENT_ID`
+and a `T3CODE_FLEET_MANIFEST_FILE` that lists every member, itself included:
 
 ```json
 {
@@ -177,6 +177,9 @@ itself included:
   ]
 }
 ```
+
+The server reads the token file at startup and refuses missing, unreadable, or empty files.
+`T3CODE_MANAGED_ACCESS_TOKEN` still accepts an inline token; set only one of the two.
 
 The manifest holds no secrets. Pair a phone, browser, or desktop app with any member as usual;
 T3 Code then adds the other members, each at its declared address, and follows later changes to
@@ -213,7 +216,7 @@ refer to the same host and use matching secure or insecure schemes.
 ### Declarative desktop connections
 
 A desktop app can also load its connections from a file instead of pairing. Start it with
-`T3CODE_MANAGED_CONNECTIONS_FILE` pointing to a mode-`0600` JSON file:
+`T3CODE_MANAGED_CONNECTIONS_FILE` pointing to a JSON file:
 
 ```json
 {
@@ -224,16 +227,22 @@ A desktop app can also load its connections from a file instead of pairing. Star
       "label": "build-host",
       "httpBaseUrl": "https://build-host.example.ts.net/",
       "wsBaseUrl": "wss://build-host.example.ts.net/",
-      "token": "shared-managed-token"
+      "token": { "$file": "/run/secrets/t3code-fleet-token" }
     }
   ]
 }
 ```
 
+`token` is either `{ "$file": "/absolute/path" }` or the token itself. With `$file` the connections
+file holds no secret and can be generated and shared freely; the desktop reads the token file on
+every load, so a rotated token takes effect without editing the connections file. If any token
+file is missing, unreadable, or empty, the desktop reports the error instead of loading the
+catalog. An inline token makes the connections file a secret: keep it mode `0600`.
+
 The desktop catalog overlays these entries on its encrypted user-managed catalog and reconciles
-removed entries on the next load. This file carries the shared token, so treat it and the server
-token as secrets. Use this mode only over a trusted private network or authenticated HTTPS
-endpoint, and rotate the token on every server and client together.
+removed entries on the next load. Treat the token files and server token as secrets. Use this mode
+only over a trusted private network or authenticated HTTPS endpoint, and rotate the token on every
+server and client together.
 
 ## Desktop-managed SSH
 

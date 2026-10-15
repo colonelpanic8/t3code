@@ -60,12 +60,23 @@ const decodeRuntimeConnectionCatalogDocumentJson = Schema.decodeEffect(
   RuntimeConnectionCatalogDocumentJson,
 );
 
+// Exactly `{ "$file": "/absolute/path" }`, as in managed settings, so the
+// document itself can stay secret-free.
+const ManagedCredentialFile = Schema.Unknown.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => typeof value === "object" && value !== null && Object.keys(value).length === 1,
+    ),
+  ),
+  Schema.decodeTo(Schema.Struct({ $file: TrimmedNonEmptyString })),
+);
+
 const ManagedConnection = Schema.Struct({
   environmentId: EnvironmentId,
   label: TrimmedNonEmptyString,
   httpBaseUrl: TrimmedNonEmptyString,
   wsBaseUrl: TrimmedNonEmptyString,
-  token: TrimmedNonEmptyString,
+  token: Schema.Union([TrimmedNonEmptyString, ManagedCredentialFile]),
 });
 type ManagedConnection = typeof ManagedConnection.Type;
 
@@ -147,6 +158,20 @@ export class DesktopConnectionCatalogStoreDocumentDecodeError extends Schema.Tag
   }
 }
 
+export class DesktopManagedConnectionCredentialError extends Schema.TaggedError<DesktopManagedConnectionCredentialError>()(
+  "DesktopManagedConnectionCredentialError",
+  {
+    reason: Schema.Literals(["relative-path", "unreadable", "empty"]),
+    environmentId: Schema.String,
+    credentialPath: Schema.String,
+    cause: Schema.optionalKey(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Managed connection ${this.environmentId} cannot use credential file ${this.credentialPath}: ${this.reason}.`;
+  }
+}
+
 export class DesktopConnectionCatalogStoreMigrationError extends Schema.TaggedError<DesktopConnectionCatalogStoreMigrationError>()(
   "DesktopConnectionCatalogStoreMigrationError",
   {
@@ -186,6 +211,7 @@ export class DesktopConnectionCatalogStore extends Context.Service<
       | DesktopConnectionCatalogStoreDecodeError
       | DesktopConnectionCatalogStoreMigrationError
       | DesktopConnectionCatalogStoreProtectionError
+      | DesktopManagedConnectionCredentialError
     >;
     readonly set: (
       catalog: string,
@@ -319,9 +345,13 @@ function managedConnectionId(environmentId: string): string {
   return `${MANAGED_CONNECTION_ID_PREFIX}${environmentId}`;
 }
 
+interface ResolvedManagedConnection extends Omit<ManagedConnection, "token"> {
+  readonly token: string;
+}
+
 function registerManagedConnections(
   catalog: RuntimeConnectionCatalogDocumentType,
-  connections: ReadonlyArray<ManagedConnection>,
+  connections: ReadonlyArray<ResolvedManagedConnection>,
 ): RuntimeConnectionCatalogDocumentType {
   return connections.reduce((current, connection) => {
     const connectionId = managedConnectionId(connection.environmentId);
@@ -350,7 +380,7 @@ function registerManagedConnections(
 // Fleet members joined at runtime are not declared here and follow their fleet instead.
 function removeStaleManagedConnections(
   catalog: RuntimeConnectionCatalogDocumentType,
-  connections: ReadonlyArray<ManagedConnection>,
+  connections: ReadonlyArray<ResolvedManagedConnection>,
 ): RuntimeConnectionCatalogDocumentType {
   const declared = new Set(
     connections.map((connection) => managedConnectionId(connection.environmentId)),
@@ -477,6 +507,35 @@ export const make = Effect.gen(function* () {
     ),
   );
 
+  const resolveManagedConnection = Effect.fn(
+    "desktop.connectionCatalogStore.resolveManagedConnection",
+  )(function* (connection: ManagedConnection) {
+    if (typeof connection.token === "string") {
+      return { ...connection, token: connection.token };
+    }
+    const credentialPath = connection.token.$file;
+    const credentialError = (
+      reason: DesktopManagedConnectionCredentialError["reason"],
+      cause?: unknown,
+    ) =>
+      new DesktopManagedConnectionCredentialError({
+        reason,
+        environmentId: connection.environmentId,
+        credentialPath,
+        ...(cause === undefined ? {} : { cause }),
+      });
+    if (!path.isAbsolute(credentialPath)) {
+      return yield* credentialError("relative-path");
+    }
+    const token = (yield* fileSystem
+      .readFileString(credentialPath)
+      .pipe(Effect.mapError((cause) => credentialError("unreadable", cause)))).trim();
+    if (token.length === 0) {
+      return yield* credentialError("empty");
+    }
+    return { ...connection, token };
+  });
+
   const readManagedConnections = Effect.fn("desktop.connectionCatalogStore.readManagedConnections")(
     function* () {
       if (Option.isNone(environment.managedConnectionsPath)) {
@@ -501,7 +560,7 @@ export const make = Effect.gen(function* () {
             }),
         ),
       );
-      return document.connections;
+      return yield* Effect.forEach(document.connections, resolveManagedConnection);
     },
   );
 
