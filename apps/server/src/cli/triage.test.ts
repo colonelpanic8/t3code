@@ -4,26 +4,33 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import { Command } from "effect/cli";
 
 
+const triageContextFor = Effect.fn(function* (serverJson: unknown) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-triage-" });
+  const configFile = path.join(baseDir, "userdata", "server.json");
+  yield* fs.makeDirectory(path.dirname(configFile), { recursive: true });
+  yield* fs.writeFileString(configFile, JSON.stringify(serverJson));
+
+  yield* Command.runWith(triageCommand, { version: "0.0.0" })(["--base-dir", baseDir]).pipe(
+    Effect.provideService(HostProcess.Environment, {}),
+    Effect.provideService(Console.Console, { ...globalThis.console, log: () => {} }),
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
+  );
+
+  const runs = yield* fs.readDirectory(path.join(baseDir, "userdata", "triage"));
+  assert.lengthOf(runs, 1);
+  const context = yield* fs.readFileString(
+    path.join(baseDir, "userdata", "triage", runs[0]!, "context.md"),
+  );
+  return { baseDir, configFile, context };
+});
+
 it.effect("reports a malformed server.json and still writes the context", () =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-triage-" });
-    const configFile = path.join(baseDir, "userdata", "server.json");
-    yield* fs.makeDirectory(path.dirname(configFile), { recursive: true });
-    yield* fs.writeFileString(configFile, JSON.stringify({ mode: "daemon" }));
+    const { baseDir, configFile, context } = yield* triageContextFor({ mode: "daemon" });
 
-    yield* Command.runWith(triageCommand, { version: "0.0.0" })(["--base-dir", baseDir]).pipe(
-      Effect.provideService(HostProcess.Environment, {}),
-      Effect.provideService(Console.Console, { ...globalThis.console, log: () => {} }),
-      Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
-    );
-
-    const runs = yield* fs.readDirectory(path.join(baseDir, "userdata", "triage"));
-    assert.lengthOf(runs, 1);
-    const context = yield* fs.readFileString(
-      path.join(baseDir, "userdata", "triage", runs[0]!, "context.md"),
-    );
     assert.include(
       context,
       [
@@ -99,6 +106,21 @@ it.effect("says the server version is unknown when the state file has none", () 
     assert.equal(
       yield* describeServerProcess(statePath),
       `running (pid ${String(process.pid)}, http://127.0.0.1:3773, version not recorded)`,
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("names the server.json keys the server ignores", () =>
+  Effect.gen(function* () {
+    const { configFile, context } = yield* triageContextFor({
+      logLevel: "Info",
+      serverDataDir: "/elsewhere",
+      futureOption: true,
+    });
+
+    assert.include(
+      context,
+      `- Server config file (optional; the server reads it at startup): ${configFile} (ignored unknown keys: serverDataDir, futureOption)\n`,
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
