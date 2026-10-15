@@ -182,7 +182,10 @@ export const triageCommand = Command.make("triage", {
       }).pipe(
         Effect.map((file) => ({
           traceFile: file.options.traceFile,
-          description: configFile.path,
+          description:
+            file.unknownKeys.length === 0
+              ? configFile.path
+              : `${configFile.path} (ignored unknown keys: ${file.unknownKeys.join(", ")})`,
         })),
         Effect.catchTags({
           ServerConfigFileError: (error) =>
