@@ -213,6 +213,7 @@ function makeThreadCreatedEvent(input: {
   readonly threadId: ThreadId;
   readonly now: DateTime.Utc;
   readonly projectId?: ProjectId;
+  readonly blankSlate?: boolean;
 }) {
   return Effect.gen(function* () {
     const projectId =
@@ -236,6 +237,7 @@ function makeThreadCreatedEvent(input: {
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      ...(input.blankSlate === true ? { blankSlate: true } : {}),
       activeProviderThreadId: providerThreadId,
       lineage: {
         parentThreadId: null,
@@ -609,6 +611,7 @@ function runBrowserAccessScenario(input: {
   readonly deviceOverride?: boolean;
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
+  readonly blankSlate?: boolean;
 }) {
   return Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -637,7 +640,15 @@ function runBrowserAccessScenario(input: {
       });
       if (input.createThread !== false) {
         yield* eventSink.write({
-          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now, projectId })],
+          events: [
+            yield* makeThreadCreatedEvent({
+              idAllocator,
+              threadId,
+              now,
+              projectId,
+              ...(input.blankSlate === true ? { blankSlate: true } : {}),
+            }),
+          ],
         });
       }
       yield* manager
@@ -1956,6 +1967,17 @@ it.effect("ProviderSessionManagerV2 fails browser access closed for a missing th
     });
     assert.isDefined(captured);
     assert.equal(captured?.browserToolsAvailable, false);
+  }),
+);
+
+it.effect("ProviderSessionManagerV2 attaches no MCP server to a blank-slate thread", () =>
+  Effect.gen(function* () {
+    const captured = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      projectOverride: true,
+      blankSlate: true,
+    });
+    assert.isUndefined(captured);
   }),
 );
 
