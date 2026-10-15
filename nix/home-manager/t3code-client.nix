@@ -85,9 +85,10 @@ in {
     '';
 
     keybindings = managedFiles.keybindingsOption ''
-      Keybindings fixed for the desktop app. They replace any environment's
-      bindings for the same commands, including in client-only mode, and also
-      apply to the backend the app starts itself.
+      Keybindings fixed for the desktop app. A managed rule replaces the
+      user's rules for the same command or the same shortcut. The app layers
+      them over whichever environment it uses, so a client-only desktop gets
+      them too, and they also apply to the backend the app starts itself.
     '';
   };
 
