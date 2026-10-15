@@ -172,6 +172,11 @@ describe("T3 storage paths", () => {
       });
     });
 
+    it("keeps ~/.t3 when only its caches show a legacy server ran there", () => {
+      // A server whose config and data dirs are both overridden leaves nothing in userdata.
+      expect(select({ existing: ["/home/alice/.t3/caches"] })).toMatchObject({ roots: legacy() });
+    });
+
     it("keeps an initialized split install when something later initializes ~/.t3", () => {
       expect(
         select({
