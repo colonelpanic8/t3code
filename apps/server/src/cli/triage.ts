@@ -29,6 +29,8 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import {
+  currentStorageHost,
+  resolveClientStorageRoots,
   resolveInstallLocations,
   resolveServerConfigFilePath,
   resolveServerLocations,
@@ -177,7 +179,16 @@ export const triageCommand = Command.make("triage", {
 
       // The service and the desktop app write their logs where the storage
       // layout puts them, whatever location overrides this shell sets.
-      const installLogsDir = (yield* resolveInstallLocations(flags)).logsDir;
+      const install = yield* resolveInstallLocations(flags);
+      const installLogsDir = install.logsDir;
+      const desktopLogsDir = path.join(
+        (yield* resolveClientStorageRoots({
+          serverRoots: install.storage.roots,
+          isDevelopment: false,
+          host: yield* currentStorageHost,
+        })).stateDir,
+        "logs",
+      );
       // A broken server config file is something to triage, not a reason to stop.
       const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
       const serverConfig = yield* readServerConfigFile(configFile.path, {
@@ -238,7 +249,7 @@ export const triageCommand = Command.make("triage", {
             // backend (such as WSL) and rotated copies; names come from
             // DesktopObservability.ts.
             serviceLogPath: path.join(installLogsDir, BootService.BOOT_SERVICE_LOG_FILE),
-            desktopBackendLogGlob: path.join(installLogsDir, "server-child*.log*"),
+            desktopBackendLogGlob: path.join(desktopLogsDir, "server-child*.log*"),
             serverConfigFile: serverConfig.description,
             serverTracePath:
               (yield* traceFileConfig) ?? serverConfig.traceFile ?? paths.serverTracePath,

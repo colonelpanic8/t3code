@@ -14,7 +14,11 @@ import {
   parsePersistedServerObservabilitySettings,
 } from "@t3tools/shared/serverSettings";
 import {
+  applyT3StorageDirectoryOverrides,
+  type LegacyStorageMigratedError,
+  resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
+  resolveT3ClientStorageRoots,
   resolveT3ConfiguredPath,
   resolveT3StorageDirectoryOverrides,
   selectT3Storage,
@@ -556,6 +560,43 @@ export const currentStorageHost = Effect.gen(function* () {
   } satisfies StorageHost;
 });
 
+const storageHostInput = Effect.fn(function* (host: StorageHost, isDevelopment: boolean) {
+  const path = yield* Path.Path;
+  return {
+    platform: host.platform,
+    homeDirectory: host.homeDirectory,
+    temporaryDirectory: host.temporaryDirectory,
+    ...(host.userId === undefined ? {} : { userId: host.userId }),
+    isDevelopment,
+    environment: yield* StorageLayoutEnv,
+    path: storagePathOperations(path),
+  };
+});
+
+/** The split roots for this host: platform defaults with any T3CODE_*_DIR selectors applied. */
+export const resolveSplitStorageRoots = Effect.fn("resolveSplitStorageRoots")(function* (input: {
+  readonly isDevelopment: boolean;
+  readonly host: StorageHost;
+}) {
+  const storageInput = yield* storageHostInput(input.host, input.isDevelopment);
+  return applyT3StorageDirectoryOverrides(
+    resolveDefaultT3StorageRoots(storageInput),
+    resolveT3StorageDirectoryOverrides(storageInput),
+  );
+});
+
+/** The directories a desktop client uses next to a server on `serverRoots`. */
+export const resolveClientStorageRoots = Effect.fn("resolveClientStorageRoots")(function* (input: {
+  readonly serverRoots: T3StorageRoots;
+  readonly isDevelopment: boolean;
+  readonly host: StorageHost;
+}) {
+  return resolveT3ClientStorageRoots({
+    ...(yield* storageHostInput(input.host, input.isDevelopment)),
+    serverRoots: input.serverRoots,
+  });
+});
+
 /** The storage a server uses, before any location override. */
 export interface ServerStorage {
   readonly roots: T3StorageRoots;
@@ -574,24 +615,21 @@ export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* 
   readonly host: StorageHost;
 }): Effect.fn.Return<
   ServerStorage,
-  Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
+  | Config.ConfigError
+  | T3StorageConfigurationError
+  | T3StorageProbeError
+  | LegacyStorageMigratedError,
   Path.Path
 > {
   const path = yield* Path.Path;
-  const pathOperations = storagePathOperations(path);
+  const storageInput = yield* storageHostInput(input.host, input.isDevelopment);
   const bootstrapHome = resolveT3ConfiguredPath(
     input.bootstrap?.t3Home,
     input.host.homeDirectory,
-    pathOperations,
+    storageInput.path,
   );
   const selection = selectT3Storage({
-    platform: input.host.platform,
-    homeDirectory: input.host.homeDirectory,
-    temporaryDirectory: input.host.temporaryDirectory,
-    ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
-    isDevelopment: input.isDevelopment,
-    environment: yield* StorageLayoutEnv,
-    path: pathOperations,
+    ...storageInput,
     baseDir: Option.getOrUndefined(input.baseDir),
     forcedLayout: Option.getOrUndefined(input.storageLayout),
     pinned:
@@ -608,6 +646,7 @@ export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* 
   switch (selection._tag) {
     case "Conflict":
     case "ProbeFailed":
+    case "Retired":
       return yield* selection.error;
     case "Selected":
       return selection;

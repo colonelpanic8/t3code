@@ -92,6 +92,22 @@ export function bootServiceBaseDirOf(contents: string): string | undefined {
   );
 }
 
+/** Where this host's service manager keeps the unit, whether or not one is installed. */
+export function bootServiceUnitPath(input: {
+  readonly platform: NodeJS.Platform;
+  readonly homeDir: string;
+  readonly path: Pick<Path.Path, "join">;
+}): string | undefined {
+  if (input.homeDir === "") return undefined;
+  if (input.platform === "linux") {
+    return input.path.join(input.homeDir, ".config", "systemd", "user", BOOT_SERVICE_UNIT_FILE);
+  }
+  if (input.platform === "darwin") {
+    return input.path.join(input.homeDir, "Library", "LaunchAgents", BOOT_SERVICE_PLIST_FILE);
+  }
+  return undefined;
+}
+
 export interface BootServicePlan {
   /**
    * What the service manager executes. npm-distributed runtimes run the

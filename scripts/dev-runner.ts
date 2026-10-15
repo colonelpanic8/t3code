@@ -9,6 +9,7 @@ import { resolveGitWorktreePath, resolveWorktreeT3Home } from "@t3tools/shared/d
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
+  T3_CLIENT_STORAGE_ENVIRONMENT_NAMES,
   T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
   T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
 } from "@t3tools/shared/storagePaths";
@@ -343,8 +344,10 @@ export function createDevRunnerEnv({
       delete output[name];
     }
     // A dev desktop would otherwise share the real desktop's settings, window
-    // state, and saved connections.
-    delete output.T3CODE_CLIENT_DIR;
+    // state, saved connections, and Electron profile.
+    for (const name of ["T3CODE_CLIENT_DIR", ...T3_CLIENT_STORAGE_ENVIRONMENT_NAMES]) {
+      delete output[name];
+    }
 
     // A dev-runner server is never launcher-managed. When the shell that runs
     // this script was itself spawned by the machine's managed t3 service (an

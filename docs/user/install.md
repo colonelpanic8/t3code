@@ -227,10 +227,10 @@ from npm, it stays as it is.
 
 ### Where the desktop app keeps its files
 
-The desktop app keeps its preferences and client settings in the
-[configuration directory](./storage-directories.md), and its window position
-and saved connections in the state directory, both `userdata` in a T3 home such
-as `~/.t3`. To keep all of them in one other place, start the app with
+The desktop app keeps its preferences and client settings in its
+[configuration directory](./storage-directories.md#desktop-app-storage), and its
+window position and saved connections in its state directory, both `userdata`
+in a T3 home such as `~/.t3`. To keep all of them in one other place, start the app with
 `--client-dir=<path>` or set `T3CODE_CLIENT_DIR=<path>`. The command-line option
 wins when both are set. Write the option with `=`; `--client-dir <path>` is ignored. A leading `~`
 means your home directory, and a relative path is resolved against the
@@ -244,7 +244,7 @@ This relocates only `desktop-settings.json`, `client-settings.json`,
 `desktop-window-state.json`, `connection-catalog.json`, and the older
 `saved-environments.json`, whichever storage layout is in use. The server's
 data, the sign-in tokens in `clerk-tokens.json`, Electron's browser profile,
-and caches stay where they are. Existing files are not moved; copy them into the
+logs, and caches stay where they are. Existing files are not moved; copy them into the
 new directory before the first launch to keep them.
 
 ### Windows Subsystem for Linux
