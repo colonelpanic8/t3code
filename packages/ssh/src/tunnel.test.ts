@@ -1783,10 +1783,90 @@ if (args[0] === "serve") {
     30_000,
   );
 
-  it("looks for a macOS split service's runtime file where every session finds it", () => {
-    assert.include(
-      SshTunnel.buildRemoteLaunchScript({ nodeScriptPath: "/t3.cjs" }),
-      '"$HOME/Library/Application Support/t3code/runtime/server-runtime.json"',
-    );
-  });
+  it.effect.skipIf(windowsHost)(
+    "searches every place a split runtime file can be, ~/.t3 last",
+    () =>
+      Effect.gen(function* () {
+        const launch = SshTunnel.buildRemoteLaunchScript({ nodeScriptPath: "/t3.cjs" });
+        const candidates = /\nruntime_file_candidates\(\) \{\n[\s\S]*?\n\}\n/.exec(launch)?.[0];
+        assert.isDefined(candidates);
+        const result = yield* runScript(
+          `${candidates}T3_STORAGE=split\nDEFAULT_RUNTIME_FILE=/h/.t3/userdata/server-runtime.json\nruntime_file_candidates >&2`,
+          [],
+          { PATH: process.env.PATH ?? "", HOME: "/h", XDG_RUNTIME_DIR: "/run/x", TMPDIR: "/t" },
+        );
+        const uid = String(process.getuid?.() ?? 0);
+        assert.deepEqual(result.stderr.trim().split("\n"), [
+          "/run/x/t3code/server-runtime.json",
+          "/h/Library/Application Support/t3code/runtime/server-runtime.json",
+          `/run/user/${uid}/t3code/server-runtime.json`,
+          `/t/t3code-${uid}/server-runtime.json`,
+          "/h/.t3/userdata/server-runtime.json",
+        ]);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  const pairWithRecordedStorage = (storage: string, extraEnv: Record<string, string> = {}) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-pair-storage-" });
+      const home = `${root}/home`;
+      const record = `${root}/record.ndjson`;
+      const fakeT3 = `${root}/fake-t3.cjs`;
+      const stateKey = "recorded";
+      yield* fs.makeDirectory(`${home}/.t3/ssh-launch/${stateKey}`, { recursive: true });
+      yield* fs.writeFileString(`${home}/.t3/ssh-launch/${stateKey}/storage`, storage);
+      yield* fs.writeFileString(fakeT3, FAKE_T3);
+      const pairing = yield* runScript(
+        SshTunnel.buildRemotePairingScript(stateKey, { nodeScriptPath: fakeT3 }),
+        [],
+        { PATH: process.env.PATH ?? "", HOME: home, T3_FAKE_RECORD: record, ...extraEnv },
+      );
+      assert.equal(pairing.exitCode, 0, pairing.stderr);
+      const pair = (yield* readInvocations(fs, record)).find((entry) => entry.args[0] === "auth");
+      return { pair, home };
+    });
+
+  it.effect.skipIf(windowsHost)("decides afresh when the recorded storage is empty", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-pair-state-" });
+      yield* fs.writeFileString(`${stateDir}/statev2.sqlite`, "");
+
+      const { pair } = yield* pairWithRecordedStorage("", { T3CODE_STATE_DIR: stateDir });
+
+      assert.deepEqual(pair?.args, ["auth", "pairing", "create", "--json"]);
+      assert.deepEqual(pair?.selectors, ["T3CODE_STATE_DIR"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.skipIf(windowsHost)("keeps a recorded selector on a last line with no newline", () =>
+    Effect.gen(function* () {
+      const { pair } = yield* pairWithRecordedStorage(
+        "T3_STORAGE=split\nT3CODE_STATE_DIR=/srv/t3-state",
+      );
+
+      assert.deepEqual(pair?.args, ["auth", "pairing", "create", "--json"]);
+      assert.deepEqual(pair?.selectors, ["T3CODE_STATE_DIR"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.skipIf(windowsHost)("drops an inherited T3CODE_HOME when restoring ~/.t3", () =>
+    Effect.gen(function* () {
+      const { pair, home } = yield* pairWithRecordedStorage("T3_STORAGE=legacy\n", {
+        T3CODE_HOME: "/elsewhere",
+        T3CODE_STATE_DIR: "/inherited-state",
+      });
+
+      assert.deepEqual(pair?.args, [
+        "auth",
+        "pairing",
+        "create",
+        "--base-dir",
+        `${home}/.t3`,
+        "--json",
+      ]);
+      assert.deepEqual(pair?.selectors, []);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });

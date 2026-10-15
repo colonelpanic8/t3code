@@ -595,14 +595,20 @@ t3_record_storage() {
         printf '%s=%s\\n' "$T3_NAME" "$T3_VALUE"
       fi
     done
-  } >"$STATE_DIR/storage"
+  } >"$STATE_DIR/storage.$$"
+  mv -f "$STATE_DIR/storage.$$" "$STATE_DIR/storage"
 }
 t3_restore_storage() {
+  # Without a decision in it, the record tells nothing, so decide afresh.
+  if ! grep -Eq '^T3_STORAGE=(split|legacy)$' "$STATE_DIR/storage"; then
+    t3_select_storage
+    return
+  fi
   unset T3CODE_HOME ${T3_SELECTOR_NAMES} ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
   T3_STORAGE="legacy"
   # Each line is NAME=value for one of the names above, exported as it is.
   # shellcheck disable=SC2163
-  while IFS= read -r T3_LINE; do
+  while IFS= read -r T3_LINE || [ -n "$T3_LINE" ]; do
     case "$T3_LINE" in
       T3_STORAGE=split) T3_STORAGE="split" ;;
       ${T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.map((name) => `${name}=*`).join("|")}) export "$T3_LINE" ;;
