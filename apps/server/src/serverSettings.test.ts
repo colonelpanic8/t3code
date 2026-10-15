@@ -20,6 +20,7 @@ import * as Duration from "effect/Duration";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
@@ -2246,6 +2247,11 @@ const layerSecretStoreFailingSets = (fails: (secretName: string) => boolean) =>
     })),
   ).pipe(Layer.provide(ServerSecretStore.layer));
 
+const githubTokenSecretName = (serverHost: string) =>
+  sourceControlHostSecretName({ kind: "github", field: "tokens", serverHost });
+const providerEnvSecretName = (instanceId: string, variable: string) =>
+  `provider-env-${Buffer.from(instanceId).toString("base64url")}-${Buffer.from(variable).toString("base64url")}`;
+
 const readStoredSecret = (secretName: string) =>
   Effect.gen(function* () {
     const store = yield* ServerSecretStore.ServerSecretStore;
@@ -2898,10 +2904,12 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
     {
       name: "a mixed-case host key",
       shared: { sourceControlHosts: { github: { tokens: { "GitHub.com": "ghp_shared" } } } },
+      secretName: githubTokenSecretName("github.com"),
     },
     {
       name: "a padded host key",
       shared: { sourceControlHosts: { github: { tokens: { " github.com ": "ghp_shared" } } } },
+      secretName: githubTokenSecretName("github.com"),
     },
     {
       name: "an explicitly unredacted environment value",
@@ -2916,6 +2924,7 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
           },
         },
       },
+      secretName: providerEnvSecretName("codex_work", "OPENAI_API_KEY"),
     },
     {
       name: "a non-string secret field",
@@ -2928,6 +2937,7 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
           },
         },
       },
+      secretName: providerEnvSecretName("antigravity_work", "OPENROUTER_API_KEY"),
     },
     {
       name: "a padded price override model id",
@@ -2936,8 +2946,9 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
           " vendor/model ": { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 },
         },
       },
+      secretName: undefined,
     },
-  ])("keeps inherited shared values with $name out of settings.json", ({ shared }) =>
+  ])("keeps inherited shared values with $name out of settings.json", ({ shared, secretName }) =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
@@ -2949,6 +2960,9 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
       assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
         defaultAutoPull: true,
       });
+      if (secretName !== undefined) {
+        assert.deepEqual(yield* readStoredSecret(secretName), Option.none());
+      }
     }).pipe(Effect.provide(layerSharedServerSettings())),
   );
 
@@ -3238,6 +3252,113 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
       assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
     }).pipe(Effect.provide(layerSharedServerSettings())),
   );
+
+  const DUPLICATE_GITHUB_TOKENS = { "GitHub.com": "first", "github.com": "last" };
+
+  it.effect.each([
+    {
+      source: "the shared file",
+      shared: { sourceControlHosts: { github: { tokens: DUPLICATE_GITHUB_TOKENS } } },
+      local: {},
+      inShared: true,
+    },
+    {
+      source: "settings.json",
+      shared: {},
+      local: { sourceControlHosts: { github: { tokens: DUPLICATE_GITHUB_TOKENS } } },
+      inShared: false,
+    },
+    {
+      source: "a retired github key",
+      shared: { sourceControlHosts: { github: { tokens: { "ghe.test": "ghp_shared" } } } },
+      local: { github: { tokens: DUPLICATE_GITHUB_TOKENS } },
+      inShared: false,
+    },
+  ])("warns when $source spells one secret host two ways", ({ shared, local, inShared }) => {
+    const warnings: Array<unknown> = [];
+    const logger = Logger.make(({ message }) => {
+      const [text, annotations] = Array.isArray(message) ? message : [message];
+      if (text === "a settings file names one secret host more than once; the last wins") {
+        warnings.push(annotations);
+      }
+    });
+    return Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings(shared);
+      yield* fs.writeFileString(config.settingsPath, JSON.stringify(local));
+
+      const tokens = (yield* service.getSettings).sourceControlHosts.github?.tokens as
+        | Record<string, unknown>
+        | undefined;
+      assert.equal(tokens?.["github.com"], "last");
+
+      assert.deepEqual(warnings, [
+        { path: inShared ? config.sharedSettingsPath : config.settingsPath, duplicates: 1 },
+      ]);
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          layerSharedServerSettings(),
+          Logger.layer([logger], { mergeWithExisting: false }),
+        ),
+      ),
+    );
+  });
+
+  it.effect.each([
+    { name: "without a shared file", withShared: false },
+    { name: "beneath a shared host", withShared: true },
+  ])("migrates a retired placeholder whose new name cannot be read $name", ({ withShared }) => {
+    const layerSecret = Layer.effect(
+      ServerSecretStore.ServerSecretStore,
+      Effect.map(ServerSecretStore.ServerSecretStore, (store) => ({
+        ...store,
+        get: (secretName: string) =>
+          secretName === githubTokenSecretName("github.com")
+            ? Effect.fail(
+                new ServerSecretStore.SecretStoreReadError({
+                  resource: "source control token",
+                  cause: new Error("Secret storage unavailable"),
+                }),
+              )
+            : store.get(secretName),
+      })),
+    ).pipe(Layer.provide(ServerSecretStore.layer));
+    const layerSettings = withShared
+      ? layerSharedServerSettings(layerSecret)
+      : ServerSettingsModule.layer.pipe(
+          Layer.provideMerge(layerSecret),
+          Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+          Layer.provideMerge(
+            Layer.fresh(
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3code-settings-probe-test-" }),
+            ),
+          ),
+        );
+    return Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const marker = "\u2022\u2022\u2022\u2022\u2022\u2022";
+      if (withShared) {
+        yield* writeSharedSettings({
+          sourceControlHosts: { github: { tokens: { "github.com": "ghp_shared" } } },
+        });
+      }
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ github: { tokens: { "github.com": marker } } }),
+      );
+
+      yield* Effect.exit(service.getSettings);
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        sourceControlHosts: { github: { tokens: { "github.com": marker } } },
+      });
+    }).pipe(Effect.provide(layerSettings));
+  });
 
   it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
     Effect.gen(function* () {
