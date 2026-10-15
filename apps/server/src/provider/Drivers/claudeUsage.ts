@@ -22,10 +22,12 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 /**
  * Parses one line of a Claude Code transcript.
  *
- * T3 Code writes one record per assistant *content block*, and every one of
- * those records repeats the same complete `usage` object for the parent
- * message. Summing them overcounts by roughly 2.4x on a real workload, so the
- * caller must drop repeats by `dedupeKey` and keep the first.
+ * Claude Code writes one record per assistant *content block*, each repeating
+ * the parent message's `usage`. Main-session transcripts repeat it verbatim;
+ * subagent transcripts (`agent-*.jsonl`) report a streaming-partial
+ * `output_tokens` on every block but the last. Summing them overcounts by
+ * roughly 2.4x on a real workload, so callers collapse repeats by `dedupeKey`
+ * with `dedupeWithinFile`, which keeps the largest output count.
  */
 export function parseClaudeLine(line: string): UsageRecord | null {
   let parsed: unknown;
