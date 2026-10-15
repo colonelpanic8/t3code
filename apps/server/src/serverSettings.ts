@@ -801,9 +801,7 @@ function restoreUnmanagedSettings(
 
 interface ManagedEntry {
   readonly key: string;
-  /** Set for one whole entry of an atomic entry map. */
-  readonly id?: string;
-  /** `key`, or `key.id`, for warnings. */
+  /** `key`, or `key.id` for one whole entry of an atomic entry map, for warnings. */
   readonly setting: string;
   readonly document: SettingsDocument;
 }
@@ -814,21 +812,11 @@ function managedEntries(document: SettingsDocument): ReadonlyArray<ManagedEntry>
     ATOMIC_ENTRY_SETTINGS_KEYS.has(key) && isSettingsDocument(value)
       ? Object.entries(value).map(([id, entry]) => ({
           key,
-          id,
           setting: `${key}.${id}`,
           document: { [key]: { [id]: entry } },
         }))
       : [{ key, setting: key, document: { [key]: value } }],
   );
-}
-
-/** Whether `settings` lacks the id of an atomic entry in `document`, as decoding rewrote it. */
-function hasRewrittenEntryId(settings: ServerSettings, document: SettingsDocument): boolean {
-  const decoded: SettingsDocument = settings;
-  return managedEntries(document).some(({ key, id }) => {
-    const entries = decoded[key];
-    return id !== undefined && !(isSettingsDocument(entries) && Object.hasOwn(entries, id));
-  });
 }
 
 const hasFileReference = (value: unknown): boolean =>
@@ -1419,7 +1407,11 @@ const make = Effect.gen(function* () {
 
   const ignoreManagedSetting = (
     setting: string,
-    details: { readonly reason: string; readonly cause?: unknown },
+    details: {
+      readonly reason: string;
+      readonly paths?: ReadonlyArray<string>;
+      readonly cause?: unknown;
+    },
   ) =>
     Effect.logWarning("ignoring a managed setting", {
       path: managedSettingsPath,
@@ -1496,6 +1488,22 @@ const make = Effect.gen(function* () {
       Effect.flatMap(normalizeServerSettings),
     );
 
+  /** Applies `managed`, also returning the managed leaf paths decoding renamed or dropped. */
+  const enforceManagedLayer = (settings: ServerSettings, managed: SettingsDocument) =>
+    applyManagedLayer(settings, managed).pipe(
+      Effect.flatMap((effective) =>
+        encodeServerSettings(effective).pipe(
+          Effect.mapError(managedFileError),
+          Effect.map((encoded) => ({
+            effective,
+            dropped: managedLeafPaths(managed)
+              .filter((path) => readSettingsPath(encoded, path) === undefined)
+              .map((path) => path.join(".")),
+          })),
+        ),
+      ),
+    );
+
   const settingsStateFor = (
     layer: SettingsLayer,
     settings: ServerSettings,
@@ -1511,18 +1519,18 @@ const make = Effect.gen(function* () {
         managed: undefined,
       };
       if (managed === undefined) return unmanaged;
-      const whole = yield* Effect.exit(applyManagedLayer(settings, managed.document));
-      if (Exit.isSuccess(whole) && !hasRewrittenEntryId(whole.value, managed.document)) {
-        return { ...unmanaged, effective: whole.value, managed };
+      const whole = yield* Effect.exit(enforceManagedLayer(settings, managed.document));
+      if (Exit.isSuccess(whole) && whole.value.dropped.length === 0) {
+        return { ...unmanaged, effective: whole.value.effective, managed };
       }
       // Drop only the entries not enforced as written, so the rest of the file still is.
       let document: SettingsDocument = {};
       for (const entry of managedEntries(managed.document)) {
-        const rejection = yield* applyManagedLayer(settings, entry.document).pipe(
-          Effect.map((effective) =>
-            hasRewrittenEntryId(effective, entry.document)
-              ? { reason: "has an id that is not kept as written" }
-              : undefined,
+        const rejection = yield* enforceManagedLayer(settings, entry.document).pipe(
+          Effect.map(({ dropped }) =>
+            dropped.length === 0
+              ? undefined
+              : { reason: "is renamed or dropped by the settings schema", paths: dropped },
           ),
           Effect.catch((error) =>
             Effect.succeed({
