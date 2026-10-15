@@ -82,3 +82,5 @@ layout. When both exist, the server uses the split directories and logs a
 warning naming the `~/.t3` it ignores. If either location cannot be checked,
 for example because of its permissions, the server refuses to start rather than
 guess. Startup does not copy, move, delete, or automatically switch any data.
+An SSH connection from the desktop app uses a remote's split directories when
+they already hold a server's state, and `~/.t3` on the remote otherwise.
