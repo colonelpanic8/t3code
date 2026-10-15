@@ -190,6 +190,27 @@ terminal, open **Settings → General → About** and choose **Install** next to
 terminal afterwards. **Remove** takes it off again. If you already have `t3`
 from npm, it stays as it is.
 
+### Where the desktop app keeps its files
+
+The desktop app keeps its preferences, client settings, window position, and
+saved connections in the server's `userdata` directory, `~/.t3/userdata` by
+default. To keep them somewhere else, start the app with `--client-dir=<path>`
+or set `T3CODE_CLIENT_DIR=<path>`. The command-line option wins when both are
+set. Write the option with `=`; `--client-dir <path>` is ignored. A leading `~`
+means your home directory, and a relative path is resolved against the
+directory the app starts in.
+
+Links that open the app, such as `t3code://` links, start it without your
+command-line options. To use a client directory every time, set
+`T3CODE_CLIENT_DIR` in your login environment instead.
+
+This relocates only `desktop-settings.json`, `client-settings.json`,
+`desktop-window-state.json`, `connection-catalog.json`, and the older
+`saved-environments.json`. The server's data, the sign-in tokens in
+`clerk-tokens.json`, Electron's browser profile, and caches stay where they
+are. Existing files are not moved; copy them into the new directory before the
+first launch to keep them.
+
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
