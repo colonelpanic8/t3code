@@ -72,9 +72,9 @@ not moved for you: stop the server and move them yourself before pointing it at
 a new location.
 
 Setting or changing a data directory signs every browser out once, since login
-sessions are tied to where the server keeps its data. The desktop app keeps its
-own saved browser screenshots in its own directories, and a server with a data
-directory does not clean those up.
+sessions are tied to where the server keeps its data. The desktop app
+saves its browser screenshots in the data directory too, where the server
+prunes them, when `T3CODE_SERVER_DATA_DIR` is set in its environment.
 
 Use absolute paths in these variables. A relative value is resolved against the
 working directory of each process that reads it, which differs between your

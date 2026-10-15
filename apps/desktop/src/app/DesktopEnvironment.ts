@@ -238,9 +238,16 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const resourcesPath = input.resourcesPath;
   const backendCwd = input.isPackaged ? homeDirectory : appRoot;
   // The local backend inherits this env and resolves the override against its cwd.
+  const resolveServerOverride = (dir: string) =>
+    path.resolve(backendCwd, expandT3HomePath(dir, homeDirectory, path));
   const serverConfigDir = Option.match(config.serverConfigDir, {
     onNone: () => configDir,
-    onSome: (dir) => path.resolve(backendCwd, expandT3HomePath(dir, homeDirectory, path)),
+    onSome: resolveServerOverride,
+  });
+  // The backend prunes screenshots in its data dir, so the desktop's go there too.
+  const serverDataDir = Option.match(config.serverDataDir, {
+    onNone: () => (storageRoots.layout === "legacy" ? stateDir : dataDir),
+    onSome: resolveServerOverride,
   });
 
   return DesktopEnvironment.of({
@@ -266,11 +273,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     ...clientPaths,
     serverSettingsPath: path.join(serverConfigDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
-    // The same directory as the server's, which prunes both by age.
-    browserArtifactsDir: path.join(
-      storageRoots.layout === "legacy" ? stateDir : dataDir,
-      "browser-artifacts",
-    ),
+    browserArtifactsDir: path.join(serverDataDir, "browser-artifacts"),
     electronUserDataPath: path.join(stateDir, "electron"),
     rootDir,
     appRoot,

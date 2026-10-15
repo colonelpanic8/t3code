@@ -39,6 +39,7 @@ export const DesktopConfig = Config.all({
   xdgConfigHome: trimmedString("XDG_CONFIG_HOME"),
   xdgDataHome: trimmedString("XDG_DATA_HOME"),
   serverConfigDir: trimmedString("T3CODE_SERVER_CONFIG_DIR"),
+  serverDataDir: trimmedString("T3CODE_SERVER_DATA_DIR"),
   clientDir: trimmedString("T3CODE_CLIENT_DIR"),
   // The same variables the server's storage selection reads.
   storageEnvironment: Config.all(
