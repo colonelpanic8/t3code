@@ -17,8 +17,8 @@ import {
   OTHER_SERIES_COLOR,
   formatPeriod,
   formatPeriodShort,
-  usageRowLabel,
   usageSeriesColors,
+  usageSeriesLabels,
 } from "./usageSeries";
 
 const VIEW_WIDTH = 960;
@@ -199,15 +199,14 @@ export function UsageChart({
       stack.series.flatMap((series) => (series.row === null ? [] : [series.row])),
       dimensions,
     );
-    const context = { environmentLabels, grouping, timeZone };
-    const series = stack.series.map((entry) => ({
+    const labels = usageSeriesLabels(stack.series, dimensions, {
+      environmentLabels,
+      grouping,
+      timeZone,
+    });
+    const series = stack.series.map((entry, index) => ({
       key: entry.key,
-      label:
-        entry.row === null
-          ? "Other"
-          : dimensions.length === 0
-            ? "Total"
-            : usageRowLabel(entry.row, dimensions, context),
+      label: labels[index] ?? "",
       color: colors.get(entry.key) ?? OTHER_SERIES_COLOR,
       loading:
         entry.row?.provider === undefined

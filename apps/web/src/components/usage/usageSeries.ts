@@ -96,6 +96,33 @@ export function usageRowLabel(
     .join(" · ");
 }
 
+/**
+ * Chart series names. With models split but providers not, a model name that
+ * several providers serve is named with its provider so the two read apart.
+ */
+export function usageSeriesLabels(
+  series: readonly { readonly row: UsagePivotRow | null }[],
+  dimensions: readonly UsageDimension[],
+  context: UsageLabelContext,
+): readonly string[] {
+  const labels = series.map(({ row }) =>
+    row === null
+      ? "Other"
+      : dimensions.length === 0
+        ? "Total"
+        : usageRowLabel(row, dimensions, context),
+  );
+  if (!dimensions.includes("model") || dimensions.includes("provider")) return labels;
+  const counts = new Map<string, number>();
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return series.map(({ row }, index) => {
+    const label = labels[index] ?? "";
+    return row !== null && (counts.get(label) ?? 0) > 1
+      ? usageRowLabel(row, [...dimensions, "provider"], context)
+      : label;
+  });
+}
+
 /** Hues spaced for separation, at a lightness that reads on both themes. */
 const SERIES_PALETTE = [255, 40, 150, 310, 85, 200, 0, 120, 280, 60].map(
   (hue) => `oklch(0.68 0.13 ${hue})`,
