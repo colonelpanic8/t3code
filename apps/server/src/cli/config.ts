@@ -323,7 +323,8 @@ export const loadServerConfigFile = Effect.fn(function* (
   configDir: string,
 ) {
   const file = yield* resolveServerConfigFilePath(flags, configDir);
-  return yield* readServerConfigFile(file.path, { explicit: file.explicit });
+  const read = yield* readServerConfigFile(file.path, { explicit: file.explicit });
+  return { path: file.path, ...read };
 });
 
 export interface CliServerFlags extends CliServerLocationFlags {
@@ -349,11 +350,16 @@ export const serverLocationFlags = {
   serverConfigDir: serverConfigDirFlag,
   serverDataDir: serverDataDirFlag,
   serverCacheDir: serverCacheDirFlag,
+} as const;
+
+/** For commands that read the server config file as well as the server's files. */
+export const serverConfigFileFlags = {
+  ...serverLocationFlags,
   serverConfigFile: serverConfigFileFlag,
 } as const;
 
 export const authLocationFlags = {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   devUrl: devUrlFlag,
 } as const;
 
@@ -369,7 +375,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
       "Working directory for provider sessions (defaults to the current directory).",
@@ -446,7 +452,8 @@ export const resolveServerConfig = (
       devUrl,
       fallbackBaseDir: bootstrap?.t3Home,
     });
-    const file = yield* loadServerConfigFile(normalizedFlags, derivedPaths.configDir);
+    const serverConfigFile = yield* loadServerConfigFile(normalizedFlags, derivedPaths.configDir);
+    const file = serverConfigFile.options;
 
     const mode: ServerConfig.RuntimeMode = Option.getOrElse(
       resolveOptionPrecedence(
@@ -647,6 +654,7 @@ export const resolveServerConfig = (
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,
+      serverConfigFile: { path: serverConfigFile.path, unknownKeys: serverConfigFile.unknownKeys },
     };
 
     return config;
