@@ -68,6 +68,12 @@ const RATES_TTL_MS = 24 * 60 * 60 * 1000;
 const RATES_REFRESH_FLOOR_MS = 60 * 1000;
 
 /**
+ * A scan does not retry a failed load sooner, since each attempt can hold it
+ * for its timeouts. An explicit refresh only waits out the refresh floor.
+ */
+const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+/**
  * Files are filtered by mtime before opening. The slack covers a session whose
  * last write lands just before local midnight on the window's first day.
  */
@@ -214,6 +220,8 @@ export const make = Effect.gen(function* () {
   let ratesFetchedAtMs: number | null = null;
   let ratesLastFailedAtMs: number | null = null;
   let ratesStatus: UsagePricing["status"] = "unavailable";
+  const ratesBackingOff = (now: number, backoffMs = RATES_RETRY_BACKOFF_MS) =>
+    ratesLastFailedAtMs !== null && now - ratesLastFailedAtMs < backoffMs;
   const ratesLock = yield* Semaphore.make(1);
 
   const pricing = (): UsagePricing => ({
@@ -257,7 +265,7 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    if (ratesLastFailedAtMs !== null && now - ratesLastFailedAtMs < RATES_REFRESH_FLOOR_MS) return;
+    if (ratesBackingOff(now, force ? RATES_REFRESH_FLOOR_MS : RATES_RETRY_BACKOFF_MS)) return;
 
     let fetched = yield* fetchRates(LITELLM_RATES_URL);
     if (fetched === null) {
@@ -281,6 +289,12 @@ export const make = Effect.gen(function* () {
   });
 
   const ensureRates = (force: boolean) => ratesLock.withPermit(loadRates(force));
+
+  // During backoff a scan skips the lock too, so it never waits on an explicit
+  // refresh that is likely to fail the same way.
+  const ensureScanRates = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+    ratesBackingOff(now) ? Effect.void : ensureRates(false),
+  );
 
   const refreshRates = ensureRates(true).pipe(
     Effect.map(pricing),
@@ -680,7 +694,7 @@ export const make = Effect.gen(function* () {
 
     const [, scannedDirs] = yield* Effect.all(
       [
-        ensureRates(false),
+        ensureScanRates,
         collectDirs(windowStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
       ],
       { concurrency: 2 },
