@@ -7,6 +7,9 @@ export const T3CODE_DATA_DIR_ENV = "T3CODE_DATA_DIR";
 export const T3CODE_STATE_DIR_ENV = "T3CODE_STATE_DIR";
 export const T3CODE_CACHE_DIR_ENV = "T3CODE_CACHE_DIR";
 export const T3CODE_RUNTIME_DIR_ENV = "T3CODE_RUNTIME_DIR";
+export const T3CODE_CLIENT_CONFIG_DIR_ENV = "T3CODE_CLIENT_CONFIG_DIR";
+export const T3CODE_CLIENT_STATE_DIR_ENV = "T3CODE_CLIENT_STATE_DIR";
+export const T3CODE_CLIENT_CACHE_DIR_ENV = "T3CODE_CLIENT_CACHE_DIR";
 
 /** The split layout's root selectors. */
 export const T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES = [
@@ -23,9 +26,20 @@ export const T3_STORAGE_ENVIRONMENT_NAMES = [
   ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
 ] as const;
 
-/** Every variable storage selection reads, so each process reads the same ones. */
+/** The desktop client's split-layout root selectors. */
+export const T3_CLIENT_STORAGE_ENVIRONMENT_NAMES = [
+  T3CODE_CLIENT_CONFIG_DIR_ENV,
+  T3CODE_CLIENT_STATE_DIR_ENV,
+  T3CODE_CLIENT_CACHE_DIR_ENV,
+] as const;
+
+/**
+ * Every variable storage selection and the client roots read, so each process
+ * reads the same ones.
+ */
 export const T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES = [
   ...T3_STORAGE_ENVIRONMENT_NAMES,
+  ...T3_CLIENT_STORAGE_ENVIRONMENT_NAMES,
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
   "XDG_STATE_HOME",
@@ -64,6 +78,13 @@ export interface T3LegacyStorageRoots extends T3StorageDirectories {
 }
 
 export type T3StorageRoots = T3SplitStorageRoots | T3LegacyStorageRoots;
+
+/** Directories owned by the desktop client rather than by any server. */
+export interface T3ClientStorageRoots {
+  readonly configDir: string;
+  readonly stateDir: string;
+  readonly cacheDir: string;
+}
 
 export interface T3StorageDirectoryOverrides {
   readonly configDir?: string;
@@ -155,8 +176,14 @@ export function resolveT3StorageDirectoryOverrides(input: {
 export function resolveDefaultT3StorageRoots(
   input: ResolveDefaultT3StorageRootsInput,
 ): T3SplitStorageRoots {
-  const { environment, homeDirectory, isDevelopment, path, platform, temporaryDirectory } = input;
-  const applicationDirectoryName = isDevelopment ? "t3code-dev" : "t3code";
+  return resolvePlatformStorageRoots(input, input.isDevelopment ? "t3code-dev" : "t3code");
+}
+
+function resolvePlatformStorageRoots(
+  input: ResolveDefaultT3StorageRootsInput,
+  applicationDirectoryName: string,
+): T3SplitStorageRoots {
+  const { environment, homeDirectory, path, platform, temporaryDirectory } = input;
   const runtimeFallbackName =
     input.userId === undefined
       ? applicationDirectoryName
@@ -216,6 +243,34 @@ export function resolveDefaultT3StorageRoots(
       xdgRuntimeHome === undefined
         ? path.join(temporaryDirectory, runtimeFallbackName)
         : path.join(xdgRuntimeHome, applicationDirectoryName),
+  };
+}
+
+/**
+ * The legacy tree keeps client files beside the server's. The split layout
+ * gives the client its own application directories, so a desktop that never
+ * starts a backend writes nothing into a server's storage.
+ */
+export function resolveT3ClientStorageRoots(
+  input: ResolveDefaultT3StorageRootsInput & { readonly serverRoots: T3StorageRoots },
+): T3ClientStorageRoots {
+  const { environment, homeDirectory, path, serverRoots } = input;
+  if (serverRoots.layout === "legacy") {
+    return {
+      configDir: serverRoots.configDir,
+      stateDir: serverRoots.stateDir,
+      cacheDir: serverRoots.stateDir,
+    };
+  }
+  const defaults = resolvePlatformStorageRoots(
+    input,
+    input.isDevelopment ? "t3code-client-dev" : "t3code-client",
+  );
+  const resolve = (name: string) => resolveT3ConfiguredPath(environment[name], homeDirectory, path);
+  return {
+    configDir: resolve(T3CODE_CLIENT_CONFIG_DIR_ENV) ?? defaults.configDir,
+    stateDir: resolve(T3CODE_CLIENT_STATE_DIR_ENV) ?? defaults.stateDir,
+    cacheDir: resolve(T3CODE_CLIENT_CACHE_DIR_ENV) ?? defaults.cacheDir,
   };
 }
 

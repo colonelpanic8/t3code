@@ -19,9 +19,7 @@ configuration directory. Attachments, worktrees, and saved browser screenshots
 directory. The SQLite database, identity, secrets, and logs live in the state
 directory. Provider status caches live in `provider-status/` in the cache
 directory. Live-server discovery state lives in the runtime directory. The
-desktop app's own settings and window state follow the same split unless a
-[client directory](./install.md#where-the-desktop-app-keeps-its-files) holds
-them.
+desktop app keeps its own files in [separate directories](#desktop-app-storage).
 
 On macOS they live in `~/Library/Application Support/t3code` and
 `~/Library/Caches/t3code`, and the XDG variables are not used, because an app
@@ -73,6 +71,30 @@ an initialized legacy installation exists or `T3CODE_HOME` is set. Use
 `--storage-layout legacy` to force the legacy tree, `T3CODE_HOME` or else
 `~/.t3`, even when it has not been initialized, ignoring the overrides above.
 `xdg` cannot be combined with `--base-dir`.
+
+## Desktop app storage
+
+With the split layout, the desktop app keeps its own files apart from any
+server's, so a desktop that only connects to other servers never writes into a
+server's directories. On Linux, the defaults are:
+
+| Purpose       | Default                                               | Holds                                                                                         |
+| ------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Configuration | `${XDG_CONFIG_HOME:-$HOME/.config}/t3code-client`     | Desktop and client settings                                                                   |
+| State         | `${XDG_STATE_HOME:-$HOME/.local/state}/t3code-client` | Window state, saved connections and their credentials, sign-in tokens, Electron profile, logs |
+| Cache         | `${XDG_CACHE_HOME:-$HOME/.cache}/t3code-client`       | Disposable desktop caches                                                                     |
+
+On macOS they live in `~/Library/Application Support/t3code-client` and
+`~/Library/Caches/t3code-client`, again without the XDG variables. On Windows
+they live in `%APPDATA%\t3code-client` and `%LOCALAPPDATA%\t3code-client`.
+Override them with `T3CODE_CLIENT_CONFIG_DIR`, `T3CODE_CLIENT_STATE_DIR`, and
+`T3CODE_CLIENT_CACHE_DIR`. The server's root and location overrides do not
+move them. In the legacy layout all of these files stay in `~/.t3/userdata`.
+
+A [client directory](./install.md#where-the-desktop-app-keeps-its-files)
+relocates only the desktop's settings and small state files, in either layout.
+The sign-in tokens, Electron profile, logs, and caches stay in the directories
+above.
 
 ## Existing installations
 
