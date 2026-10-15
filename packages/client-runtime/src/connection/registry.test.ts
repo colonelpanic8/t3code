@@ -24,6 +24,7 @@ import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
@@ -46,7 +47,7 @@ import * as ConnectionCredentialStore from "./credentialStore.ts";
 import * as ConnectionDriver from "./driver.ts";
 import type { RouteCheck } from "./driver.ts";
 import { fleetConnectionId } from "./model.ts";
-import { syncFleets } from "./fleet.ts";
+import * as FleetMembership from "./fleet.ts";
 import { connectionRouteId, connectionRouteKind, isManagedConnectionEntry } from "./routes.ts";
 import {
   ConnectionTransientError,
@@ -2192,6 +2193,10 @@ describe("fleet sync", () => {
     connectionId: pairedTarget.connectionId,
     ...declared(PAIRED),
   });
+  const layerNoWakeups = Layer.succeed(
+    ConnectionWakeups.ConnectionWakeups,
+    ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.never }),
+  );
   // Members answer the descriptor as themselves and redeem any handoff.
   const layerMemberHttp = RpcHttp.layerRemoteHttpClient(((input) => {
     const url = String(input);
@@ -2260,7 +2265,7 @@ describe("fleet sync", () => {
       yield* Effect.gen(function* () {
         const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
         yield* registry.start;
-        yield* syncFleets().pipe(Effect.forkScoped);
+        yield* FleetMembership.make;
 
         const joined = (yield* entriesWhere(registry, (entries) => entries.has(MEMBER))).get(
           MEMBER,
@@ -2291,6 +2296,7 @@ describe("fleet sync", () => {
                 ClientCapabilities.ClientPresentation,
                 ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
               ),
+              layerNoWakeups,
             ),
           ),
         ),
@@ -2407,7 +2413,7 @@ describe("fleet sync", () => {
         const result = yield* Effect.gen(function* () {
           const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
           yield* registry.start;
-          yield* syncFleets().pipe(Effect.forkScoped);
+          yield* FleetMembership.make;
           return yield* input.observe({
             registry,
             credentials: harness.credentialStore,
@@ -2428,6 +2434,7 @@ describe("fleet sync", () => {
                   ClientCapabilities.ClientPresentation,
                   ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
                 ),
+                layerNoWakeups,
               ),
             ),
           ),
@@ -2531,6 +2538,273 @@ describe("fleet sync", () => {
         expect(registrations).toEqual([[declared(MEMBER).httpBaseUrl, OLD_TOKEN]]);
         expect(handoffs).toEqual([]);
         expect(requests).toEqual([]);
+      }),
+    );
+  });
+
+  describe("a declared member that is not joined yet", () => {
+    const OFFLINE = EnvironmentId.make("fleet:offline");
+    const JOINED = EnvironmentId.make("fleet:joined");
+    const SAVED = EnvironmentId.make("fleet:saved");
+    const joinedConnectionId = fleetConnectionId(JOINED, PAIRED);
+    const joinedTarget = new BearerConnectionTarget({
+      environmentId: JOINED,
+      label: "joined",
+      connectionId: joinedConnectionId,
+    });
+    const joinedProfile = new BearerConnectionProfile({
+      connectionId: joinedConnectionId,
+      ...declared(JOINED),
+    });
+    // Saved by the user, so following the fleet never touches it.
+    const savedTarget = new BearerConnectionTarget({
+      environmentId: SAVED,
+      label: "saved",
+      connectionId: "bearer:fleet:saved",
+    });
+    const savedProfile = new BearerConnectionProfile({
+      connectionId: savedTarget.connectionId,
+      ...declared(SAVED),
+    });
+    const fleet = [declared(PAIRED), declared(JOINED), declared(SAVED), declared(OFFLINE)];
+
+    /**
+     * PAIRED and JOINED both report `fleet`; OFFLINE does not answer until
+     * `bringOnline`. Observation starts once both sessions tried and failed to
+     * join OFFLINE.
+     */
+    const withOfflineMember = <A, E>(
+      observe: (context: {
+        readonly registry: EnvironmentRegistry.EnvironmentRegistry["Service"];
+        readonly fleetMembership: FleetMembership.FleetMembership["Service"];
+        readonly wakeups: Queue.Queue<ConnectionWakeups.ConnectionWakeup>;
+        readonly bringOnline: Effect.Effect<void>;
+        readonly releasedSessions: Ref.Ref<number>;
+        readonly requests: ReadonlyArray<string>;
+      }) => Effect.Effect<A, E>,
+    ) =>
+      Effect.gen(function* () {
+        let online = false;
+        const requests: Array<string> = [];
+        const offlineAttempts = yield* Queue.unbounded<void>();
+        const registrations: Array<EnvironmentId> = [];
+        const handoffs = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
+        const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+        const harness = yield* makeHarness(
+          [pairedTarget, joinedTarget, savedTarget],
+          [pairedProfile, joinedProfile, savedProfile],
+          [
+            [pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })],
+            [joinedConnectionId, new BearerConnectionCredential({ token: "joined" })],
+            [savedTarget.connectionId, new BearerConnectionCredential({ token: "saved" })],
+          ],
+          {
+            beforeRegistrationRegister: (registration) =>
+              Effect.sync(() => {
+                registrations.push(registration.target.environmentId);
+              }),
+            session: (environmentId) => ({
+              initialConfig: Effect.succeed({
+                fleet: environmentId === SAVED ? undefined : fleet,
+              } as unknown as ServerConfig),
+              client: {
+                [WS_METHODS.serverIssueFleetHandoff]: ({
+                  environmentId: member,
+                }: {
+                  readonly environmentId: EnvironmentId;
+                }) =>
+                  Ref.update(handoffs, (current) => [...current, member]).pipe(
+                    Effect.as({
+                      credential: "t3fleet1.handoff",
+                      expiresAt: DateTime.makeUnsafe(0),
+                    }),
+                  ),
+              } as unknown as RpcSession.RpcSession["client"],
+            }),
+          },
+        );
+        const layerHttp = RpcHttp.layerRemoteHttpClient((async (input) => {
+          const url = String(input);
+          requests.push(url);
+          const host = new URL(url).hostname.split(".")[0]!;
+          if (host === "offline" && !online) {
+            Queue.offerUnsafe(offlineAttempts, undefined);
+            throw new TypeError("Network request failed");
+          }
+          if (url.endsWith("/.well-known/t3/environment")) {
+            return Response.json({
+              environmentId: `fleet:${host}`,
+              label: host,
+              platform: { os: "linux", arch: "x64" },
+              serverVersion: "0.0.0-test",
+              orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+              capabilities: { repositoryIdentity: true },
+            });
+          }
+          if (url.endsWith("/oauth/token")) {
+            return Response.json({
+              access_token: `${host}-session`,
+              issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+              token_type: "Bearer",
+              expires_in: 3600,
+              scope: "orchestration:read",
+            });
+          }
+          throw new Error(`Unexpected request: ${url}`);
+        }) satisfies typeof fetch);
+
+        const result = yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.start;
+          const fleetMembership = yield* FleetMembership.make;
+          yield* Queue.take(offlineAttempts);
+          yield* Queue.take(offlineAttempts);
+          const failed = yield* SubscriptionRef.changes(fleetMembership.pending).pipe(
+            Stream.filter((pending) => pending[0]?.status === "failed"),
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          );
+          expect(failed).toEqual([
+            {
+              environmentId: OFFLINE,
+              label: "offline",
+              root: PAIRED,
+              kind: "join",
+              status: "failed",
+            },
+          ]);
+          // Pending members are never saved.
+          expect((yield* SubscriptionRef.get(registry.entries)).has(OFFLINE)).toBe(false);
+          requests.length = 0;
+          return yield* observe({
+            registry,
+            fleetMembership,
+            wakeups,
+            bringOnline: Effect.sync(() => {
+              online = true;
+            }),
+            releasedSessions: harness.releasedSessions,
+            requests,
+          });
+        }).pipe(
+          Effect.provide(
+            Layer.provideMerge(
+              harness.layer,
+              Layer.mergeAll(
+                layerHttp,
+                Layer.succeed(
+                  ConnectionCredentialStore.ConnectionCredentialStore,
+                  harness.credentialStore,
+                ),
+                Layer.succeed(
+                  ClientCapabilities.ClientPresentation,
+                  ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
+                ),
+                Layer.succeed(
+                  ConnectionWakeups.ConnectionWakeups,
+                  ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.fromQueue(wakeups) }),
+                ),
+              ),
+            ),
+          ),
+        );
+        return { result, requests, registrations, handoffs: yield* Ref.get(handoffs) };
+      }).pipe(Effect.scoped);
+
+    const awaitEntries = (
+      registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      predicate: (entries: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) => boolean,
+    ) =>
+      SubscriptionRef.changes(registry.entries).pipe(
+        Stream.filter(predicate),
+        Stream.runHead,
+        Effect.map(Option.getOrThrow),
+      );
+
+    it.effect("joins it on the retry timer without reconnecting, then stops retrying", () =>
+      Effect.gen(function* () {
+        const { result, requests, registrations, handoffs } = yield* withOfflineMember(
+          ({ registry, fleetMembership, bringOnline, releasedSessions, requests }) =>
+            Effect.gen(function* () {
+              yield* bringOnline;
+              yield* TestClock.adjust("5 minutes");
+              const joined = (yield* awaitEntries(registry, (entries) => entries.has(OFFLINE))).get(
+                OFFLINE,
+              )!;
+              expect(joined.target).toMatchObject({
+                connectionId: fleetConnectionId(OFFLINE, PAIRED),
+              });
+              expect(yield* SubscriptionRef.get(fleetMembership.pending)).toEqual([]);
+              const requestsAfterJoin = requests.length;
+              yield* TestClock.adjust("30 minutes");
+              return {
+                requestsAfterJoin,
+                requestsLater: requests.length,
+                released: yield* Ref.get(releasedSessions),
+              };
+            }),
+        );
+
+        expect(result.released).toBe(0);
+        // PAIRED and JOINED both report OFFLINE; the round tries it once.
+        expect(handoffs).toEqual([OFFLINE]);
+        expect(registrations).toEqual([OFFLINE]);
+        expect(requests).toEqual([
+          "https://offline.example.ts.net/.well-known/t3/environment",
+          "https://offline.example.ts.net/oauth/token",
+        ]);
+        expect(result.requestsLater).toBe(result.requestsAfterJoin);
+      }),
+    );
+
+    it.effect("tries again when the network changes and on request", () =>
+      Effect.gen(function* () {
+        const { result, handoffs } = yield* withOfflineMember(
+          ({ registry, fleetMembership, wakeups, bringOnline, requests }) =>
+            Effect.gen(function* () {
+              yield* fleetMembership.retry;
+              const afterManualRetry = {
+                pending: yield* SubscriptionRef.get(fleetMembership.pending),
+                requests: [...requests],
+              };
+              yield* bringOnline;
+              Queue.offerUnsafe(wakeups, "network-changed");
+              yield* awaitEntries(registry, (entries) => entries.has(OFFLINE));
+              return afterManualRetry;
+            }),
+        );
+
+        expect(result.pending).toMatchObject([{ environmentId: OFFLINE, status: "failed" }]);
+        // Reported by two sessions, tried once.
+        expect(result.requests).toEqual([
+          "https://offline.example.ts.net/.well-known/t3/environment",
+        ]);
+        expect(handoffs).toEqual([OFFLINE]);
+      }),
+    );
+
+    it.effect("forgets it once the machine the fleet came through is removed", () =>
+      Effect.gen(function* () {
+        const { result, requests, handoffs } = yield* withOfflineMember(
+          ({ registry, fleetMembership, wakeups, bringOnline }) =>
+            Effect.gen(function* () {
+              yield* registry.remove(PAIRED);
+              const entries = yield* awaitEntries(registry, (entries) => !entries.has(JOINED));
+              yield* SubscriptionRef.changes(fleetMembership.pending).pipe(
+                Stream.filter((pending) => pending.length === 0),
+                Stream.runHead,
+              );
+              yield* bringOnline;
+              Queue.offerUnsafe(wakeups, "application-active");
+              yield* fleetMembership.retry;
+              yield* TestClock.adjust("30 minutes");
+              return [...entries.keys()];
+            }),
+        );
+
+        expect(result).toEqual([SAVED]);
+        expect(requests).toEqual([]);
+        expect(handoffs).toEqual([]);
       }),
     );
   });
