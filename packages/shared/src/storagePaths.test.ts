@@ -76,7 +76,7 @@ describe("T3 storage paths", () => {
       dataDir: "/Users/alice/Library/Application Support/t3code/data",
       stateDir: "/Users/alice/Library/Application Support/t3code/state",
       cacheDir: "/Users/alice/Library/Caches/t3code",
-      runtimeDir: "/tmp/t3code-501",
+      runtimeDir: "/Users/alice/Library/Application Support/t3code/runtime",
     });
   });
 

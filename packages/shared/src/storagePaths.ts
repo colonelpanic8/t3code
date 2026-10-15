@@ -180,6 +180,8 @@ export function resolveDefaultT3StorageRoots(
 
   // A Finder-launched app never sees a shell's XDG variables, so honoring them
   // here would put the desktop and a terminal CLI in different directories.
+  // TMPDIR differs between launchd, the Finder, and ssh sessions too, so the
+  // runtime dir stays in Application Support, where every session finds it.
   if (platform === "darwin") {
     const applicationSupportRoot = path.join(
       homeDirectory,
@@ -193,7 +195,7 @@ export function resolveDefaultT3StorageRoots(
       dataDir: path.join(applicationSupportRoot, "data"),
       stateDir: path.join(applicationSupportRoot, "state"),
       cacheDir: path.join(homeDirectory, "Library", "Caches", applicationDirectoryName),
-      runtimeDir: path.join(temporaryDirectory, runtimeFallbackName),
+      runtimeDir: path.join(applicationSupportRoot, "runtime"),
     };
   }
 
