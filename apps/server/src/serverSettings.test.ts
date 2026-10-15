@@ -3939,6 +3939,54 @@ it.layer(NodeServices.layer)("managed settings over a shared file", (it) => {
     }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
   );
 
+  it.effect(
+    "keys a managed host token the way saves do, so writes neither persist nor leak it",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const tokenPath = `${config.baseDir}/github-token`;
+        const tokenSecret = sourceControlHostSecretName({
+          kind: "github",
+          field: "tokens",
+          serverHost: "github.com",
+        });
+        yield* fs.writeFileString(tokenPath, "file-token\n");
+        yield* writeSharedSettings({
+          sourceControlHosts: { github: { tokens: { "github.com": "ghp_shared" } } },
+        });
+        yield* writeManagedSettings({
+          sourceControlHosts: { github: { tokens: { " GitHub.com ": { $file: tokenPath } } } },
+        });
+
+        const settings = yield* service.getSettings;
+        assert.deepEqual(settings.sourceControlHosts.github?.tokens, {
+          "github.com": "file-token",
+        });
+        assert.deepEqual(yield* service.managedSettingPaths, [
+          ["sourceControlHosts", "github", "tokens", "github.com"],
+        ]);
+
+        const redacted = ServerSettingsModule.redactServerSettingsForClient(settings);
+        yield* service.updateSettings({
+          defaultAutoPull: true,
+          sourceControlHosts: redacted.sourceControlHosts,
+        });
+        const replaced = yield* service.updateSettings({
+          sourceControlHosts: { github: { tokens: { "github.com": "ghp_other" } } },
+        });
+
+        assert.deepEqual(replaced.sourceControlHosts.github?.tokens, {
+          "github.com": "file-token",
+        });
+        assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+          defaultAutoPull: true,
+        });
+        assert.deepEqual(yield* readStoredSecret(tokenSecret), Option.none());
+      }).pipe(Effect.provide(layerSharedServerSettings({ managed: true }))),
+  );
+
   it.effect("keeps a managed key's local default while the shared file differs", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
