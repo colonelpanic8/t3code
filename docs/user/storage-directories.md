@@ -96,6 +96,11 @@ relocates only the desktop's settings and small state files, in either layout.
 The sign-in tokens, Electron profile, logs, and caches stay in the directories
 above.
 
+Desktop builds that used the split layout before these directories existed kept
+the same files in the server's configuration and state directories. T3 Code
+does not move them. To keep your desktop settings, saved connections, and
+browser profile, quit the app and copy them into the directories above.
+
 ## Existing installations
 
 If the split directories already hold a server's state, T3 Code uses them.
@@ -110,7 +115,10 @@ they already hold a server's state or the remote's `~/.t3` was migrated, and
 
 ### Moving to the split layout
 
-To leave `~/.t3`, stop the server, quit the desktop app, and run:
+Older T3 Code versions ignore the migration and keep using `~/.t3`, so first
+update every T3 Code install on the machine: the desktop app, the `t3` command,
+and any background service. Then stop the server, quit the desktop app, and
+run:
 
 ```bash
 t3 storage migrate --dry-run
@@ -119,12 +127,22 @@ t3 storage migrate
 
 The dry run lists every copy, what stays behind and why, and anything that
 blocks the migration. The migration copies the database and files into the
-server and [desktop](#desktop-app-storage) directories, verifies each copy, and
-only then writes `storage-migration.json` into `~/.t3/userdata`, which retires
-that tree. Nothing under `~/.t3` is moved or deleted. Worktrees stay where they
-are because threads refer to them by path, and logs stay with the old tree. If
-a destination already holds different contents, the migration stops;
-`--replace-existing` moves those files aside first.
+server and [desktop](#desktop-app-storage) directories and verifies each copy
+before switching anything over, then writes `storage-migration.json` into
+`~/.t3/userdata`, which retires that tree. Nothing under `~/.t3` is moved or
+deleted. If the migration is interrupted, T3 Code keeps using `~/.t3`, and the
+next run cleans up and starts over. Worktrees stay where they are because
+threads refer to them by path, and logs stay with the old tree. A file or
+folder in `~/.t3/userdata` that is a symbolic link, such as settings kept in a
+dotfiles repository, is recreated as the same link. If a destination already
+holds different contents, the migration stops; `--replace-existing` moves those
+files aside first.
+
+A background service installed with `t3 service install` keeps serving the tree
+it was installed for, so the migration refuses to run while one serves
+`~/.t3`. Run `t3 service uninstall`, migrate, then `t3 service install`. The
+desktop app points an installed `t3` command at its new launcher the next time
+it starts.
 
 Files a server location override or a client directory keeps elsewhere stay
 put, because that copy is already the one T3 Code reads in either layout. Run
@@ -134,6 +152,6 @@ variables the server and desktop use, or pass `--server-config-dir`,
 
 `t3 storage migrate --rollback` returns to the old tree. It moves the copies
 aside rather than deleting them, and does not copy back anything written since
-the migration. A server pointed at a retired tree with `T3CODE_HOME`,
-`--base-dir`, or `--storage-layout legacy` refuses to start until you unset it
-or roll back.
+the migration; reinstall a background service around it the same way. A `t3`
+command pointed at a retired tree with `T3CODE_HOME`, `--base-dir`, or
+`--storage-layout legacy` refuses to run until you unset it or roll back.
