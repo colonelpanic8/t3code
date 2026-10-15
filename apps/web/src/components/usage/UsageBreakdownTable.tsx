@@ -418,30 +418,32 @@ function UsageSortEditor({
               <span className="w-14 shrink-0 text-muted-foreground">
                 {index === 0 ? "Sort by" : "Then by"}
               </span>
-              <Select
-                value={criterion.field}
-                onValueChange={(value) => {
-                  const field = USAGE_SORT_FIELDS.find((option) => option === value);
-                  if (field) replace(index, { field, direction: DEFAULT_DIRECTION[field] });
-                }}
-              >
-                <SelectTrigger aria-label={`Sort field ${index + 1}`} size="xs" className="w-28">
-                  <SelectValue>{sortFieldName(criterion.field, grouping)}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {USAGE_SORT_FIELDS.map((field) => (
-                    <SelectItem
-                      key={field}
-                      value={field}
-                      disabled={
-                        field !== criterion.field && sort.some((entry) => entry.field === field)
-                      }
-                    >
-                      {sortFieldName(field, grouping)}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+              <div className="w-36 shrink-0">
+                <Select
+                  value={criterion.field}
+                  onValueChange={(value) => {
+                    const field = USAGE_SORT_FIELDS.find((option) => option === value);
+                    if (field) replace(index, { field, direction: DEFAULT_DIRECTION[field] });
+                  }}
+                >
+                  <SelectTrigger aria-label={`Sort field ${index + 1}`} size="xs">
+                    <SelectValue>{sortFieldName(criterion.field, grouping)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {USAGE_SORT_FIELDS.map((field) => (
+                      <SelectItem
+                        key={field}
+                        value={field}
+                        disabled={
+                          field !== criterion.field && sort.some((entry) => entry.field === field)
+                        }
+                      >
+                        {sortFieldName(field, grouping)}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </div>
               <Button
                 size="icon-xs"
                 variant="ghost-muted"
@@ -489,19 +491,20 @@ function UsageSortEditor({
               </Button>
             </div>
           ))}
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            className="self-start"
-            disabled={unused === undefined}
-            onClick={() => {
-              if (unused)
-                onChange([...sort, { field: unused, direction: DEFAULT_DIRECTION[unused] }]);
-            }}
-          >
-            <PlusIcon aria-hidden />
-            Add
-          </Button>
+          <div>
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              disabled={unused === undefined}
+              onClick={() => {
+                if (unused)
+                  onChange([...sort, { field: unused, direction: DEFAULT_DIRECTION[unused] }]);
+              }}
+            >
+              <PlusIcon aria-hidden />
+              Add
+            </Button>
+          </div>
         </div>
       </PopoverPopup>
     </Popover>
