@@ -119,6 +119,10 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** The server config file read at startup, and its keys this release ignores. */
+    readonly serverConfigFile?:
+      | { readonly path: string; readonly unknownKeys: ReadonlyArray<string> }
+      | undefined;
   }
 >()("t3/config/ServerConfig") {
   /** @deprecated Import and use `layerTest` from this module. */
