@@ -2363,6 +2363,16 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     },
     { name: "a value decoding coerces to null", managed: { worktreeSubmodules: "recursve" } },
     {
+      name: "a misspelled key inside a whole setting",
+      managed: {
+        textGenerationModelSelection: {
+          instanceId: "codex",
+          model: "gpt-5.4",
+          optoins: { reasoningEffort: "high" },
+        },
+      },
+    },
+    {
       name: "an unknown key inside a whole entry",
       managed: { providerInstances: { codex_x: { driver: "codex", enabeld: false } } },
     },
@@ -2481,6 +2491,95 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         ]);
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
     }),
+  );
+
+  it.effect.each([
+    {
+      name: "object-form model options",
+      managed: {
+        textGenerationModelSelection: {
+          instanceId: "codex",
+          model: "gpt-5.4",
+          options: { reasoningEffort: "high" },
+        },
+      },
+      path: ["textGenerationModelSelection"],
+    },
+    {
+      name: "a legacy provider key",
+      managed: { textGenerationModelSelection: { provider: "codex", model: "gpt-5.4" } },
+      path: ["textGenerationModelSelection"],
+    },
+    {
+      name: "a legacy enabled flag in a provider config",
+      managed: {
+        providerInstances: {
+          codex_x: { driver: "codex", config: { enabled: false, homePath: "/x" } },
+        },
+      },
+      path: ["providerInstances", "codex_x"],
+    },
+  ])("keeps a managed value given as $name", ({ managed, path }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-legacy-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({ branchNamePrefix: "nix/", ...managed }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* service.getSettings;
+        assert.deepEqual(yield* service.managedSettingPaths, [["branchNamePrefix"], path]);
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
+  it.effect.each([
+    { name: "sensitive is omitted", extra: {}, valueKey: "value", kept: true },
+    { name: "sensitive is misspelled", extra: { sensitve: true }, valueKey: "value", kept: false },
+    { name: "value is misspelled", extra: { sensitive: true }, valueKey: "valeu", kept: false },
+  ])(
+    "never sends a referenced environment secret to clients when $name",
+    ({ extra, valueKey, kept }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-leak-" });
+        const tokenPath = `${baseDir}/openai-key`;
+        yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+        yield* fs.writeFileString(tokenPath, "sk-file\n");
+        yield* fs.writeFileString(
+          `${baseDir}/userdata/managed-settings.json`,
+          JSON.stringify({
+            branchNamePrefix: "nix/",
+            providerInstances: {
+              codex_x: {
+                driver: "codex",
+                environment: [
+                  { name: "OPENAI_API_KEY", [valueKey]: { $file: tokenPath }, ...extra },
+                ],
+              },
+            },
+          }),
+        );
+
+        yield* Effect.gen(function* () {
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const settings = yield* service.getSettings;
+          assert.notInclude(
+            JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
+            "sk-file",
+          );
+          assert.deepEqual(
+            yield* service.managedSettingPaths,
+            kept
+              ? [["branchNamePrefix"], ["providerInstances", "codex_x"]]
+              : [["branchNamePrefix"]],
+          );
+        }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+      }),
   );
 
   it.effect("keeps a managed null and a referenced secret marked as redacted", () =>
