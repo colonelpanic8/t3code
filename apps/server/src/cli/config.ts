@@ -10,18 +10,19 @@ import {
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import {
-  applyT3StorageDirectoryOverrides,
-  hasT3StorageDirectoryOverrides,
-  legacyT3StorageArtifactPaths,
-  resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
+  resolveT3ConfiguredPath,
   resolveT3StorageDirectoryOverrides,
+  selectT3Storage,
   T3CODE_CACHE_DIR_ENV,
   T3CODE_CONFIG_DIR_ENV,
   T3CODE_DATA_DIR_ENV,
   T3CODE_RUNTIME_DIR_ENV,
   T3CODE_STATE_DIR_ENV,
+  type T3StorageConfigurationError,
   type T3StorageDirectoryOverrides,
+  type T3StorageProbeError,
+  t3StoragePathExists,
   type T3StorageRoots,
 } from "@t3tools/shared/storagePaths";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
@@ -44,7 +45,7 @@ import * as NodeOS from "node:os";
 
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
-import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+import { expandHomePath } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { readServerConfigFile } from "./serverConfigFile.ts";
 
@@ -277,6 +278,7 @@ const ServerLocationEnv = Config.all({
 
 /** The storage layout selectors and the platform variables behind the split layout's defaults. */
 const StorageLayoutEnv = Config.all({
+  T3CODE_HOME: optionalEnv("T3CODE_HOME"),
   [T3CODE_CONFIG_DIR_ENV]: optionalEnv(T3CODE_CONFIG_DIR_ENV),
   [T3CODE_DATA_DIR_ENV]: optionalEnv(T3CODE_DATA_DIR_ENV),
   [T3CODE_STATE_DIR_ENV]: optionalEnv(T3CODE_STATE_DIR_ENV),
@@ -299,33 +301,6 @@ export interface CliServerLocationFlags {
   readonly serverDataDir?: Option.Option<string>;
   readonly serverCacheDir?: Option.Option<string>;
   readonly serverConfigFile?: Option.Option<string>;
-}
-
-export class StorageDirectoryConfigurationConflictError extends Schema.TaggedError<StorageDirectoryConfigurationConflictError>()(
-  "StorageDirectoryConfigurationConflictError",
-  {},
-) {
-  override get message(): string {
-    return "T3CODE_HOME/--base-dir cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
-  }
-}
-
-export class ForcedXdgLayoutConflictError extends Schema.TaggedError<ForcedXdgLayoutConflictError>()(
-  "ForcedXdgLayoutConflictError",
-  {},
-) {
-  override get message(): string {
-    return "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.";
-  }
-}
-
-export class ForcedLegacyLayoutConflictError extends Schema.TaggedError<ForcedLegacyLayoutConflictError>()(
-  "ForcedLegacyLayoutConflictError",
-  {},
-) {
-  override get message(): string {
-    return "--storage-layout legacy cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.";
-  }
 }
 
 export class ServerLocationSelectorConflictError extends Schema.TaggedError<ServerLocationSelectorConflictError>()(
@@ -557,17 +532,16 @@ export const currentStorageHost = Effect.gen(function* () {
   } satisfies StorageHost;
 });
 
-/** The storage layout a server uses, before any location override. */
-export type ServerStorage =
-  | { readonly layout: "legacy"; readonly baseDir: string; readonly baseDirIsExplicit: boolean }
-  | { readonly layout: "split"; readonly roots: T3StorageRoots };
+/** The storage a server uses, before any location override. */
+export interface ServerStorage {
+  readonly roots: T3StorageRoots;
+  /** Legacy only: a named home keeps `userdata` even in development. */
+  readonly baseDirIsExplicit: boolean;
+  /** An initialized ~/.t3 the selected split layout leaves unused. */
+  readonly shadowedLegacyStateDir?: string | undefined;
+}
 
-/**
- * The storage layout a server started with these flags would use:
- * --base-dir/T3CODE_HOME, then a desktop bootstrap, then the T3CODE_*_DIR
- * selectors or a forced layout, then an initialized ~/.t3, and finally the
- * platform's split defaults.
- */
+/** The storage a server started with these flags would use; see `selectT3Storage`. */
 export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* (input: {
   readonly baseDir: Option.Option<string>;
   readonly storageLayout: Option.Option<CliStorageLayout>;
@@ -576,81 +550,44 @@ export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* 
   readonly host: StorageHost;
 }): Effect.fn.Return<
   ServerStorage,
-  | Config.ConfigError
-  | StorageDirectoryConfigurationConflictError
-  | ForcedXdgLayoutConflictError
-  | ForcedLegacyLayoutConflictError,
-  FileSystem.FileSystem | Path.Path
+  Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
+  Path.Path
 > {
   const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const env = yield* ServerLocationEnv;
-  const explicitBaseDir = Option.orElse(input.baseDir, () => env.t3Home).pipe(
-    Option.filter((value) => value.trim().length > 0),
+  const pathOperations = storagePathOperations(path);
+  const bootstrapHome = resolveT3ConfiguredPath(
+    input.bootstrap?.t3Home,
+    input.host.homeDirectory,
+    pathOperations,
   );
-  const forcedLayout = Option.getOrUndefined(input.storageLayout);
-  const selectors = yield* resolveStorageSelectors(input.host.homeDirectory);
-  const hasSelectors = hasT3StorageDirectoryOverrides(selectors);
-  if (Option.isSome(explicitBaseDir) && hasSelectors) {
-    return yield* new StorageDirectoryConfigurationConflictError();
+  const selection = selectT3Storage({
+    platform: input.host.platform,
+    homeDirectory: input.host.homeDirectory,
+    temporaryDirectory: input.host.temporaryDirectory,
+    ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
+    isDevelopment: input.isDevelopment,
+    environment: yield* StorageLayoutEnv,
+    path: pathOperations,
+    baseDir: Option.getOrUndefined(input.baseDir),
+    forcedLayout: Option.getOrUndefined(input.storageLayout),
+    pinned:
+      input.bootstrap?.storageRoots ??
+      (bootstrapHome === undefined
+        ? undefined
+        : resolveLegacyT3StorageRoots({
+            baseDir: bootstrapHome,
+            stateDirectoryName: input.isDevelopment ? "dev" : "userdata",
+            path,
+          })),
+    exists: t3StoragePathExists,
+  });
+  switch (selection._tag) {
+    case "Conflict":
+    case "ProbeFailed":
+      return yield* selection.error;
+    case "Selected":
+      return selection;
   }
-  if (forcedLayout === "xdg" && Option.isSome(explicitBaseDir)) {
-    return yield* new ForcedXdgLayoutConflictError();
-  }
-  if (forcedLayout === "legacy" && hasSelectors) {
-    return yield* new ForcedLegacyLayoutConflictError();
-  }
-
-  if (Option.isSome(explicitBaseDir)) {
-    return {
-      layout: "legacy",
-      baseDir: yield* resolveBaseDir(explicitBaseDir.value),
-      baseDirIsExplicit: true,
-    };
-  }
-  if (input.bootstrap?.storageRoots !== undefined) {
-    return { layout: "split", roots: input.bootstrap.storageRoots };
-  }
-  if (input.bootstrap?.t3Home !== undefined) {
-    return {
-      layout: "legacy",
-      baseDir: yield* resolveBaseDir(input.bootstrap.t3Home),
-      baseDirIsExplicit: false,
-    };
-  }
-
-  const splitRoots = applyT3StorageDirectoryOverrides(
-    resolveDefaultT3StorageRoots({
-      platform: input.host.platform,
-      homeDirectory: input.host.homeDirectory,
-      temporaryDirectory: input.host.temporaryDirectory,
-      ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
-      isDevelopment: input.isDevelopment,
-      environment: yield* StorageLayoutEnv,
-      path: storagePathOperations(path),
-    }),
-    selectors,
-  );
-  if (hasSelectors || forcedLayout === "xdg") return { layout: "split", roots: splitRoots };
-
-  const legacyBaseDir = path.join(input.host.homeDirectory, ".t3");
-  const legacyArtifacts = legacyT3StorageArtifactPaths(
-    resolveLegacyT3StorageRoots({
-      baseDir: legacyBaseDir,
-      stateDirectoryName: input.isDevelopment ? "dev" : "userdata",
-      path,
-    }),
-    path,
-  );
-  const legacyInitialized = (yield* Effect.forEach(
-    legacyArtifacts,
-    (artifact) => fs.exists(artifact).pipe(Effect.orElseSucceed(() => false)),
-    { concurrency: "unbounded" },
-  )).some(Boolean);
-  if (forcedLayout === "legacy" || legacyInitialized) {
-    return { layout: "legacy", baseDir: legacyBaseDir, baseDirIsExplicit: false };
-  }
-  return { layout: "split", roots: splitRoots };
 });
 
 /** Every server path for `storage`, each location override winning for its category. */
@@ -659,16 +596,16 @@ export const deriveServerStoragePaths = Effect.fn(function* (
   devUrl: URL | undefined,
   overrides: ServerConfig.ServerLocationOverrides,
 ) {
-  if (storage.layout === "legacy") {
+  const { roots } = storage;
+  if (roots.layout === "legacy") {
     return {
-      baseDir: storage.baseDir,
-      derivedPaths: yield* ServerConfig.deriveServerPaths(storage.baseDir, devUrl, {
+      baseDir: roots.legacyBaseDir,
+      derivedPaths: yield* ServerConfig.deriveServerPaths(roots.legacyBaseDir, devUrl, {
         baseDirIsExplicit: storage.baseDirIsExplicit,
         ...overrides,
       }),
     };
   }
-  const { roots } = storage;
   return {
     baseDir: roots.dataDir,
     derivedPaths: yield* ServerConfig.deriveServerPaths(roots.dataDir, devUrl, {
@@ -857,7 +794,7 @@ export const resolveServerConfig = (
       () => undefined,
     );
     const storageHost = options?.storageHost ?? (yield* currentStorageHost);
-    const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
+    const { baseDir, derivedPaths, storage } = yield* resolveServerLocations(normalizedFlags, {
       devUrl,
       bootstrap,
       host: storageHost,
@@ -1078,6 +1015,9 @@ export const resolveServerConfig = (
       tailscaleServeEnabled,
       tailscaleServePort,
       serverConfigFile: { path: serverConfigFile.path, unknownKeys: serverConfigFile.unknownKeys },
+      ...(storage.shadowedLegacyStateDir === undefined
+        ? {}
+        : { shadowedLegacyStateDir: storage.shadowedLegacyStateDir }),
     };
 
     return config;

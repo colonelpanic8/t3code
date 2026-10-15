@@ -1,4 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off - runs before Electron is ready, outside Effect.
+import * as NodeOS from "node:os";
+
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { selectT3Storage, t3StoragePathExists } from "@t3tools/shared/storagePaths";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -9,21 +13,17 @@ import {
   type LinuxPasswordStoreSwitch,
   type LinuxPasswordStorePreference,
 } from "../linuxSecretStorage.ts";
-import {
-  resolveDesktopBaseDir,
-  resolveDesktopClientPaths,
-  resolveDesktopStateDir,
-  type JoinPath,
-  type ResolvePath,
-} from "./DesktopStatePaths.ts";
+import { resolveDesktopClientPaths } from "./DesktopStatePaths.ts";
 
 interface EarlyDesktopSettingsInput {
   readonly env: NodeJS.ProcessEnv;
   readonly clientDirSwitch: string | null;
   readonly homeDirectory: string;
-  readonly joinPath: JoinPath;
-  readonly resolvePath: ResolvePath;
+  readonly joinPath: (first: string, ...segments: string[]) => string;
+  readonly resolvePath: (...segments: string[]) => string;
   readonly readFileString: (path: string) => string;
+  /** Whether a storage marker exists; the real filesystem when omitted. */
+  readonly exists?: (path: string) => boolean;
 }
 
 type EarlyLinuxElectronOptionsInput = EarlyDesktopSettingsInput;
@@ -53,68 +53,45 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-// Electron is not ready yet, so this mirrors DesktopEnvironment's storage selection cheaply:
-// an initialized legacy tree wins, otherwise the split config directory is used. A client
-// dir replaces both.
-function resolveEarlyDesktopSettingsPaths(input: EarlyDesktopSettingsInput): ReadonlyArray<string> {
-  const isDevelopment = isDevelopmentEnvironment(input.env);
-  const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
-  const baseDir = resolveDesktopBaseDir({
+// Electron is not ready yet, so this makes DesktopEnvironment's storage
+// selection with synchronous probes. A configuration error surfaces there.
+function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): string | undefined {
+  const path = {
+    join: input.joinPath,
+    resolve: input.resolvePath,
+    isAbsolute: (candidate: string) => candidate.startsWith("/"),
+  };
+  const selection = selectT3Storage({
+    platform: "linux",
     homeDirectory: input.homeDirectory,
-    joinPath: input.joinPath,
-    t3Home,
+    temporaryDirectory: NodeOS.tmpdir(),
+    isDevelopment: isDevelopmentEnvironment(input.env),
+    environment: input.env,
+    path,
+    exists: input.exists ?? t3StoragePathExists,
   });
-  const stateDir = resolveDesktopStateDir({
-    baseDir,
-    isDevelopment,
-    joinPath: input.joinPath,
-    t3Home,
-  });
-  const settingsPathIn = (configDir: string) =>
-    resolveDesktopClientPaths({
-      configDir,
-      stateDir: configDir,
-      homeDirectory: input.homeDirectory,
-      clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
-      clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
-      joinPath: input.joinPath,
-      resolvePath: input.resolvePath,
-    }).desktopSettingsPath;
-  const legacyPath = settingsPathIn(stateDir);
-  if (trimNonEmpty(input.env.T3CODE_HOME) !== null) return [legacyPath];
-  const configDirOverride = trimNonEmpty(input.env.T3CODE_CONFIG_DIR);
-  if (configDirOverride !== null) return [settingsPathIn(configDirOverride)];
-  const xdgConfigHome = trimNonEmpty(input.env.XDG_CONFIG_HOME);
-  const configHome =
-    xdgConfigHome?.startsWith("/") === true
-      ? xdgConfigHome
-      : input.joinPath(input.homeDirectory, ".config");
-  return [
-    ...new Set([
-      legacyPath,
-      settingsPathIn(input.joinPath(configHome, isDevelopment ? "t3code-dev" : "t3code")),
-    ]),
-  ];
+  if (selection._tag !== "Selected") return undefined;
+  return resolveDesktopClientPaths({
+    configDir: selection.roots.configDir,
+    stateDir: selection.roots.stateDir,
+    homeDirectory: input.homeDirectory,
+    clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
+    clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
+    path,
+  }).desktopSettingsPath;
 }
 
 export function resolveEarlyLinuxPasswordStorePreference(
   input: EarlyDesktopSettingsInput,
 ): LinuxPasswordStorePreference {
-  for (const settingsPath of resolveEarlyDesktopSettingsPaths(input)) {
-    let raw: string;
-    try {
-      raw = input.readFileString(settingsPath);
-    } catch {
-      continue;
-    }
-    try {
-      const parsed = decodeEarlyDesktopSettingsJson(raw);
-      return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
-    } catch {
-      return DEFAULT_LINUX_PASSWORD_STORE;
-    }
+  const settingsPath = resolveEarlyDesktopSettingsPath(input);
+  if (settingsPath === undefined) return DEFAULT_LINUX_PASSWORD_STORE;
+  try {
+    const parsed = decodeEarlyDesktopSettingsJson(input.readFileString(settingsPath));
+    return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
+  } catch {
+    return DEFAULT_LINUX_PASSWORD_STORE;
   }
-  return DEFAULT_LINUX_PASSWORD_STORE;
 }
 
 const WAYLAND_COLOR_MANAGER_FEATURE = "WaylandWpColorManagerV1";
