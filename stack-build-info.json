@@ -1,0 +1,311 @@
+{
+  "entries": [
+    {
+      "branch": "t3code/main/pr-4257",
+      "commit": "7a49887c56738d7e20b1851f65e23c553788543e",
+      "kind": "branch",
+      "label": "t3code/main/pr-4257",
+      "pr": 4257,
+      "status": "merged",
+      "summary": "Directory-path Tab completion"
+    },
+    {
+      "branch": "t3code/main/pr-4324",
+      "commit": "98a15e54874677cc20898b8846a1a58b3b98d204",
+      "kind": "branch",
+      "label": "t3code/main/pr-4324",
+      "pr": 4324,
+      "status": "merged",
+      "summary": "Optional larger sidebar-v2 project icons"
+    },
+    {
+      "branch": "t3code/main/pr-4394",
+      "commit": "9a8954832acfdcff483a4506a711eda16713fd9c",
+      "kind": "branch",
+      "label": "t3code/main/pr-4394",
+      "pr": 4394,
+      "status": "merged",
+      "summary": "Navigate open selections with Ctrl-N and Ctrl-P"
+    },
+    {
+      "branch": "t3code/main/pr-4405",
+      "commit": "7ff1aefd7e2713c61c43ac1542694cad53fa2186",
+      "kind": "branch",
+      "label": "t3code/main/pr-4405",
+      "pr": 4405,
+      "status": "merged",
+      "summary": "Harden thread-detail loading and subscriptions"
+    },
+    {
+      "branch": "t3code/main/pr-4602",
+      "commit": "16715e270698fa8ad7ac4a375e3fa07564588e61",
+      "kind": "branch",
+      "label": "t3code/main/pr-4602",
+      "pr": 4602,
+      "status": "merged",
+      "summary": "Recover subscriptions that lose their transport"
+    },
+    {
+      "branch": "t3code/main/pr-4447",
+      "commit": "5c5e12c7dffbfb6ed7c8092d162f5b83f83cc499",
+      "kind": "branch",
+      "label": "t3code/main/pr-4447",
+      "pr": 4447,
+      "status": "merged",
+      "summary": "Environment-first new task flow on mobile"
+    },
+    {
+      "branch": "t3code/main/pr-4701",
+      "commit": "76e2cfde592dd47e9a0f913eff612ef3c3d384b5",
+      "kind": "branch",
+      "label": "t3code/main/pr-4701",
+      "pr": 4701,
+      "status": "merged",
+      "summary": "Render shortcuts with Apple glyphs"
+    },
+    {
+      "branch": "t3code/main/pr-4439",
+      "commit": "dcfd7852a200f6b8c6a50d242d309184176db273",
+      "kind": "branch",
+      "label": "t3code/main/pr-4439",
+      "note": "GitWorkflowService fills the configured template whenever no explicit worktree path is given; review path checks read v2 thread worktrees.",
+      "pr": 4439,
+      "status": "merged",
+      "summary": "Configurable worktree placement"
+    },
+    {
+      "branch": "t3code/main/desktop-window-state",
+      "commit": "37bf6c85a8da2dc735041de0781a64a64b1ce423",
+      "kind": "branch",
+      "label": "t3code/main/desktop-window-state",
+      "note": "Fix for pingdotgg/t3code#19595; fork PR colonelpanic8/t3code#2. Bounds already in desktop-settings.json are read as a fallback and never stripped.",
+      "status": "merged",
+      "summary": "Keep desktop window bounds out of desktop-settings.json"
+    },
+    {
+      "branch": "t3code/main/desktop-client-location",
+      "commit": "e1023f8133409c293ab8bd05afc15f7097ade654",
+      "kind": "branch",
+      "label": "t3code/main/desktop-client-location",
+      "note": "Stacked on desktop-window-state. Discussion pingdotgg/t3code#19591; fork PR colonelpanic8/t3code#3.",
+      "status": "merged",
+      "summary": "Optional directory for the desktop app's own files"
+    },
+    {
+      "branch": "t3code/main/server-location-overrides",
+      "commit": "f46b681313e482551528ae224c1d2a9043556ab5",
+      "kind": "branch",
+      "label": "t3code/main/server-location-overrides",
+      "note": "Discussion pingdotgg/t3code#19591; fork PR colonelpanic8/t3code#4. dev-runner and the SSH launcher scrub the overrides; the service unit unsets them.",
+      "status": "merged",
+      "summary": "Optional server config, data, and cache locations"
+    },
+    {
+      "branch": "t3code/main/server-config-file",
+      "commit": "0970b94c5e284aabf0d6b23a59eb66c7b18548d6",
+      "kind": "branch",
+      "label": "t3code/main/server-config-file",
+      "note": "Stacked on server-location-overrides. Discussion pingdotgg/t3code#19592; fork PR colonelpanic8/t3code#6. The file has no location keys.",
+      "status": "merged",
+      "summary": "Read daemon options from server.json"
+    },
+    {
+      "branch": "t3code/main/shared-server-settings",
+      "commit": "a8c43f95dc563cf854ee0b8f005de8250fc2ce4d",
+      "kind": "branch",
+      "label": "t3code/main/shared-server-settings",
+      "note": "Discussion pingdotgg/t3code#19594; fork PR colonelpanic8/t3code#5. declarative-settings is stacked on it.",
+      "status": "merged",
+      "summary": "Optional read-only shared settings file beneath settings.json"
+    },
+    {
+      "branch": "t3code/main/pr-4437",
+      "commit": "685e3403caeb74e28bafd0f1d5dd93ba2b158149",
+      "fixup": "patches/t3code-4437-shared-settings-flag.patch",
+      "kind": "branch",
+      "label": "t3code/main/pr-4437",
+      "note": "Stacked on a merge of server-config-file and desktop-client-location, sharing their path code. Split layout uses main's statev2.sqlite name; legacy detection accepts either database file, and an initialized split install wins over a later ~/.t3.",
+      "pr": 4437,
+      "status": "merged",
+      "summary": "XDG storage layout"
+    },
+    {
+      "branch": "t3code/main/client-environment-suite",
+      "commit": "f6a3bc38ded4bb018232e62866280868c99a797e",
+      "fixup": "patches/t3code-client-suite-storage-roots.patch",
+      "kind": "branch",
+      "label": "t3code/main/client-environment-suite",
+      "note": "Continuation of the closed #9376 (and #4444, #4474, #4486, #4496, #4548, #4559, #4567). Builds on main's Local environment setting (#9194): an existing local server or --backend-mode overrides it for one launch so the desktop attaches instead of spawning a second backend. Discovery reads server-runtime.json and pairs through `t3 pair --json`. Environment-scoped settings were dropped when main shipped its settings scopes. Per-environment accent colors and display names (#4505, #4538) live on fork:t3code/environment-accent-and-names, which is not carried.",
+      "status": "merged",
+      "summary": "Client-only desktop, local server discovery and pairing"
+    },
+    {
+      "branch": "t3code/main/pr-4593",
+      "commit": "bcacf0a567beebc3ce46b0cb94c538510dc76eb2",
+      "kind": "branch",
+      "label": "t3code/main/pr-4593",
+      "pr": 4593,
+      "status": "merged",
+      "summary": "Reconcile client state after a settle does not land"
+    },
+    {
+      "branch": "t3code/main/managed-fleet",
+      "commit": "e074c1bbed2964dbfd963e369038ead9c6b79535",
+      "kind": "branch",
+      "label": "t3code/main/managed-fleet",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/desktop-clerk-startup",
+      "commit": "d1fbe1e7cfa7c14fdd2309e9329d64ca4807e853",
+      "kind": "branch",
+      "label": "t3code/main/desktop-clerk-startup",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/migration-schema-repair",
+      "commit": "0cc8da2b702d5d4274c1c0a987e7cf2ad5074441",
+      "kind": "branch",
+      "label": "t3code/main/migration-schema-repair",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/pr-4699",
+      "commit": "3878e7be4d36a9411ec0982fee0ce76668cfd36d",
+      "kind": "branch",
+      "label": "t3code/main/pr-4699",
+      "note": "Closed upstream as an unsupported distribution system. Load-bearing: this is how NixOS builds the assembly.",
+      "pr": 4699,
+      "status": "merged",
+      "summary": "Self-contained Nix flake"
+    },
+    {
+      "branch": "t3code/main/live-voice",
+      "commit": "2c8e8e5e752d690848ce074690975076c21b4e3c",
+      "kind": "branch",
+      "label": "t3code/main/live-voice",
+      "status": "merged",
+      "summary": "Cross-host live voice calls over Codex realtime"
+    },
+    {
+      "branch": "t3code/main/fdroid-distribution",
+      "commit": "751904a07e603030b0006f5eaa942433e34164fa",
+      "kind": "branch",
+      "label": "t3code/main/fdroid-distribution",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/pr-4318",
+      "commit": "4c46a510fca50631906b49c9b10b2372e8212a5e",
+      "kind": "branch",
+      "label": "t3code/main/pr-4318",
+      "note": "Closed because the v2 rewrite moved the files, not on merit. Re-applied in ThreadRouteView: subscribes to the ref the draft reserved instead of inferring from the shell list.",
+      "pr": 4318,
+      "status": "merged",
+      "summary": "Recover stalled draft thread promotion"
+    },
+    {
+      "branch": "t3code/main/pr-4420",
+      "commit": "6fa7b437a60e66c7c051e1f25f3e717404069eca",
+      "kind": "branch",
+      "label": "t3code/main/pr-4420",
+      "note": "Closed without comment. Re-ported; the PR's busy_timeout half already reached the base through upstream main and is not duplicated.",
+      "pr": 4420,
+      "status": "merged",
+      "summary": "Refuse startup when another server owns the state dir"
+    },
+    {
+      "branch": "t3code/main/pr-4484",
+      "commit": "181d16d8306a2d1d46558d63eeae6c6294c64edd",
+      "kind": "branch",
+      "label": "t3code/main/pr-4484",
+      "note": "Nothing upstream sets bootstrapThreadDisposition for v2 launches. Deletes the provisional thread on a failed owned launch and propagates the disposition.",
+      "pr": 4484,
+      "status": "merged",
+      "summary": "Recover draft thread IDs after failed bootstrap"
+    },
+    {
+      "branch": "t3code/main/pr-6507",
+      "commit": "6549093d679ca8ff3ff9bdb4b22e54b3c9f5fdd1",
+      "kind": "branch",
+      "label": "t3code/main/pr-6507",
+      "note": "Rebased port of the upstream PR onto main.",
+      "pr": 6507,
+      "status": "merged",
+      "summary": "Direct model and reasoning keybindings"
+    },
+    {
+      "branch": "t3code/main/usage-host-resilience",
+      "commit": "384c7c4c0c366817dda484b1c5799c19fd435aaa",
+      "kind": "branch",
+      "label": "t3code/main/usage-host-resilience",
+      "status": "merged",
+      "summary": "Keep usage available when hosts disconnect or reconnect"
+    },
+    {
+      "branch": "t3code/main/typecheck-fixes",
+      "commit": "fe0d87b298849f3ddfcaea40834340cac7db01c8",
+      "kind": "branch",
+      "label": "t3code/main/typecheck-fixes",
+      "status": "merged",
+      "summary": "Resolve transitive type declarations through workspace-local dependencies"
+    },
+    {
+      "branch": "t3code/main/client-storage-separation",
+      "commit": "311cf3ca441cd721975d573ecf6dd9e1ee57b48a",
+      "kind": "branch",
+      "label": "t3code/main/client-storage-separation",
+      "note": "Built on #4437's split layout and must stay after it. In the legacy layout everything stays in ~/.t3/userdata; in split layout the client uses t3code-client XDG roots. --client-dir still relocates the desktop's own files in either layout.",
+      "status": "merged",
+      "summary": "Client storage separate from the server's T3 home, plus `t3 storage migrate`"
+    },
+    {
+      "branch": "t3code/main/declarative-settings",
+      "commit": "fa0e81249b1a4e361f5064be61ff77a82feb443d",
+      "kind": "branch",
+      "label": "t3code/main/declarative-settings",
+      "note": "T3CODE_MANAGED_{SETTINGS,KEYBINDINGS,CLIENT_SETTINGS}_FILE override user values, render as managed in the UI, and reject writes. Stacked on shared-server-settings: defaults < shared < settings.json < managed. The Home Manager options live in the pr-4699 entry.",
+      "status": "merged",
+      "summary": "Nix-managed read-only settings, keybindings, and client settings layers"
+    },
+    {
+      "branch": "t3code/main/mobile-tailscale-fleet",
+      "commit": "a5d6fb28b38bca42ebbfecb380cc1dacb4b5c53d",
+      "kind": "branch",
+      "label": "t3code/main/mobile-tailscale-fleet",
+      "note": "One commit on managed-fleet: T3CODE_FLEET_MANIFEST_FILE and server.issueFleetHandoff let a client paired with one member redeem single-use handoffs at the others; clients follow the manifest. The Home Manager fleetManifest option lives in the pr-4699 entry.",
+      "status": "merged",
+      "summary": "Pair once, join the Nix-declared fleet over Tailscale"
+    },
+    {
+      "branch": "t3code/main/composer-control-shortcuts",
+      "commit": "7a54faf9636ebc78266dd55d1d57808feb083e42",
+      "kind": "branch",
+      "label": "t3code/main/composer-control-shortcuts",
+      "status": "merged"
+    },
+    {
+      "branch": "t3code/main/pr-4425",
+      "commit": "4825115ee0a1720b73c797181783ccadaea23736",
+      "kind": "branch",
+      "label": "t3code/main/pr-4425",
+      "note": "Closed upstream. Re-ported onto the merged sidebar: the name sits beside the machine glyph, so with a client-only desktop every row names its host.",
+      "pr": 4425,
+      "status": "merged",
+      "summary": "Show the environment name on remote thread rows"
+    }
+  ],
+  "fork": {
+    "branch": "t3code/assembled",
+    "remote": "https://github.com/colonelpanic8/t3code"
+  },
+  "manifest": "manifest.toml",
+  "schemaVersion": 1,
+  "upstream": {
+    "commit": "8ac4b97dae6bff7258fa5091a908116902fbd635",
+    "date": "2026-10-13T12:43:56-05:00",
+    "ref": "main",
+    "remote": "https://github.com/pingdotgg/t3code",
+    "subject": "fix(web): settings warn when an environment silently drops a setting (#18334)"
+  }
+}
