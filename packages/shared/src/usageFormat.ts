@@ -60,25 +60,20 @@ export function formatUsageContractMismatch(
     : `This client is older than the server on ${environmentLabel}; its usage is excluded from totals.`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 /** `2026-08-07` to `Aug 7`. */
 export function formatDayShort(day: string): string {
   const [year, month, dayOfMonth] = day.split("-").map((part) => Number(part));
   if (year === undefined || month === undefined || dayOfMonth === undefined) return day;
-  const MONTHS = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
   return `${MONTHS[month - 1] ?? ""} ${dayOfMonth}`;
+}
+
+/** `2026-08-01` to `Aug 2026`. */
+export function formatMonthShort(day: string): string {
+  const [year, month] = day.split("-").map((part) => Number(part));
+  if (year === undefined || month === undefined) return day;
+  return `${MONTHS[month - 1] ?? ""} ${year}`;
 }
 
 /** Inclusive day list between two `YYYY-MM-DD` bounds. */
