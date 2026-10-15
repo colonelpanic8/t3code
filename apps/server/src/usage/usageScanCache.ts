@@ -427,18 +427,11 @@ export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): num
  * message. Its records are contiguous and in file order, and in a subagent
  * transcript the early blocks carry a streaming-partial `output_tokens` while
  * the last carries the full count, so the record reporting the most output is
- * kept. Pass a resumed parse's cached records and appended records as one
- * batch, so a message whose last block lands in a later append still counts in
- * full.
- *
- * Callers pass one `seen` set across batches so the whole file stays
- * deduplicated as a unit; the set is mutated in place. A key an earlier batch
- * already kept is dropped.
+ * kept. Pass a parse's cached base, new lines, and unterminated tail as one
+ * batch, so a message whose last block lands in a later append, or is still
+ * being written, counts in full.
  */
-export function dedupeWithinFile(
-  records: readonly UsageRecord[],
-  seen: Set<string> = new Set(),
-): readonly UsageRecord[] {
+export function dedupeWithinFile(records: readonly UsageRecord[]): readonly UsageRecord[] {
   const kept: UsageRecord[] = [];
   const keptIndexes = new Map<string, number>();
   for (const record of records) {
@@ -454,8 +447,6 @@ export function dedupeWithinFile(
       }
       continue;
     }
-    if (seen.has(record.dedupeKey)) continue;
-    seen.add(record.dedupeKey);
     keptIndexes.set(record.dedupeKey, kept.length);
     kept.push(record);
   }

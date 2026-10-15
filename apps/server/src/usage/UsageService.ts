@@ -562,13 +562,16 @@ export const make = Effect.gen(function* () {
         };
 
       // Stored already de-duplicated within the file, which is 99% of all
-      // duplicates. The aggregator still runs the cross-file dedupe pass. One
-      // seen set spans the cached base, the new lines, and the tail so a
-      // resumed parse dedupes exactly like a full one.
+      // duplicates. The aggregator still runs the cross-file dedupe pass. The
+      // tail competes with the cached base and new lines in one pass, so a
+      // message whose fullest block is still unterminated counts in full now.
+      // A tail winner stays out of `records`, which resume reuses, and the
+      // block it displaced is dropped; the next resume re-reads the tail line.
       const base = parsed.resumed && cached !== undefined ? cached.records : [];
-      const seen = new Set<string>();
-      const records = dedupeWithinFile([...base, ...parsed.records], seen);
-      const tailRecords = dedupeWithinFile(parsed.tailRecords, seen);
+      const tail = new Set(parsed.tailRecords);
+      const kept = dedupeWithinFile([...base, ...parsed.records, ...parsed.tailRecords]);
+      const records = kept.filter((record) => !tail.has(record));
+      const tailRecords = kept.filter((record) => tail.has(record));
 
       return {
         records: tailRecords.length === 0 ? records : [...records, ...tailRecords],

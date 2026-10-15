@@ -1614,6 +1614,35 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.live("counts a subagent message's last block while its line is still unterminated", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      const subagents = NodePath.join(home, "claude", "projects", "proj", "session-1", "subagents");
+      const transcript = NodePath.join(subagents, "agent-a1.jsonl");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(subagents, { recursive: true });
+        await NodeFSP.writeFile(
+          transcript,
+          claudeBlock(1, 2, "thinking") + claudeBlock(1, 1411, "text").trimEnd(),
+        );
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 1411);
+
+        yield* Effect.promise(() =>
+          NodeFSP.appendFile(transcript, `\n${claudeBlock(2, 96, "text")}`),
+        );
+        assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 1507);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          layerService({ prefix: "usage-service-subagent-tail-block", home, settings }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.live(
     "upgrades a v5 cache: re-parses live Claude transcripts, keeps deleted ones, leaves v5 intact",
     () =>
