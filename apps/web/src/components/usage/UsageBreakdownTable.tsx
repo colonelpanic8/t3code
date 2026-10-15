@@ -206,7 +206,8 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
     { environmentLabels, grouping, timeZone },
     chartSeries,
   );
-  const groups = showAllRows ? table.groups : firstRows(table.groups, MAX_VISIBLE_ROWS);
+  const truncated = !showAllRows && table.rowCount > MAX_VISIBLE_ROWS;
+  const groups = truncated ? firstRows(table.groups, MAX_VISIBLE_ROWS) : table.groups;
   const isRowLoading = (row: UsagePivotRow) =>
     row.provider === undefined ? loadingProviders.size > 0 : loadingProviders.has(row.provider);
 
@@ -328,13 +329,13 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
           ))
         )}
       </table>
-      {groups === table.groups ? null : (
+      {truncated ? (
         <div>
           <Button size="xs" variant="ghost-muted" onClick={() => setShowAllRows(true)}>
             Show all {formatCount(table.rowCount)} rows
           </Button>
         </div>
-      )}
+      ) : null}
     </section>
   );
 });
