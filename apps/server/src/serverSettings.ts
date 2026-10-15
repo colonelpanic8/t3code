@@ -1468,7 +1468,9 @@ const make = Effect.gen(function* () {
       );
       if (resolved === undefined) continue;
       if (hasFileReference(entry.document)) fromFiles.add(entry.setting);
-      document = layerSettingsDocuments(document, resolved);
+      const canonical = canonicalizeSecretFields(resolved);
+      yield* warnDuplicateSecretHosts(managedSettingsPath, canonical.duplicates);
+      document = layerSettingsDocuments(document, canonical.document);
     }
     return {
       document,
