@@ -3230,7 +3230,9 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               }
               const systemPrompt = [
                 orchestrationSystemPrompt,
-                buildRuntimeInstructions({
+                turnInput.runtimePolicy.blankSlate === true
+                  ? undefined
+                  : buildRuntimeInstructions({
                   harness: "OpenCode",
                   model: turnInput.modelSelection.model,
                 }),

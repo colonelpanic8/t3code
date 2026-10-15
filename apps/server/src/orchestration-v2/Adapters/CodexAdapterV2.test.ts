@@ -738,6 +738,26 @@ describe("CodexAdapterV2 runtime policy", () => {
 });
 
 describe("CodexAdapterV2 process spawning", () => {
+  it("skips AGENTS.md, skills, and memories for blank-slate threads", () => {
+    assert.deepEqual(
+      CodexAdapterV2.codexThreadRuntimeParams({
+        mcpSession: undefined,
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/workspace/blank",
+          blankSlate: true,
+        },
+      }).config,
+      {
+        "tools.update_plan.enabled": true,
+        project_doc_max_bytes: 0,
+        "skills.include_instructions": false,
+        "memories.use_memories": false,
+      },
+    );
+  });
+
   it.effect("resolves Windows command shims through the shared spawn policy", () =>
     Effect.gen(function* () {
       const command = yield* CodexAdapterV2.makeCodexAppServerSpawnCommand({
