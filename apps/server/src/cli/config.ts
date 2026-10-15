@@ -618,8 +618,12 @@ export const deriveServerStoragePaths = Effect.fn(function* (
       configDir: overrides.configDir ?? roots.configDir,
       dataDir: overrides.dataDir ?? roots.dataDir,
       cacheDir: overrides.cacheDir ?? roots.cacheDir,
-      // The data dir override carries the database and identity, as it does in the legacy layout.
-      split: { stateDir: overrides.dataDir ?? roots.stateDir, runtimeDir: roots.runtimeDir },
+      // A data dir override carries the state and the runtime file, as it does
+      // in the legacy layout, so a server with its own data dir is told apart.
+      split: {
+        stateDir: overrides.dataDir ?? roots.stateDir,
+        runtimeDir: overrides.dataDir ?? roots.runtimeDir,
+      },
     }),
   };
 });
@@ -853,6 +857,8 @@ export const resolveServerConfig = (
     if (
       storageHost.platform !== "win32" &&
       derivedPaths.layout === "split" &&
+      // A data dir override is the user's own directory, not a runtime dir to lock down.
+      derivedPaths.runtimeDir === storage.roots.runtimeDir &&
       storageHost.userId !== undefined
     ) {
       yield* prepareSplitRuntimeDirectory(derivedPaths.runtimeDir, storageHost.userId);
