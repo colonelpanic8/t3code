@@ -2462,6 +2462,31 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       },
     },
     {
+      name: "in an entry that does not decode",
+      managed: {
+        providerInstances: {
+          bad: {
+            driver: 5,
+            environment: [{ name: "OPENAI_API_KEY", value: "sk-INLINE", sensitive: true }],
+          },
+        },
+      },
+    },
+    {
+      name: "under a project override",
+      managed: {
+        projectSettingsOverrides: {
+          p1: {
+            providerInstances: {
+              codex: {
+                environment: [{ name: "OPENAI_API_KEY", value: "sk-INLINE", sensitive: true }],
+              },
+            },
+          },
+        },
+      },
+    },
+    {
       name: "in the config of a padded driver",
       managed: {
         providerInstances: {
