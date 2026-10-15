@@ -257,6 +257,33 @@ describe("T3 storage paths", () => {
       });
     });
 
+    it("leaves a migrated ~/.t3 for the split layout", () => {
+      expect(
+        select({
+          existing: [
+            "/home/alice/.t3/userdata/statev2.sqlite",
+            "/home/alice/.t3/userdata/storage-migration.json",
+          ],
+        }),
+      ).toEqual({ _tag: "Selected", roots: linuxDefaults(), baseDirIsExplicit: false });
+      expect(
+        select({
+          existing: [
+            "/home/alice/.local/state/t3code/statev2.sqlite",
+            "/home/alice/.t3/userdata/statev2.sqlite",
+            "/home/alice/.t3/userdata/storage-migration.json",
+          ],
+        }),
+      ).toEqual({ _tag: "Selected", roots: linuxDefaults(), baseDirIsExplicit: false });
+      // An explicit choice still names the retired tree; the server refuses to serve it.
+      expect(
+        select({
+          existing: ["/home/alice/.t3/userdata/storage-migration.json"],
+          forcedLayout: "legacy",
+        }),
+      ).toMatchObject({ roots: legacy() });
+    });
+
     it("names an explicit home's userdata even in development", () => {
       expect(select({ environment: { T3CODE_HOME: "~/t3" }, isDevelopment: true })).toEqual({
         _tag: "Selected",

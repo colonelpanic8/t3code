@@ -57,6 +57,9 @@ export const T3_SERVER_LOCATION_ENVIRONMENT_NAMES = [
   "T3CODE_SERVER_CONFIG_FILE",
 ] as const;
 
+/** Written into a legacy state directory once `t3 storage migrate` copied it to the split layout. */
+export const LEGACY_STORAGE_MIGRATION_MARKER = "storage-migration.json";
+
 export type T3StorageLayout = "split" | "legacy";
 export type T3ForcedStorageLayout = "xdg" | "legacy";
 
@@ -305,10 +308,18 @@ export function resolveLegacyT3StorageRoots(input: {
   };
 }
 
+export function legacyT3StorageMigrationMarkerPath(
+  roots: T3LegacyStorageRoots,
+  path: Pick<StoragePathOperations, "join">,
+): string {
+  return path.join(roots.stateDir, LEGACY_STORAGE_MIGRATION_MARKER);
+}
+
 /**
  * Files whose presence marks the legacy tree as an initialized installation.
  * The caches dir counts because a legacy server always creates it, even when
  * location overrides put its config and data elsewhere; nothing split does.
+ * Selection ignores a tree carrying the migration marker.
  */
 export function legacyT3StorageArtifactPaths(
   roots: T3StorageRoots,
@@ -408,8 +419,8 @@ export type T3StorageSelection =
 /**
  * The storage a T3 process uses: --base-dir, then a forced layout, then
  * T3CODE_HOME, then pinned roots, then the T3CODE_*_DIR selectors, then
- * whichever of the split layout and ~/.t3 already holds an installation (split
- * first), and finally the platform's split defaults.
+ * whichever of the split layout and an unmigrated ~/.t3 already holds an
+ * installation (split first), and finally the platform's split defaults.
  */
 export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection {
   const { environment, homeDirectory, path } = input;
@@ -464,7 +475,9 @@ export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection
         return input.exists(candidate);
       });
     const splitInitialized = initialized(splitT3StorageArtifactPaths(split, path));
-    const legacyInitialized = initialized(legacyT3StorageArtifactPaths(legacyRoots, path));
+    const legacyInitialized =
+      initialized(legacyT3StorageArtifactPaths(legacyRoots, path)) &&
+      !initialized([legacyT3StorageMigrationMarkerPath(legacyRoots, path)]);
     if (splitInitialized) {
       return legacyInitialized
         ? { ...selected(split), shadowedLegacyStateDir: legacyRoots.stateDir }
