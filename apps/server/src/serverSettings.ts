@@ -394,11 +394,14 @@ function migrateLegacyProviderSettings(
     const { enabled: rawEnabled, ...config } = blob as Record<string, unknown>;
     const explicitEnabled = typeof rawEnabled === "boolean" ? rawEnabled : undefined;
     if (localInstanceIds.has(instanceId)) continue;
-    // An enabled-only blob keeps an inherited entry's config; one that adds nothing
+    // An enabled-only blob keeps an inherited entry's config; one that changes nothing
     // leaves it alone, since the loop above already enabled it if history shows use.
     const inherited = providerInstances[instanceId];
     if (inherited !== undefined && Object.keys(config).length === 0) {
-      if (explicitEnabled !== undefined) {
+      if (
+        explicitEnabled !== undefined &&
+        explicitEnabled !== resolveProviderInstanceEnabled(inherited)
+      ) {
         providerInstances[instanceId] = { ...inherited, enabled: explicitEnabled };
       }
       continue;
@@ -798,10 +801,17 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       // A secret the shared file supplies stays there; moving it would pin a copy in settings.json.
       const inherited = inheritedSecretValues(settings, baseline);
+      const shared = new Map<string, string>();
+      mapSettingsSecrets(baseline, (secret) => {
+        if (secret.sensitive && !secret.redacted) shared.set(secret.secretName, secret.value);
+        return secret;
+      });
+      const isShared = (secret: SettingsSecret) => shared.get(secret.secretName) === secret.value;
       const pending: SettingsSecret[] = [];
       mapSettingsSecrets(settings, (secret) => {
         if (
-          secret.kind === "field" &&
+          secret.sensitive &&
+          (secret.kind === "field" || isShared(secret)) &&
           !secret.redacted &&
           secret.value.length > 0 &&
           inherited.get(secret.secretName) !== secret.value
@@ -811,6 +821,7 @@ const make = Effect.gen(function* () {
         return secret;
       });
       const moved = new Set<string>();
+      let sharedSecretLeftInline = false;
       for (const secret of pending) {
         const stored = yield* secretStore
           .set(secret.secretName, textEncoder.encode(secret.value))
@@ -823,11 +834,17 @@ const make = Effect.gen(function* () {
             ),
           );
         if (stored) moved.add(secret.secretName);
+        else if (isShared(secret)) sharedSecretLeftInline = true;
       }
-      if (moved.size === 0) return settings;
-      return mapSettingsSecrets(settings, (secret) =>
-        moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
-      );
+      return {
+        settings:
+          moved.size === 0
+            ? settings
+            : mapSettingsSecrets(settings, (secret) =>
+                moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
+              ),
+        sharedSecretLeftInline,
+      };
     });
 
   interface SharedSettings {
@@ -1022,13 +1039,14 @@ const make = Effect.gen(function* () {
     const sourceControlMigration = hasLegacySourceControl
       ? migrateLegacySourceControlSettings(folded, legacySourceControl)
       : { settings: folded, secretMoves: [] };
-    const migrated = settingsFileTrusted
+    const { settings: migrated, sharedSecretLeftInline } = settingsFileTrusted
       ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings, baseline)
-      : folded;
+      : { settings: folded, sharedSecretLeftInline: false };
     if (
-      migrated !== loaded ||
-      (settingsFileTrusted && legacyProviders !== undefined) ||
-      hasLegacySourceControl
+      !sharedSecretLeftInline &&
+      (migrated !== loaded ||
+        (settingsFileTrusted && legacyProviders !== undefined) ||
+        hasLegacySourceControl)
     ) {
       yield* writeSettingsAtomically(migrated, layer);
       for (const move of sourceControlMigration.secretMoves) {
