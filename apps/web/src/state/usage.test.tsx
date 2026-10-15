@@ -34,6 +34,7 @@ function environment(
     isPending: cost === null,
     canReadDiagnostics: true,
     isConnected: true,
+    isConnecting: false,
     error: null,
     needsCursorKeychainAccess: false,
     summary:

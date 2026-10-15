@@ -3,6 +3,8 @@ import type { UsageProviderKind, UsageSummary } from "@t3tools/contracts";
 interface UsageProgressEnvironment {
   readonly label: string;
   readonly isConnected: boolean;
+  /** A first connection attempt is under way, so this environment will answer soon. */
+  readonly isConnecting: boolean;
   readonly isPending: boolean;
   readonly error: string | null;
   readonly summary: UsageSummary | null;
@@ -11,9 +13,11 @@ interface UsageProgressEnvironment {
 /**
  * Where one environment's answer stands for the usage on screen.
  *
- * - `inactive`: disconnected or failed, so waiting on it changes nothing.
+ * - `inactive`: failed, or disconnected outside a first connection attempt, so
+ *   waiting on it changes nothing.
  * - `loading`: no summary yet.
- * - `stale`: its summary on screen predates the current request.
+ * - `stale`: its summary on screen predates the current request, including a
+ *   last reported summary shown while it connects.
  * - `partway`: answered this round while slow sources finish refreshing.
  * - `ready`: answered.
  *
@@ -24,7 +28,12 @@ export function usageEnvironmentProgress(
   refreshing = false,
 ) {
   const { summary } = environment;
-  if (!environment.isConnected || environment.error !== null) return { phase: "inactive" } as const;
+  if (environment.error !== null) return { phase: "inactive" } as const;
+  if (!environment.isConnected) {
+    return environment.isConnecting && summary !== null
+      ? ({ phase: "stale" } as const)
+      : ({ phase: "inactive" } as const);
+  }
   if (summary === null) return { phase: "loading" } as const;
   if (refreshing) return { phase: "stale" } as const;
   // A refreshing source without a pending follow-up has nothing left to wait on.
