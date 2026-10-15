@@ -9,7 +9,7 @@ import {
   type UsageProviderKind,
 } from "@t3tools/contracts";
 import { CircleAlertIcon, ChevronDownIcon, InfoIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   cursorKeychainAccessEnvironments,
   refreshUsageLimits,
@@ -109,6 +109,15 @@ function isUsageWindowDays(value: number): value is UsagePagePreferences["window
 }
 
 const providerLabel = (provider: UsageProviderKind) => PROVIDER_PRESENTATION[provider].label;
+
+/** A provider set that keeps its identity while its members stay the same. */
+function useProviderSet(providers: readonly UsageProviderKind[]): ReadonlySet<UsageProviderKind> {
+  const key = providers.join(",");
+  return useMemo(() => {
+    const members = key.split(",");
+    return new Set(PROVIDER_ORDER.filter((provider) => members.includes(provider)));
+  }, [key]);
+}
 
 export function UsagePage() {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
@@ -242,10 +251,13 @@ export function UsagePage() {
       ),
     [metric, preferences.sort, preferences.tableDimensions],
   );
+  // Keyed by content: environment statuses change identity on every update.
+  const environmentLabelsKey = JSON.stringify(
+    environments.map((environment) => [environment.environmentId, environment.label]),
+  );
   const environmentLabels = useMemo(
-    () =>
-      new Map(environments.map((environment) => [environment.environmentId, environment.label])),
-    [environments],
+    () => new Map(JSON.parse(environmentLabelsKey) as [EnvironmentId, string][]),
+    [environmentLabelsKey],
   );
   const providersWithData = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const activeProviders = useMemo(
@@ -255,15 +267,8 @@ export function UsagePage() {
       ),
     [loading.providers, providersWithData],
   );
-  const chartLoadingProviders = useMemo(
-    () =>
-      new Set(
-        activeProviders.filter(
-          (provider) => loading.everyProvider || loading.providers.has(provider),
-        ),
-      ),
-    [activeProviders, loading.everyProvider, loading.providers],
-  );
+  const loadingProviders = useProviderSet(PROVIDER_ORDER.filter(isProviderLoading));
+  const chartLoadingProviders = useProviderSet(activeProviders.filter(isProviderLoading));
   const selectedModel =
     selectedModelKey === null
       ? undefined
@@ -280,11 +285,22 @@ export function UsagePage() {
     ...cursorAccessEnvironments.map((environment) => ({ kind: "enable" as const, environment })),
   );
 
-  const updatePreferences = (patch: Partial<UsagePagePreferences>) => {
-    const nextPreferences = { ...preferences, ...patch };
-    setPreferences(nextPreferences);
-    saveUsagePagePreferences(nextPreferences);
-  };
+  const savedPreferences = useRef(preferences);
+  useEffect(() => {
+    if (savedPreferences.current === preferences) return;
+    savedPreferences.current = preferences;
+    saveUsagePagePreferences(preferences);
+  }, [preferences]);
+  const updatePreferences = useCallback(
+    (patch: Partial<UsagePagePreferences>) =>
+      setPreferences((current) => ({ ...current, ...patch })),
+    [],
+  );
+  const openModel = useCallback(
+    (row: { readonly provider?: UsageProviderKind; readonly model: string }) =>
+      setSelectedModelKey(`${row.provider}:${row.model}`),
+    [],
+  );
   const selectWindow = (days: number) => {
     if (!isUsageWindowDays(days)) return;
     updatePreferences({ windowDays: days });
@@ -841,10 +857,8 @@ export function UsagePage() {
                   metric={metric}
                   environmentLabels={environmentLabels}
                   timeZone={shownWindow.timeZone}
-                  isRowLoading={(row) =>
-                    row.provider === undefined ? loading.partial : isProviderLoading(row.provider)
-                  }
-                  onOpenModel={(row) => setSelectedModelKey(`${row.provider}:${row.model}`)}
+                  loadingProviders={loadingProviders}
+                  onOpenModel={openModel}
                 />
               </div>
             )}
