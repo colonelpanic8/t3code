@@ -36,24 +36,31 @@ it.layer(NodeServices.layer)("t3 uninstall launcher", (it) => {
   );
 });
 
-it("tells a legacy install to remove its whole T3 home", () => {
-  // A leftover ~/.t3/caches alone keeps a later install on the legacy layout.
+it("tells a legacy install to remove its whole T3 home, after its worktrees", () => {
+  // A leftover ~/.t3/caches alone keeps a later install on the legacy layout,
+  // and the worktrees may hold uncommitted work.
   assert.equal(
     keptStorageMessage({
-      keptDirs: ["/home/a/.t3/userdata", "/home/a/.t3/caches"],
+      keptDirs: ["/home/a/.t3/userdata", "/home/a/.t3/caches", "/home/a/.t3/worktrees"],
       legacyHome: "/home/a/.t3",
+      worktreesDir: "/home/a/.t3/worktrees",
     }),
-    "Your projects, threads, and settings under /home/a/.t3/userdata, /home/a/.t3/caches are kept. To remove them too, delete /home/a/.t3 entirely; a later install keeps using anything left in it.",
+    "Your projects, threads, and settings under /home/a/.t3/userdata, /home/a/.t3/caches, /home/a/.t3/worktrees are kept. To remove them too, move anything you want out of /home/a/.t3/worktrees, then delete /home/a/.t3 entirely; a later install keeps using anything left in it.",
   );
   assert.equal(
     keptStorageMessage({
-      keptDirs: ["/home/a/.t3/userdata", "/home/a/.t3/caches", "/srv/t3"],
+      keptDirs: ["/home/a/.t3/userdata", "/srv/t3"],
       legacyHome: "/home/a/.t3",
+      worktreesDir: "/home/a/.t3/worktrees",
     }),
-    "Your projects, threads, and settings under /home/a/.t3/userdata, /home/a/.t3/caches, /srv/t3 are kept. To remove them too, delete /home/a/.t3 entirely and the other directories listed; a later install keeps using anything left in it.",
+    "Your projects, threads, and settings under /home/a/.t3/userdata, /srv/t3 are kept. To remove them too, move anything you want out of /home/a/.t3/worktrees, then delete /home/a/.t3 entirely and the other directories listed; a later install keeps using anything left in it.",
   );
   assert.equal(
-    keptStorageMessage({ keptDirs: ["/c", "/d"], legacyHome: undefined }),
-    "Your projects, threads, and settings under /c, /d are kept. Delete those directories yourself if you want them gone too.",
+    keptStorageMessage({
+      keptDirs: ["/c", "/d"],
+      legacyHome: undefined,
+      worktreesDir: "/d/worktrees",
+    }),
+    "Your projects, threads, and settings under /c, /d are kept. Delete those directories yourself if you want them gone too, after moving anything you want out of /d/worktrees.",
   );
 });
