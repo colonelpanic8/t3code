@@ -315,6 +315,76 @@ describe("storage migration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("points a link inside the legacy tree at the migrated copy", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { input, state, split } = yield* makeFixture();
+      yield* fs.writeFileString(path.join(state, "kb-real.json"), "[]");
+      yield* fs.symlink("kb-real.json", path.join(state, "keybindings.json"));
+      yield* fs.symlink(path.join(state, "attachments"), path.join(state, "browser-artifacts"));
+
+      yield* runStorageMigration(input, { replaceExisting: false });
+
+      const keybindings = path.join(split("config"), "keybindings.json");
+      assert.equal(
+        yield* fs.readLink(keybindings),
+        path.relative(split("config"), path.join(split("state"), "kb-real.json")),
+      );
+      assert.equal(yield* fs.readFileString(keybindings), "[]");
+      assert.equal(
+        yield* fs.readLink(path.join(split("data"), "browser-artifacts")),
+        path.join(split("data"), "attachments"),
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("drops temporary files an interrupted record write left behind", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { input, state, split } = yield* makeFixture();
+      for (const name of ["storage-migration.json.Ab12Cd", "storage-migration.pending.json.Xy9"]) {
+        yield* fs.makeDirectory(path.join(state, name));
+        yield* fs.writeFileString(path.join(state, name, "contents.tmp"), "{");
+      }
+
+      const result = yield* runStorageMigration(input, { replaceExisting: false });
+
+      assert.isUndefined(result.plan.entries.find((entry) => entry.source.includes(".json.")));
+      const leftovers = (yield* fs.readDirectory(state)).filter((name) => name.includes(".json."));
+      assert.deepEqual(leftovers, []);
+      assert.isFalse(
+        (yield* fs.readDirectory(split("state"))).some((name) => name.startsWith("storage-")),
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("lets only one migration or rollback run at a time", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { input, state, split } = yield* makeFixture();
+      const lock = path.join(state, "storage-migration.lock");
+      yield* fs.writeFileString(lock, `${String(process.pid)}\n`);
+
+      const migrating = yield* runStorageMigration(input, { replaceExisting: false }).pipe(
+        Effect.flip,
+      );
+      const rollingBack = yield* rollbackStorageMigration(input).pipe(Effect.flip);
+      for (const error of [migrating, rollingBack]) {
+        assert.instanceOf(error, StorageMigrationBlockedError);
+        assert.include(error.message, `pid ${String(process.pid)}`);
+      }
+      assert.isFalse(yield* fs.exists(split("state")));
+
+      // A lock whose owner died is taken over, and released afterwards.
+      yield* fs.writeFileString(lock, `${String(DEAD_PID)}\n`);
+      assert.isTrue((yield* runStorageMigration(input, { replaceExisting: false })).migrated);
+      assert.isFalse(yield* fs.exists(lock));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("fails instead of verifying a tree it could not fully read", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

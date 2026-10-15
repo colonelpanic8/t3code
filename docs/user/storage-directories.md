@@ -133,10 +133,12 @@ before switching anything over, then writes `storage-migration.json` into
 deleted. If the migration is interrupted, T3 Code keeps using `~/.t3`, and the
 next run cleans up and starts over. Worktrees stay where they are because
 threads refer to them by path, and logs stay with the old tree. A file or
-folder in `~/.t3/userdata` that is a symbolic link, such as settings kept in a
-dotfiles repository, is recreated as the same link. If a destination already
-holds different contents, the migration stops; `--replace-existing` moves those
-files aside first.
+folder in `~/.t3/userdata` that is a symbolic link is recreated as a link. One
+that points elsewhere, such as settings kept in a dotfiles repository, keeps
+its target; one that points into `~/.t3/userdata` points at the migrated copy
+instead. If a destination already holds different contents, the migration
+stops; `--replace-existing` moves those files aside first. Only one migration
+or rollback runs at a time.
 
 A background service installed with `t3 service install` keeps serving the tree
 it was installed for, so the migration refuses to run while one serves
