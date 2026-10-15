@@ -182,11 +182,33 @@ The manifest holds no secrets. Pair a phone, browser, or desktop app with any me
 T3 Code then adds the other members, each at its declared address, and follows later changes to
 the manifest, including members that leave. Every member issues the device its own session, which
 appears under its authorized clients and can be revoked there. A member that does not answer, for
-example while your phone is off the tailnet, is added the next time the device connects to any
-member.
+example while your phone is off the tailnet, stays pending on the Connections screen. Choose
+**Retry all** to try again. T3 Code also retries when the app returns, the network changes, or a
+member connects, with up to three additional attempts five minutes apart.
 
 Members added this way are managed by system configuration: you can switch one off, but not edit
 or remove it. To take the fleet off a device, remove the machine you paired with.
+
+### Import a fleet on mobile
+
+Copy the fleet manifest JSON to your phone and choose **Import fleet file** when adding
+an environment. Review the list, select a member, and enter that member's pairing code.
+The file supplies addresses, not access: pairing is still required. Already saved environments
+keep their existing addresses and credentials. The imported list is used only during setup;
+after pairing, the connected servers supply fleet membership.
+
+Nix can generate the same file from the list used to configure your servers:
+
+```nix
+import "${inputs.t3code}/nix/fleet-import.nix" {
+  inherit pkgs;
+  environments = import ./fleet.nix;
+}
+```
+
+The result is a JSON file that can be copied to any device. Keep it free of tokens and
+passwords, including credentials embedded in URLs. HTTP and WebSocket addresses must
+refer to the same host and use matching secure or insecure schemes.
 
 ### Declarative desktop connections
 
