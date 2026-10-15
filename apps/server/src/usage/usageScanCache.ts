@@ -30,18 +30,24 @@ import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptRea
 // re-parses only its appended bytes instead of starting over.
 // v4: records carry Claude fast mode, which v3 rows never captured.
 // v5: Codex records carry their service tier. v4 rows store speed the same
-// way, so v4 entries still load; see `decodeScanCache` for v4 stateful entries.
-const USAGE_SCAN_CACHE_VERSION = 5 as const;
+// way, so v4 entries still load; see `predatesParseChange`.
+// v6: Claude subagent records carry a message's full output count, where v5
+// kept the streaming partial of its first content block.
+const USAGE_SCAN_CACHE_VERSION = 6 as const;
 const SPEED_COMPATIBLE_SINCE_VERSION = 4;
 
 /**
  * Each cache version writes its own file in the state directory. An older
  * server sharing that directory cannot read a newer cache and would replace
  * it, dropping saved usage for deleted transcripts. Separate files keep both.
- * A v5 server reads the legacy (v4) file once, when its own file is missing.
+ * When its own file is missing, a server reads the newest older file once.
  */
-export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v5.json";
-export const LEGACY_SCAN_CACHE_FILE_NAME = "usage-scan-cache.json";
+export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v6.json";
+/** Files of older cache versions, newest first. The unversioned one is v4. */
+export const LEGACY_SCAN_CACHE_FILE_NAMES = [
+  "usage-scan-cache-v5.json",
+  "usage-scan-cache.json",
+] as const;
 
 /** Serialised as the index into this list. */
 const SPEEDS: readonly UsageSpeed[] = ["standard", "fast", "ultrafast"];
@@ -337,11 +343,10 @@ export function decodeScanCache(
     ) {
       continue;
     }
-    // v4 records of stateful formats (Codex) predate service tiers, so they
-    // all priced as standard. Keep them, because the rollout may be gone, but
-    // make a live rollout re-parse whole: no file has size -1, and a zero
-    // position cannot resume.
-    const legacy = format.state !== undefined && version < USAGE_SCAN_CACHE_VERSION;
+    // Keep the records of an entry that predates a parse change, because the
+    // transcript may be gone, but make a live one re-parse whole: no file has
+    // size -1, and a zero position cannot resume.
+    const legacy = predatesParseChange(entry.p, format, version);
     // A corrupt state disqualifies the entry: resuming with it would attach
     // appended usage to the wrong model or replay fork-copied history.
     if (!legacy && !isValidState.get(entry.p)?.(entry.cs)) continue;
@@ -369,6 +374,20 @@ export function decodeScanCache(
   }
 
   return cache;
+}
+
+/**
+ * Whether an entry from cache `version` holds records its format now parses
+ * differently. v4 records of stateful formats (Codex, Pi) predate service
+ * tiers, so they all priced as standard. v5 Claude records hold the streaming
+ * partial output of a subagent message's first content block.
+ */
+function predatesParseChange(
+  provider: UsageProviderKind,
+  format: TranscriptUsageFormat<unknown>,
+  version: number,
+): boolean {
+  return (format.state !== undefined && version < 5) || (provider === "claude" && version < 6);
 }
 
 /**
@@ -404,20 +423,31 @@ export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): num
 /**
  * Within-file de-duplication, applied before an entry is cached.
  *
- * Callers stitching an incremental parse together pass one `seen` set across
- * the line and tail record batches so the whole file stays deduplicated as a
- * unit; the set is mutated in place.
+ * A repeated key within one batch is a later content block of the same Claude
+ * message. Its records are contiguous and in file order, and in a subagent
+ * transcript the early blocks carry a streaming-partial `output_tokens` while
+ * the last carries the full count, so the record reporting the most output is
+ * kept. Pass a parse's cached base, new lines, and unterminated tail as one
+ * batch, so a message whose last block lands in a later append, or is still
+ * being written, counts in full.
  */
-export function dedupeWithinFile(
-  records: readonly UsageRecord[],
-  seen: Set<string> = new Set(),
-): readonly UsageRecord[] {
+export function dedupeWithinFile(records: readonly UsageRecord[]): readonly UsageRecord[] {
   const kept: UsageRecord[] = [];
+  const keptIndexes = new Map<string, number>();
   for (const record of records) {
-    if (record.dedupeKey !== null) {
-      if (seen.has(record.dedupeKey)) continue;
-      seen.add(record.dedupeKey);
+    if (record.dedupeKey === null) {
+      kept.push(record);
+      continue;
     }
+    const keptIndex = keptIndexes.get(record.dedupeKey);
+    if (keptIndex !== undefined) {
+      const current = kept[keptIndex];
+      if (current !== undefined && record.totals.outputTokens > current.totals.outputTokens) {
+        kept[keptIndex] = record;
+      }
+      continue;
+    }
+    keptIndexes.set(record.dedupeKey, kept.length);
     kept.push(record);
   }
   return kept;
