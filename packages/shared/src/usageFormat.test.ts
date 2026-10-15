@@ -10,6 +10,7 @@ import {
   makeWindow,
   msUntilNextLocalDay,
   startOfLocalDay,
+  windowForToday,
 } from "./usageFormat.ts";
 
 describe("formatPercent", () => {
@@ -138,6 +139,30 @@ describe("local day boundaries", () => {
       expect(makeWindow(7, afterMidnight)).toMatchObject({
         sinceDay: "2026-10-09",
         untilDay: "2026-10-15",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps the current window until a wake or focus lands on a new day", () => {
+    try {
+      vi.stubEnv("TZ", "America/New_York");
+      const week = makeWindow(7, new Date("2026-10-14T09:00:00-04:00"));
+      const rolling = makeWindow(1, new Date("2026-10-14T09:00:00-04:00"), "hour");
+      const sameDay = new Date("2026-10-14T21:30:00-04:00");
+      expect(windowForToday(week, 7, sameDay)).toBe(week);
+      expect(windowForToday(rolling, 1, sameDay)).toBe(rolling);
+      const nextMorning = new Date("2026-10-15T07:00:00-04:00");
+      expect(windowForToday(week, 7, nextMorning)).toMatchObject({
+        sinceDay: "2026-10-09",
+        untilDay: "2026-10-15",
+        resolution: "day",
+      });
+      expect(windowForToday(rolling, 1, nextMorning)).toMatchObject({
+        sinceTime: "2026-10-14T11:00:00.000Z",
+        untilTime: "2026-10-15T11:00:00.000Z",
+        resolution: "hour",
       });
     } finally {
       vi.unstubAllEnvs();

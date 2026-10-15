@@ -56,6 +56,7 @@ import {
   formatUsd,
   makeWindow,
   msUntilNextLocalDay,
+  windowForToday,
 } from "@t3tools/shared/usageFormat";
 import { Button, InlineButton } from "../ui/button";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -199,20 +200,32 @@ export function UsagePage() {
       preferences.windowDays === 1 ? "hour" : "day",
     ),
   }));
-  // Re-anchor at local midnight so a page left open overnight asks for today.
+  // Re-anchor at local midnight, and when a sleeping or hidden page returns,
+  // so a page left open overnight asks for today.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
+    const reanchor = () =>
+      setWindowSelection((selection) => {
+        const today = windowForToday(selection.window, selection.days);
+        return today === selection.window ? selection : { days: selection.days, window: today };
+      });
     const arm = () => {
       timer = setTimeout(() => {
-        setWindowSelection(({ days }) => ({
-          days,
-          window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
-        }));
+        reanchor();
         arm();
       }, msUntilNextLocalDay() + DAY_ROLLOVER_SLACK_MS);
     };
+    const reanchorWhenVisible = () => {
+      if (document.visibilityState === "visible") reanchor();
+    };
     arm();
-    return () => clearTimeout(timer);
+    document.addEventListener("visibilitychange", reanchorWhenVisible);
+    globalThis.window.addEventListener("focus", reanchor);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", reanchorWhenVisible);
+      globalThis.window.removeEventListener("focus", reanchor);
+    };
   }, []);
   const metric = preferences.metric;
   const showingLimits = metric === "limits";
