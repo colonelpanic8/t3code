@@ -41,14 +41,6 @@ const decodePersistedServerRuntimeState = Schema.decodeUnknownEffect(
   Schema.fromJsonString(PersistedServerRuntimeState),
 );
 
-export function deriveServerRuntimeStatePath(input: {
-  readonly baseDir: string;
-  readonly variant: ServerRuntimeStateVariant;
-  readonly joinPath: (first: string, ...segments: ReadonlyArray<string>) => string;
-}): string {
-  return input.joinPath(input.baseDir, input.variant, "server-runtime.json");
-}
-
 /**
  * Signal 0 does not deliver a signal; it only reports whether the process
  * exists. EPERM still means the process is alive but belongs to another user.
