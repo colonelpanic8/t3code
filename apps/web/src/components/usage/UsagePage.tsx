@@ -1218,6 +1218,10 @@ function UsageCoverageNotice({
   readonly contractMismatches: MergedUsage["contractMismatches"];
 }) {
   const failed = environments.filter((environment) => environment.error !== null);
+  const lastReported = environments.filter(
+    (environment) =>
+      !environment.isConnected && environment.error === null && environment.summary !== null,
+  );
   const mismatchByEnvironment = new Map(
     contractMismatches.map((mismatch) => [mismatch.environmentId, mismatch]),
   );
@@ -1225,7 +1229,12 @@ function UsageCoverageNotice({
     const mismatch = mismatchByEnvironment.get(environment.environmentId);
     return mismatch === undefined ? [] : [{ environment, mismatch }];
   });
-  if (failed.length === 0 && incompatible.length === 0 && duplicateSources.length === 0) {
+  if (
+    failed.length === 0 &&
+    lastReported.length === 0 &&
+    incompatible.length === 0 &&
+    duplicateSources.length === 0
+  ) {
     return null;
   }
 
@@ -1234,6 +1243,11 @@ function UsageCoverageNotice({
       {failed.map((environment) => (
         <span key={environment.label}>
           {environment.label}: {environment.error}
+        </span>
+      ))}
+      {lastReported.map((environment) => (
+        <span key={environment.environmentId}>
+          {environment.label}: Showing its last reported usage until it connects.
         </span>
       ))}
       {incompatible.map(({ environment, mismatch }) => (
