@@ -51,29 +51,33 @@ function showAllButton(root: ReactTestInstance) {
   );
 }
 
+function renderTable(rows: readonly UsageEntry[]) {
+  let renderer: ReturnType<typeof create> | undefined;
+  act(() => {
+    renderer = create(
+      <UsageBreakdownTable
+        entries={rows}
+        view={{
+          tableDimensions: ["period"],
+          sort: [{ field: "period", direction: "ascending" }],
+        }}
+        chartSeries={buildUsageChartSeries(rows, [], "day", [], "cost")}
+        onViewChange={() => {}}
+        grouping="day"
+        metric="cost"
+        environmentLabels={new Map()}
+        timeZone="UTC"
+        loadingProviders={new Set()}
+        onOpenModel={() => {}}
+      />,
+    );
+  });
+  return renderer!.root;
+}
+
 describe("UsageBreakdownTable", () => {
   it("renders the first 200 rows until asked for all of them", () => {
-    let renderer: ReturnType<typeof create> | undefined;
-    act(() => {
-      renderer = create(
-        <UsageBreakdownTable
-          entries={entries}
-          view={{
-            tableDimensions: ["period"],
-            sort: [{ field: "period", direction: "ascending" }],
-          }}
-          chartSeries={buildUsageChartSeries(entries, [], "day", [], "cost")}
-          onViewChange={() => {}}
-          grouping="day"
-          metric="cost"
-          environmentLabels={new Map()}
-          timeZone="UTC"
-          loadingProviders={new Set()}
-          onOpenModel={() => {}}
-        />,
-      );
-    });
-    const root = renderer!.root;
+    const root = renderTable(entries);
 
     expect(bodyRows(root)).toHaveLength(200);
     const [button] = showAllButton(root);
@@ -82,6 +86,13 @@ describe("UsageBreakdownTable", () => {
     act(() => button?.props.onClick());
 
     expect(bodyRows(root)).toHaveLength(250);
+    expect(showAllButton(root)).toHaveLength(0);
+  });
+
+  it("renders a short table whole, without the control", () => {
+    const root = renderTable(entries.slice(0, 3));
+
+    expect(bodyRows(root)).toHaveLength(3);
     expect(showAllButton(root)).toHaveLength(0);
   });
 });
