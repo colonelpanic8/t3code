@@ -201,6 +201,20 @@ export function formatRelativeHourShort(
   return formatDateTimeShort(hourStart, timeZone);
 }
 
+/** When the local calendar day containing `now` began. */
+export function startOfLocalDay(now: Date): Date {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+/** How long until the local calendar day after `now` begins. */
+export function msUntilNextLocalDay(now = new Date()): number {
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  return next.getTime() - now.getTime();
+}
+
 /**
  * The window the page requests, expressed in the viewer's own time zone so days
  * line up with what they actually experienced.
