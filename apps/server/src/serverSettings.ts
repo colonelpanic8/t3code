@@ -18,7 +18,7 @@ import {
   ProjectId,
   ProjectScript,
   ProjectSettingsOverrides,
-  type ProviderInstanceConfig,
+  ProviderInstanceConfig,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
   isProviderDriverKind,
@@ -29,6 +29,7 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
+  UsageLimitSourceConfig,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -910,29 +911,56 @@ function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unkno
   );
 }
 
+const decodeProviderInstanceOption = Schema.decodeUnknownOption(ProviderInstanceConfig);
+const decodeUsageLimitSourceOption = Schema.decodeUnknownOption(UsageLimitSourceConfig);
+
+/** The entries of `map` that decode, keyed by `prefix` and their id. */
+function decodedEntries(
+  map: unknown,
+  decode: (entry: unknown) => Option.Option<unknown>,
+  prefix = "",
+): Array<readonly [string, unknown]> {
+  if (!isSettingsDocument(map)) return [];
+  return Object.entries(map).flatMap(([id, entry]) =>
+    Option.match(decode(entry), {
+      onNone: () => [],
+      onSome: (decoded) => [[`${prefix}${id}`, decoded] as const],
+    }),
+  );
+}
+
 // Credentials reach the managed file only as `{ "$file": "/path" }`, since the
 // file itself usually lives somewhere world-readable such as the Nix store.
+// Entries are decoded first so secret fields resolve by the driver names and
+// defaults the runtime sees; ones that do not decode are dropped later anyway.
 // Returns the store name of the first secret written inline.
 function findInlineManagedSecret(document: SettingsDocument): string | undefined {
   const marked = markFileReferences(document) as SettingsDocument;
-  const sections: Record<string, SettingsDocument> = {};
-  for (const section of SECRET_SECTIONS) {
-    const value = marked[section];
-    if (!isSettingsDocument(value)) continue;
-    sections[section] = Object.fromEntries(
-      Object.entries(value).filter(([, entry]) => isWalkableSecretEntry(section, entry)),
-    );
-  }
+  const projects = isSettingsDocument(marked.projectSettingsOverrides)
+    ? Object.entries(marked.projectSettingsOverrides)
+    : [];
+  const providerInstances = Object.fromEntries([
+    ...decodedEntries(marked.providerInstances, decodeProviderInstanceOption),
+    ...projects.flatMap(([projectId, project]) =>
+      isSettingsDocument(project)
+        ? decodedEntries(project.providerInstances, decodeProviderInstanceOption, `${projectId}/`)
+        : [],
+    ),
+  ]);
+  const sourceControlHosts = isSettingsDocument(marked.sourceControlHosts)
+    ? Object.fromEntries(
+        Object.entries(marked.sourceControlHosts).filter(([, host]) => isSettingsDocument(host)),
+      )
+    : {};
+  const usageLimitSources = Object.fromEntries(
+    decodedEntries(marked.usageLimitSources, decodeUsageLimitSourceOption),
+  );
   let inline: string | undefined;
   mapSettingsSecrets(
-    {
-      providerInstances: {},
-      sourceControlHosts: {},
-      usageLimitSources: {},
-      ...sections,
-    } as unknown as ServerSettings,
+    { providerInstances, sourceControlHosts, usageLimitSources } as unknown as ServerSettings,
     (secret) => {
-      if (secret.sensitive && secret.value.length > 0 && secret.value !== SECRET_REDACTED) {
+      const value = secret.value.trim();
+      if (secret.sensitive && value.length > 0 && value !== SECRET_REDACTED) {
         inline ??= secret.secretName;
       }
       return secret;
@@ -1559,6 +1587,12 @@ const make = Effect.gen(function* () {
         cause: error.cause,
       }).pipe(Effect.as(undefined)),
     ),
+    Effect.catchDefect((defect) =>
+      Effect.logWarning("ignoring managed settings file", {
+        path: managedSettingsPath,
+        cause: defect,
+      }).pipe(Effect.as(undefined)),
+    ),
   );
 
   const applyManagedLayer = (
@@ -1591,17 +1625,17 @@ const make = Effect.gen(function* () {
     layer: SettingsLayer,
     settings: ServerSettings,
     managed: ManagedSettingsLayer | undefined,
-  ): Effect.Effect<SettingsState> =>
-    Effect.gen(function* () {
-      const { baseline, keepLocalKeys } = layer;
-      const unmanaged: SettingsState = {
-        baseline,
-        keepLocalKeys,
-        settings,
-        effective: settings,
-        managed: undefined,
-      };
-      if (managed === undefined) return unmanaged;
+  ): Effect.Effect<SettingsState> => {
+    const { baseline, keepLocalKeys } = layer;
+    const unmanaged: SettingsState = {
+      baseline,
+      keepLocalKeys,
+      settings,
+      effective: settings,
+      managed: undefined,
+    };
+    if (managed === undefined) return Effect.succeed(unmanaged);
+    return Effect.gen(function* () {
       const whole = yield* Effect.exit(enforceManagedLayer(settings, managed.document));
       if (Exit.isSuccess(whole) && whole.value.dropped.length === 0) {
         return { ...unmanaged, effective: whole.value.effective, managed };
@@ -1639,7 +1673,15 @@ const make = Effect.gen(function* () {
           }).pipe(Effect.as(unmanaged)),
         ),
       );
-    });
+    }).pipe(
+      Effect.catchDefect((defect) =>
+        Effect.logWarning("ignoring managed settings that could not be applied", {
+          path: managedSettingsPath,
+          cause: defect,
+        }).pipe(Effect.as(unmanaged)),
+      ),
+    );
+  };
 
   /**
    * Turn settings computed against the effective layer back into the layer

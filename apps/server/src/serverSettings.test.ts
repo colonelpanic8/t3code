@@ -2368,6 +2368,14 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       },
     },
+    {
+      name: "in the config of a padded driver",
+      managed: {
+        providerInstances: {
+          ag: { driver: " antigravity", config: { apiKey: "AIza_INLINE" } },
+        },
+      },
+    },
   ])("ignores a managed file with an inline credential $name", ({ managed }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -2383,6 +2391,35 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const settings = yield* service.getSettings;
         assert.equal(settings.branchNamePrefix, DEFAULT_SERVER_SETTINGS.branchNamePrefix);
         assert.deepEqual(yield* service.managedSettingPaths, []);
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
+  it.effect.each([
+    { name: "no value", variable: { name: "TOKEN", sensitive: true } },
+    { name: "a blank value", variable: { name: "TOKEN", value: "   ", sensitive: true } },
+    { name: "a literal value", variable: { name: "REGION", value: "eu", sensitive: false } },
+  ])("accepts a managed environment variable with $name", ({ variable }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-env-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({
+          branchNamePrefix: "nix/",
+          providerInstances: { codex_x: { driver: "codex", environment: [variable] } },
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.branchNamePrefix, "nix/");
+        assert.deepEqual(yield* service.managedSettingPaths, [
+          ["branchNamePrefix"],
+          ["providerInstances", "codex_x"],
+        ]);
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
     }),
   );
