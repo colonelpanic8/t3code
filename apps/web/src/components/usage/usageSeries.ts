@@ -5,13 +5,19 @@ import {
   formatMonthShort,
   formatRelativeHourShort,
 } from "@t3tools/shared/usageFormat";
+import type { UsageEntry } from "@t3tools/shared/usageMerge";
 import {
   USAGE_DIMENSIONS,
+  buildStackedColumns,
+  usageRowKey,
   type UsageDimension,
+  type UsagePivotMetric,
   type UsagePivotRow,
+  type UsageStack,
   type UsageTimeGrouping,
 } from "@t3tools/shared/usagePivot";
 
+import type { UsageChartDimension } from "./usagePagePreferences";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
 export interface UsageLabelContext {
@@ -127,27 +133,71 @@ export function usageSeriesLabels(
 const SERIES_PALETTE = [255, 40, 150, 310, 85, 200, 0, 120, 280, 60].map(
   (hue) => `oklch(0.68 0.13 ${hue})`,
 );
-export const OTHER_SERIES_COLOR = "color-mix(in oklab, var(--foreground) 40%, var(--background))";
+const OTHER_SERIES_COLOR = "color-mix(in oklab, var(--foreground) 40%, var(--background))";
 const TOTAL_SERIES_COLOR = "var(--contrast-foreground)";
+
+export interface UsageChartSeries {
+  readonly dimensions: readonly UsageChartDimension[];
+  readonly stack: UsageStack;
+  /** Every kept series, "Other", and each series folded into it. */
+  readonly colors: ReadonlyMap<string, string>;
+}
 
 /**
  * Provider series keep their provider colors. Other series take palette slots
  * in key order, so a series keeps its color while the ranking moves.
  */
-export function usageSeriesColors(
-  rows: readonly Pick<UsagePivotRow, "key" | "provider">[],
-  dimensions: readonly UsageDimension[],
-): ReadonlyMap<string, string> {
+function keptSeriesColors(
+  rows: readonly UsagePivotRow[],
+  dimensions: readonly UsageChartDimension[],
+): readonly (readonly [string, string])[] {
   if (dimensions.length === 1 && dimensions[0] === "provider") {
-    return new Map(
-      rows.flatMap((row) =>
-        row.provider === undefined ? [] : [[row.key, PROVIDER_PRESENTATION[row.provider].color]],
-      ),
+    return rows.flatMap((row) =>
+      row.provider === undefined ? [] : [[row.key, PROVIDER_PRESENTATION[row.provider].color]],
     );
   }
-  if (dimensions.length === 0) return new Map(rows.map((row) => [row.key, TOTAL_SERIES_COLOR]));
-  const keys = [...new Set(rows.map((row) => row.key))].sort();
-  return new Map(
-    keys.map((key, index) => [key, SERIES_PALETTE[index % SERIES_PALETTE.length] ?? ""]),
-  );
+  if (dimensions.length === 0) return rows.map((row) => [row.key, TOTAL_SERIES_COLOR]);
+  return rows
+    .map((row) => row.key)
+    .toSorted()
+    .map((key, index) => [key, SERIES_PALETTE[index % SERIES_PALETTE.length] ?? ""]);
+}
+
+export function buildUsageChartSeries(
+  entries: readonly UsageEntry[],
+  dimensions: readonly UsageChartDimension[],
+  grouping: UsageTimeGrouping,
+  periods: readonly string[],
+  metric: UsagePivotMetric,
+): UsageChartSeries {
+  const stack = buildStackedColumns(entries, dimensions, grouping, periods, metric);
+  const kept = stack.series.flatMap((series) => (series.row === null ? [] : [series.row]));
+  const other = stack.series.filter((series) => series.row === null).map((series) => series.key);
+  const colors = new Map([
+    ...keptSeriesColors(kept, dimensions),
+    ...[...other, ...stack.folded].map((key) => [key, OTHER_SERIES_COLOR] as const),
+  ]);
+  return { dimensions, stack, colors };
+}
+
+const ROW_VALUE: {
+  readonly [Dimension in UsageChartDimension]: (row: UsagePivotRow) => string | undefined;
+} = {
+  environment: (row) => row.environmentId,
+  provider: (row) => row.provider,
+  model: (row) => row.model,
+};
+
+/**
+ * The color of the chart band a row falls in, if the row carries every value
+ * the chart splits by. A single total band marks nothing.
+ */
+export function usageRowSeriesColor(
+  series: UsageChartSeries,
+  row: UsagePivotRow,
+): string | undefined {
+  const { dimensions } = series;
+  if (dimensions.length === 0) return undefined;
+  if (!dimensions.every((dimension) => ROW_VALUE[dimension](row) !== undefined)) return undefined;
+  return series.colors.get(usageRowKey(row, dimensions));
 }

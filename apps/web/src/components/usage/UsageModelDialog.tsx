@@ -25,6 +25,7 @@ import {
   tokenTypeSegments,
 } from "./usageBreakdown";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
+import { buildUsageChartSeries } from "./usageSeries";
 
 const BY_PROVIDER = ["provider"] as const;
 
@@ -65,6 +66,19 @@ export function UsageModelDialog({
   );
   const presentation = PROVIDER_PRESENTATION[model.provider];
   const costUnknown = isModelCostUnknown(model);
+  // Unpriced cost is unknown, not zero, so its trend shows tokens.
+  const chartMetric = costUnknown ? "tokens" : metric;
+  const chartSeries = useMemo(
+    () =>
+      buildUsageChartSeries(
+        usage.entries,
+        BY_PROVIDER,
+        chartWindow.grouping,
+        chartWindow.periods,
+        chartMetric,
+      ),
+    [chartMetric, chartWindow.grouping, chartWindow.periods, usage.entries],
+  );
   const hitRate = cacheHitRate(model);
   const perMillion = costPerMillionTokens(model);
   const stats = [
@@ -107,13 +121,10 @@ export function UsageModelDialog({
               ))}
             </div>
 
-            {/* Unpriced cost is unknown, not zero, so its trend shows tokens. */}
             <UsageChart
-              entries={usage.entries}
-              dimensions={BY_PROVIDER}
+              series={chartSeries}
               grouping={chartWindow.grouping}
-              periods={chartWindow.periods}
-              metric={costUnknown ? "tokens" : metric}
+              metric={chartMetric}
               referenceTime={chartWindow.referenceTime}
               timeZone={chartWindow.timeZone}
             />

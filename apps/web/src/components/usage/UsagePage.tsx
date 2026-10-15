@@ -93,7 +93,12 @@ import {
   saveUsagePagePreferences,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
-import { DIMENSION_NAMES, GROUPING_ADJECTIVES, GROUPING_NAMES } from "./usageSeries";
+import {
+  DIMENSION_NAMES,
+  GROUPING_ADJECTIVES,
+  GROUPING_NAMES,
+  buildUsageChartSeries,
+} from "./usageSeries";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -221,6 +226,17 @@ export function UsagePage() {
     [days, grouping, hours, shownHourly],
   );
   const chartDimensions = preferences.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const chartSeries = useMemo(
+    () =>
+      buildUsageChartSeries(
+        merged.entries,
+        chartDimensions,
+        grouping,
+        periods,
+        metric === "tokens" ? "tokens" : "cost",
+      ),
+    [chartDimensions, grouping, merged.entries, metric, periods],
+  );
   const tableView = useMemo(() => {
     const stored = {
       tableDimensions: preferences.tableDimensions ?? DEFAULT_USAGE_VIEW.tableDimensions,
@@ -748,10 +764,8 @@ export function UsagePage() {
                       </div>
                     </div>
                     <UsageChart
-                      entries={merged.entries}
-                      dimensions={chartDimensions}
+                      series={chartSeries}
                       grouping={grouping}
-                      periods={periods}
                       metric={metric}
                       environmentLabels={environmentLabels}
                       loadingProviders={chartLoadingProviders}
@@ -828,6 +842,7 @@ export function UsagePage() {
                 <UsageBreakdownTable
                   entries={merged.entries}
                   view={tableView}
+                  chartSeries={chartSeries}
                   onViewChange={updatePreferences}
                   grouping={grouping}
                   metric={metric}

@@ -1,24 +1,17 @@
 import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { UsageEntry } from "@t3tools/shared/usageMerge";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
-import {
-  buildStackedColumns,
-  type UsageStackedColumn,
-  type UsageTimeGrouping,
-} from "@t3tools/shared/usagePivot";
+import type { UsageStackedColumn, UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
-import type { UsageChartDimension } from "./usagePagePreferences";
 import {
   DIMENSION_NAMES,
   GROUPING_ADJECTIVES,
-  OTHER_SERIES_COLOR,
   formatPeriod,
   formatPeriodShort,
-  usageSeriesColors,
   usageSeriesLabels,
+  type UsageChartSeries,
 } from "./usageSeries";
 
 const VIEW_WIDTH = 960;
@@ -31,12 +24,9 @@ const NO_ENVIRONMENT_LABELS: ReadonlyMap<EnvironmentId, string> = new Map();
 export type UsageChartMetric = "tokens" | "cost";
 
 interface UsageChartProps {
-  readonly entries: readonly UsageEntry[];
-  /** Series are every combination of these. None draws a single total. */
-  readonly dimensions: readonly UsageChartDimension[];
+  /** Built for `metric`. Without dimensions it draws a single total. */
+  readonly series: UsageChartSeries;
   readonly grouping: UsageTimeGrouping;
-  /** One per column, oldest first. */
-  readonly periods: readonly string[];
   readonly metric: UsageChartMetric;
   readonly environmentLabels?: ReadonlyMap<EnvironmentId, string>;
   /** Providers whose figures are still coming in: their series are muted. */
@@ -192,10 +182,8 @@ function toPoints(ys: readonly number[], xs: readonly number[]): readonly Point[
 }
 
 export function UsageChart({
-  entries,
-  dimensions,
+  series: chartSeries,
   grouping,
-  periods,
   metric,
   environmentLabels = NO_ENVIRONMENT_LABELS,
   loadingProviders = NONE_LOADING,
@@ -207,19 +195,10 @@ export function UsageChart({
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const hoverPositionRef = useRef<{ x: number; y: number } | null>(null);
 
+  const { dimensions } = chartSeries;
   const chart = useMemo(() => {
-    const stack = buildStackedColumns(
-      entries,
-      dimensions,
-      grouping,
-      periods,
-      metric === "tokens" ? "tokens" : "cost",
-    );
+    const { stack, colors } = chartSeries;
     const scale = chartScale(stack.peak, loadingProviders.size > 0);
-    const colors = usageSeriesColors(
-      stack.series.flatMap((series) => (series.row === null ? [] : [series.row])),
-      dimensions,
-    );
     const labels = usageSeriesLabels(stack.series, dimensions, {
       environmentLabels,
       grouping,
@@ -228,7 +207,7 @@ export function UsageChart({
     const series = stack.series.map((entry, index) => ({
       key: entry.key,
       label: labels[index] ?? "",
-      color: colors.get(entry.key) ?? OTHER_SERIES_COLOR,
+      color: colors.get(entry.key) ?? "",
       loading:
         entry.row?.provider === undefined
           ? loadingProviders.size > 0
@@ -242,18 +221,10 @@ export function UsageChart({
       const top = boundaries[index + 1] ?? [];
       return { ...entry, line: curvePath(top), area: bandAreaPath(top, boundaries[index] ?? []) };
     });
-    return { columns: stack.columns, scale, series, bands };
-  }, [
-    dimensions,
-    entries,
-    environmentLabels,
-    grouping,
-    loadingProviders,
-    metric,
-    periods,
-    timeZone,
-  ]);
-  const { columns, scale, series, bands } = chart;
+    const periods = stack.columns.map((column) => column.period);
+    return { columns: stack.columns, periods, scale, series, bands };
+  }, [chartSeries, dimensions, environmentLabels, grouping, loadingProviders, timeZone]);
+  const { columns, periods, scale, series, bands } = chart;
   const toY = (value: number) => valueToY(value, scale.max);
   // The delay keeps a quick answer from flashing, as with the page's figures.
   const seriesClassName = (loading: boolean) =>
