@@ -14,7 +14,11 @@ import * as Path from "effect/Path";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import { resolveLinuxDesktopEntryName } from "./DesktopEarlyElectronStartup.ts";
-import { resolveDesktopBaseDir, resolveDesktopStateDir } from "./DesktopStatePaths.ts";
+import {
+  resolveDesktopBaseDir,
+  resolveDesktopClientPaths,
+  resolveDesktopStateDir,
+} from "./DesktopStatePaths.ts";
 import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
 import type { OtlpProtocol } from "@t3tools/shared/observability";
 
@@ -28,6 +32,7 @@ export interface MakeDesktopEnvironmentInput {
   readonly isPackaged: boolean;
   readonly resourcesPath: string;
   readonly runningUnderArm64Translation: boolean;
+  readonly clientDirSwitch?: string | null;
 }
 
 export class DesktopEnvironment extends Context.Service<
@@ -46,8 +51,12 @@ export class DesktopEnvironment extends Context.Service<
     readonly appDataDirectory: string;
     readonly baseDir: string;
     readonly stateDir: string;
+    readonly clientConfigDir: string;
+    readonly clientStateDir: string;
     readonly desktopSettingsPath: string;
+    readonly desktopWindowStatePath: string;
     readonly clientSettingsPath: string;
+    readonly connectionCatalogPath: string;
     readonly savedEnvironmentRegistryPath: string;
     readonly serverSettingsPath: string;
     readonly logDir: string;
@@ -178,6 +187,14 @@ const make = Effect.fn("desktop.environment.make")(function* (
     joinPath: path.join,
     t3Home: config.t3Home,
   });
+  const clientPaths = resolveDesktopClientPaths({
+    stateDir,
+    homeDirectory,
+    clientDirSwitch: Option.fromNullishOr(input.clientDirSwitch),
+    clientDirEnv: config.clientDir,
+    joinPath: path.join,
+    resolvePath: path.resolve,
+  });
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
@@ -210,9 +227,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appDataDirectory,
     baseDir,
     stateDir,
-    desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
-    clientSettingsPath: path.join(stateDir, "client-settings.json"),
-    savedEnvironmentRegistryPath: path.join(stateDir, "saved-environments.json"),
+    ...clientPaths,
     serverSettingsPath: path.join(serverConfigDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
