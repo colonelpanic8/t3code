@@ -300,7 +300,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     };
     const options = ClaudeAdapterV2.makeClaudeQueryOptions({
       ...base,
-      blankSlate: { managedMcpConfig: false },
+      blankSlate: true,
     });
 
     assert.deepEqual(options.systemPrompt, { type: "preset", preset: "claude_code" });
@@ -311,13 +311,6 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.include(options.settings, { disableAllHooks: true, autoMemoryEnabled: false });
     assert.deepEqual(options.env, { PATH: "/usr/bin", ENABLE_CLAUDEAI_MCP_SERVERS: "false" });
     assert.isNull(options.extraArgs?.["no-chrome"]);
-
-    // Claude refuses --strict-mcp-config next to a managed-mcp.json.
-    const managed = ClaudeAdapterV2.makeClaudeQueryOptions({
-      ...base,
-      blankSlate: { managedMcpConfig: true },
-    });
-    assert.isUndefined(managed.strictMcpConfig);
 
     const regular = ClaudeAdapterV2.makeClaudeQueryOptions(base);
     assert.isUndefined(regular.settingSources);
