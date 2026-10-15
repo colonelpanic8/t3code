@@ -296,6 +296,22 @@ const belongsToBootService = Effect.fn("cli.update.belongs_to_boot_service")(fun
   return false;
 });
 
+/**
+ * The background service as `targetVersion` installs it. It keeps this
+ * install's storage roots, or a split install's unit would come back pointing
+ * at a legacy T3 home.
+ */
+export const targetServiceLayer = (
+  input: { readonly baseDir: string; readonly logsDir: string; readonly storage: ServerStorage },
+  targetVersion: string,
+) =>
+  BootService.layer({
+    baseDir: input.baseDir,
+    storageRoots: input.storage.roots,
+    logsDir: input.logsDir,
+    cliVersion: targetVersion,
+  });
+
 const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   readonly baseDir: string;
   readonly logsDir: string;
@@ -506,9 +522,7 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
       Effect.flatMap((target) =>
         target.install({ allowDowngrade: input.allowDowngrade, start: restartService }),
       ),
-      // The same storage as every other service command, or a split install's
-      // unit would come back pointing at a legacy T3 home.
-      Effect.provide(CliService.layer(input, targetVersion)),
+      Effect.provide(targetServiceLayer(input, targetVersion)),
       Effect.mapError(
         (error) =>
           new CliUpdateError({
