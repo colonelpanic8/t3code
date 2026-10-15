@@ -2,7 +2,11 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
-import { T3_STORAGE_ENVIRONMENT_NAMES, t3StorageEnvironment } from "@t3tools/shared/storagePaths";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_ENVIRONMENT_NAMES,
+  t3StorageEnvironment,
+} from "@t3tools/shared/storagePaths";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
@@ -34,6 +38,14 @@ export const renderCliShim = (input: {
 }) => {
   const { target } = input;
   const storageEntries = Object.entries(input.storageEnvironment);
+  // Pinned split roots cannot be combined with a caller's own server location
+  // overrides, so any of those also means the caller chose its storage.
+  const callerStorageNames = [
+    ...T3_STORAGE_ENVIRONMENT_NAMES,
+    ...(Object.hasOwn(input.storageEnvironment, "T3CODE_HOME")
+      ? []
+      : T3_SERVER_LOCATION_ENVIRONMENT_NAMES),
+  ];
   if (target.kind === "windows") {
     const utf8 = [
       target.executable,
@@ -58,7 +70,7 @@ export const renderCliShim = (input: {
         : []),
       `set "T3CODE_CLI_PATH=${cmdText(input.shimPath)}"`,
       'set "t3_storage=1"',
-      ...T3_STORAGE_ENVIRONMENT_NAMES.map((name) => `if defined ${name} set "t3_storage="`),
+      ...callerStorageNames.map((name) => `if defined ${name} set "t3_storage="`),
       ...storageEntries.map(
         ([name, value]) => `if defined t3_storage set "${name}=${cmdText(value)}"`,
       ),
@@ -82,7 +94,7 @@ export const renderCliShim = (input: {
     "#!/bin/sh",
     `# ${MARKER}`,
     `export T3CODE_CLI_PATH=${shellWord(input.shimPath)}`,
-    `if [ -z "${T3_STORAGE_ENVIRONMENT_NAMES.map((name) => `\${${name}:-}`).join("")}" ]; then`,
+    `if [ -z "${callerStorageNames.map((name) => `\${${name}:-}`).join("")}" ]; then`,
     ...storageEntries.map(([name, value]) => `  export ${name}=${shellWord(value)}`),
     "fi",
     "export ELECTRON_RUN_AS_NODE=1",
