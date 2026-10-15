@@ -279,23 +279,21 @@ export function t3StoragePathExists(path: string): boolean {
   }
 }
 
-export type T3StorageConflict = "home-with-selectors" | "xdg-with-home" | "legacy-with-selectors";
+export type T3StorageConflict = "home-with-selectors" | "xdg-with-home";
 
 const SELECTOR_LIST =
   "T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR";
 
 export class T3StorageConfigurationError extends Schema.TaggedError<T3StorageConfigurationError>()(
   "T3StorageConfigurationError",
-  { conflict: Schema.Literals(["home-with-selectors", "xdg-with-home", "legacy-with-selectors"]) },
+  { conflict: Schema.Literals(["home-with-selectors", "xdg-with-home"]) },
 ) {
   override get message(): string {
     switch (this.conflict) {
       case "home-with-selectors":
         return `T3CODE_HOME/--base-dir cannot be combined with ${SELECTOR_LIST}.`;
       case "xdg-with-home":
-        return "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.";
-      case "legacy-with-selectors":
-        return `--storage-layout legacy cannot be combined with ${SELECTOR_LIST}.`;
+        return "--storage-layout xdg cannot be combined with --base-dir.";
     }
   }
 }
@@ -334,53 +332,56 @@ export type T3StorageSelection =
   | { readonly _tag: "ProbeFailed"; readonly error: T3StorageProbeError };
 
 /**
- * The storage a T3 process uses: --base-dir or T3CODE_HOME, then pinned roots,
- * then the T3CODE_*_DIR selectors or a forced layout, then whichever of the
- * split layout and ~/.t3 already holds an installation (split first), and
- * finally the platform's split defaults.
+ * The storage a T3 process uses: --base-dir, then a forced layout, then
+ * T3CODE_HOME, then pinned roots, then the T3CODE_*_DIR selectors, then
+ * whichever of the split layout and ~/.t3 already holds an installation (split
+ * first), and finally the platform's split defaults.
  */
 export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection {
   const { environment, homeDirectory, path } = input;
-  const explicitHome = resolveT3ConfiguredPath(
-    trimmed(input.baseDir) ?? environment.T3CODE_HOME,
-    homeDirectory,
-    path,
-  );
+  const flagHome = resolveT3ConfiguredPath(input.baseDir, homeDirectory, path);
+  const environmentHome = resolveT3ConfiguredPath(environment.T3CODE_HOME, homeDirectory, path);
   const selectors = resolveT3StorageDirectoryOverrides({ environment, homeDirectory, path });
   const hasSelectors = hasT3StorageDirectoryOverrides(selectors);
   const conflict = (value: T3StorageConflict): T3StorageSelection => ({
     _tag: "Conflict",
     error: new T3StorageConfigurationError({ conflict: value }),
   });
-  if (explicitHome !== undefined && hasSelectors) return conflict("home-with-selectors");
-  if (input.forcedLayout === "xdg" && explicitHome !== undefined) return conflict("xdg-with-home");
-  if (input.forcedLayout === "legacy" && hasSelectors) return conflict("legacy-with-selectors");
-
   const selected = (roots: T3StorageRoots, baseDirIsExplicit = false): T3StorageSelected => ({
     _tag: "Selected",
     roots,
     baseDirIsExplicit,
   });
-  if (explicitHome !== undefined) {
-    return selected(
-      resolveLegacyT3StorageRoots({ baseDir: explicitHome, stateDirectoryName: "userdata", path }),
-      true,
-    );
-  }
-  if (input.pinned !== undefined) return selected(input.pinned);
-
-  const splitRoots = applyT3StorageDirectoryOverrides(
-    resolveDefaultT3StorageRoots(input),
-    selectors,
-  );
-  if (hasSelectors || input.forcedLayout === "xdg") return selected(splitRoots);
-  const legacyRoots = resolveLegacyT3StorageRoots({
+  const explicitLegacy = (baseDir: string) =>
+    selected(resolveLegacyT3StorageRoots({ baseDir, stateDirectoryName: "userdata", path }), true);
+  const splitRoots = () =>
+    applyT3StorageDirectoryOverrides(resolveDefaultT3StorageRoots(input), selectors);
+  const defaultLegacyRoots = resolveLegacyT3StorageRoots({
     baseDir: path.join(homeDirectory, ".t3"),
     stateDirectoryName: input.isDevelopment ? "dev" : "userdata",
     path,
   });
-  if (input.forcedLayout === "legacy") return selected(legacyRoots);
 
+  // Command-line controls outrank inherited variables, as a split service
+  // exports the selectors into every shell it starts.
+  if (flagHome !== undefined) {
+    return input.forcedLayout === "xdg" ? conflict("xdg-with-home") : explicitLegacy(flagHome);
+  }
+  if (input.forcedLayout === "xdg") return selected(splitRoots());
+  if (input.forcedLayout === "legacy") {
+    return environmentHome === undefined
+      ? selected(defaultLegacyRoots)
+      : explicitLegacy(environmentHome);
+  }
+  // Two variables naming different layouts have no winner.
+  if (environmentHome !== undefined) {
+    return hasSelectors ? conflict("home-with-selectors") : explicitLegacy(environmentHome);
+  }
+  if (input.pinned !== undefined) return selected(input.pinned);
+  if (hasSelectors) return selected(splitRoots());
+
+  const legacyRoots = defaultLegacyRoots;
+  const split = splitRoots();
   let probing = "";
   try {
     const initialized = (paths: ReadonlyArray<string>) =>
@@ -388,14 +389,14 @@ export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection
         probing = candidate;
         return input.exists(candidate);
       });
-    const splitInitialized = initialized(splitT3StorageArtifactPaths(splitRoots, path));
+    const splitInitialized = initialized(splitT3StorageArtifactPaths(split, path));
     const legacyInitialized = initialized(legacyT3StorageArtifactPaths(legacyRoots, path));
     if (splitInitialized) {
       return legacyInitialized
-        ? { ...selected(splitRoots), shadowedLegacyStateDir: legacyRoots.stateDir }
-        : selected(splitRoots);
+        ? { ...selected(split), shadowedLegacyStateDir: legacyRoots.stateDir }
+        : selected(split);
     }
-    return selected(legacyInitialized ? legacyRoots : splitRoots);
+    return selected(legacyInitialized ? legacyRoots : split);
   } catch (cause) {
     return { _tag: "ProbeFailed", error: new T3StorageProbeError({ path: probing, cause }) };
   }

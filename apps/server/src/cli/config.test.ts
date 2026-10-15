@@ -1937,7 +1937,7 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
     }),
   );
 
-  it.effect("rejects forced XDG storage with a legacy home override", () =>
+  it.effect("rejects forced XDG storage with a --base-dir", () =>
     Effect.gen(function* () {
       const { storageHost } = yield* makeRoot("t3-cli-config-forced-xdg-home-");
 
@@ -1947,22 +1947,40 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       }).pipe(Effect.flip);
 
       expect(error).toBeInstanceOf(T3StorageConfigurationError);
-      expect(error.message).toBe(
-        "--storage-layout xdg cannot be combined with T3CODE_HOME or --base-dir.",
-      );
+      expect(error.message).toBe("--storage-layout xdg cannot be combined with --base-dir.");
     }),
   );
 
-  it.effect("rejects forced legacy storage with a storage selector", () =>
-    Effect.gen(function* () {
-      const { storageHost } = yield* makeRoot("t3-cli-config-forced-legacy-selector-");
+  it.effect(
+    "lets --base-dir and --storage-layout outrank a split service's inherited selectors",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const { home, root, storageHost } = yield* makeRoot("t3-cli-config-flag-over-selectors-");
+        // What a split service exports into an agent shell, plus a server override.
+        const inherited = {
+          T3CODE_CONFIG_DIR: path.join(root, "real-config"),
+          T3CODE_DATA_DIR: path.join(root, "real-data"),
+          T3CODE_STATE_DIR: path.join(root, "real-state"),
+          T3CODE_SERVER_DATA_DIR: path.join(root, "scratch-data"),
+        };
+        const scratch = path.join(root, "scratch");
 
-      const error = yield* resolveWith({ T3CODE_CONFIG_DIR: "/tmp/t3-config" }, storageHost, {
-        storageLayout: Option.some("legacy"),
-      }).pipe(Effect.flip);
+        const byBaseDir = yield* resolveWith(inherited, storageHost, {
+          baseDir: Option.some(scratch),
+        });
+        expect(byBaseDir.layout).toBe("legacy");
+        expect(byBaseDir.settingsPath).toBe(path.join(scratch, "userdata", "settings.json"));
+        expect(byBaseDir.dbPath).toBe(path.join(root, "scratch-data", "statev2.sqlite"));
 
-      expect(error).toBeInstanceOf(T3StorageConfigurationError);
-    }),
+        const byLayout = yield* resolveWith(inherited, storageHost, {
+          storageLayout: Option.some("legacy"),
+        });
+        expect(byLayout.layout).toBe("legacy");
+        expect(byLayout.settingsPath).toBe(path.join(home, ".t3", "userdata", "settings.json"));
+        expect(yield* fs.exists(path.join(root, "real-state"))).toBe(false);
+      }),
   );
 
   it.effect("uses the desktop's split roots and keeps location overrides on top", () =>

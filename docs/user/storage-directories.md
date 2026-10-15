@@ -45,8 +45,11 @@ dotfiles checkout while keeping durable data, state, caches, and runtime files
 in host-local directories.
 
 `T3CODE_HOME` and `--base-dir` are legacy compatibility controls. They select
-the old unified layout beneath the supplied directory and cannot be combined
-with the granular overrides.
+the old unified layout beneath the supplied directory. `T3CODE_HOME` cannot be
+combined with the overrides above, since neither variable can tell which one
+you meant. `--base-dir` on the command line wins over them, so a one-off
+`t3 --base-dir <dir>` still works in a shell that inherited them, such as one a
+background service started.
 
 The server location overrides from [Install](./install.md#where-the-server-keeps-its-files),
 `--server-config-dir`, `--server-data-dir`, and `--server-cache-dir` (or their
@@ -66,11 +69,10 @@ except the runtime directory, which follows the service manager's
 `XDG_RUNTIME_DIR` on Linux.
 
 Use `--storage-layout xdg` to force the platform-native split layout, even when
-an initialized legacy installation exists. Use `--storage-layout legacy` to
-force the default legacy tree under `~/.t3`, even when it has not been
-initialized. These values override automatic layout selection; `xdg` cannot be
-combined with `T3CODE_HOME` or `--base-dir`, and `legacy` cannot be combined
-with granular directory overrides.
+an initialized legacy installation exists or `T3CODE_HOME` is set. Use
+`--storage-layout legacy` to force the legacy tree, `T3CODE_HOME` or else
+`~/.t3`, even when it has not been initialized, ignoring the overrides above.
+`xdg` cannot be combined with `--base-dir`.
 
 ## Existing installations
 
