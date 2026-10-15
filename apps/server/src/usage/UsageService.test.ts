@@ -189,6 +189,32 @@ function totalOutputTokens(summary: { buckets: readonly { totals: { outputTokens
   return summary.buckets.reduce((sum, bucket) => sum + bucket.totals.outputTokens, 0);
 }
 
+function totalCost(summary: { buckets: readonly { costUsd: number }[] }) {
+  return summary.buckets.reduce((sum, bucket) => sum + bucket.costUsd, 0);
+}
+
+const FABLE_RATES = {
+  "claude-fable-5": { input_cost_per_token: 1e-5, output_cost_per_token: 5e-5 },
+};
+
+function makeRatesServer() {
+  const state = { online: false, fetches: 0, onFetch: Effect.void as Effect.Effect<void> };
+  const client = HttpClient.make((request) =>
+    Effect.suspend(() => {
+      state.fetches += 1;
+      return state.onFetch;
+    }).pipe(
+      Effect.map(() =>
+        HttpClientResponse.fromWeb(
+          request,
+          state.online ? Response.json(FABLE_RATES) : new Response(null, { status: 503 }),
+        ),
+      ),
+    ),
+  );
+  return { state, client };
+}
+
 const CURSOR_NOW = Date.parse("2026-08-02T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
 const CURSOR_RETENTION_MS = 92 * 24 * HOUR_MS;
@@ -1814,30 +1840,40 @@ describe("UsageService", () => {
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;
       yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+      const transcriptDir = yield* Effect.promise(() =>
+        NodeFSP.realpath(NodePath.join(home, "claude", "projects")),
+      );
 
-      let ratesFetches = 0;
-      const service = yield* UsageService.make.pipe(
-        Effect.provide(
-          layerService({
-            prefix: "usage-service-flight-test",
-            home,
-            settings,
-            onRatesFetch: () => {
-              ratesFetches += 1;
-            },
+      yield* Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        // Each scan probes the transcript directory once.
+        let scans = 0;
+        const service = yield* UsageService.make.pipe(
+          Effect.provideService(FileSystem.FileSystem, {
+            ...fileSystem,
+            exists: (path) =>
+              fileSystem.exists(path).pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    if (path === transcriptDir) scans += 1;
+                  }),
+                ),
+              ),
           }),
-        ),
-      );
+        );
 
-      const [first, second] = yield* Effect.all(
-        [service.readSummary(WINDOW), service.readSummary(WINDOW)],
-        { concurrency: 2 },
-      );
-      assert.deepStrictEqual(first, second);
-      assert.strictEqual(ratesFetches, 1);
+        const [first, second] = yield* Effect.all(
+          [service.readSummary(WINDOW), service.readSummary(WINDOW)],
+          { concurrency: 2 },
+        );
+        assert.deepStrictEqual(first, second);
+        assert.strictEqual(scans, 1);
 
-      yield* service.readSummary(WINDOW);
-      assert.strictEqual(ratesFetches, 2);
+        yield* service.readSummary(WINDOW);
+        assert.strictEqual(scans, 2);
+      }).pipe(
+        Effect.provide(layerService({ prefix: "usage-service-flight-test", home, settings })),
+      );
     }).pipe(Effect.scoped),
   );
 
@@ -1877,6 +1913,151 @@ describe("UsageService", () => {
       assert.strictEqual(ratesFetches, 2);
       assert.strictEqual(refreshed.status, "fresh");
       assert.strictEqual(refreshed.knownModels, 1);
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
+  it.live("backs off a failed rate fetch and keeps charging the cached rates meanwhile", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(CURSOR_NOW);
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+
+      yield* Effect.gen(function* () {
+        const { stateDir } = yield* ServerConfig.ServerConfig;
+        // Past its TTL, so a scan fetches before using it.
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(stateDir, { recursive: true });
+          await NodeFSP.writeFile(
+            NodePath.join(stateDir, "usage-model-rates.json"),
+            encodeUnknownJsonString({
+              fetchedAtMs: CURSOR_NOW - 48 * HOUR_MS,
+              document: FABLE_RATES,
+            }),
+          );
+        });
+        const rates = makeRatesServer();
+        const service = yield* UsageService.make.pipe(
+          Effect.provideService(HttpClient.HttpClient, rates.client),
+        );
+
+        const failed = yield* service.readSummary(WINDOW);
+        assert.strictEqual(rates.state.fetches, 1);
+        assert.strictEqual(failed.pricing.status, "cached");
+        assert.closeTo(totalCost(failed), 10 * 1e-5 + 5 * 5e-5, 1e-12);
+
+        yield* TestClock.adjust(Duration.minutes(4));
+        const backingOff = yield* service.readSummary(WINDOW);
+        assert.strictEqual(rates.state.fetches, 1);
+        assert.deepStrictEqual(backingOff.buckets, failed.buckets);
+        assert.deepStrictEqual(backingOff.pricing, failed.pricing);
+
+        yield* TestClock.adjust(Duration.minutes(1));
+        yield* service.readSummary(WINDOW);
+        assert.strictEqual(rates.state.fetches, 2);
+      }).pipe(
+        Effect.provide(
+          layerService({ prefix: "usage-service-rates-backoff-test", home, settings }),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
+  it.live("does not refetch for a scan that queued behind a failing fetch", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(CURSOR_NOW);
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+      const transcriptDir = yield* Effect.promise(() =>
+        NodeFSP.realpath(NodePath.join(home, "claude", "projects")),
+      );
+
+      yield* Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const rates = makeRatesServer();
+        const fetchStarted = yield* Deferred.make<void>();
+        const releaseFetch = yield* Deferred.make<void>();
+        rates.state.onFetch = Deferred.succeed(fetchStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseFetch)),
+        );
+        // A scan asks for rates before it probes its transcript directories.
+        const probed = [yield* Deferred.make<void>(), yield* Deferred.make<void>()];
+        let probes = 0;
+        const service = yield* UsageService.make.pipe(
+          Effect.provideService(HttpClient.HttpClient, rates.client),
+          Effect.provideService(FileSystem.FileSystem, {
+            ...fileSystem,
+            exists: (path) =>
+              fileSystem.exists(path).pipe(
+                Effect.tap(() => {
+                  const signal = path === transcriptDir ? probed[probes++] : undefined;
+                  return signal === undefined ? Effect.void : Deferred.succeed(signal, undefined);
+                }),
+              ),
+          }),
+        );
+
+        const first = yield* service.readSummary(WINDOW).pipe(Effect.forkChild);
+        yield* Deferred.await(fetchStarted);
+        const queued = yield* service
+          .readSummary({ ...WINDOW, untilDay: UsageDay.make("2026-08-03") })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(probed[1]!);
+        yield* Deferred.succeed(releaseFetch, undefined);
+        yield* Fiber.join(first);
+        assert.strictEqual((yield* Fiber.join(queued)).pricing.status, "unavailable");
+        assert.strictEqual(rates.state.fetches, 1);
+      }).pipe(
+        Effect.provide(layerService({ prefix: "usage-service-rates-queued-test", home, settings })),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
+  it.live("lets an explicit refresh retry during backoff without holding scans", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(CURSOR_NOW);
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+
+      yield* Effect.gen(function* () {
+        const rates = makeRatesServer();
+        const service = yield* UsageService.make.pipe(
+          Effect.provideService(HttpClient.HttpClient, rates.client),
+        );
+
+        const failed = yield* service.readSummary(WINDOW);
+        assert.strictEqual(rates.state.fetches, 1);
+        assert.strictEqual(failed.pricing.status, "unavailable");
+        assert.strictEqual(totalCost(failed), 0);
+
+        rates.state.online = true;
+        const fetchStarted = yield* Deferred.make<void>();
+        const releaseFetch = yield* Deferred.make<void>();
+        rates.state.onFetch = Deferred.succeed(fetchStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseFetch)),
+        );
+        const refresh = yield* service.refreshRates.pipe(Effect.forkChild);
+        yield* Deferred.await(fetchStarted);
+        assert.strictEqual(rates.state.fetches, 2);
+
+        // The refresh holds the rates lock; the scan answers without it.
+        const duringRefresh = yield* service.readSummary(WINDOW);
+        assert.strictEqual(duringRefresh.pricing.status, "unavailable");
+        assert.strictEqual(totalCost(duringRefresh), 0);
+
+        yield* Deferred.succeed(releaseFetch, undefined);
+        const refreshed = yield* Fiber.join(refresh);
+        assert.strictEqual(refreshed.status, "fresh");
+        assert.strictEqual(refreshed.knownModels, 1);
+
+        const priced = yield* service.readSummary(WINDOW);
+        assert.strictEqual(rates.state.fetches, 2);
+        assert.strictEqual(priced.pricing.status, "fresh");
+        assert.closeTo(totalCost(priced), 10 * 1e-5 + 5 * 5e-5, 1e-12);
+      }).pipe(
+        Effect.provide(
+          layerService({ prefix: "usage-service-rates-refresh-backoff-test", home, settings }),
+        ),
+      );
     }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
   );
 
