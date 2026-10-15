@@ -16,6 +16,7 @@ import {
   type PlatformConnectionRegistration,
   PrimaryConnectionRegistration,
   PrimaryConnectionTarget,
+  ResyncRequests,
   Wakeups,
 } from "@t3tools/client-runtime/connection";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
@@ -149,6 +150,7 @@ const layerWakeups = Wakeups.layer({
         Stream.map(() => "credentials-changed" as const),
       ),
       networkPathChanges,
+      ResyncRequests.resyncRequestStream,
     ],
     { concurrency: "unbounded" },
   ),
