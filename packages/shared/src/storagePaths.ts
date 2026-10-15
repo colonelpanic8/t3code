@@ -405,6 +405,16 @@ export class T3StorageProbeError extends Schema.TaggedError<T3StorageProbeError>
   }
 }
 
+/** A legacy tree that `t3 storage migrate` copied away, named explicitly anyway. */
+export class LegacyStorageMigratedError extends Schema.TaggedError<LegacyStorageMigratedError>()(
+  "LegacyStorageMigratedError",
+  { stateDir: Schema.String },
+) {
+  override get message(): string {
+    return `The legacy storage at '${this.stateDir}' was copied to the split layout by \`t3 storage migrate\`. Unset T3CODE_HOME and drop --base-dir or --storage-layout legacy to use the copy, or run \`t3 storage migrate --rollback\` to return to the legacy tree.`;
+  }
+}
+
 export interface SelectT3StorageInput extends ResolveDefaultT3StorageRootsInput {
   /** A --base-dir flag, which outranks T3CODE_HOME. */
   readonly baseDir?: string | undefined;
@@ -427,16 +437,34 @@ export interface T3StorageSelected {
 export type T3StorageSelection =
   | T3StorageSelected
   | { readonly _tag: "Conflict"; readonly error: T3StorageConfigurationError }
-  | { readonly _tag: "ProbeFailed"; readonly error: T3StorageProbeError };
+  | { readonly _tag: "ProbeFailed"; readonly error: T3StorageProbeError }
+  | { readonly _tag: "Retired"; readonly error: LegacyStorageMigratedError };
 
 /**
  * The storage a T3 process uses: --base-dir, then a forced layout, then
  * T3CODE_HOME, then pinned roots, then the T3CODE_*_DIR selectors, then
  * whichever of the split layout and an unmigrated ~/.t3 already holds an
  * installation (split first, unless a migration into it never finished), and
- * finally the platform's split defaults.
+ * finally the platform's split defaults. A legacy tree that `t3 storage
+ * migrate` retired is never used, however it was named.
  */
 export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection {
+  const selection = selectT3StorageRoots(input);
+  if (selection._tag !== "Selected" || selection.roots.layout !== "legacy") return selection;
+  // Serving or editing a retired tree would diverge from its migrated copy.
+  const markerPath = legacyT3StorageMigrationMarkerPath(selection.roots, input.path);
+  try {
+    if (!input.exists(markerPath)) return selection;
+  } catch (cause) {
+    return { _tag: "ProbeFailed", error: new T3StorageProbeError({ path: markerPath, cause }) };
+  }
+  return {
+    _tag: "Retired",
+    error: new LegacyStorageMigratedError({ stateDir: selection.roots.stateDir }),
+  };
+}
+
+function selectT3StorageRoots(input: SelectT3StorageInput): T3StorageSelection {
   const { environment, homeDirectory, path } = input;
   const flagHome = resolveT3ConfiguredPath(input.baseDir, homeDirectory, path);
   const environmentHome = resolveT3ConfiguredPath(environment.T3CODE_HOME, homeDirectory, path);

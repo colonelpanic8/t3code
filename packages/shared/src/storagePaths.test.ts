@@ -285,13 +285,21 @@ describe("T3 storage paths", () => {
           ],
         }),
       ).toMatchObject({ roots: legacy() });
-      // An explicit choice still names the retired tree; the server refuses to serve it.
-      expect(
-        select({
-          existing: ["/home/alice/.t3/userdata/storage-migration.json"],
-          forcedLayout: "legacy",
-        }),
-      ).toMatchObject({ roots: legacy() });
+    });
+
+    it.each([
+      [{ forcedLayout: "legacy" as const }],
+      [{ environment: { T3CODE_HOME: "~/.t3" } }],
+      [{ baseDir: "/home/alice/.t3" }],
+    ])("refuses a retired ~/.t3 that is named explicitly %#", (input) => {
+      const selection = select({
+        ...input,
+        existing: ["/home/alice/.t3/userdata/storage-migration.json"],
+      });
+      expect(selection._tag).toBe("Retired");
+      expect(selection._tag === "Retired" && selection.error.stateDir).toBe(
+        "/home/alice/.t3/userdata",
+      );
     });
 
     it("names an explicit home's userdata even in development", () => {
