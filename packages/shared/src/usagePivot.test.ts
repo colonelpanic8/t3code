@@ -347,6 +347,7 @@ describe("buildStackedColumns", () => {
       ["other", 30, undefined],
     ]);
     expect(stack.columns[0]).toEqual({ period: "2026-08-07", values: [40, 30, 30], total: 100 });
+    expect(stack.folded).toEqual(['["claude c"]', '["claude d"]']);
   });
 
   it("draws one total series without dimensions", () => {
