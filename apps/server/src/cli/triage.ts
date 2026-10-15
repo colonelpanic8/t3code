@@ -16,7 +16,6 @@ import * as NodeReadlinePromises from "node:readline/promises";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -28,10 +27,8 @@ import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
-import * as ServerConfig from "../config.ts";
-import { resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { baseDirFlag } from "./config.ts";
+import { resolveServerLocations, serverLocationFlags } from "./config.ts";
 import { resolveCliCommand } from "./invocation.ts";
 import {
   buildTriageContext,
@@ -154,7 +151,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 
 export const triageCommand = Command.make("triage", {
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   agent: agentFlag,
   model: modelFlag,
 }).pipe(
@@ -167,12 +164,11 @@ export const triageCommand = Command.make("triage", {
       const path = yield* Path.Path;
 
       // Triage is a user-facing feature: always the userdata state, never dev.
-      // --base-dir wins; T3CODE_HOME is its documented env equivalent (same
-      // precedence as `t3 pair`).
-      const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
-      const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-      const baseDir = yield* resolveBaseDir(explicitBaseDir ?? Option.getOrUndefined(envHome));
-      const paths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {});
+      const { baseDir, derivedPaths: paths } = yield* resolveServerLocations(flags, {
+        devUrl: undefined,
+      });
+
+      const userdataLogsDir = path.join(baseDir, "userdata", "logs");
 
       const now = yield* DateTime.now;
       const scratchDir = path.join(
@@ -203,10 +199,12 @@ export const triageCommand = Command.make("triage", {
             settingsPath: paths.settingsPath,
             logsDir: paths.logsDir,
             // The server writes no log file of its own. Service installs and the
-            // desktop app capture its output. The glob covers every desktop backend
-            // (such as WSL) and rotated copies; names come from DesktopObservability.ts.
-            serviceLogPath: path.join(paths.logsDir, BootService.BOOT_SERVICE_LOG_FILE),
-            desktopBackendLogGlob: path.join(paths.logsDir, "server-child*.log*"),
+            // desktop app capture its output into the T3 home's userdata logs,
+            // whatever data dir this shell sets. The glob covers every desktop
+            // backend (such as WSL) and rotated copies; names come from
+            // DesktopObservability.ts.
+            serviceLogPath: path.join(userdataLogsDir, BootService.BOOT_SERVICE_LOG_FILE),
+            desktopBackendLogGlob: path.join(userdataLogsDir, "server-child*.log*"),
             serverTracePath: paths.serverTracePath,
             providerEventLogPath: paths.providerEventLogPath,
             terminalLogsDir: paths.terminalLogsDir,
