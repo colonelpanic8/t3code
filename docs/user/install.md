@@ -211,11 +211,13 @@ reinstalls and cannot drift. Point these variables at read-only files:
   [shared settings file](#share-settings-across-machines). Nested objects merge
   key by key, except settings saved whole, which it replaces entirely. Each
   provider instance, usage limit source, and price override is one of these:
-  give it whole, including its `driver`, and it replaces your entry of the same
-  name. Top-level keys and whole entries you leave out stay editable; fields
-  you leave out of a managed entry do not. An entry or key that is not valid
-  settings is ignored with a warning in the server log, and the rest of the
-  file still applies.
+  give it whole, with every required field (a provider instance's `driver`, a
+  usage limit source's `kind`, a price override's input and output costs), and
+  it replaces your entry of the same name. Top-level keys and whole entries you
+  leave out stay editable; fields you leave out of a managed entry do not. A key
+  or entry that is not a valid setting, or whose `$file` cannot be read, is
+  ignored with a warning in the server log, and the rest of the file still
+  applies.
 - `T3CODE_MANAGED_KEYBINDINGS_FILE`, read by the server and the desktop app:
   same format as `keybindings.json`. A managed rule replaces your rules for the
   same command or the same shortcut. The desktop app layers it over whichever
@@ -226,7 +228,8 @@ reinstalls and cannot drift. Point these variables at read-only files:
 Managed values show as **Managed by system configuration** and cannot be changed
 from any client or agent. Your own values stay saved underneath, so removing a
 key from the managed file gives it back. Credentials such as GitHub tokens must
-not appear inline; write `{"$file": "/path/to/secret"}` instead. Restart the
+not appear inline; write `{"$file": "/path/to/secret"}` instead. A managed
+settings file with an inline credential is ignored entirely. Restart the
 server or app after changing a managed file.
 
 ## Next steps
