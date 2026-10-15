@@ -298,7 +298,10 @@ describe("DesktopEnvironment", () => {
       assert.equal(production.configDir, "/Users/alice/Library/Application Support/t3code/config");
       assert.equal(production.dataDir, "/Users/alice/Library/Application Support/t3code/data");
       assert.equal(production.cacheDir, "/Users/alice/Library/Caches/t3code");
-      assert.equal(production.runtimeDir, "/tmp/t3code");
+      assert.equal(
+        production.runtimeDir,
+        "/Users/alice/Library/Application Support/t3code/runtime",
+      );
     }),
   );
 
