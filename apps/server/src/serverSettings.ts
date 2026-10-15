@@ -320,14 +320,19 @@ function migrateLegacySourceControlSettings(
     readonly bitbucket?: Readonly<Record<string, unknown>> | undefined;
     readonly github?: Readonly<Record<string, unknown>> | undefined;
   },
+  localKinds: ReadonlySet<string>,
 ): {
   readonly settings: ServerSettings;
   readonly secretMoves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
-  if (legacy.bitbucket !== undefined && sourceControlHosts.bitbucket === undefined) {
-    sourceControlHosts.bitbucket = legacy.bitbucket;
+  const fold = (kind: string, blob: Readonly<Record<string, unknown>>) => {
+    const shared = sourceControlHosts[kind];
+    sourceControlHosts[kind] = shared === undefined ? blob : layerSettingsDocuments(shared, blob);
+  };
+  if (legacy.bitbucket !== undefined && !localKinds.has("bitbucket")) {
+    fold("bitbucket", legacy.bitbucket);
     for (const [field, from] of Object.entries(LEGACY_BITBUCKET_SECRET_NAMES)) {
       if (legacy.bitbucket[field] !== SECRET_REDACTED) continue;
       secretMoves.push({
@@ -336,8 +341,8 @@ function migrateLegacySourceControlSettings(
       });
     }
   }
-  if (legacy.github !== undefined && sourceControlHosts.github === undefined) {
-    sourceControlHosts.github = legacy.github;
+  if (legacy.github !== undefined && !localKinds.has("github")) {
+    fold("github", legacy.github);
     for (const [serverHost, value] of readSecretFieldValues(legacy.github.tokens)) {
       if (serverHost === null || value !== SECRET_REDACTED) continue;
       secretMoves.push({
@@ -394,15 +399,16 @@ function migrateLegacyProviderSettings(
     const { enabled: rawEnabled, ...config } = blob as Record<string, unknown>;
     const explicitEnabled = typeof rawEnabled === "boolean" ? rawEnabled : undefined;
     if (localInstanceIds.has(instanceId)) continue;
-    // An enabled-only blob keeps an inherited entry's config; one that changes nothing
-    // leaves it alone, since the loop above already enabled it if history shows use.
-    const inherited = providerInstances[instanceId];
+    // An enabled-only blob keeps an inherited entry's config, and one matching the
+    // inherited state keeps the entry itself. Without a flag, the loop above already
+    // enabled it if history shows use.
+    const inherited = settings.providerInstances[instanceId];
     if (inherited !== undefined && Object.keys(config).length === 0) {
-      if (
-        explicitEnabled !== undefined &&
-        explicitEnabled !== resolveProviderInstanceEnabled(inherited)
-      ) {
-        providerInstances[instanceId] = { ...inherited, enabled: explicitEnabled };
+      if (explicitEnabled !== undefined) {
+        providerInstances[instanceId] =
+          explicitEnabled === resolveProviderInstanceEnabled(inherited)
+            ? inherited
+            : { ...inherited, enabled: explicitEnabled };
       }
       continue;
     }
@@ -821,8 +827,7 @@ const make = Effect.gen(function* () {
         return secret;
       });
       const moved = new Set<string>();
-      let sharedSecretLeftInline = false;
-      for (const secret of pending) {
+      for (const secret of pending.filter((secret) => !isShared(secret))) {
         const stored = yield* secretStore
           .set(secret.secretName, textEncoder.encode(secret.value))
           .pipe(
@@ -834,8 +839,29 @@ const make = Effect.gen(function* () {
             ),
           );
         if (stored) moved.add(secret.secretName);
-        else if (isShared(secret)) sharedSecretLeftInline = true;
       }
+      const sharedPending = pending.filter(isShared);
+      const sharedStored = yield* applySettingsSecretChanges(
+        sharedPending.map((secret) => ({
+          kind: "write" as const,
+          secretName: secret.secretName,
+          value: textEncoder.encode(secret.value),
+          ...(secret.providerInstanceId !== undefined
+            ? { providerInstanceId: secret.providerInstanceId }
+            : {}),
+          ...(secret.environmentVariable !== undefined
+            ? { environmentVariable: secret.environmentVariable }
+            : {}),
+        })),
+      ).pipe(
+        Effect.as(true),
+        Effect.catch(() =>
+          Effect.logWarning("failed to move shared settings secrets into the secret store").pipe(
+            Effect.as(false),
+          ),
+        ),
+      );
+      if (sharedStored) for (const secret of sharedPending) moved.add(secret.secretName);
       return {
         settings:
           moved.size === 0
@@ -843,7 +869,7 @@ const make = Effect.gen(function* () {
             : mapSettingsSecrets(settings, (secret) =>
                 moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
               ),
-        sharedSecretLeftInline,
+        sharedSecretLeftInline: !sharedStored,
       };
     });
 
@@ -911,6 +937,7 @@ const make = Effect.gen(function* () {
     // An unusable shared file hides some of those contents too.
     let settingsFileTrusted = shared?.status !== "unusable";
     let localInstanceIds: ReadonlySet<string> = new Set();
+    let localSourceControlKinds: ReadonlySet<string> = new Set();
 
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
@@ -946,6 +973,9 @@ const make = Effect.gen(function* () {
         settings = normalizeBackgroundActivity(decoded.value);
         if (Exit.isSuccess(document) && isSettingsDocument(document.value.providerInstances)) {
           localInstanceIds = new Set(Object.keys(document.value.providerInstances));
+        }
+        if (Exit.isSuccess(document) && isSettingsDocument(document.value.sourceControlHosts)) {
+          localSourceControlKinds = new Set(Object.keys(document.value.sourceControlHosts));
         }
       }
     }
@@ -1017,7 +1047,8 @@ const make = Effect.gen(function* () {
     // on the next load instead of dropping it.
     const legacySecretsCopied = yield* Effect.forEach(
       settingsFileTrusted
-        ? migrateLegacySourceControlSettings(folded, legacySourceControl).secretMoves
+        ? migrateLegacySourceControlSettings(folded, legacySourceControl, localSourceControlKinds)
+            .secretMoves
         : [],
       (move) =>
         secretStore.get(move.from).pipe(
@@ -1037,7 +1068,7 @@ const make = Effect.gen(function* () {
       legacySecretsCopied &&
       (legacySourceControl.bitbucket !== undefined || legacySourceControl.github !== undefined);
     const sourceControlMigration = hasLegacySourceControl
-      ? migrateLegacySourceControlSettings(folded, legacySourceControl)
+      ? migrateLegacySourceControlSettings(folded, legacySourceControl, localSourceControlKinds)
       : { settings: folded, secretMoves: [] };
     const { settings: migrated, sharedSecretLeftInline } = settingsFileTrusted
       ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings, baseline)
