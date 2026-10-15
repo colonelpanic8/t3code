@@ -35,6 +35,7 @@ export interface EnvironmentUsageStatus {
   readonly isPending: boolean;
   readonly canReadDiagnostics: boolean;
   readonly isConnected: boolean;
+  readonly isConnecting: boolean;
   readonly error: string | null;
   readonly summary: UsageSummary | null;
   readonly needsCursorKeychainAccess: boolean;
@@ -54,10 +55,12 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
 
     const statuses: EnvironmentUsageStatus[] = [];
     for (const [environmentId, presentation] of presentations) {
-      const isConnected = presentation.connection.phase === "connected";
+      const { phase } = presentation.connection;
+      const isConnected = phase === "connected";
+      const isConnecting = phase === "connecting";
       const sessionResult = get(environmentSession.sessionStateAtom(environmentId));
       const access = resolveUsageAccess({
-        connectionPhase: presentation.connection.phase,
+        connectionPhase: phase,
         session: Option.getOrNull(AsyncResult.value(sessionResult)),
         hasSessionError: sessionResult._tag === "Failure",
       });
@@ -66,6 +69,7 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
           environmentId,
           label: presentation.entry.target.label,
           isConnected,
+          isConnecting,
           ...access,
           summary: null,
           needsCursorKeychainAccess: false,
@@ -80,6 +84,7 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
         isPending: isConnected && result.waiting,
         canReadDiagnostics: true,
         isConnected,
+        isConnecting,
         error: !isConnected
           ? presentation.connection.phase === "available"
             ? "This environment is not connected."
