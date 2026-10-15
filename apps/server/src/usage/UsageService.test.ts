@@ -42,6 +42,7 @@ import * as AntigravityUsage from "../provider/Drivers/AntigravityUsage.ts";
 import * as ProviderHostLive from "../provider/ProviderHostLive.ts";
 import { totalTokens, type UsageRecord } from "@t3tools/provider-core/server/usage";
 import * as UsageService from "./UsageService.ts";
+import { SCAN_CACHE_FILE_NAME } from "./usageScanCache.ts";
 
 const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -228,6 +229,33 @@ function makeRatesServer() {
   );
   return { state, client };
 }
+
+const readCachedRecordCounts = (stateDir: string) =>
+  Effect.promise(async () => {
+    const document = decodeUnknownJsonString(
+      await NodeFSP.readFile(NodePath.join(stateDir, SCAN_CACHE_FILE_NAME), "utf8"),
+    ) as { files: Record<string, { r: unknown[] }> };
+    return Object.values(document.files).map((file) => file.r.length);
+  });
+
+const makeCountingScanCacheWrites = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const writes = { count: 0, landed: yield* Deferred.make<void>() };
+  const service = yield* UsageService.make.pipe(
+    Effect.provideService(FileSystem.FileSystem, {
+      ...fileSystem,
+      rename: (from, to) =>
+        fileSystem.rename(from, to).pipe(
+          Effect.tap(() => {
+            if (NodePath.basename(to) !== SCAN_CACHE_FILE_NAME) return Effect.void;
+            writes.count += 1;
+            return Deferred.succeed(writes.landed, undefined);
+          }),
+        ),
+    }),
+  );
+  return { service, writes };
+});
 
 const CURSOR_NOW = Date.parse("2026-08-02T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -2293,6 +2321,68 @@ describe("UsageService", () => {
       }).pipe(
         Effect.provide(
           layerService({ prefix: "usage-service-rates-refresh-backoff-test", home, settings }),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
+  it.live("writes the scan cache once, after the last of a burst of changed scans", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(CURSOR_NOW);
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+
+      yield* Effect.gen(function* () {
+        const { stateDir } = yield* ServerConfig.ServerConfig;
+        const { service, writes } = yield* makeCountingScanCacheWrites;
+
+        yield* service.readSummary(WINDOW);
+        assert.strictEqual(writes.count, 0);
+
+        // Each scan lands inside the previous one's delay.
+        for (const [id, total] of [
+          [2, 10],
+          [3, 15],
+        ] as const) {
+          yield* TestClock.adjust(Duration.seconds(3));
+          yield* Effect.promise(() => NodeFSP.appendFile(transcript, claudeLine(id, 5)));
+          assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), total);
+          assert.strictEqual(writes.count, 0);
+        }
+
+        yield* TestClock.adjust(Duration.seconds(5));
+        yield* Deferred.await(writes.landed);
+        // Nothing is left to write once the delayed write has landed.
+        yield* service.awaitPersisted;
+        assert.strictEqual(writes.count, 1);
+        assert.deepStrictEqual(yield* readCachedRecordCounts(stateDir), [3]);
+      }).pipe(
+        Effect.provide(
+          layerService({ prefix: "usage-service-persist-debounce-test", home, settings }),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
+  it.live("writes a pending scan cache change when the service shuts down", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(CURSOR_NOW);
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+
+      yield* Effect.gen(function* () {
+        const { stateDir } = yield* ServerConfig.ServerConfig;
+        const writes = yield* Effect.gen(function* () {
+          const counted = yield* makeCountingScanCacheWrites;
+          yield* counted.service.readSummary(WINDOW);
+          assert.strictEqual(counted.writes.count, 0);
+          return counted.writes;
+        }).pipe(Effect.scoped);
+        assert.strictEqual(writes.count, 1);
+        assert.deepStrictEqual(yield* readCachedRecordCounts(stateDir), [1]);
+      }).pipe(
+        Effect.provide(
+          layerService({ prefix: "usage-service-persist-flush-test", home, settings }),
         ),
       );
     }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
