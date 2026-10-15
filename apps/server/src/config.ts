@@ -123,6 +123,8 @@ export class ServerConfig extends Context.Service<
     readonly serverConfigFile?:
       | { readonly path: string; readonly unknownKeys: ReadonlyArray<string> }
       | undefined;
+    /** Read-only settings layered beneath `settingsPath`; never written. */
+    readonly sharedSettingsPath?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   /** @deprecated Import and use `layerTest` from this module. */
