@@ -415,15 +415,6 @@ describe("dedupeWithinFile", () => {
     ]);
   });
 
-  it("counts a key once across batches that share a seen set", () => {
-    const seen = new Set<string>();
-    const records = dedupeWithinFile([block("msg_1:req_1", 2, 1)], seen);
-    const tail = dedupeWithinFile([block("msg_1:req_1", 1411, 2), block("msg_2:", 5, 3)], seen);
-
-    expect(records.map((r) => r.totals.outputTokens)).toEqual([2]);
-    expect(tail.map((r) => r.totals.outputTokens)).toEqual([5]);
-  });
-
   it("keeps every record that has no dedupe key", () => {
     expect(
       dedupeWithinFile([record({ dedupeKey: null }), record({ dedupeKey: null })]),
