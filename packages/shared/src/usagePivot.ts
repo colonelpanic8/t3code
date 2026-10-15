@@ -181,11 +181,6 @@ export interface UsageSortCriterion {
 /** Labels come from the client, which alone knows environment names. */
 export type UsageRowLabel = (row: UsagePivotRow) => string;
 
-const FIGURE: { readonly [Field in "costUsd" | "totalTokens"]: (row: UsagePivotRow) => number } = {
-  costUsd: (row) => row.costUsd,
-  totalTokens: (row) => row.totalTokens,
-};
-
 function compareStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -204,14 +199,19 @@ export function sortUsageRows(
     ? new Map(rows.map((row) => [row, labelOf(row)]))
     : undefined;
   const compare = (field: UsageSortField, left: UsagePivotRow, right: UsagePivotRow) => {
-    if (field === "period") return compareStrings(left.period ?? "", right.period ?? "");
-    if (field === "label") {
-      return (
-        (labels?.get(left) ?? "").localeCompare(labels?.get(right) ?? "") ||
-        compareStrings(left.seriesKey, right.seriesKey)
-      );
+    switch (field) {
+      case "costUsd":
+        return left.costUsd - right.costUsd;
+      case "totalTokens":
+        return left.totalTokens - right.totalTokens;
+      case "period":
+        return compareStrings(left.period ?? "", right.period ?? "");
+      case "label":
+        return (
+          (labels?.get(left) ?? "").localeCompare(labels?.get(right) ?? "") ||
+          compareStrings(left.seriesKey, right.seriesKey)
+        );
     }
-    return FIGURE[field](left) - FIGURE[field](right);
   };
   return [...rows].sort((left, right) => {
     for (const { field, direction } of criteria) {
