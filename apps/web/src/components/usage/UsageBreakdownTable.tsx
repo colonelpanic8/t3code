@@ -1,4 +1,4 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
 import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type UsageEntry } from "@t3tools/shared/usageMerge";
 import {
@@ -30,6 +30,7 @@ import { Button } from "../ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { ProviderMark } from "./ProviderMark";
 import { modelShare } from "./usageBreakdown";
 import { DEFAULT_USAGE_VIEW } from "./usagePagePreferences";
 import {
@@ -79,6 +80,13 @@ function sortFieldName(field: UsageSortField, grouping: UsageTimeGrouping): stri
   return { costUsd: "Cost", totalTokens: "Tokens", label: "Name" }[field];
 }
 
+/** How a row or heading is named: its text and the marks that tie it to the chart. */
+export interface BreakdownName {
+  readonly text: string;
+  readonly color: string | undefined;
+  readonly provider: UsageProviderKind | undefined;
+}
+
 /**
  * Sorted rows, grouped under headings when the primary sort is by name or
  * period and some rows share it. A heading's value is not repeated in its rows.
@@ -90,32 +98,35 @@ export function layoutBreakdownTable(
 ) {
   const seriesDimensions = dimensions.filter((dimension) => dimension !== "period");
   // Periods have their own sort field, so names sort without them.
-  const nameOf = (row: UsagePivotRow) => usageRowLabel(row, seriesDimensions, context);
-  const sorted = sortUsageRows(pivotUsage(entries, dimensions, context.grouping), sort, nameOf);
+  const sorted = sortUsageRows(pivotUsage(entries, dimensions, context.grouping), sort, (row) =>
+    usageRowLabel(row, seriesDimensions, context),
+  );
   const primary = sort[0]?.field ?? "costUsd";
-  const groups = groupUsageRows(sorted, primary, nameOf);
   const groupDimensions: readonly UsageDimension[] =
     primary === "period" ? ["period"] : primary === "label" ? seriesDimensions : [];
+  const groups = groupUsageRows(sorted, groupDimensions);
   const grouped = groupDimensions.length > 0 && groups.length < sorted.length;
   const headingDimensions = grouped ? groupDimensions : [];
   const rowDimensions = dimensions.filter((dimension) => !headingDimensions.includes(dimension));
-  const label = (row: UsagePivotRow, labelDimensions: readonly UsageDimension[]) =>
-    dimensions.length === 0 ? "Total" : usageRowLabel(row, labelDimensions, context);
   const colorKey = (row: UsagePivotRow) => usageRowKey(row, seriesDimensions);
   const colors = usageSeriesColors(
     sorted.map((row) => ({ ...row, key: colorKey(row) })),
     seriesDimensions,
   );
+  const name = (row: UsagePivotRow, nameDimensions: readonly UsageDimension[]): BreakdownName => {
+    const namesSeries = nameDimensions.some((dimension) => dimension !== "period");
+    return {
+      text: dimensions.length === 0 ? "Total" : usageRowLabel(row, nameDimensions, context),
+      color: namesSeries ? colors.get(colorKey(row)) : undefined,
+      provider: nameDimensions.includes("model") ? row.provider : undefined,
+    };
+  };
   return {
     grouped,
     groups: groups.map((group) => ({
       ...group,
-      heading: group.rows[0] === undefined ? "" : label(group.rows[0], headingDimensions),
-      rows: group.rows.map((row) => ({
-        row,
-        label: label(row, rowDimensions.length > 0 ? rowDimensions : dimensions),
-        color: colors.get(colorKey(row)) ?? "",
-      })),
+      heading: name(group.rows[0], headingDimensions),
+      rows: group.rows.map((row) => ({ row, name: name(row, rowDimensions) })),
     })),
   };
 }
@@ -217,7 +228,7 @@ export function UsageBreakdownTable({
               {table.grouped ? (
                 <tr className="border-b border-border/50 text-right whitespace-nowrap text-foreground tabular-nums">
                   <th scope="rowgroup" className="pt-4 pb-2 text-left font-medium">
-                    {group.heading}
+                    <BreakdownNameView name={group.heading} />
                   </th>
                   <UsageFigureCells
                     totals={group}
@@ -227,7 +238,7 @@ export function UsageBreakdownTable({
                   />
                 </tr>
               ) : null}
-              {group.rows.map(({ row, label, color }) => {
+              {group.rows.map(({ row, name }) => {
                 const model = row.model;
                 return (
                   <tr
@@ -240,26 +251,19 @@ export function UsageBreakdownTable({
                     <td
                       className={cn("py-2.5 text-left whitespace-normal", table.grouped && "pl-3")}
                     >
-                      <span className="flex min-w-0 items-center gap-2 text-foreground">
-                        <span
-                          aria-hidden
-                          className="size-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: color }}
-                        />
-                        {model === undefined ? (
-                          <span className="min-w-0">{label}</span>
-                        ) : (
-                          // The button's overlay makes the whole row open the model.
-                          // Focus shows as the row's hover fill, not a ring.
-                          <button
-                            type="button"
-                            onClick={() => onOpenModel({ ...row, model })}
-                            className="min-w-0 text-left outline-none after:absolute after:inset-0"
-                          >
-                            {label}
-                          </button>
-                        )}
-                      </span>
+                      {model === undefined ? (
+                        <BreakdownNameView name={name} />
+                      ) : (
+                        // The button's overlay makes the whole row open the model.
+                        // Focus shows as the row's hover fill, not a ring.
+                        <button
+                          type="button"
+                          onClick={() => onOpenModel({ ...row, model })}
+                          className="text-left outline-none after:absolute after:inset-0"
+                        >
+                          <BreakdownNameView name={name} />
+                        </button>
+                      )}
                     </td>
                     <UsageFigureCells
                       totals={row}
@@ -275,6 +279,24 @@ export function UsageBreakdownTable({
         )}
       </table>
     </section>
+  );
+}
+
+function BreakdownNameView({ name }: { readonly name: BreakdownName }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2 text-foreground">
+      {name.color === undefined ? null : (
+        <span
+          aria-hidden
+          className="size-2 shrink-0 rounded-full"
+          style={{ backgroundColor: name.color }}
+        />
+      )}
+      {name.provider === undefined ? null : (
+        <ProviderMark provider={name.provider} className="size-3.5" />
+      )}
+      <span className="min-w-0">{name.text}</span>
+    </span>
   );
 }
 
