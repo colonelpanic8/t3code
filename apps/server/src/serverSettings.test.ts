@@ -2397,6 +2397,42 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }),
   );
 
+  it.effect.each([
+    {
+      name: "beside a file reference",
+      managed: {
+        sourceControlHosts: {
+          github: { tokens: { $file: "/nonexistent/t3-token", "github.com": "ghp_INLINE" } },
+        },
+      },
+    },
+    {
+      name: "in a provider config",
+      managed: {
+        providerInstances: {
+          ag: { driver: "antigravity", config: { apiKey: "AIza_INLINE" } },
+        },
+      },
+    },
+  ])("ignores a managed file with an inline credential $name", ({ managed }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-inline-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({ branchNamePrefix: "nix/", ...managed }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.branchNamePrefix, DEFAULT_SERVER_SETTINGS.branchNamePrefix);
+        assert.deepEqual(yield* service.managedSettingPaths, []);
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
   it.effect("hands a dropped managed map key back to the user", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
