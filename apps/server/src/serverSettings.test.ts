@@ -2217,9 +2217,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   );
 });
 
-const layerSharedServerSettings = () =>
+const layerSharedServerSettings = (secretStoreLayer = ServerSecretStore.layer) =>
   ServerSettingsModule.layer.pipe(
-    Layer.provideMerge(ServerSecretStore.layer),
+    Layer.provideMerge(secretStoreLayer),
     Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
     Layer.provideMerge(
       Layer.effect(
@@ -2687,6 +2687,13 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
         },
       },
     },
+    {
+      driver: "codex",
+      shared: { driver: "codex", config: { binaryPath: "/opt/codex" } },
+      legacy: { enabled: true },
+      expected: { driver: "codex", config: { binaryPath: "/opt/codex" } },
+      local: {},
+    },
   ])(
     "keeps the shared $driver config under a legacy enabled-only entry",
     ({ driver, shared, legacy, expected, local }) =>
@@ -2709,6 +2716,85 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
         assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), local);
       }).pipe(Effect.provide(layerSharedServerSettings())),
   );
+
+  it.effect.each([
+    { driver: "codex", legacy: { codex: { enabled: false } }, usedProvider: undefined },
+    { driver: "cursor", legacy: { codex: {} }, usedProvider: "cursor" },
+  ])(
+    "stores a shared $driver secret when legacy migration saves its entry",
+    ({ driver, legacy, usedProvider }) =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        if (usedProvider !== undefined) yield* recordProviderUsage(usedProvider);
+        yield* writeSharedSettings({
+          providerInstances: {
+            [driver]: {
+              driver,
+              environment: [{ name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true }],
+              config: { binaryPath: `/opt/${driver}` },
+            },
+          },
+        });
+        yield* fs.writeFileString(config.settingsPath, JSON.stringify({ providers: legacy }));
+
+        const settings = yield* service.getSettings;
+
+        const raw = yield* fs.readFileString(config.settingsPath);
+        assert.notInclude(raw, "sk-shared");
+        assert.deepEqual(JSON.parse(raw).providerInstances[driver].environment, [
+          { name: "OPENAI_API_KEY", value: "", sensitive: true, valueRedacted: true },
+        ]);
+        assert.deepEqual(
+          yield* readStoredSecret(
+            `provider-env-${Buffer.from(driver).toString("base64url")}-T1BFTkFJX0FQSV9LRVk`,
+          ),
+          Option.some("sk-shared"),
+        );
+        assert.equal(
+          settings.providerInstances[ProviderInstanceId.make(driver)]?.environment?.[0]?.value,
+          "sk-shared",
+        );
+      }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("leaves settings.json alone when a migrated shared secret cannot be stored", () => {
+    const layerSecret = Layer.effect(
+      ServerSecretStore.ServerSecretStore,
+      Effect.map(ServerSecretStore.ServerSecretStore, (store) => ({
+        ...store,
+        set: () =>
+          Effect.fail(
+            new ServerSecretStore.SecretStorePersistError({
+              resource: "provider environment secret",
+              cause: new Error("Secret storage unavailable"),
+            }),
+          ),
+      })),
+    ).pipe(Layer.provide(ServerSecretStore.layer));
+    return Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        providerInstances: {
+          codex: {
+            driver: "codex",
+            environment: [{ name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true }],
+            config: {},
+          },
+        },
+      });
+      const legacy = JSON.stringify({ providers: { codex: { enabled: false } } });
+      yield* fs.writeFileString(config.settingsPath, legacy);
+
+      const settings = yield* service.getSettings;
+
+      assert.equal(yield* fs.readFileString(config.settingsPath), legacy);
+      assert.isFalse(settings.providerInstances[ProviderInstanceId.make("codex")]?.enabled);
+    }).pipe(Effect.provide(layerSharedServerSettings(layerSecret)));
+  });
 
   it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
     Effect.gen(function* () {
