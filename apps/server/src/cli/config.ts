@@ -1,5 +1,6 @@
 import * as NetService from "@t3tools/shared/Net";
 import {
+  DEFAULT_SIGNAL_EXPORT,
   OtlpHeadersFromString,
   OtlpProtocol,
   type SignalExport,
@@ -25,6 +26,7 @@ import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import { readServerConfigFile } from "./serverConfigFile.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
@@ -60,6 +62,12 @@ const serverDataDirFlag = Flag.String("server-data-dir").pipe(
 const serverCacheDirFlag = Flag.String("server-cache-dir").pipe(
   Flag.withDescription(
     "Directory for provider status caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
+  ),
+  Flag.optional,
+);
+const serverConfigFileFlag = Flag.String("server-config-file").pipe(
+  Flag.withDescription(
+    "JSON file of server options below flags and env vars (equivalent to T3CODE_SERVER_CONFIG_FILE). Defaults to server.json in the server config dir.",
   ),
   Flag.optional,
 );
@@ -102,23 +110,42 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.optional,
 );
 
-// Trace file location, shared by the server and `t3 trace summary`.
+// Trace file location, shared by the server and `t3 trace summary`. Both
+// rank these above the server config file.
 export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
   Config.option,
   Config.map(Option.getOrUndefined),
 );
 export const traceMaxFilesConfig = Config.Int("T3CODE_TRACE_MAX_FILES").pipe(
-  Config.withDefault(10),
+  Config.option,
+  Config.map(Option.getOrUndefined),
 );
+export const DEFAULT_TRACE_MAX_FILES = 10;
 
+// No defaults here: unset values fall through to the server config file.
 const EnvServerConfig = Config.all({
-  logLevel: Config.LogLevel("T3CODE_LOG_LEVEL").pipe(Config.withDefault("Info")),
-  traceMinLevel: Config.LogLevel("T3CODE_TRACE_MIN_LEVEL").pipe(Config.withDefault("Info")),
-  traceTimingEnabled: Config.Boolean("T3CODE_TRACE_TIMING_ENABLED").pipe(Config.withDefault(true)),
+  logLevel: Config.LogLevel("T3CODE_LOG_LEVEL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  traceMinLevel: Config.LogLevel("T3CODE_TRACE_MIN_LEVEL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  traceTimingEnabled: Config.Boolean("T3CODE_TRACE_TIMING_ENABLED").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   traceFile: traceFileConfig,
-  traceMaxBytes: Config.Int("T3CODE_TRACE_MAX_BYTES").pipe(Config.withDefault(10 * 1024 * 1024)),
+  traceMaxBytes: Config.Int("T3CODE_TRACE_MAX_BYTES").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   traceMaxFiles: traceMaxFilesConfig,
-  traceBatchWindowMs: Config.Int("T3CODE_TRACE_BATCH_WINDOW_MS").pipe(Config.withDefault(1_000)),
+  traceBatchWindowMs: Config.Int("T3CODE_TRACE_BATCH_WINDOW_MS").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   otlpTracesUrl: Config.String("T3CODE_OTLP_TRACES_URL").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -132,14 +159,16 @@ const EnvServerConfig = Config.all({
     Config.map(Option.getOrUndefined),
   ),
   otlpExportIntervalMs: Config.Int("T3CODE_OTLP_EXPORT_INTERVAL_MS").pipe(
-    Config.withDefault(10_000),
+    Config.option,
+    Config.map(Option.getOrUndefined),
   ),
   otlpHeaders: Config.schema(OtlpHeadersFromString, "T3CODE_OTLP_HEADERS").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
   otlpProtocol: Config.schema(OtlpProtocol, "T3CODE_OTLP_PROTOCOL").pipe(
-    Config.withDefault("http/json"),
+    Config.option,
+    Config.map(Option.getOrUndefined),
   ),
   mode: Config.schema(ServerConfig.RuntimeMode, "T3CODE_MODE").pipe(
     Config.option,
@@ -214,6 +243,7 @@ const ServerLocationEnv = Config.all({
   serverConfigDir: nonEmptyEnv("T3CODE_SERVER_CONFIG_DIR"),
   serverDataDir: nonEmptyEnv("T3CODE_SERVER_DATA_DIR"),
   serverCacheDir: nonEmptyEnv("T3CODE_SERVER_CACHE_DIR"),
+  serverConfigFile: nonEmptyEnv("T3CODE_SERVER_CONFIG_FILE"),
 });
 
 /** Where the server keeps its files. Each value is a flag that wins over its env var. */
@@ -222,6 +252,7 @@ export interface CliServerLocationFlags {
   readonly serverConfigDir?: Option.Option<string>;
   readonly serverDataDir?: Option.Option<string>;
   readonly serverCacheDir?: Option.Option<string>;
+  readonly serverConfigFile?: Option.Option<string>;
 }
 
 const resolveLocationOverride = Effect.fn(function* (
@@ -277,6 +308,27 @@ export const resolveServerLocations = Effect.fn(function* (
   return { baseDir, derivedPaths };
 });
 
+/** The server config file named by the flag or env var, else server.json in `configDir`. */
+export const resolveServerConfigFilePath = Effect.fn(function* (
+  flags: CliServerLocationFlags,
+  configDir: string,
+) {
+  const env = yield* ServerLocationEnv;
+  const named = yield* resolveLocationOverride(flags.serverConfigFile, env.serverConfigFile);
+  const path = yield* Path.Path;
+  return { path: named ?? path.join(configDir, "server.json"), explicit: named !== undefined };
+});
+
+/** Reads the server config file. It holds options only, never locations. */
+export const loadServerConfigFile = Effect.fn(function* (
+  flags: CliServerLocationFlags,
+  configDir: string,
+) {
+  const file = yield* resolveServerConfigFilePath(flags, configDir);
+  const read = yield* readServerConfigFile(file.path, { explicit: file.explicit });
+  return { path: file.path, ...read };
+});
+
 export interface CliServerFlags extends CliServerLocationFlags {
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
@@ -302,8 +354,14 @@ export const serverLocationFlags = {
   serverCacheDir: serverCacheDirFlag,
 } as const;
 
-export const authLocationFlags = {
+/** For commands that read the server config file as well as the server's files. */
+export const serverConfigFileFlags = {
   ...serverLocationFlags,
+  serverConfigFile: serverConfigFileFlag,
+} as const;
+
+export const authLocationFlags = {
+  ...serverConfigFileFlags,
   devUrl: devUrlFlag,
 } as const;
 
@@ -319,7 +377,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
       "Working directory for provider sessions (defaults to the current directory).",
@@ -372,6 +430,7 @@ export const resolveServerConfig = (
       serverConfigDir: flags.serverConfigDir ?? Option.none(),
       serverDataDir: flags.serverDataDir ?? Option.none(),
       serverCacheDir: flags.serverCacheDir ?? Option.none(),
+      serverConfigFile: flags.serverConfigFile ?? Option.none(),
       cwd: flags.cwd ?? Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: flags.noBrowser ?? Option.none(),
@@ -387,12 +446,23 @@ export const resolveServerConfig = (
         ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
         : Option.none();
     const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
+    const devUrl = Option.getOrElse(
+      resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
+      () => undefined,
+    );
+    const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
+      devUrl,
+      fallbackBaseDir: bootstrap?.t3Home,
+    });
+    const serverConfigFile = yield* loadServerConfigFile(normalizedFlags, derivedPaths.configDir);
+    const file = serverConfigFile.options;
 
     const mode: ServerConfig.RuntimeMode = Option.getOrElse(
       resolveOptionPrecedence(
         normalizedFlags.mode,
         Option.fromUndefinedOr(env.mode),
         Option.fromUndefinedOr(bootstrap?.mode),
+        Option.fromUndefinedOr(file.mode),
       ),
       () => "web",
     );
@@ -402,6 +472,7 @@ export const resolveServerConfig = (
         normalizedFlags.port,
         Option.fromUndefinedOr(env.port),
         Option.fromUndefinedOr(bootstrap?.port),
+        Option.fromUndefinedOr(file.port),
       ),
       {
         onSome: (value) => Effect.succeed(value),
@@ -413,16 +484,8 @@ export const resolveServerConfig = (
         },
       },
     );
-    const devUrl = Option.getOrElse(
-      resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
-      () => undefined,
-    );
     const devAuthToken =
       mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
-    const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
-      devUrl,
-      fallbackBaseDir: bootstrap?.t3Home,
-    });
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
     // An interactive CLI must not start over a discovered server. Lifetime locking
@@ -440,7 +503,7 @@ export const resolveServerConfig = (
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
       derivedPaths.settingsPath,
     );
-    const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
+    const serverTracePath = env.traceFile ?? file.traceFile ?? derivedPaths.serverTracePath;
     yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
     const startupPresentation = options?.startupPresentation ?? "browser";
     const isHeadlessStartup = startupPresentation === "headless";
@@ -450,6 +513,7 @@ export const resolveServerConfig = (
         normalizedFlags.noBrowser,
         Option.fromUndefinedOr(env.noBrowser),
         Option.fromUndefinedOr(bootstrap?.noBrowser),
+        Option.fromUndefinedOr(file.noBrowser),
       ),
       () => mode === "desktop",
     );
@@ -474,6 +538,7 @@ export const resolveServerConfig = (
       resolveOptionPrecedence(
         normalizedFlags.logWebSocketEvents,
         Option.fromUndefinedOr(env.logWebSocketEvents),
+        Option.fromUndefinedOr(file.logWebSocketEvents),
       ),
       () => Boolean(devUrl),
     );
@@ -482,6 +547,7 @@ export const resolveServerConfig = (
         normalizedFlags.tailscaleServeEnabled,
         Option.fromUndefinedOr(env.tailscaleServeEnabled),
         Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
+        Option.fromUndefinedOr(file.tailscaleServeEnabled),
       ),
       () => false,
     );
@@ -490,6 +556,7 @@ export const resolveServerConfig = (
         normalizedFlags.tailscaleServePort,
         Option.fromUndefinedOr(env.tailscaleServePort),
         Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
+        Option.fromUndefinedOr(file.tailscaleServePort),
       ),
       () => 443,
     );
@@ -499,25 +566,41 @@ export const resolveServerConfig = (
         normalizedFlags.host,
         Option.fromUndefinedOr(env.host),
         Option.fromUndefinedOr(bootstrap?.host),
+        Option.fromUndefinedOr(file.host),
       ),
       () => (mode === "desktop" ? "127.0.0.1" : undefined),
     );
-    const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
+    const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel ?? file.logLevel ?? "Info");
 
     const otel = yield* OtelEnvironment.load;
 
+    const exportIntervalMs =
+      env.otlpExportIntervalMs ??
+      file.otlpExportIntervalMs ??
+      DEFAULT_SIGNAL_EXPORT.exportIntervalMs;
     // T3 Code's own OTLP variables name no signal, so the one answer they give
-    // is the answer for all three.
+    // is the answer for all three. The bootstrap and Settings URLs export
+    // this way too.
     const signalExport: SignalExport = {
-      protocol: env.otlpProtocol,
+      protocol: env.otlpProtocol ?? DEFAULT_SIGNAL_EXPORT.protocol,
       headers: env.otlpHeaders,
-      exportIntervalMs: env.otlpExportIntervalMs,
+      exportIntervalMs,
     };
+    // A URL from the server config file exports only with the file's own
+    // protocol and headers, never with credentials meant for another collector.
+    const fileExport: SignalExport = {
+      protocol: file.otlpProtocol ?? DEFAULT_SIGNAL_EXPORT.protocol,
+      headers: file.otlpHeaders,
+      exportIntervalMs,
+    };
+    const fileEndpoint = (url: string | undefined) =>
+      url === undefined ? undefined : { url, export: fileExport };
     const traces = OtelEnvironment.resolveSignalEndpoint(
       otel,
       "traces",
       { url: env.otlpTracesUrl, export: signalExport },
       bootstrap?.otlpTracesUrl,
+      fileEndpoint(file.otlpTracesUrl),
       persistedObservabilitySettings.otlpTracesUrl,
     );
     const metrics = OtelEnvironment.resolveSignalEndpoint(
@@ -525,6 +608,7 @@ export const resolveServerConfig = (
       "metrics",
       { url: env.otlpMetricsUrl, export: signalExport },
       bootstrap?.otlpMetricsUrl,
+      fileEndpoint(file.otlpMetricsUrl),
       persistedObservabilitySettings.otlpMetricsUrl,
     );
     const logs = OtelEnvironment.resolveSignalEndpoint(
@@ -532,16 +616,17 @@ export const resolveServerConfig = (
       "logs",
       { url: env.otlpLogsUrl, export: signalExport },
       bootstrap?.otlpLogsUrl,
+      fileEndpoint(file.otlpLogsUrl),
       persistedObservabilitySettings.otlpLogsUrl,
     );
 
     const config: ServerConfig.ServerConfig["Service"] = {
       logLevel,
-      traceMinLevel: env.traceMinLevel,
-      traceTimingEnabled: env.traceTimingEnabled,
-      traceBatchWindowMs: env.traceBatchWindowMs,
-      traceMaxBytes: env.traceMaxBytes,
-      traceMaxFiles: env.traceMaxFiles,
+      traceMinLevel: env.traceMinLevel ?? file.traceMinLevel ?? "Info",
+      traceTimingEnabled: env.traceTimingEnabled ?? file.traceTimingEnabled ?? true,
+      traceBatchWindowMs: env.traceBatchWindowMs ?? file.traceBatchWindowMs ?? 1_000,
+      traceMaxBytes: env.traceMaxBytes ?? file.traceMaxBytes ?? 10 * 1024 * 1024,
+      traceMaxFiles: env.traceMaxFiles ?? file.traceMaxFiles ?? DEFAULT_TRACE_MAX_FILES,
       otlpTracesUrl: traces?.url,
       otlpMetricsUrl: metrics?.url,
       otlpLogsUrl: logs?.url,
@@ -574,6 +659,7 @@ export const resolveServerConfig = (
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,
+      serverConfigFile: { path: serverConfigFile.path, unknownKeys: serverConfigFile.unknownKeys },
     };
 
     return config;
@@ -592,6 +678,7 @@ export const resolveCliAuthConfig = (
       serverConfigDir: flags.serverConfigDir ?? Option.none(),
       serverDataDir: flags.serverDataDir ?? Option.none(),
       serverCacheDir: flags.serverCacheDir ?? Option.none(),
+      serverConfigFile: flags.serverConfigFile ?? Option.none(),
       cwd: Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: Option.none(),

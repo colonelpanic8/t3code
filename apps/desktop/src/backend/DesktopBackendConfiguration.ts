@@ -101,6 +101,7 @@ const WINDOWS_SERVER_LOCATION_ENV_NAMES = new Set([
   "T3CODE_SERVER_CONFIG_DIR",
   "T3CODE_SERVER_DATA_DIR",
   "T3CODE_SERVER_CACHE_DIR",
+  "T3CODE_SERVER_CONFIG_FILE",
 ]);
 
 // Env vars that the WSL backend needs but Windows process.env won't forward

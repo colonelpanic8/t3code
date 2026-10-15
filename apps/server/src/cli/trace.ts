@@ -16,9 +16,11 @@ import { Command, Flag } from "effect/cli";
 
 import { streamTraceFileLines, toRotatedTracePaths } from "../diagnostics/TraceDiagnostics.ts";
 import {
+  DEFAULT_TRACE_MAX_FILES,
   DurationFromString,
+  loadServerConfigFile,
   resolveServerLocations,
-  serverLocationFlags,
+  serverConfigFileFlags,
   traceFileConfig,
   traceMaxFilesConfig,
 } from "./config.ts";
@@ -169,7 +171,7 @@ function formatTraceSummary(
 }
 
 const traceSummaryCommand = Command.make("summary", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   since: Flag.String("since").pipe(
     Flag.withSchema(DurationFromString),
     Flag.withDescription("Only count spans that ended in this window, for example 30m or 2h."),
@@ -185,17 +187,24 @@ const traceSummaryCommand = Command.make("summary", {
   Command.withHandler(
     Effect.fn("cli.trace.summary")(function* (flags) {
       const fs = yield* FileSystem.FileSystem;
-      // T3CODE_TRACE_FILE, else the trace file in the server's data dir.
-      // Implicit dev runs write elsewhere; set T3CODE_TRACE_FILE.
+      // T3CODE_TRACE_FILE, else the server config file's traceFile, else the
+      // trace file in the server's data dir. Implicit dev runs write
+      // elsewhere; set T3CODE_TRACE_FILE.
+      const { derivedPaths } = yield* resolveServerLocations(flags, { devUrl: undefined });
+      const { options: serverConfigFile } = yield* loadServerConfigFile(
+        flags,
+        derivedPaths.configDir,
+      );
       const traceFilePath =
-        (yield* traceFileConfig) ??
-        (yield* resolveServerLocations(flags, { devUrl: undefined })).derivedPaths.serverTracePath;
+        (yield* traceFileConfig) ?? serverConfigFile.traceFile ?? derivedPaths.serverTracePath;
+      const traceMaxFiles =
+        (yield* traceMaxFilesConfig) ?? serverConfigFile.traceMaxFiles ?? DEFAULT_TRACE_MAX_FILES;
       const sinceMs = Option.isSome(flags.since)
         ? (yield* Clock.currentTimeMillis) - Duration.toMillis(flags.since.value)
         : undefined;
       const summarizer = makeTraceSpanSummary(sinceMs);
       yield* Effect.forEach(
-        toRotatedTracePaths(traceFilePath, yield* traceMaxFilesConfig),
+        toRotatedTracePaths(traceFilePath, traceMaxFiles),
         (path) => streamTraceFileLines(fs, path, summarizer.addLine),
         { discard: true },
       );

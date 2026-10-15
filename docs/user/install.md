@@ -83,6 +83,72 @@ background service records only the T3 home, so `t3 service`, `t3 update`, and
 `t3 uninstall` ignore these settings and use the T3 home's usual locations.
 Set them in the service's environment yourself if it should use them.
 
+### Server options file
+
+Server options can also live in a JSON file, which is easier to keep in a
+dotfiles repository or generate than a list of flags. The server reads
+`server.json` in its config directory, `~/.t3/userdata/server.json` by default.
+To read another file, set `--server-config-file` or `T3CODE_SERVER_CONFIG_FILE`;
+a file named this way must exist. The server reads the file once at startup, so
+restart it after editing.
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 3773,
+  "tailscaleServeEnabled": true,
+  "logLevel": "Debug"
+}
+```
+
+Every key is optional. A flag wins over its environment variable, and both win
+over the file. When the desktop app starts the server, the mode, port, host,
+network access, and browser setting it passes also win over the file.
+
+| Key                                              | Same as                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| `port`                                           | `--port`, `T3CODE_PORT`                                       |
+| `host`                                           | `--host`, `T3CODE_HOST`                                       |
+| `mode`                                           | `--mode`, `T3CODE_MODE`                                       |
+| `noBrowser`                                      | `--no-browser`, `T3CODE_NO_BROWSER`                           |
+| `tailscaleServeEnabled`                          | `--tailscale-serve`, `T3CODE_TAILSCALE_SERVE`                 |
+| `tailscaleServePort`                             | `--tailscale-serve-port`, `T3CODE_TAILSCALE_SERVE_PORT`       |
+| `logLevel`                                       | `--log-level`, `T3CODE_LOG_LEVEL`                             |
+| `logWebSocketEvents`                             | `--log-websocket-events`, `T3CODE_LOG_WS_EVENTS`              |
+| `traceFile`                                      | `T3CODE_TRACE_FILE`                                           |
+| `traceMinLevel`                                  | `T3CODE_TRACE_MIN_LEVEL`                                      |
+| `traceTimingEnabled`                             | `T3CODE_TRACE_TIMING_ENABLED`                                 |
+| `traceBatchWindowMs`                             | `T3CODE_TRACE_BATCH_WINDOW_MS`                                |
+| `traceMaxBytes`                                  | `T3CODE_TRACE_MAX_BYTES`                                      |
+| `traceMaxFiles`                                  | `T3CODE_TRACE_MAX_FILES`                                      |
+| `otlpTracesUrl`, `otlpMetricsUrl`, `otlpLogsUrl` | `T3CODE_OTLP_TRACES_URL`, `_METRICS_URL`, `_LOGS_URL`         |
+| `otlpProtocol`                                   | `T3CODE_OTLP_PROTOCOL`                                        |
+| `otlpHeaders`                                    | `T3CODE_OTLP_HEADERS`, as an object of header names to values |
+| `otlpExportIntervalMs`                           | `T3CODE_OTLP_EXPORT_INTERVAL_MS`                              |
+
+Log levels are spelled as for the environment variables: `Trace`, `Debug`,
+`Info`, `Warn`, `Error`, `Fatal`, `All`, or `None`. A relative `traceFile` is
+relative to the file's directory. The file cannot say where the server keeps
+its files. Those locations come only from the flags and environment variables
+above, so the `t3` commands and the SSH launcher always find a running server
+from its T3 home.
+
+An OpenTelemetry endpoint in the file is sent the file's `otlpProtocol` and
+`otlpHeaders` only. Endpoints from environment variables win over the file's,
+and the file's win over endpoints saved in
+[Diagnostics settings](./telemetry.md#export-diagnostics-to-your-own-receiver).
+The desktop app passes the endpoints saved there to the server it starts, so in
+the desktop app they win over the file.
+
+A value of the wrong type stops the server with an error naming the file and
+the key. `t3 auth`, `t3 project`, `t3 connect`, and `t3 trace summary` read the
+file too, so they fail with the same error. Keys the server does not know are skipped with a
+warning in its log. `t3 trace summary` uses the file's trace settings, and
+`t3 triage` reports a broken file instead of stopping. The background service
+reads `server.json` from `userdata` in its T3 home. `t3 service`, `t3 update`,
+and `t3 uninstall` never read the file, so a broken one does not stop you from
+managing the install.
+
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To

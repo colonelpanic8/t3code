@@ -369,13 +369,14 @@ export interface SignalEndpoint {
  * Where one signal exports and how. `T3CODE_OTLP_*_URL` wins outright with
  * T3 Code's own export, then an OTEL endpoint with its own headers and
  * protocol, since `T3CODE_OTLP_HEADERS` was written for a different
- * collector, then the first of `fallbackUrls` with T3 Code's own export.
+ * collector, then the first of `fallbacks`. A bare URL there exports with
+ * T3 Code's own export, and an endpoint keeps the export its source named.
  */
 export const resolveSignalEndpoint = (
   otel: OtelEnvironment,
   signal: SignalName,
   t3: { readonly url: string | undefined; readonly export: SignalExport },
-  ...fallbackUrls: ReadonlyArray<string | undefined>
+  ...fallbacks: ReadonlyArray<string | SignalEndpoint | undefined>
 ): SignalEndpoint | undefined => {
   if (otel.disabled) {
     return undefined;
@@ -391,8 +392,15 @@ export const resolveSignalEndpoint = (
     }),
     Off: () => undefined,
     Unset: () => {
-      const url = fallbackUrls.map(blankAsUnset).find((candidate) => candidate !== undefined);
-      return url === undefined ? undefined : { url, export: t3.export };
+      for (const fallback of fallbacks) {
+        const endpoint =
+          typeof fallback === "object" ? fallback : { url: fallback, export: t3.export };
+        const url = blankAsUnset(endpoint.url);
+        if (url !== undefined) {
+          return { url, export: endpoint.export };
+        }
+      }
+      return undefined;
     },
   });
 };
