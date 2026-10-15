@@ -1615,6 +1615,17 @@ const make = Effect.gen(function* () {
       ...details,
     });
 
+  const logManagedDefect = (
+    message: string,
+    defect: unknown,
+    details: { readonly setting?: string } = {},
+  ) =>
+    Effect.logError(message, {
+      path: managedSettingsPath,
+      ...details,
+      cause: Cause.pretty(Cause.die(defect)),
+    });
+
   // Read on every load, like settings.json; an unusable file leaves the layers beneath in charge.
   const loadManagedLayer = Effect.gen(function* () {
     if (managedSettingsPath === undefined) return undefined;
@@ -1646,20 +1657,26 @@ const make = Effect.gen(function* () {
         });
         continue;
       }
-      const resolved = yield* resolveManagedFileReferences(
+      const canonical = yield* resolveManagedFileReferences(
         markReferencedEnvironmentSensitive(entry.document),
       ).pipe(
-        Effect.map((value) => value as SettingsDocument),
+        Effect.map((resolved) =>
+          canonicalizeSecretFields(dropRedactionFlags(resolved) as SettingsDocument),
+        ),
         Effect.catch((error) =>
           ignoreManagedSetting(entry.setting, {
             reason: "references a file that cannot be read",
             cause: error.cause,
           }).pipe(Effect.as(undefined)),
         ),
+        Effect.catchDefect((defect) =>
+          logManagedDefect("loading a managed setting failed unexpectedly; ignoring it", defect, {
+            setting: entry.setting,
+          }).pipe(Effect.as(undefined)),
+        ),
       );
-      if (resolved === undefined) continue;
+      if (canonical === undefined) continue;
       if (hasFileReference(entry.document)) fromFiles.add(entry.setting);
-      const canonical = canonicalizeSecretFields(dropRedactionFlags(resolved) as SettingsDocument);
       yield* warnDuplicateSecretHosts(managedSettingsPath, canonical.duplicates);
       document = layerSettingsDocuments(document, canonical.document);
     }
@@ -1676,10 +1693,10 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.as(undefined)),
     ),
     Effect.catchDefect((defect) =>
-      Effect.logWarning("ignoring managed settings file", {
-        path: managedSettingsPath,
-        cause: defect,
-      }).pipe(Effect.as(undefined)),
+      logManagedDefect(
+        "loading the managed settings file failed unexpectedly; ignoring it",
+        defect,
+      ).pipe(Effect.as(undefined)),
     ),
   );
 
@@ -1771,9 +1788,18 @@ const make = Effect.gen(function* () {
               ...(managed.fromFiles.has(entry.setting) ? {} : { cause: error.cause }),
             }),
           ),
+          Effect.catchDefect((defect) =>
+            logManagedDefect(
+              "applying a managed setting failed unexpectedly; ignoring it",
+              defect,
+              {
+                setting: entry.setting,
+              },
+            ).pipe(Effect.as(null)),
+          ),
         );
         if (rejection === undefined) document = layerSettingsDocuments(document, entry.document);
-        else yield* ignoreManagedSetting(entry.setting, rejection);
+        else if (rejection !== null) yield* ignoreManagedSetting(entry.setting, rejection);
       }
       const fitting: ManagedSettingsLayer = {
         document,
@@ -1790,11 +1816,11 @@ const make = Effect.gen(function* () {
         ),
       );
     }).pipe(
+      // Keeping `managed` leaves writes to its paths rejected while its values are not applied.
       Effect.catchDefect((defect) =>
-        Effect.logWarning("ignoring managed settings that could not be applied", {
-          path: managedSettingsPath,
-          cause: defect,
-        }).pipe(Effect.as(unmanaged)),
+        logManagedDefect("applying managed settings failed unexpectedly", defect).pipe(
+          Effect.as({ ...unmanaged, managed }),
+        ),
       ),
     );
   };
