@@ -1,0 +1,428 @@
+import type { EnvironmentId } from "@t3tools/contracts";
+import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
+import { isModelCostUnknown, type UsageEntry } from "@t3tools/shared/usageMerge";
+import {
+  USAGE_DIMENSIONS,
+  USAGE_SORT_FIELDS,
+  groupUsageRows,
+  pivotUsage,
+  sortUsageRows,
+  usageRowKey,
+  type UsageDimension,
+  type UsagePivotRow,
+  type UsageSortCriterion,
+  type UsageSortField,
+  type UsageTimeGrouping,
+  type UsageTotals,
+} from "@t3tools/shared/usagePivot";
+import {
+  ArrowDownIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
+  ChevronUpIcon,
+  PlusIcon,
+  XIcon,
+} from "lucide-react";
+import { useMemo } from "react";
+
+import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { modelShare } from "./usageBreakdown";
+import { DEFAULT_USAGE_VIEW } from "./usagePagePreferences";
+import {
+  DIMENSION_NAMES,
+  GROUPING_NAMES,
+  usageRowLabel,
+  usageSeriesColors,
+  type UsageLabelContext,
+} from "./usageSeries";
+
+export interface UsageTableView {
+  readonly tableDimensions: readonly UsageDimension[];
+  readonly sort: readonly UsageSortCriterion[];
+}
+
+/** Sorting by period needs periods to sort, so it brings the dimension along. */
+export function withTableSort(view: UsageTableView, sort: UsageTableView["sort"]): UsageTableView {
+  const needsPeriod = sort.some((criterion) => criterion.field === "period");
+  return {
+    sort,
+    tableDimensions:
+      needsPeriod && !view.tableDimensions.includes("period")
+        ? [...view.tableDimensions, "period"]
+        : view.tableDimensions,
+  };
+}
+
+/** Dropping the period dimension drops the period sort with it. */
+export function withTableDimensions(
+  view: UsageTableView,
+  tableDimensions: UsageTableView["tableDimensions"],
+): UsageTableView {
+  if (tableDimensions.includes("period")) return { ...view, tableDimensions };
+  const sort = view.sort.filter((criterion) => criterion.field !== "period");
+  return { tableDimensions, sort: sort.length > 0 ? sort : DEFAULT_USAGE_VIEW.sort };
+}
+
+const DEFAULT_DIRECTION: { readonly [Field in UsageSortField]: UsageSortCriterion["direction"] } = {
+  costUsd: "descending",
+  totalTokens: "descending",
+  label: "ascending",
+  period: "descending",
+};
+
+function sortFieldName(field: UsageSortField, grouping: UsageTimeGrouping): string {
+  if (field === "period") return GROUPING_NAMES[grouping];
+  return { costUsd: "Cost", totalTokens: "Tokens", label: "Name" }[field];
+}
+
+/**
+ * Sorted rows, grouped under headings when the primary sort is by name or
+ * period and some rows share it. A heading's value is not repeated in its rows.
+ */
+export function layoutBreakdownTable(
+  entries: readonly UsageEntry[],
+  { tableDimensions: dimensions, sort }: UsageTableView,
+  context: UsageLabelContext,
+) {
+  const seriesDimensions = dimensions.filter((dimension) => dimension !== "period");
+  // Periods have their own sort field, so names sort without them.
+  const nameOf = (row: UsagePivotRow) => usageRowLabel(row, seriesDimensions, context);
+  const sorted = sortUsageRows(pivotUsage(entries, dimensions, context.grouping), sort, nameOf);
+  const primary = sort[0]?.field ?? "costUsd";
+  const groups = groupUsageRows(sorted, primary, nameOf);
+  const groupDimensions: readonly UsageDimension[] =
+    primary === "period" ? ["period"] : primary === "label" ? seriesDimensions : [];
+  const grouped = groupDimensions.length > 0 && groups.length < sorted.length;
+  const headingDimensions = grouped ? groupDimensions : [];
+  const rowDimensions = dimensions.filter((dimension) => !headingDimensions.includes(dimension));
+  const label = (row: UsagePivotRow, labelDimensions: readonly UsageDimension[]) =>
+    dimensions.length === 0 ? "Total" : usageRowLabel(row, labelDimensions, context);
+  const colorKey = (row: UsagePivotRow) => usageRowKey(row, seriesDimensions);
+  const colors = usageSeriesColors(
+    sorted.map((row) => ({ ...row, key: colorKey(row) })),
+    seriesDimensions,
+  );
+  return {
+    grouped,
+    groups: groups.map((group) => ({
+      ...group,
+      heading: group.rows[0] === undefined ? "" : label(group.rows[0], headingDimensions),
+      rows: group.rows.map((row) => ({
+        row,
+        label: label(row, rowDimensions.length > 0 ? rowDimensions : dimensions),
+        color: colors.get(colorKey(row)) ?? "",
+      })),
+    })),
+  };
+}
+
+interface UsageBreakdownTableProps {
+  readonly entries: readonly UsageEntry[];
+  readonly view: UsageTableView;
+  readonly onViewChange: (view: UsageTableView) => void;
+  readonly grouping: UsageTimeGrouping;
+  readonly metric: "cost" | "tokens";
+  readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
+  readonly timeZone: string;
+  readonly isRowLoading: (row: UsagePivotRow) => boolean;
+  readonly onOpenModel: (row: UsagePivotRow & { readonly model: string }) => void;
+}
+
+export function UsageBreakdownTable({
+  entries,
+  view,
+  onViewChange,
+  grouping,
+  metric,
+  environmentLabels,
+  timeZone,
+  isRowLoading,
+  onOpenModel,
+}: UsageBreakdownTableProps) {
+  const { tableDimensions: dimensions, sort } = view;
+  const table = useMemo(
+    () => layoutBreakdownTable(entries, view, { environmentLabels, grouping, timeZone }),
+    [entries, environmentLabels, grouping, timeZone, view],
+  );
+
+  const shareOf = (totals: UsageTotals) => modelShare(totals, metric);
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <ToggleGroup
+            aria-label="Break down by"
+            variant="segmented"
+            multiple
+            value={[...dimensions]}
+            onValueChange={(next) =>
+              onViewChange(
+                withTableDimensions(
+                  view,
+                  USAGE_DIMENSIONS.filter((dimension) => next.includes(dimension)),
+                ),
+              )
+            }
+          >
+            {USAGE_DIMENSIONS.map((dimension) => (
+              <Toggle key={dimension} value={dimension}>
+                {dimension === "period" ? GROUPING_NAMES[grouping] : DIMENSION_NAMES[dimension]}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+          <UsageSortEditor
+            sort={sort}
+            grouping={grouping}
+            onChange={(next) => onViewChange(withTableSort(view, next))}
+          />
+        </div>
+      </div>
+
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-right text-xs text-muted-foreground">
+            <th className="w-full py-2 text-left font-normal">
+              {dimensions.length === 0
+                ? "Total"
+                : USAGE_DIMENSIONS.filter((dimension) => dimensions.includes(dimension))
+                    .map((dimension) =>
+                      dimension === "period"
+                        ? GROUPING_NAMES[grouping]
+                        : DIMENSION_NAMES[dimension],
+                    )
+                    .join(" · ")}
+            </th>
+            <th className="py-2 pl-6 font-normal">Cost</th>
+            <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
+            <th className="py-2 pl-6 font-normal">Tokens</th>
+          </tr>
+        </thead>
+        {table.groups.length === 0 ? (
+          <tbody>
+            <tr>
+              <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                No activity in this window.
+              </td>
+            </tr>
+          </tbody>
+        ) : (
+          table.groups.map((group) => (
+            <tbody key={group.key}>
+              {table.grouped ? (
+                <tr className="border-b border-border/50 text-right whitespace-nowrap text-foreground tabular-nums">
+                  <th scope="rowgroup" className="pt-4 pb-2 text-left font-medium">
+                    {group.heading}
+                  </th>
+                  <UsageFigureCells
+                    totals={group}
+                    share={shareOf(group)}
+                    loading={group.rows.some(({ row }) => isRowLoading(row))}
+                    className="pt-4 pb-2 font-medium"
+                  />
+                </tr>
+              ) : null}
+              {group.rows.map(({ row, label, color }) => {
+                const model = row.model;
+                return (
+                  <tr
+                    key={row.key}
+                    className={cn(
+                      "relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors",
+                      model !== undefined && "hover:bg-muted/50 has-focus-visible:bg-muted/50",
+                    )}
+                  >
+                    <td
+                      className={cn("py-2.5 text-left whitespace-normal", table.grouped && "pl-3")}
+                    >
+                      <span className="flex min-w-0 items-center gap-2 text-foreground">
+                        <span
+                          aria-hidden
+                          className="size-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: color }}
+                        />
+                        {model === undefined ? (
+                          <span className="min-w-0">{label}</span>
+                        ) : (
+                          // The button's overlay makes the whole row open the model.
+                          // Focus shows as the row's hover fill, not a ring.
+                          <button
+                            type="button"
+                            onClick={() => onOpenModel({ ...row, model })}
+                            className="min-w-0 text-left outline-none after:absolute after:inset-0"
+                          >
+                            {label}
+                          </button>
+                        )}
+                      </span>
+                    </td>
+                    <UsageFigureCells
+                      totals={row}
+                      share={shareOf(row)}
+                      loading={isRowLoading(row)}
+                      className="py-2.5"
+                    />
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))
+        )}
+      </table>
+    </section>
+  );
+}
+
+/** Cost, share, and tokens. An unpriced cost is unknown, never a real $0. */
+function UsageFigureCells({
+  totals,
+  share,
+  loading,
+  className,
+}: {
+  readonly totals: UsageTotals;
+  readonly share: number | null;
+  readonly loading: boolean;
+  readonly className: string;
+}) {
+  const figures = cn(className, "pl-6 transition-opacity", loading && "opacity-40 delay-150");
+  return (
+    <>
+      <td className={cn(figures, "text-foreground")}>
+        {isModelCostUnknown(totals) ? (
+          <span className="text-muted-foreground">Unpriced</span>
+        ) : (
+          formatUsd(totals.costUsd)
+        )}
+      </td>
+      <td className={cn(figures, "hidden sm:table-cell")}>
+        {share === null ? "" : formatPercent(share)}
+      </td>
+      <td className={figures}>{formatTokens(totals.totalTokens)}</td>
+    </>
+  );
+}
+
+function UsageSortEditor({
+  sort,
+  grouping,
+  onChange,
+}: {
+  readonly sort: readonly UsageSortCriterion[];
+  readonly grouping: UsageTimeGrouping;
+  readonly onChange: (sort: readonly UsageSortCriterion[]) => void;
+}) {
+  const replace = (index: number, criterion: UsageSortCriterion) =>
+    onChange(sort.map((entry, position) => (position === index ? criterion : entry)));
+  const unused = USAGE_SORT_FIELDS.find((field) => !sort.some((entry) => entry.field === field));
+  const primary = sort[0];
+
+  return (
+    <Popover>
+      <PopoverTrigger render={<Button size="xs" variant="ghost-muted" />}>
+        <ArrowUpDownIcon aria-hidden />
+        {primary === undefined
+          ? "Sort"
+          : `${sortFieldName(primary.field, grouping)}${sort.length > 1 ? ` +${sort.length - 1}` : ""}`}
+      </PopoverTrigger>
+      <PopoverPopup align="end">
+        <div className="flex flex-col gap-2 text-xs">
+          {sort.map((criterion, index) => (
+            <div key={criterion.field} className="flex items-center gap-1">
+              <span className="w-14 shrink-0 text-muted-foreground">
+                {index === 0 ? "Sort by" : "Then by"}
+              </span>
+              <Select
+                value={criterion.field}
+                onValueChange={(value) => {
+                  const field = USAGE_SORT_FIELDS.find((option) => option === value);
+                  if (field) replace(index, { field, direction: DEFAULT_DIRECTION[field] });
+                }}
+              >
+                <SelectTrigger aria-label={`Sort field ${index + 1}`} size="xs" className="w-28">
+                  <SelectValue>{sortFieldName(criterion.field, grouping)}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  {USAGE_SORT_FIELDS.map((field) => (
+                    <SelectItem
+                      key={field}
+                      value={field}
+                      disabled={
+                        field !== criterion.field && sort.some((entry) => entry.field === field)
+                      }
+                    >
+                      {sortFieldName(field, grouping)}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={criterion.direction === "ascending" ? "Ascending" : "Descending"}
+                title={criterion.direction === "ascending" ? "Ascending" : "Descending"}
+                onClick={() =>
+                  replace(index, {
+                    ...criterion,
+                    direction: criterion.direction === "ascending" ? "descending" : "ascending",
+                  })
+                }
+              >
+                {criterion.direction === "ascending" ? (
+                  <ArrowUpIcon aria-hidden />
+                ) : (
+                  <ArrowDownIcon aria-hidden />
+                )}
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label="Move up"
+                title="Move up"
+                disabled={index === 0}
+                onClick={() =>
+                  onChange([
+                    ...sort.slice(0, index - 1),
+                    criterion,
+                    ...sort.slice(index - 1, index),
+                    ...sort.slice(index + 1),
+                  ])
+                }
+              >
+                <ChevronUpIcon aria-hidden />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label="Remove"
+                title="Remove"
+                disabled={sort.length === 1}
+                onClick={() => onChange(sort.filter((_, position) => position !== index))}
+              >
+                <XIcon aria-hidden />
+              </Button>
+            </div>
+          ))}
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            className="self-start"
+            disabled={unused === undefined}
+            onClick={() => {
+              if (unused)
+                onChange([...sort, { field: unused, direction: DEFAULT_DIRECTION[unused] }]);
+            }}
+          >
+            <PlusIcon aria-hidden />
+            Add
+          </Button>
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+}

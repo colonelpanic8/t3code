@@ -8,19 +8,16 @@ import {
 
 import type { ShareSegment } from "./UsageShareBar";
 
-export function sortModelsByTokens(models: readonly ModelTotals[]) {
-  return models.toSorted(
-    (left, right) => right.totalTokens - left.totalTokens || right.costUsd - left.costUsd,
-  );
-}
-
 /**
- * A model's share of the selected metric, or `null` for a cost share of an
- * unknown cost. An unpriced model still has a real token share.
+ * A share of the selected metric, or `null` for a cost share of an unknown
+ * cost. Unpriced usage still has a real token share.
  */
-export function modelShare(model: ModelTotals, metric: "cost" | "tokens"): number | null {
-  if (metric === "tokens") return model.tokenShare;
-  return isModelCostUnknown(model) ? null : model.costShare;
+export function modelShare(
+  totals: Pick<ModelTotals, "costShare" | "tokenShare" | "records" | "unpricedRecords">,
+  metric: "cost" | "tokens",
+): number | null {
+  if (metric === "tokens") return totals.tokenShare;
+  return isModelCostUnknown(totals) ? null : totals.costShare;
 }
 
 /**
