@@ -948,24 +948,15 @@ function rawEntries(
     : {};
 }
 
-// Credentials reach the managed file only as `{ "$file": "/path" }`, since the
-// file itself usually lives somewhere world-readable such as the Nix store.
-// Secret fields are walked twice: on decoded entries, so they resolve by the
-// driver names and defaults the runtime sees, and on raw ones, so an entry that
-// fails to decode cannot hide one. Project provider overrides accept only
-// `enabled`, so any `config` or `environment` there counts as inline.
-// Returns a description of the first credential written inline.
-function findInlineManagedSecret(document: SettingsDocument): string | undefined {
-  const marked = markFileReferences(document) as SettingsDocument;
-  for (const [projectId, project] of Object.entries(rawEntries(marked.projectSettingsOverrides))) {
-    const instances = rawEntries((project as SettingsDocument).providerInstances);
-    for (const [instanceId, instance] of Object.entries(instances)) {
-      const key = ["config", "environment"].find((field) => field in (instance as object));
-      if (key !== undefined) {
-        return `projectSettingsOverrides.${projectId}.providerInstances.${instanceId}.${key}`;
-      }
-    }
-  }
+/**
+ * Visits the credential positions of a managed document: environment values and schema-declared
+ * secret fields. Entries are walked twice: decoded, so secret fields resolve by the driver names
+ * and defaults the runtime sees, and raw, so an entry that fails to decode cannot hide one.
+ */
+function walkManagedSecrets(
+  marked: SettingsDocument,
+  visit: (secret: SettingsSecret) => void,
+): void {
   const decoded = {
     providerInstances: Object.fromEntries(
       decodedEntries(marked.providerInstances, decodeProviderInstanceOption),
@@ -982,17 +973,61 @@ function findInlineManagedSecret(document: SettingsDocument): string | undefined
     sourceControlHosts: decoded.sourceControlHosts,
     usageLimitSources: rawEntries(marked.usageLimitSources),
   };
-  let inline: string | undefined;
   for (const sections of [decoded, raw]) {
     mapSettingsSecrets(sections as unknown as ServerSettings, (secret) => {
-      const value = typeof secret.value === "string" ? secret.value.trim() : "";
-      if (secret.sensitive && value.length > 0 && value !== SECRET_REDACTED) {
-        inline ??= `secret ${secret.secretName}`;
-      }
+      visit(secret);
       return secret;
     });
   }
+}
+
+// Credentials reach the managed file only as `{ "$file": "/path" }`, since the
+// file itself usually lives somewhere world-readable such as the Nix store.
+// Project provider overrides accept only `enabled`, so any `config` or
+// `environment` there counts as inline.
+// Returns a description of the first credential written inline.
+function findInlineManagedSecret(document: SettingsDocument): string | undefined {
+  const marked = markFileReferences(document) as SettingsDocument;
+  for (const [projectId, project] of Object.entries(rawEntries(marked.projectSettingsOverrides))) {
+    const instances = rawEntries((project as SettingsDocument).providerInstances);
+    for (const [instanceId, instance] of Object.entries(instances)) {
+      const key = ["config", "environment"].find((field) => field in (instance as object));
+      if (key !== undefined) {
+        return `projectSettingsOverrides.${projectId}.providerInstances.${instanceId}.${key}`;
+      }
+    }
+  }
+  let inline: string | undefined;
+  walkManagedSecrets(marked, (secret) => {
+    const value = typeof secret.value === "string" ? secret.value.trim() : "";
+    if (secret.sensitive && value.length > 0 && value !== SECRET_REDACTED) {
+      inline ??= `secret ${secret.secretName}`;
+    }
+  });
   return inline;
+}
+
+/**
+ * Whether `document` holds a `$file` reference outside a credential position. Client redaction
+ * only hides credentials, so such a value would reach clients in plaintext.
+ */
+function hasMisplacedFileReference(document: SettingsDocument): boolean {
+  const unvisited = new Set<string>();
+  const tokenize = (value: unknown): unknown => {
+    if (isFileReference(value)) {
+      const token = `t3-managed-file-reference-${unvisited.size}`;
+      unvisited.add(token);
+      return token;
+    }
+    if (Array.isArray(value)) return value.map(tokenize);
+    return isSettingsDocument(value)
+      ? Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, tokenize(entry)]))
+      : value;
+  };
+  const tokenized = tokenize(document) as SettingsDocument;
+  if (unvisited.size === 0) return false;
+  walkManagedSecrets(tokenized, (secret) => unvisited.delete(secret.value));
+  return unvisited.size > 0;
 }
 
 interface ManagedSettingsLayer {
@@ -1578,6 +1613,13 @@ const make = Effect.gen(function* () {
       if (DERIVED_SETTINGS_KEYS.has(entry.key)) {
         yield* ignoreManagedSetting(entry.setting, {
           reason: "is derived from projectSettingsOverrides; manage that instead",
+        });
+        continue;
+      }
+      // Checked before any file is read.
+      if (hasMisplacedFileReference(entry.document)) {
+        yield* ignoreManagedSetting(entry.setting, {
+          reason: "uses $file outside a credential; $file is only for credentials",
         });
         continue;
       }
