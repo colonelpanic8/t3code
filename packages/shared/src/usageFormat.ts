@@ -275,3 +275,17 @@ export function makeWindow(
     resolution,
   };
 }
+
+/**
+ * `current` until the local day it ends on has passed, then the same window
+ * for today. Moving only on a new day keeps a rolling 24-hour window, and the
+ * usage it has already answered, in place each time the page regains focus.
+ */
+export function windowForToday(
+  current: UsageSummaryInput,
+  days: number,
+  now = new Date(),
+): UsageSummaryInput {
+  const today = makeWindow(days, now, current.resolution);
+  return today.untilDay === current.untilDay ? current : today;
+}
