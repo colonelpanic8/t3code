@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   expandT3HomePath,
+  type LegacyStorageMigratedError,
   resolveT3ClientStorageRoots,
   selectT3Storage,
   type T3ClientStorageRoots,
@@ -175,7 +176,10 @@ const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
 ): Effect.fn.Return<
   DesktopEnvironment["Service"],
-  Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
+  | Config.ConfigError
+  | T3StorageConfigurationError
+  | T3StorageProbeError
+  | LegacyStorageMigratedError,
   Path.Path
 > {
   const path = yield* Path.Path;

@@ -8,6 +8,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import {
+  LegacyStorageMigratedError,
   selectT3Storage,
   T3StorageConfigurationError,
   t3StoragePathExists,
@@ -384,6 +385,28 @@ describe("DesktopEnvironment", () => {
         "/home/alice/client-state/saved-environments.json",
       );
     }),
+  );
+
+  it.effect("refuses to start on a retired legacy tree named by T3CODE_HOME", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-retired-",
+      });
+      const legacyStateDir = path.join(root, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(legacyStateDir, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+
+      const error = yield* makeEnvironment(
+        { platform: "linux", homeDirectory: root, temporaryDirectory: root },
+        { T3CODE_HOME: path.join(root, ".t3") },
+      ).pipe(Effect.flip);
+
+      assert.instanceOf(error, LegacyStorageMigratedError);
+      assert.include(error.message, "Unset T3CODE_HOME");
+      assert.deepEqual(yield* fileSystem.readDirectory(legacyStateDir), ["storage-migration.json"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("uses split storage once the legacy tree carries the migration marker", () =>
