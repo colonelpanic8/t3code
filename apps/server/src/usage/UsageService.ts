@@ -76,9 +76,11 @@ const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 
 /**
  * Most scans change the cache, and each write serializes all of it, so a burst
- * of scans writes once, this long after the last one.
+ * of scans writes once, this long after the last one, but no later than
+ * `SCAN_CACHE_PERSIST_MAX_WAIT_MS` after the first change since the last write.
  */
-const SCAN_CACHE_PERSIST_DELAY = Duration.seconds(5);
+const SCAN_CACHE_PERSIST_DELAY_MS = 5 * 1000;
+const SCAN_CACHE_PERSIST_MAX_WAIT_MS = 30 * 1000;
 
 // mtime slack includes writes just before local midnight on the window's first day.
 const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
@@ -401,10 +403,14 @@ export const make = Effect.gen(function* () {
   // Serialize writes so concurrently finished window scans cannot overwrite newer snapshots.
   const persistLock = yield* Semaphore.make(1);
 
+  /** When the first change since the last write must be written by. */
+  let persistDeadlineMs: number | undefined;
+
   // Clear dirty before encoding to retain concurrent changes; restore it on failure for retry.
   const persistCaches = Effect.gen(function* () {
     if (cacheDirty) {
       cacheDirty = false;
+      persistDeadlineMs = undefined;
       yield* Effect.sync(() =>
         writeScanCache(fileCache, { sources: Object.fromEntries(sourceCache) }),
       ).pipe(
@@ -425,8 +431,11 @@ export const make = Effect.gen(function* () {
   let pendingPersist: Fiber.Fiber<void> | undefined;
   const schedulePersist = Effect.gen(function* () {
     if (!cacheDirty) return;
+    const now = yield* Clock.currentTimeMillis;
+    persistDeadlineMs ??= now + SCAN_CACHE_PERSIST_MAX_WAIT_MS;
+    const delayMs = Math.max(0, Math.min(SCAN_CACHE_PERSIST_DELAY_MS, persistDeadlineMs - now));
     const previous = pendingPersist;
-    pendingPersist = yield* Effect.sleep(SCAN_CACHE_PERSIST_DELAY).pipe(
+    pendingPersist = yield* Effect.sleep(Duration.millis(delayMs)).pipe(
       Effect.andThen(persistCaches),
       Effect.forkDetach,
   );
