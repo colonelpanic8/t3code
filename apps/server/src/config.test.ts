@@ -10,10 +10,12 @@ const derive = (devUrl: URL | undefined, options?: DeriveServerPathsOptions) =>
   deriveServerPaths("/home/t3", devUrl, options).pipe(Effect.provide(NodePath.layerPosix));
 
 const userdataPaths = {
+  layout: "legacy",
   configDir: "/home/t3/userdata",
   dataDir: "/home/t3/userdata",
   cacheDir: "/home/t3/caches",
   stateDir: "/home/t3/userdata",
+  runtimeDir: "/home/t3/userdata",
   dbPath: "/home/t3/userdata/statev2.sqlite",
   keybindingsConfigPath: "/home/t3/userdata/keybindings.json",
   settingsPath: "/home/t3/userdata/settings.json",
@@ -43,6 +45,7 @@ const configOverridePaths = {
 const dataOverridePaths = {
   dataDir: "/srv/t3",
   stateDir: "/srv/t3",
+  runtimeDir: "/srv/t3",
   dbPath: "/srv/t3/statev2.sqlite",
   worktreesDir: "/srv/t3/worktrees",
   attachmentsDir: "/srv/t3/attachments",
@@ -74,10 +77,12 @@ describe("deriveServerPaths", () => {
   it.effect("isolates an implicit dev root and lets an explicit base dir opt out", () =>
     Effect.gen(function* () {
       expect(yield* derive(DEV_URL)).toEqual({
+        layout: "legacy",
         configDir: "/home/t3/dev",
         dataDir: "/home/t3/dev",
         cacheDir: "/home/t3/caches",
         stateDir: "/home/t3/dev",
+        runtimeDir: "/home/t3/dev",
         dbPath: "/home/t3/dev/statev2.sqlite",
         keybindingsConfigPath: "/home/t3/dev/keybindings.json",
         settingsPath: "/home/t3/dev/settings.json",
@@ -150,6 +155,43 @@ describe("deriveServerPaths", () => {
       expect(paths.providerStatusCacheDir).toBe("/home/t3/caches");
       expect(paths.dbPath).toBe("/srv/t3/statev2.sqlite");
       expect(paths.worktreesDir).toBe("/srv/t3/worktrees");
+    }),
+  );
+
+  it.effect("puts each file under its split root", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* derive(DEV_URL, {
+          configDir: "/xdg/config/t3code",
+          dataDir: "/xdg/data/t3code",
+          cacheDir: "/xdg/cache/t3code",
+          split: { stateDir: "/xdg/state/t3code", runtimeDir: "/run/user/1000/t3code" },
+        }),
+      ).toEqual({
+        layout: "split",
+        configDir: "/xdg/config/t3code",
+        dataDir: "/xdg/data/t3code",
+        cacheDir: "/xdg/cache/t3code",
+        stateDir: "/xdg/state/t3code",
+        runtimeDir: "/run/user/1000/t3code",
+        dbPath: "/xdg/state/t3code/statev2.sqlite",
+        keybindingsConfigPath: "/xdg/config/t3code/keybindings.json",
+        settingsPath: "/xdg/config/t3code/settings.json",
+        environmentThemesDir: "/xdg/config/t3code/themes",
+        providerStatusCacheDir: "/xdg/cache/t3code/provider-status",
+        worktreesDir: "/xdg/data/t3code/worktrees",
+        attachmentsDir: "/xdg/data/t3code/attachments",
+        browserArtifactsDir: "/xdg/data/t3code/browser-artifacts",
+        logsDir: "/xdg/state/t3code/logs",
+        serverTracePath: "/xdg/state/t3code/logs/server.trace.ndjson",
+        providerLogsDir: "/xdg/state/t3code/logs/provider",
+        providerEventLogPath: "/xdg/state/t3code/logs/provider/events.log",
+        terminalLogsDir: "/xdg/state/t3code/logs/terminals",
+        anonymousIdPath: "/xdg/state/t3code/anonymous-id",
+        environmentIdPath: "/xdg/state/t3code/environment-id",
+        serverRuntimeStatePath: "/run/user/1000/t3code/server-runtime.json",
+        secretsDir: "/xdg/state/t3code/secrets",
+      });
     }),
   );
 });

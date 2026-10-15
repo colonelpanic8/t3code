@@ -22,8 +22,12 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as PreviewBrowserHost from "../preview/PreviewBrowserHost.ts";
-import { resolveBaseDir } from "../os-jank.ts";
-import { baseDirFlag } from "./config.ts";
+import {
+  baseDirFlag,
+  currentStorageHost,
+  deriveServerStoragePaths,
+  resolveServerStorage,
+} from "./config.ts";
 import { resolveRootCliCommand } from "./invocation.ts";
 
 export class BrowserSetupStepError extends Schema.TaggedError<BrowserSetupStepError>()(
@@ -53,22 +57,33 @@ const runStep = Effect.fn("browserSetup.runStep")(function* (
 });
 
 /**
- * The T3 home to check. Under `sudo` the process home is root's, so an
- * unspecified home falls back to the invoking user's `~/.t3`.
+ * The base dir whose tools hold the browser, from the same storage layout the
+ * server uses. Under `sudo` the process home is root's, so the layout is
+ * resolved against the invoking user's home.
  */
 const setupBaseDir = Effect.fn("browserSetup.baseDir")(function* (explicit: Option.Option<string>) {
   const env = yield* HostProcess.Environment;
-  const raw = Option.getOrUndefined(explicit) ?? env.T3CODE_HOME;
-  if (raw !== undefined || env.SUDO_USER === undefined) return yield* resolveBaseDir(raw);
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const entry = yield* spawner
-    .string(
-      ChildProcess.make("getent", ["passwd", env.SUDO_USER], { stdin: "ignore", stderr: "ignore" }),
-    )
-    .pipe(Effect.orElseSucceed(() => ""));
-  const home = entry.trim().split(":")[5];
-  const path = yield* Path.Path;
-  return home ? path.join(home, ".t3") : yield* resolveBaseDir(undefined);
+  const host = yield* currentStorageHost;
+  let homeDirectory = host.homeDirectory;
+  if (env.SUDO_USER !== undefined) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const entry = yield* spawner
+      .string(
+        ChildProcess.make("getent", ["passwd", env.SUDO_USER], {
+          stdin: "ignore",
+          stderr: "ignore",
+        }),
+      )
+      .pipe(Effect.orElseSucceed(() => ""));
+    homeDirectory = entry.trim().split(":")[5] || homeDirectory;
+  }
+  const storage = yield* resolveServerStorage({
+    baseDir: explicit,
+    storageLayout: Option.none(),
+    isDevelopment: false,
+    host: { ...host, homeDirectory },
+  });
+  return (yield* deriveServerStoragePaths(storage, undefined, {})).baseDir;
 });
 
 /** Whether apt has an installable candidate for `name`. */

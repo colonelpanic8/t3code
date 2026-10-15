@@ -1,4 +1,11 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+  T3CODE_DATA_DIR_ENV,
+  t3StorageEnvironment,
+  type T3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -54,25 +61,35 @@ function quoteSystemdValue(value: string): string {
 }
 
 /**
- * Reads `T3CODE_HOME` back out of a rendered unit or plist. Only values this
+ * Reads one variable back out of a rendered unit or plist. Only values this
  * file writes are expected, so a quoted systemd value is unquoted and
- * unescaped the same way `quoteSystemdValue` produced it.
+ * unescaped the same way `quoteSystemdValue` produced it. Empty is unset.
  */
-export function bootServiceBaseDirOf(contents: string): string | undefined {
-  const systemd = /^Environment=T3CODE_HOME=(.*)$/m.exec(contents)?.[1];
+function bootServiceEnvironmentValue(contents: string, name: string): string | undefined {
+  const systemd = new RegExp(`^Environment=${name}=(.*)$`, "m").exec(contents)?.[1];
   if (systemd !== undefined) {
     const raw = systemd.trim();
     const unquoted =
       raw.startsWith('"') && raw.endsWith('"')
         ? raw.slice(1, -1).replaceAll('\\"', '"').replaceAll("\\\\", "\\")
         : raw;
-    return unquoted.replaceAll("%%", "%");
+    return unquoted.replaceAll("%%", "%") || undefined;
   }
-  const plist = /<key>T3CODE_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];
-  if (plist !== undefined) {
-    return plist.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
-  }
-  return undefined;
+  const plist = new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`).exec(contents)?.[1];
+  return (
+    plist?.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&") || undefined
+  );
+}
+
+/**
+ * The base dir a rendered unit or plist serves: its T3 home, or in the split
+ * layout its data dir, which holds the pinned runtimes.
+ */
+export function bootServiceBaseDirOf(contents: string): string | undefined {
+  return (
+    bootServiceEnvironmentValue(contents, "T3CODE_HOME") ??
+    bootServiceEnvironmentValue(contents, T3CODE_DATA_DIR_ENV)
+  );
 }
 
 export interface BootServicePlan {
@@ -84,6 +101,7 @@ export interface BootServicePlan {
    */
   readonly program: ReadonlyArray<string>;
   readonly baseDir: string;
+  readonly storageRoots: T3StorageRoots;
   readonly logPath: string;
   readonly unitPath: string;
 }
@@ -92,15 +110,39 @@ export interface BootServicePlan {
  * The service runs from its T3 home and that home's server.json alone, so these
  * must not reach it from the user manager or launchd environment.
  */
-const SERVER_OVERRIDE_ENV = [
-  "T3CODE_SERVER_CONFIG_DIR",
-  "T3CODE_SERVER_DATA_DIR",
-  "T3CODE_SERVER_CACHE_DIR",
-  "T3CODE_SERVER_CONFIG_FILE",
-] as const;
+const SERVER_OVERRIDE_ENV = T3_SERVER_LOCATION_ENVIRONMENT_NAMES;
+
+/**
+ * The storage variables a service sets, and the other layout's variables it
+ * clears so the manager's environment cannot mix layouts. The systemd user
+ * manager always sets XDG_RUNTIME_DIR, so a split unit leaves the runtime dir
+ * to it rather than baking in whatever the installing shell had, which under
+ * sudo or a bare ssh session is a temporary fallback no shell looks in.
+ */
+const serviceStorageEnvironment = (
+  plan: BootServicePlan,
+  manager: "systemd" | "launchd",
+): { readonly set: Readonly<Record<string, string>>; readonly cleared: ReadonlyArray<string> } => {
+  const roots = plan.storageRoots;
+  if (roots.layout === "legacy") {
+    return {
+      set: { T3CODE_HOME: plan.baseDir },
+      cleared: T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+    };
+  }
+  return {
+    set: t3StorageEnvironment(roots, { includeRuntimeDir: manager === "launchd" }),
+    cleared: ["T3CODE_HOME"],
+  };
+};
 
 /** Pure renderer: service units cannot rely on the user's shell or PATH. */
 export function renderBootServiceUnit(plan: BootServicePlan): string {
+  const storage = serviceStorageEnvironment(plan, "systemd");
+  const storageEnvironmentLines = Object.entries(storage.set).map(
+    ([name, value]) => `Environment=${name}=${quoteSystemdValue(value)}`,
+  );
+  const unsetStorageEnvironmentLine = `UnsetEnvironment=${storage.cleared.join(" ")}`;
   // The user manager has no reliable network-online target; server networking retries itself.
   return [
     "[Unit]",
@@ -111,7 +153,8 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "[Service]",
     "Type=simple",
     "WorkingDirectory=%h",
-    `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
+    ...storageEnvironmentLines,
+    unsetStorageEnvironmentLine,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
     `UnsetEnvironment=${SERVER_OVERRIDE_ENV.join(" ")}`,
     `ExecStart=${plan.program.map(quoteSystemdValue).join(" ")}`,
@@ -153,6 +196,7 @@ export function renderBootServicePlist(
   plan: BootServicePlan,
   options: { readonly homeDir: string; readonly environmentPath: string },
 ): string {
+  const storage = serviceStorageEnvironment(plan, "launchd");
   // KeepAlive + ThrottleInterval mirror Restart=always + RestartSec=5. launchd
   // has no StartLimitBurst analog; a hard crash loop respawns every 5s forever.
   // ExitTimeOut 90 matches systemd's default TimeoutStopSec. A plain stop
@@ -180,12 +224,17 @@ export function renderBootServicePlist(
     `  <dict>`,
     `    <key>PATH</key>`,
     `    <string>${escapeXmlText(options.environmentPath)}</string>`,
-    `    <key>T3CODE_HOME</key>`,
-    `    <string>${escapeXmlText(plan.baseDir)}</string>`,
+    ...Object.entries(storage.set).flatMap(([name, value]) => [
+      `    <key>${name}</key>`,
+      `    <string>${escapeXmlText(value)}</string>`,
+    ]),
     `    <key>${BOOT_SERVICE_UNIT_ENV}</key>`,
     `    <string>${BOOT_SERVICE_PLIST_FILE}</string>`,
     // launchd has no unset; the server treats an empty value as unset.
-    ...SERVER_OVERRIDE_ENV.flatMap((name) => [`    <key>${name}</key>`, `    <string></string>`]),
+    ...[...storage.cleared, ...SERVER_OVERRIDE_ENV].flatMap((name) => [
+      `    <key>${name}</key>`,
+      `    <string></string>`,
+    ]),
     `  </dict>`,
     `  <key>WorkingDirectory</key>`,
     `  <string>${escapeXmlText(options.homeDir)}</string>`,
@@ -572,6 +621,7 @@ export interface BootServiceHost {
 
 export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   readonly baseDir: string;
+  readonly storageRoots: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
@@ -647,6 +697,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const plan: BootServicePlan = {
     program: [runtimePaths.entryPath, "__service-launcher"],
     baseDir: input.baseDir,
+    storageRoots: input.storageRoots,
     logPath,
     unitPath,
   };
@@ -1013,6 +1064,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
 export const layer = (input: {
   readonly baseDir: string;
+  readonly storageRoots: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
