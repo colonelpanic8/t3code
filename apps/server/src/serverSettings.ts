@@ -53,7 +53,6 @@ import {
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import {
   readSecretFieldValues,
-  SOURCE_CONTROL_HOST_SECRET_FIELDS,
   sourceControlHostSecretName,
 } from "./sourceControl/sourceControlHostSecrets.ts";
 
@@ -819,11 +818,25 @@ function managedEntries(document: SettingsDocument): ReadonlyArray<ManagedEntry>
   );
 }
 
+const isFileReference = (value: unknown): value is { readonly $file: string } =>
+  isSettingsDocument(value) && typeof value.$file === "string" && Object.keys(value).length === 1;
+
 const hasFileReference = (value: unknown): boolean =>
-  Array.isArray(value)
+  isFileReference(value) ||
+  (Array.isArray(value)
     ? value.some(hasFileReference)
-    : isSettingsDocument(value) &&
-      ("$file" in value || Object.values(value).some(hasFileReference));
+    : isSettingsDocument(value) && Object.values(value).some(hasFileReference));
+
+const markFileReferences = (value: unknown): unknown =>
+  isFileReference(value)
+    ? SECRET_REDACTED
+    : Array.isArray(value)
+      ? value.map(markFileReferences)
+      : isSettingsDocument(value)
+        ? Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [key, markFileReferences(entry)]),
+          )
+        : value;
 
 // Normalizing rebuilds these from `projectSettingsOverrides`, so a managed value would never hold.
 const DERIVED_SETTINGS_KEYS: ReadonlySet<string> = new Set(
@@ -839,38 +852,33 @@ function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unkno
 
 // Credentials reach the managed file only as `{ "$file": "/path" }`, since the
 // file itself usually lives somewhere world-readable such as the Nix store.
+// Returns the store name of the first secret written inline.
 function findInlineManagedSecret(document: SettingsDocument): string | undefined {
-  const inline = (value: unknown) => typeof value === "string" && value.length > 0;
-  const hosts = isSettingsDocument(document.sourceControlHosts) ? document.sourceControlHosts : {};
-  for (const [kind, host] of Object.entries(hosts)) {
-    if (!isSettingsDocument(host)) continue;
-    for (const field of SOURCE_CONTROL_HOST_SECRET_FIELDS.get(kind) ?? []) {
-      const value = host[field];
-      if (inline(value)) return `sourceControlHosts.${kind}.${field}`;
-      if (!isSettingsDocument(value) || "$file" in value) continue;
-      for (const [serverHost, entry] of Object.entries(value)) {
-        if (inline(entry)) return `sourceControlHosts.${kind}.${field}.${serverHost}`;
+  const marked = markFileReferences(document) as SettingsDocument;
+  const sections: Record<string, SettingsDocument> = {};
+  for (const section of SECRET_SECTIONS) {
+    const value = marked[section];
+    if (!isSettingsDocument(value)) continue;
+    sections[section] = Object.fromEntries(
+      Object.entries(value).filter(([, entry]) => isWalkableSecretEntry(section, entry)),
+    );
+  }
+  let inline: string | undefined;
+  mapSettingsSecrets(
+    {
+      providerInstances: {},
+      sourceControlHosts: {},
+      usageLimitSources: {},
+      ...sections,
+    } as unknown as ServerSettings,
+    (secret) => {
+      if (secret.sensitive && secret.value.length > 0 && secret.value !== SECRET_REDACTED) {
+        inline ??= secret.secretName;
       }
-    }
-  }
-  const sources = isSettingsDocument(document.usageLimitSources) ? document.usageLimitSources : {};
-  for (const [sourceId, source] of Object.entries(sources)) {
-    if (isSettingsDocument(source) && inline(source.managementKey)) {
-      return `usageLimitSources.${sourceId}.managementKey`;
-    }
-  }
-  const instances = isSettingsDocument(document.providerInstances)
-    ? document.providerInstances
-    : {};
-  for (const [instanceId, instance] of Object.entries(instances)) {
-    const environment = isSettingsDocument(instance) ? instance.environment : undefined;
-    for (const variable of Array.isArray(environment) ? environment : []) {
-      if (isSettingsDocument(variable) && variable.sensitive === true && inline(variable.value)) {
-        return `providerInstances.${instanceId}.environment.${String(variable.name)}`;
-      }
-    }
-  }
-  return undefined;
+      return secret;
+    },
+  );
+  return inline;
 }
 
 interface ManagedSettingsLayer {
@@ -1393,9 +1401,8 @@ const make = Effect.gen(function* () {
     if (!isSettingsDocument(value)) {
       return Effect.succeed(value);
     }
-    const reference = value.$file;
-    if (typeof reference === "string" && Object.keys(value).length === 1) {
-      return fs.readFileString(reference).pipe(
+    if (isFileReference(value)) {
+      return fs.readFileString(value.$file).pipe(
         Effect.map((contents) => contents.replace(/\r?\n$/, "")),
         Effect.mapError(managedFileError),
       );
@@ -1433,7 +1440,7 @@ const make = Effect.gen(function* () {
     const inlineSecret = findInlineManagedSecret(decoded.value);
     if (inlineSecret !== undefined) {
       return yield* managedFileError(
-        new Error(`${inlineSecret} must reference a file with {"$file": "/path"}`),
+        new Error(`secret ${inlineSecret} must reference a file with {"$file": "/path"}`),
       );
     }
     let document: SettingsDocument = {};
