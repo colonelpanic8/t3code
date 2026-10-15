@@ -18,6 +18,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -72,6 +73,12 @@ const RATES_REFRESH_FLOOR_MS = 60 * 1000;
  * for its timeouts. An explicit refresh only waits out the refresh floor.
  */
 const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+/**
+ * Most scans change the cache, and each write serializes all of it, so a burst
+ * of scans writes once, this long after the last one.
+ */
+const SCAN_CACHE_PERSIST_DELAY = Duration.seconds(5);
 
 // mtime slack includes writes just before local midnight on the window's first day.
 const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
@@ -409,18 +416,27 @@ export const make = Effect.gen(function* () {
         ),
       );
     }
-  }).pipe(persistLock.withPermit, Effect.withSpan("UsageService.persistCaches"));
+  }).pipe(
+    Effect.uninterruptible,
+    persistLock.withPermit,
+    Effect.withSpan("UsageService.persistCaches"),
+  );
 
-  const pendingPersists = new Set<Fiber.Fiber<void>>();
-  const schedulePersist = Effect.forkDetach(persistCaches).pipe(
-    Effect.map((fiber) => {
-      pendingPersists.add(fiber);
-      fiber.addObserver(() => pendingPersists.delete(fiber));
-    }),
+  let pendingPersist: Fiber.Fiber<void> | undefined;
+  const schedulePersist = Effect.gen(function* () {
+    if (!cacheDirty) return;
+    const previous = pendingPersist;
+    pendingPersist = yield* Effect.sleep(SCAN_CACHE_PERSIST_DELAY).pipe(
+      Effect.andThen(persistCaches),
+      Effect.forkDetach,
   );
-  const awaitPersisted = Effect.suspend(() => Fiber.awaitAll([...pendingPersists])).pipe(
-    Effect.asVoid,
-  );
+    if (previous !== undefined) yield* Fiber.interrupt(previous);
+  });
+  const awaitPersisted = Effect.suspend(() => {
+    const pending = pendingPersist;
+    pendingPersist = undefined;
+    return pending === undefined ? Effect.void : Fiber.interrupt(pending);
+  }).pipe(Effect.andThen(persistCaches));
   yield* Effect.addFinalizer(() => awaitPersisted);
 
   /**
@@ -902,12 +918,12 @@ export const make = Effect.gen(function* () {
         const created = Deferred.makeUnsafe<UsageSummary, UsageReadError>();
         inflightScans.set(key, created);
         // Detach so caller departure cannot cancel shared scans; finished scans warm the cache.
-        // Register writes before releasing waiters, but start writing after delivering their summary.
+        // Resume waiters before scheduling the write; rescheduling waits out any write in flight.
         yield* scanSummary(input, settings).pipe(
           Effect.onExit((exit) =>
             Effect.sync(() => inflightScans.delete(key)).pipe(
-              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
               Effect.andThen(Deferred.done(created, exit)),
+              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
             ),
           ),
           Effect.forkDetach,
