@@ -15,7 +15,9 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Scheduler from "effect/Scheduler";
@@ -2295,4 +2297,241 @@ describe("fleet sync", () => {
       );
     }).pipe(Effect.scoped),
   );
+
+  describe("a joined member whose declared route changes", () => {
+    const OLD_TOKEN = "old-member-token";
+    const memberConnectionId = fleetConnectionId(MEMBER, PAIRED);
+    const memberTarget = new BearerConnectionTarget({
+      environmentId: MEMBER,
+      label: "member",
+      connectionId: memberConnectionId,
+    });
+    const memberProfile = new BearerConnectionProfile({
+      connectionId: memberConnectionId,
+      ...declared(MEMBER),
+    });
+    const moved = {
+      ...declared(MEMBER),
+      label: "member moved",
+      httpBaseUrl: "https://member-new.example.ts.net/",
+      wsBaseUrl: "wss://member-new.example.ts.net/",
+    };
+
+    /**
+     * Runs fleet sync with MEMBER already joined through PAIRED under
+     * `OLD_TOKEN`, while every session reports `fleet`. The new origin answers
+     * its descriptor as `newOriginAnswersAs`.
+     */
+    const followFleet = <A, E>(input: {
+      readonly fleet: ReadonlyArray<ReturnType<typeof declared>>;
+      readonly newOriginAnswersAs: EnvironmentId;
+      readonly observe: (context: {
+        readonly registry: EnvironmentRegistry.EnvironmentRegistry["Service"];
+        readonly credentials: ConnectionCredentialStore.ConnectionCredentialStore["Service"];
+        readonly warnings: Queue.Queue<string>;
+      }) => Effect.Effect<A, E>;
+    }) =>
+      Effect.gen(function* () {
+        const requests: Array<string> = [];
+        const registrations: Array<readonly [string, string]> = [];
+        const handoffs = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
+        const warnings = yield* Queue.unbounded<string>();
+        const harness = yield* makeHarness(
+          [pairedTarget, memberTarget],
+          [pairedProfile, memberProfile],
+          [
+            [pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })],
+            [memberConnectionId, new BearerConnectionCredential({ token: OLD_TOKEN })],
+          ],
+          {
+            beforeRegistrationRegister: (registration) =>
+              Effect.sync(() => {
+                if (registration._tag === "BearerConnectionRegistration") {
+                  registrations.push([
+                    registration.profile.httpBaseUrl,
+                    registration.credential.token,
+                  ]);
+                }
+              }),
+            session: () => ({
+              initialConfig: Effect.succeed({ fleet: input.fleet } as unknown as ServerConfig),
+              client: {
+                [WS_METHODS.serverIssueFleetHandoff]: ({
+                  environmentId,
+                }: {
+                  readonly environmentId: EnvironmentId;
+                }) =>
+                  Ref.update(handoffs, (current) => [...current, environmentId]).pipe(
+                    Effect.as({
+                      credential: "t3fleet1.handoff",
+                      expiresAt: DateTime.makeUnsafe(0),
+                    }),
+                  ),
+              } as unknown as RpcSession.RpcSession["client"],
+            }),
+          },
+        );
+        const layerHttp = RpcHttp.layerRemoteHttpClient((async (url, init) => {
+          const request = new Request(url, init);
+          requests.push(
+            `${request.url} ${JSON.stringify([...request.headers])} ${await request.text()}`,
+          );
+          if (request.url.endsWith("/.well-known/t3/environment")) {
+            return Response.json({
+              environmentId: request.url.startsWith(moved.httpBaseUrl)
+                ? input.newOriginAnswersAs
+                : MEMBER,
+              label: "member",
+              platform: { os: "linux", arch: "x64" },
+              serverVersion: "0.0.0-test",
+              orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+              capabilities: { repositoryIdentity: true },
+            });
+          }
+          if (request.url.endsWith("/oauth/token")) {
+            return Response.json({
+              access_token: "fresh-member-session",
+              issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+              token_type: "Bearer",
+              expires_in: 3600,
+              scope: "orchestration:read",
+            });
+          }
+          throw new Error(`Unexpected request: ${request.url}`);
+        }) satisfies typeof fetch);
+        const logWarnings = Logger.make(({ logLevel, message }) => {
+          const text = String([message].flat()[0]);
+          if (logLevel === "Warn" && text.includes("fleet")) Queue.offerUnsafe(warnings, text);
+        });
+
+        const result = yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.start;
+          yield* syncFleets().pipe(Effect.forkScoped);
+          return yield* input.observe({
+            registry,
+            credentials: harness.credentialStore,
+            warnings,
+          });
+        }).pipe(
+          Effect.provide(
+            Layer.provideMerge(
+              harness.layer,
+              Layer.mergeAll(
+                layerHttp,
+                Logger.layer([logWarnings]),
+                Layer.succeed(
+                  ConnectionCredentialStore.ConnectionCredentialStore,
+                  harness.credentialStore,
+                ),
+                Layer.succeed(
+                  ClientCapabilities.ClientPresentation,
+                  ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
+                ),
+              ),
+            ),
+          ),
+        );
+        return { result, requests, registrations, handoffs: yield* Ref.get(handoffs) };
+      }).pipe(Effect.scoped);
+
+    const memberEntryWhere = (
+      registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      predicate: (entry: ConnectionCatalogEntry) => boolean,
+    ) =>
+      SubscriptionRef.changes(registry.entries).pipe(
+        Stream.filterMap((entries) => {
+          const entry = entries.get(MEMBER);
+          return entry !== undefined && predicate(entry) ? Result.succeed(entry) : Result.failVoid;
+        }),
+        Stream.runHead,
+        Effect.map(Option.getOrThrow),
+      );
+    const profileOf = (entry: ConnectionCatalogEntry) => {
+      const profile = Option.getOrThrow(entry.profile);
+      if (profile._tag !== "BearerConnectionProfile") throw new Error("Expected a bearer profile.");
+      return profile;
+    };
+
+    it.effect("joins again at the new URL and never sends the old credential there", () =>
+      Effect.gen(function* () {
+        const { result, requests, registrations, handoffs } = yield* followFleet({
+          fleet: [declared(PAIRED), moved],
+          newOriginAnswersAs: MEMBER,
+          observe: ({ registry, credentials }) =>
+            Effect.gen(function* () {
+              const entry = yield* memberEntryWhere(
+                registry,
+                (entry) => profileOf(entry).httpBaseUrl === moved.httpBaseUrl,
+              );
+              return {
+                profile: profileOf(entry),
+                credential: yield* credentials.get(memberConnectionId),
+              };
+            }),
+        });
+
+        expect(result.profile).toMatchObject(moved);
+        expect(Option.getOrThrow(result.credential).token).toBe("fresh-member-session");
+        expect(handoffs).toEqual([MEMBER]);
+        expect(registrations).toEqual([[moved.httpBaseUrl, "fresh-member-session"]]);
+        expect(requests.map((request) => request.split(" ")[0])).toEqual([
+          `${moved.httpBaseUrl}.well-known/t3/environment`,
+          `${moved.httpBaseUrl}oauth/token`,
+        ]);
+        expect(requests.filter((request) => request.includes(OLD_TOKEN))).toEqual([]);
+      }),
+    );
+
+    it.effect("keeps the old route and credential when the new URL cannot be joined", () =>
+      Effect.gen(function* () {
+        const { result, requests, registrations, handoffs } = yield* followFleet({
+          fleet: [declared(PAIRED), moved],
+          newOriginAnswersAs: PAIRED,
+          observe: ({ registry, credentials, warnings }) =>
+            Effect.gen(function* () {
+              expect(yield* Queue.take(warnings)).toBe(
+                "Could not join a fleet machine at its new address.",
+              );
+              return {
+                entry: (yield* SubscriptionRef.get(registry.entries)).get(MEMBER)!,
+                credential: yield* credentials.get(memberConnectionId),
+              };
+            }),
+        });
+
+        expect(profileOf(result.entry)).toMatchObject(declared(MEMBER));
+        expect(Option.getOrThrow(result.credential).token).toBe(OLD_TOKEN);
+        expect(handoffs).toEqual([]);
+        expect(registrations).toEqual([]);
+        expect(requests.filter((request) => request.includes(OLD_TOKEN))).toEqual([]);
+      }),
+    );
+
+    it.effect("renames a member at the same URLs without joining it again", () =>
+      Effect.gen(function* () {
+        const { result, requests, registrations, handoffs } = yield* followFleet({
+          fleet: [declared(PAIRED), { ...declared(MEMBER), label: "renamed" }],
+          newOriginAnswersAs: MEMBER,
+          observe: ({ registry, credentials }) =>
+            Effect.gen(function* () {
+              const entry = yield* memberEntryWhere(
+                registry,
+                (entry) => entry.target.label === "renamed",
+              );
+              return {
+                profile: profileOf(entry),
+                credential: yield* credentials.get(memberConnectionId),
+              };
+            }),
+        });
+
+        expect(result.profile).toMatchObject({ ...declared(MEMBER), label: "renamed" });
+        expect(Option.getOrThrow(result.credential).token).toBe(OLD_TOKEN);
+        expect(registrations).toEqual([[declared(MEMBER).httpBaseUrl, OLD_TOKEN]]);
+        expect(handoffs).toEqual([]);
+        expect(requests).toEqual([]);
+      }),
+    );
+  });
 });
