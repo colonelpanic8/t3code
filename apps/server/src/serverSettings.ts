@@ -388,9 +388,12 @@ function migrateLegacySourceControlSettings(
 ): {
   readonly settings: ServerSettings;
   readonly secretMoves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+  /** Host spellings the folded blobs repeated; the last of each was kept. */
+  readonly duplicates: number;
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
+  let duplicates = 0;
   const fold = (
     kind: string,
     blob: Readonly<Record<string, unknown>>,
@@ -403,8 +406,10 @@ function migrateLegacySourceControlSettings(
     }
     const folded = canonicalizeSecretFields({
       sourceControlHosts: { [kind]: dropUnstoredPlaceholders(blob, unstoredSecrets, legacyName) },
-    }).document.sourceControlHosts as SettingsDocument;
-    sourceControlHosts[kind] = layerSettingsDocuments(shared, folded[kind] as SettingsDocument);
+    });
+    duplicates += folded.duplicates;
+    const hosts = folded.document.sourceControlHosts as SettingsDocument;
+    sourceControlHosts[kind] = layerSettingsDocuments(shared, hosts[kind] as SettingsDocument);
   };
   if (legacy.bitbucket !== undefined && !localKinds.has("bitbucket")) {
     fold("bitbucket", legacy.bitbucket, (field, serverHost) =>
@@ -432,7 +437,7 @@ function migrateLegacySourceControlSettings(
       });
     }
   }
-  return { settings: { ...settings, sourceControlHosts }, secretMoves };
+  return { settings: { ...settings, sourceControlHosts }, secretMoves, duplicates };
 }
 
 // Drivers that start disabled, so a session in the history means the user
@@ -1229,6 +1234,16 @@ const make = Effect.gen(function* () {
     // that cannot be read or copied leaves the retired keys in place, so the migration runs again
     // on the next load instead of dropping it.
     const unstoredLegacySecrets = new Set<string>();
+    // Only a shared host can replace a placeholder, and a failed read may hide a stored value.
+    const noteUnstoredPlaceholder = (move: { readonly from: string; readonly to: string }) =>
+      shared === undefined
+        ? Effect.void
+        : secretStore.get(move.to).pipe(
+            Effect.map((current) => {
+              if (Option.isNone(current)) unstoredLegacySecrets.add(move.from);
+            }),
+            Effect.ignore,
+          );
     const legacySecretsCopied = yield* Effect.forEach(
       settingsFileTrusted
         ? migrateLegacySourceControlSettings(folded, legacySourceControl, localSourceControlKinds)
@@ -1239,11 +1254,7 @@ const make = Effect.gen(function* () {
           Effect.flatMap((secret) =>
             Option.isSome(secret)
               ? secretStore.set(move.to, secret.value)
-              : secretStore.get(move.to).pipe(
-                  Effect.map((current) => {
-                    if (Option.isNone(current)) unstoredLegacySecrets.add(move.from);
-                  }),
-                ),
+              : noteUnstoredPlaceholder(move),
           ),
           Effect.as(true),
           Effect.catch(() =>
@@ -1264,7 +1275,8 @@ const make = Effect.gen(function* () {
           localSourceControlKinds,
           unstoredLegacySecrets,
         )
-      : { settings: folded, secretMoves: [] };
+      : { settings: folded, secretMoves: [], duplicates: 0 };
+    yield* warnDuplicateSecretHosts(settingsPath, sourceControlMigration.duplicates);
     // Only rewrite a file that decoded cleanly; an untrusted one stays for the user to repair.
     const {
       settings: migrated,
