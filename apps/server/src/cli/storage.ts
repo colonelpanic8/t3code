@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { Command, Flag } from "effect/cli";
 
+import { bootServiceUnitPath } from "../cloud/bootService.ts";
 import {
   planStorageMigration,
   rollbackStorageMigration,
@@ -33,7 +34,7 @@ const MigrationEnvironment = Config.all({
 const nonEmpty = (value: Option.Option<string>) =>
   Option.filter(value, (candidate) => candidate.trim().length > 0);
 
-interface MigrationLocationFlags {
+export interface MigrationLocationFlags {
   readonly baseDir: Option.Option<string>;
   readonly clientDir: Option.Option<string>;
   readonly serverConfigDir: Option.Option<string>;
@@ -46,7 +47,7 @@ interface MigrationLocationFlags {
  * migrated app will read each of its files: the split roots, except where a
  * server location override or a client dir names another place.
  */
-const resolveMigrationInput = Effect.fn("cli.storage.resolveMigrationInput")(function* (
+export const resolveMigrationInput = Effect.fn("cli.storage.resolveMigrationInput")(function* (
   flags: MigrationLocationFlags,
 ) {
   const path = yield* Path.Path;
@@ -76,17 +77,18 @@ const resolveMigrationInput = Effect.fn("cli.storage.resolveMigrationInput")(fun
     isDevelopment: false,
     host,
   });
-  // Where Electron keeps profiles by default; see DesktopUserData.resolveUserDataPath.
+  // DesktopEnvironment.appDataDirectory, where the legacy desktop keeps its profile.
+  const trimmed = (value: Option.Option<string>) =>
+    Option.map(nonEmpty(value), (candidate) => candidate.trim());
   const appData =
     host.platform === "win32"
-      ? Option.getOrElse(nonEmpty(env.appData), () =>
+      ? Option.getOrElse(trimmed(env.appData), () =>
           path.join(host.homeDirectory, "AppData", "Roaming"),
         )
       : host.platform === "darwin"
         ? path.join(host.homeDirectory, "Library", "Application Support")
-        : Option.getOrElse(
-            Option.filter(nonEmpty(env.xdgConfigHome), (value) => path.isAbsolute(value)),
-            () => path.join(host.homeDirectory, ".config"),
+        : Option.getOrElse(trimmed(env.xdgConfigHome), () =>
+            path.join(host.homeDirectory, ".config"),
           );
   return {
     legacyRoots: resolveLegacyT3StorageRoots({
@@ -108,12 +110,14 @@ const resolveMigrationInput = Effect.fn("cli.storage.resolveMigrationInput")(fun
       host.homeDirectory,
       path,
     ),
-    legacyElectronProfiles: [
-      path.join(appData, "t3code-v2"),
-      path.join(appData, "T3 Code (Alpha)"),
-    ],
-    // The split-layout desktop's Electron profile; see DesktopEnvironment.
+    // See DesktopUserData.resolveUserDataPath and DesktopEnvironment.electronUserDataPath.
+    legacyElectronProfile: path.join(appData, "t3code-v2"),
     electronProfile: path.join(clientRoots.stateDir, "electron"),
+    serviceUnitPath: bootServiceUnitPath({
+      platform: host.platform,
+      homeDir: host.homeDirectory,
+      path,
+    }),
   } satisfies StorageMigrationInput;
 });
 
@@ -127,6 +131,9 @@ const formatBytes = (bytes: number) => {
   }
   return `${unit === 0 ? String(value) : value.toFixed(1)} ${units[unit]}`;
 };
+
+const OLDER_BUILDS_NOTE =
+  "T3 Code builds without `t3 storage migrate` ignore its marker and keep using the legacy tree. Update every T3 Code install on this machine (desktop app, t3 command, background service) first.";
 
 const formatStorageMigrationPlan = (plan: StorageMigrationPlan): string => {
   const { clientDir, clientRoots, legacyRoots, serverOverrides, serverRoots } = plan.input;
@@ -151,12 +158,20 @@ const formatStorageMigrationPlan = (plan: StorageMigrationPlan): string => {
     lines.push(`Already migrated at ${plan.migratedAt}. Nothing to do.`);
     return lines.join("\n");
   }
+  if (plan.interruptedAt !== undefined) {
+    lines.push(
+      `A migration started at ${plan.interruptedAt} was interrupted. The next run undoes its copies first; T3 Code keeps using the legacy tree until then.`,
+      "",
+    );
+  }
   lines.push("Copy:");
   for (const entry of plan.entries) {
     const size =
-      entry.kind === "directory"
-        ? `${String(entry.files)} files, ${formatBytes(entry.bytes)}`
-        : formatBytes(entry.bytes);
+      entry.kind === "symlink"
+        ? `symlink to ${entry.linkTarget}`
+        : entry.kind === "directory"
+          ? `${String(entry.files)} files, ${formatBytes(entry.bytes)}`
+          : formatBytes(entry.bytes);
     const status =
       entry.status === "present"
         ? "  already present"
@@ -172,6 +187,7 @@ const formatStorageMigrationPlan = (plan: StorageMigrationPlan): string => {
     for (const skip of plan.skipped) lines.push(`  ${skip.path}: ${skip.reason}`);
   }
   const conflicts = plan.entries.filter((entry) => entry.status === "conflict").length;
+  lines.push("", OLDER_BUILDS_NOTE);
   if (plan.blockers.length > 0 || conflicts > 0) {
     lines.push("", "Before migrating:");
     for (const blocker of plan.blockers) lines.push(`  - ${blocker}`);
@@ -220,19 +236,21 @@ const migrateCommand = Command.make("migrate", {
     Effect.gen(function* () {
       const input = yield* resolveMigrationInput(flags);
       if (flags.rollback) {
-        const { rolledBack } = yield* rollbackStorageMigration(input);
-        if (rolledBack.length === 0) {
-          yield* Console.log(
-            `${input.legacyRoots.stateDir} is not migrated. Nothing to roll back.`,
-          );
-          return;
-        }
+        const { outcome, rolledBack } = yield* rollbackStorageMigration(input);
         yield* Console.log(
-          [
-            `Rolled back. T3 Code uses ${input.legacyRoots.stateDir} again.`,
-            "The migrated copies were moved aside, not deleted:",
-            ...rolledBack.map((aside) => `  ${aside}`),
-          ].join("\n"),
+          outcome === "not-migrated"
+            ? `${input.legacyRoots.stateDir} is not migrated. Nothing to roll back.`
+            : outcome === "undid-interrupted-run"
+              ? `Removed the copies an interrupted migration left behind. T3 Code uses ${input.legacyRoots.stateDir}.`
+              : [
+                  `Rolled back. T3 Code uses ${input.legacyRoots.stateDir} again.`,
+                  ...(rolledBack.length === 0
+                    ? []
+                    : [
+                        "The migrated copies were moved aside, not deleted:",
+                        ...rolledBack.map((aside) => `  ${aside}`),
+                      ]),
+                ].join("\n"),
         );
         return;
       }
@@ -253,6 +271,7 @@ const migrateCommand = Command.make("migrate", {
           `Copied and verified ${String(result.plan.entries.length)} entries into the split layout.`,
           ...result.replaced.map((aside) => `Moved an existing destination aside: ${aside}`),
           `${input.legacyRoots.stateDir} is retired but kept; \`t3 storage migrate --rollback\` returns to it.`,
+          OLDER_BUILDS_NOTE,
         ].join("\n"),
       );
     }),
