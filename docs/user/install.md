@@ -142,8 +142,8 @@ The desktop app passes the endpoints saved there to the server it starts, so in
 the desktop app they win over the file.
 
 A value of the wrong type stops the server with an error naming the file and
-the key. `t3 auth`, `t3 project`, and `t3 connect` read the file too, so they
-fail with the same error. Keys the server does not know are skipped with a
+the key. `t3 auth`, `t3 project`, `t3 connect`, and `t3 trace summary` read the
+file too, so they fail with the same error. Keys the server does not know are skipped with a
 warning in its log. `t3 trace summary` uses the file's trace settings, and
 `t3 triage` reports a broken file instead of stopping. The background service
 reads `server.json` from `userdata` in its T3 home. `t3 service`, `t3 update`,
