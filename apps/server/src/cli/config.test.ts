@@ -1729,6 +1729,33 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
     }),
   );
 
+  it.effect("refuses every command that would resolve a retired legacy tree", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, storageHost } = yield* makeRoot("t3-cli-config-retired-");
+      const legacyStateDir = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(legacyStateDir, { recursive: true });
+      yield* fs.writeFileString(path.join(legacyStateDir, "settings.json"), "{}");
+      yield* fs.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+
+      const error = yield* resolveServerStorage({
+        baseDir: Option.none(),
+        storageLayout: Option.none(),
+        isDevelopment: false,
+        host: storageHost,
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({ env: { T3CODE_HOME: path.join(home, ".t3") } }),
+          ),
+        ),
+        Effect.flip,
+      );
+      expect(error).toBeInstanceOf(LegacyStorageMigratedError);
+    }),
+  );
+
   it.effect("lets each server location override win over its split root", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
