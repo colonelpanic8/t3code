@@ -77,7 +77,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
-import { UsageBreakdownTable, withTableSort, type UsageTableView } from "./UsageBreakdownTable";
+import { UsageBreakdownTable, usageTableView, type UsageTableView } from "./UsageBreakdownTable";
 import { UsageChart } from "./UsageChart";
 import { ProviderMark } from "./ProviderMark";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
@@ -359,11 +359,10 @@ export function UsagePage() {
     periods,
     metric === "tokens" ? "tokens" : "cost",
   );
-  const storedTableView = {
-    tableDimensions: preferences.tableDimensions ?? DEFAULT_USAGE_VIEW.tableDimensions,
-    sort: preferences.sort ?? DEFAULT_USAGE_VIEW.sort,
-  };
-  const tableView = withTableSort(storedTableView, storedTableView.sort);
+  const tableView = usageTableView(
+    { tableDimensions: preferences.tableDimensions, sort: preferences.sort },
+    metric === "tokens" ? "tokens" : "cost",
+  );
   const environmentLabels = new Map(
     environments.map((environment) => [environment.environmentId, environment.label]),
   );

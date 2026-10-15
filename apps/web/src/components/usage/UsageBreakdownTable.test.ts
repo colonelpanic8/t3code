@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   layoutBreakdownTable,
+  usageTableView,
   withTableDimensions,
   withTableSort,
   type UsageTableView,
@@ -204,16 +205,17 @@ describe("layoutBreakdownTable with one model name under two providers", () => {
 describe("table view transitions", () => {
   it("adds the period dimension when sorting by period", () => {
     expect(
-      withTableSort({ tableDimensions: ["model"], sort: [] }, [
-        { field: "period", direction: "descending" },
-      ]),
+      withTableSort({
+        tableDimensions: ["model"],
+        sort: [{ field: "period", direction: "descending" }],
+      }),
     ).toEqual({
       tableDimensions: ["model", "period"],
       sort: [{ field: "period", direction: "descending" }],
     });
   });
 
-  it("drops the period sort with the period dimension, falling back to cost", () => {
+  it("drops the period sort with the period dimension, clearing a sort left empty", () => {
     expect(
       withTableDimensions(
         {
@@ -222,9 +224,42 @@ describe("table view transitions", () => {
         },
         ["model"],
       ),
-    ).toEqual({
+    ).toEqual({ tableDimensions: ["model"], sort: undefined });
+  });
+
+  it("saves no sort when a dimension change leaves the sort alone", () => {
+    expect(
+      withTableDimensions(
+        { tableDimensions: ["model"], sort: [{ field: "totalTokens", direction: "descending" }] },
+        ["model", "period"],
+      ),
+    ).toEqual({ tableDimensions: ["model", "period"] });
+  });
+});
+
+describe("usageTableView", () => {
+  it("sorts by the page's metric until a sort is saved", () => {
+    const unsorted = { tableDimensions: undefined, sort: undefined };
+
+    expect(usageTableView(unsorted, "tokens")).toEqual({
+      tableDimensions: ["model"],
+      sort: [{ field: "totalTokens", direction: "descending" }],
+    });
+    expect(usageTableView(unsorted, "cost")).toEqual({
       tableDimensions: ["model"],
       sort: [{ field: "costUsd", direction: "descending" }],
+    });
+  });
+
+  it("keeps a saved sort whatever the metric", () => {
+    expect(
+      usageTableView(
+        { tableDimensions: ["provider"], sort: [{ field: "period", direction: "ascending" }] },
+        "tokens",
+      ),
+    ).toEqual({
+      tableDimensions: ["provider", "period"],
+      sort: [{ field: "period", direction: "ascending" }],
     });
   });
 });
