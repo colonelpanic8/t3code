@@ -85,13 +85,16 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
         canReadDiagnostics: true,
         isConnected,
         isConnecting,
-        error: !isConnected
-          ? presentation.connection.phase === "available"
-            ? "This environment is not connected."
-            : connectionStatusTitle(presentation.connection)
-          : result._tag === "Failure"
-            ? "This environment could not report usage."
-            : null,
+        error:
+          !isConnected && summary === null
+            ? phase === "available"
+              ? "This environment is not connected."
+              : connectionStatusTitle(presentation.connection)
+            : result._tag === "Failure"
+              ? "This environment could not report usage."
+              : !isConnected && !isConnecting && phase !== "reconnecting" && summary !== null
+                ? "This environment is not connected. Totals include its last reported usage."
+                : null,
         summary,
         needsCursorKeychainAccess: needsCursorKeychainAccess(
           summary,
