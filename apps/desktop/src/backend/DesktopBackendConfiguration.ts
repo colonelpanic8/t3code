@@ -531,17 +531,8 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       noBrowser: true,
       port: backendExposure.port,
       ...(environment.storageRoots.layout === "legacy"
-        ? { t3Home: environment.baseDir }
-        : {
-            storageRoots: {
-              layout: "split" as const,
-              configDir: environment.configDir,
-              dataDir: environment.dataDir,
-              stateDir: environment.stateDir,
-              cacheDir: environment.cacheDir,
-              runtimeDir: environment.runtimeDir,
-            },
-          }),
+        ? { t3Home: environment.storageRoots.legacyBaseDir }
+        : { storageRoots: environment.storageRoots }),
       host: backendExposure.bindHost,
       desktopBootstrapToken: input.bootstrapToken,
       desktopBootstrapSecret: input.bootstrapSecret,
