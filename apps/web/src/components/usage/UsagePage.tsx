@@ -55,6 +55,7 @@ import {
   formatUsageContractMismatch,
   formatUsd,
   makeWindow,
+  msUntilNextLocalDay,
 } from "@t3tools/shared/usageFormat";
 import { Button, InlineButton } from "../ui/button";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -116,6 +117,8 @@ function isUsageWindowDays(value: number): value is UsagePagePreferences["window
 }
 
 const providerLabel = (provider: UsageProviderKind) => PROVIDER_PRESENTATION[provider].label;
+/** A timer that fires a hair before midnight re-arms itself; the slack keeps that rare. */
+const DAY_ROLLOVER_SLACK_MS = 1000;
 
 function usageLoading(
   showingKept: boolean,
@@ -196,6 +199,21 @@ export function UsagePage() {
       preferences.windowDays === 1 ? "hour" : "day",
     ),
   }));
+  // Re-anchor at local midnight so a page left open overnight asks for today.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      timer = setTimeout(() => {
+        setWindowSelection(({ days }) => ({
+          days,
+          window: makeWindow(days, undefined, days === 1 ? "hour" : "day"),
+        }));
+        arm();
+      }, msUntilNextLocalDay() + DAY_ROLLOVER_SLACK_MS);
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, []);
   const metric = preferences.metric;
   const showingLimits = metric === "limits";
   const [isRefreshing, setIsRefreshing] = useState(false);
