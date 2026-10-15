@@ -2848,6 +2848,194 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
     }).pipe(Effect.provide(layerSharedServerSettings())),
   );
 
+  it.effect.each([
+    {
+      name: "a mixed-case host key",
+      shared: { sourceControlHosts: { github: { tokens: { "GitHub.com": "ghp_shared" } } } },
+    },
+    {
+      name: "a padded host key",
+      shared: { sourceControlHosts: { github: { tokens: { " github.com ": "ghp_shared" } } } },
+    },
+    {
+      name: "an explicitly unredacted environment value",
+      shared: {
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            environment: [
+              { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true, valueRedacted: false },
+            ],
+            config: {},
+          },
+        },
+      },
+    },
+    {
+      name: "a non-string secret field",
+      shared: {
+        providerInstances: {
+          antigravity_work: {
+            driver: "antigravity",
+            environment: [{ name: "OPENROUTER_API_KEY", value: "sk-shared", sensitive: true }],
+            config: { apiKey: null },
+          },
+        },
+      },
+    },
+    {
+      name: "a padded price override model id",
+      shared: {
+        usagePriceOverrides: {
+          " vendor/model ": { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 },
+        },
+      },
+    },
+  ])("keeps inherited shared values with $name out of settings.json", ({ shared }) =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings(shared);
+
+      yield* service.updateSettings({ defaultAutoPull: true });
+
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        defaultAutoPull: true,
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("keeps a mixed-case shared host token out of settings.json on a legacy load", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "GitHub.com": "ghp_shared" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ github: { tokens: { "ghe.x": "plain_local" } } }),
+      );
+
+      const loaded = (yield* service.getSettings).sourceControlHosts;
+
+      assert.deepEqual(loaded.github?.tokens, {
+        "github.com": "ghp_shared",
+        "ghe.x": "plain_local",
+      });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        sourceControlHosts: {
+          github: { tokens: { "ghe.x": "\u2022\u2022\u2022\u2022\u2022\u2022" } },
+        },
+      });
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("lets a shared token win over a retired placeholder with nothing stored", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* writeSharedSettings({
+        sourceControlHosts: { github: { tokens: { "github.com": "ghp_shared" } } },
+      });
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({
+          github: { tokens: { "github.com": "\u2022\u2022\u2022\u2022\u2022\u2022" } },
+        }),
+      );
+
+      const loaded = (yield* service.getSettings).sourceControlHosts;
+
+      assert.deepEqual(loaded.github?.tokens, { "github.com": "ghp_shared" });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect.each([
+    { name: "with a shared host", sharedTokens: { "github.com": "ghp_shared" } },
+    { name: "without a shared file", sharedTokens: undefined },
+  ])(
+    "keeps settings.json's own source control host over the retired key $name",
+    ({ sharedTokens }) =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        if (sharedTokens !== undefined) {
+          yield* writeSharedSettings({ sourceControlHosts: { github: { tokens: sharedTokens } } });
+        }
+        const ownHost = { github: { hosts: { "local.test": { account: "local" } } } };
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({
+            sourceControlHosts: ownHost,
+            github: { hosts: { "legacy.test": { account: "legacy" } } },
+          }),
+        );
+
+        const loaded = (yield* service.getSettings).sourceControlHosts;
+
+        assert.deepEqual(loaded.github, {
+          ...ownHost.github,
+          ...(sharedTokens === undefined ? {} : { tokens: sharedTokens }),
+        });
+        assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+          sourceControlHosts: ownHost,
+        });
+      }).pipe(
+        Effect.provide(
+          sharedTokens === undefined
+            ? layerServerSettingsWithSecrets()
+            : layerSharedServerSettings(),
+        ),
+      ),
+  );
+
+  it.effect("removes stored shared secrets when the migrated settings file cannot be written", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      let settingsPathToFail: string | undefined;
+      const failingFileSystem = FileSystem.FileSystem.of({
+        ...fileSystem,
+        rename: (fromPath, toPath) =>
+          toPath === settingsPathToFail
+            ? Effect.fail(
+                PlatformError.systemError({
+                  _tag: "PermissionDenied",
+                  module: "FileSystem",
+                  method: "rename",
+                  description: "Forced settings write failure.",
+                }),
+              )
+            : fileSystem.rename(fromPath, toPath),
+      });
+      yield* Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* writeSharedCodexSecrets;
+        yield* fileSystem.writeFileString(config.settingsPath, LEGACY_CODEX_DISABLED);
+        settingsPathToFail = config.settingsPath;
+
+        const loaded = yield* Effect.exit(service.getSettings);
+
+        assert.equal(loaded._tag, "Failure");
+        assert.equal(yield* fileSystem.readFileString(config.settingsPath), LEGACY_CODEX_DISABLED);
+        assert.deepEqual(yield* readStoredSecret(OPENAI_KEY_SECRET), Option.none());
+        assert.deepEqual(yield* readStoredSecret(OTHER_KEY_SECRET), Option.none());
+      }).pipe(
+        Effect.provide(
+          layerSharedServerSettings().pipe(
+            Layer.provideMerge(Layer.succeed(FileSystem.FileSystem, failingFileSystem)),
+          ),
+        ),
+      );
+    }),
+  );
+
   it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
