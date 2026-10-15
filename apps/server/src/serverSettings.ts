@@ -851,6 +851,25 @@ const dropRedactionFlags = (value: unknown): unknown =>
         )
       : value;
 
+// A value read from a secret file is sensitive whatever its environment entry says.
+const markReferencedEnvironmentSensitive = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(markReferencedEnvironmentSensitive)
+    : isSettingsDocument(value)
+      ? Object.fromEntries(
+          Object.entries(value).map(([key, entry]) => [
+            key,
+            key === "environment" && Array.isArray(entry)
+              ? entry.map((variable) =>
+                  isSettingsDocument(variable) && isFileReference(variable.value)
+                    ? { ...variable, sensitive: true }
+                    : variable,
+                )
+              : markReferencedEnvironmentSensitive(entry),
+          ]),
+        )
+      : value;
+
 // Normalizing rebuilds these from `projectSettingsOverrides`, so a managed value would never hold.
 const DERIVED_SETTINGS_KEYS: ReadonlySet<string> = new Set(
   Object.keys(deriveLegacyProjectOverrides({ projectSettingsOverrides: {} })),
@@ -863,33 +882,43 @@ function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unkno
   );
 }
 
-/** Whether `kept` holds every key of a managed object value, at every depth. */
-function holdsEveryKey(managed: unknown, kept: unknown): boolean {
-  if (!isSettingsDocument(managed)) return true;
-  return (
-    isSettingsDocument(kept) &&
-    Object.entries(managed).every(
-      ([key, value]) => Object.hasOwn(kept, key) && holdsEveryKey(value, kept[key]),
-    )
+/** Paths to the keys of a managed value that `kept` lacks, walking objects and arrays. */
+function missingKeyPaths(
+  managed: unknown,
+  kept: unknown,
+  prefix: ReadonlyArray<string>,
+): string[][] {
+  if (Array.isArray(managed)) {
+    return managed.flatMap((entry, index) =>
+      missingKeyPaths(entry, Array.isArray(kept) ? kept[index] : undefined, [
+        ...prefix,
+        String(index),
+      ]),
+    );
+  }
+  if (!isSettingsDocument(managed)) return [];
+  return Object.entries(managed).flatMap(([key, value]) =>
+    isSettingsDocument(kept) && Object.hasOwn(kept, key)
+      ? missingKeyPaths(value, kept[key], [...prefix, key])
+      : [[...prefix, key]],
   );
 }
 
-/**
- * Whether settings hold a managed leaf as written: present in their encoded or decoded form
- * (encoding omits some nulls), not coerced to null, and with every key of an object value.
- */
-function keepsManagedLeaf(
-  managed: SettingsDocument,
-  encoded: unknown,
-  decoded: unknown,
-  path: ReadonlyArray<string>,
-): boolean {
-  const value = readSettingsPath(managed, path);
-  const kept = [readSettingsPath(encoded, path), readSettingsPath(decoded, path)].filter(
-    (candidate) => candidate !== undefined,
-  );
-  if (value !== null && kept.every((candidate) => candidate === null)) return false;
-  return kept.some((candidate) => holdsEveryKey(value, candidate));
+/** `value` without the key at `path`; array indices are path segments too. */
+function withoutSettingsKey(value: unknown, path: ReadonlyArray<string>): unknown {
+  const [head, ...rest] = path;
+  if (head === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map((entry, index) =>
+      String(index) === head ? withoutSettingsKey(entry, rest) : entry,
+    );
+  }
+  if (!isSettingsDocument(value)) return value;
+  if (rest.length === 0) {
+    const { [head]: _removed, ...remaining } = value;
+    return remaining;
+  }
+  return { ...value, [head]: withoutSettingsKey(value[head], rest) };
 }
 
 const decodeProviderInstanceOption = Schema.decodeUnknownOption(ProviderInstanceConfig);
@@ -1525,7 +1554,9 @@ const make = Effect.gen(function* () {
         });
         continue;
       }
-      const resolved = yield* resolveManagedFileReferences(entry.document).pipe(
+      const resolved = yield* resolveManagedFileReferences(
+        markReferencedEnvironmentSensitive(entry.document),
+      ).pipe(
         Effect.map((value) => value as SettingsDocument),
         Effect.catch((error) =>
           ignoreManagedSetting(entry.setting, {
@@ -1570,21 +1601,46 @@ const make = Effect.gen(function* () {
       Effect.flatMap(normalizeServerSettings),
     );
 
-  /** Applies `managed`, also returning the managed leaf paths decoding renamed, dropped, or coerced. */
+  /**
+   * Applies `managed`, also returning the managed paths the result does not keep as written:
+   * missing, coerced to null, or holding a key decoding ignores. A key absent from the result
+   * still counts when removing it changes the result, as when decoding migrates a legacy shape.
+   */
   const enforceManagedLayer = (settings: ServerSettings, managed: SettingsDocument) =>
-    applyManagedLayer(settings, managed).pipe(
-      Effect.flatMap((effective) =>
-        encodeServerSettings(effective).pipe(
-          Effect.mapError(managedFileError),
-          Effect.map((encoded) => ({
-            effective,
-            dropped: managedLeafPaths(managed)
-              .filter((path) => !keepsManagedLeaf(managed, encoded, effective, path))
-              .map((path) => path.join(".")),
-          })),
-        ),
-      ),
-    );
+    Effect.gen(function* () {
+      const encode = (value: ServerSettings) =>
+        encodeServerSettings(value).pipe(Effect.mapError(managedFileError));
+      const effective = yield* applyManagedLayer(settings, managed);
+      const encoded = yield* encode(effective);
+      const ignoresKey = (path: ReadonlyArray<string>) =>
+        applyManagedLayer(settings, withoutSettingsKey(managed, path) as SettingsDocument).pipe(
+          Effect.flatMap(encode),
+          Effect.map((without) => Equal.equals(without, encoded)),
+          Effect.catch(() => Effect.succeed(false)),
+        );
+      const dropped: string[] = [];
+      for (const path of managedLeafPaths(managed)) {
+        const value = readSettingsPath(managed, path);
+        // Encoding omits some nulls, so the decoded form counts too.
+        const kept = [readSettingsPath(encoded, path), readSettingsPath(effective, path)].filter(
+          (candidate) => candidate !== undefined,
+        );
+        if (
+          kept.length === 0 ||
+          (value !== null && kept.every((candidate) => candidate === null))
+        ) {
+          dropped.push(path.join("."));
+          continue;
+        }
+        const missing = kept
+          .map((candidate) => missingKeyPaths(value, candidate, path))
+          .reduce((fewest, next) => (next.length < fewest.length ? next : fewest));
+        for (const keyPath of missing) {
+          if (yield* ignoresKey(keyPath)) dropped.push(keyPath.join("."));
+        }
+      }
+      return { effective, dropped };
+    });
 
   const settingsStateFor = (
     layer: SettingsLayer,
