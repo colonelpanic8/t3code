@@ -163,8 +163,10 @@ export interface StorageMigrationEntry {
   readonly kind: "database" | "file" | "directory" | "symlink";
   readonly source: string;
   readonly destination: string;
-  /** For a symlink: the absolute path it resolves to, which the recreated link names. */
+  /** For a symlink: the absolute path the recreated link resolves to. */
   readonly linkTarget?: string;
+  /** For a symlink: what the recreated link holds, relative when the original was. */
+  readonly linkValue?: string;
   readonly status: "copy" | "present" | "conflict";
   readonly files: number;
   readonly bytes: number;
@@ -211,6 +213,11 @@ const CLIENT_ROOT_STATE_FILES = new Set([
 const SPLIT_INSTALL_MARKERS = new Set(["statev2.sqlite", "environment-id", "secrets"]);
 const LAUNCHER_SKIP_REASON =
   "the desktop's t3 launcher, which pins this tree; the desktop writes a new one and points the t3 command at it";
+const MIGRATION_LOCK = "storage-migration.lock";
+/** writeFileStringAtomically stages a record in a `<name>.XXXXXX` directory beside it. */
+const isRecordLeftover = (name: string) =>
+  name.startsWith(`${LEGACY_STORAGE_MIGRATION_MARKER}.`) ||
+  name.startsWith(`${LEGACY_STORAGE_MIGRATION_JOURNAL}.`);
 const LEGACY_SKIPPED: Record<string, string> = {
   "server-runtime.json": "live-process state; the server rewrites it on start",
   logs: "log history stays in the legacy tree",
@@ -218,6 +225,7 @@ const LEGACY_SKIPPED: Record<string, string> = {
   bin: LAUNCHER_SKIP_REASON,
   [LEGACY_STORAGE_MIGRATION_MARKER]: "migration record",
   [LEGACY_STORAGE_MIGRATION_JOURNAL]: "migration record",
+  [MIGRATION_LOCK]: "migration lock",
 };
 /** Chromium's per-run locks, and caches it rebuilds. A copied lock would make the copy look in use. */
 const ELECTRON_EXCLUDED = new Set([
@@ -250,7 +258,12 @@ const routeLegacyEntry = (
 ): StorageMigrationRoute => {
   const { clientDir, clientRoots, serverOverrides, serverRoots } = input;
   const fixedSkipReason =
-    LEGACY_SKIPPED[name] ?? (name.startsWith(".") ? "temporary file" : undefined);
+    LEGACY_SKIPPED[name] ??
+    (name.startsWith(".")
+      ? "temporary file"
+      : isRecordLeftover(name)
+        ? "left by an interrupted migration record write; removed by the next run"
+        : undefined);
   if (fixedSkipReason !== undefined) return { skipReason: fixedSkipReason };
   // An override holds the live copy in either layout, so the migrated app already reads it there.
   const liveElsewhere = (location: string, control: string) => ({
@@ -379,14 +392,15 @@ const databaseSidecarsOf = (entry: Pick<StorageMigrationEntry, "kind" | "destina
     : [];
 
 type EntryKind =
-  | { readonly kind: "symlink"; readonly linkTarget: string }
+  | { readonly kind: "symlink"; readonly linkTarget: string; readonly linkValue: string }
   | { readonly kind: "database" | "directory" | "file" };
 
 const classify = Effect.fn("storageMigration.classify")(function* (source: string) {
   const fs = yield* FileSystem.FileSystem;
   const linkTarget = yield* absoluteLinkTarget(source);
   if (Option.isSome(linkTarget)) {
-    return Option.some<EntryKind>({ kind: "symlink", linkTarget: linkTarget.value });
+    const linkValue = yield* fs.readLink(source);
+    return Option.some<EntryKind>({ kind: "symlink", linkTarget: linkTarget.value, linkValue });
   }
   const info = yield* fs.stat(source).pipe(Effect.option);
   if (Option.isNone(info)) return Option.none<EntryKind>();
@@ -431,21 +445,47 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
     .readDirectory(legacyStateDir)
     .pipe(Effect.orElseSucceed(() => [] as Array<string>));
   const hasV2Database = names.includes("statev2.sqlite");
+  const routes = new Map(
+    names.map((name) => [name, routeLegacyEntry(name, { hasV2Database }, input)] as const),
+  );
+  /**
+   * A link into the tree being migrated follows its target to the migrated
+   * copy; any other link keeps resolving to the same absolute path.
+   */
+  const relink = (kind: EntryKind, destination: string): EntryKind => {
+    if (kind.kind !== "symlink") return kind;
+    const inside = path.relative(legacyStateDir, kind.linkTarget);
+    const [top, ...rest] = inside.split(path.sep);
+    const route = top === undefined ? undefined : routes.get(top);
+    if (
+      inside === "" ||
+      inside.startsWith("..") ||
+      path.isAbsolute(inside) ||
+      route === undefined ||
+      "skipReason" in route
+    ) {
+      return { ...kind, linkValue: kind.linkTarget };
+    }
+    const linkTarget = path.join(route.root, top!, ...rest);
+    return {
+      kind: "symlink",
+      linkTarget,
+      linkValue: path.isAbsolute(kind.linkValue)
+        ? linkTarget
+        : path.relative(path.dirname(destination), linkTarget),
+    };
+  };
   for (const name of names.toSorted()) {
     const source = path.join(legacyStateDir, name);
-    const route = routeLegacyEntry(name, { hasV2Database }, input);
+    const route = routes.get(name)!;
     if ("skipReason" in route) {
       skipped.push({ path: source, reason: route.skipReason });
       continue;
     }
     const kind = yield* classify(source);
     if (Option.isNone(kind)) continue;
-    sources.push({
-      owner: route.owner,
-      source,
-      destination: path.join(route.root, name),
-      ...kind.value,
-    });
+    const destination = path.join(route.root, name);
+    sources.push({ owner: route.owner, source, destination, ...relink(kind.value, destination) });
   }
 
   const legacyProfile = yield* classify(input.legacyElectronProfile);
@@ -454,7 +494,7 @@ export const planStorageMigration = Effect.fn("storageMigration.plan")(function*
       owner: "client",
       source: input.legacyElectronProfile,
       destination: input.electronProfile,
-      ...legacyProfile.value,
+      ...relink(legacyProfile.value, input.electronProfile),
     });
   }
   for (const profile of [input.legacyElectronProfile, input.electronProfile]) {
@@ -545,7 +585,7 @@ const copyEntry = Effect.fn("storageMigration.copyEntry")(function* (
   yield* fs.makeDirectory(path.dirname(target), { recursive: true, mode: 0o700 });
   switch (entry.kind) {
     case "symlink":
-      return yield* fs.symlink(entry.linkTarget!, target);
+      return yield* fs.symlink(entry.linkValue!, target);
     case "database":
       yield* snapshotDatabase(entry.source, target);
       return yield* fs.chmod(target, 0o600);
@@ -663,6 +703,70 @@ const undoInterruptedRun = Effect.fn("storageMigration.undoInterruptedRun")(func
 });
 
 /**
+ * Holds `storage-migration.lock` in the legacy tree while `effect` runs, so a
+ * second migration or rollback cannot undo the first one's journal. A lock
+ * whose process is gone is taken over.
+ */
+const withMigrationLock = <A, E, R>(input: StorageMigrationInput, effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const stateDir = input.legacyRoots.stateDir;
+    // Without userdata there is no journal to protect, and a mistyped --base-dir stays untouched.
+    if (!(yield* fs.exists(stateDir).pipe(Effect.orElseSucceed(() => false)))) {
+      return yield* effect;
+    }
+    const lockPath = path.join(stateDir, MIGRATION_LOCK);
+    const acquire = Effect.gen(function* () {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const created = yield* fs
+          .writeFileString(lockPath, `${String(process.pid)}\n`, { flag: "wx" })
+          .pipe(
+            Effect.as(true),
+            Effect.catchIf(
+              (error) => error.reason._tag === "AlreadyExists",
+              () => Effect.succeed(false),
+            ),
+          );
+        if (created) return;
+        const owner = Number(
+          (yield* fs.readFileString(lockPath).pipe(Effect.orElseSucceed(() => ""))).trim(),
+        );
+        if (Number.isInteger(owner) && owner > 0 && isProcessAlive(owner)) {
+          return yield* new StorageMigrationBlockedError({
+            blockers: [
+              `Another \`t3 storage migrate\` is running (pid ${String(owner)}). Wait for it to finish; if no such process exists, remove ${lockPath}.`,
+            ],
+          });
+        }
+        yield* fs.remove(lockPath, { force: true });
+      }
+      return yield* new StorageMigrationBlockedError({
+        blockers: [`Could not take the migration lock at ${lockPath}.`],
+      });
+    });
+    return yield* Effect.acquireUseRelease(
+      acquire,
+      () => effect,
+      () => fs.remove(lockPath, { force: true }).pipe(Effect.ignore),
+    );
+  });
+
+/** Staging directories that a killed record write left in the legacy tree. */
+const removeRecordLeftovers = Effect.fn("storageMigration.removeRecordLeftovers")(function* (
+  input: StorageMigrationInput,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const names = yield* fs
+    .readDirectory(input.legacyRoots.stateDir)
+    .pipe(Effect.orElseSucceed(() => [] as Array<string>));
+  for (const name of names.filter(isRecordLeftover)) {
+    yield* fs.remove(path.join(input.legacyRoots.stateDir, name), { recursive: true, force: true });
+  }
+});
+
+/**
  * Copies, verifies, then marks the legacy tree as migrated. A rerun after
  * success is a no-op; a failure, or a rerun after a killed run, removes what
  * the run wrote and restores anything it moved aside.
@@ -671,8 +775,16 @@ export const runStorageMigration = Effect.fn("storageMigration.run")(function* (
   input: StorageMigrationInput,
   options: { readonly replaceExisting: boolean },
 ) {
+  return yield* withMigrationLock(input, runLocked(input, options));
+});
+
+const runLocked = Effect.fn("storageMigration.runLocked")(function* (
+  input: StorageMigrationInput,
+  options: { readonly replaceExisting: boolean },
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  yield* removeRecordLeftovers(input);
   const markerPath = legacyT3StorageMigrationMarkerPath(input.legacyRoots, path);
   const journalPath = legacyT3StorageMigrationJournalPath(input.legacyRoots, path);
   const firstPlan = yield* planStorageMigration(input);
@@ -795,8 +907,15 @@ export const runStorageMigration = Effect.fn("storageMigration.run")(function* (
 export const rollbackStorageMigration = Effect.fn("storageMigration.rollback")(function* (
   input: StorageMigrationInput,
 ) {
+  return yield* withMigrationLock(input, rollbackLocked(input));
+});
+
+const rollbackLocked = Effect.fn("storageMigration.rollbackLocked")(function* (
+  input: StorageMigrationInput,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  yield* removeRecordLeftovers(input);
   const markerPath = legacyT3StorageMigrationMarkerPath(input.legacyRoots, path);
   const marker = yield* readRecord(markerPath, decodeMarker);
   const blockers: Array<string> = [];
