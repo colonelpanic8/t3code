@@ -59,6 +59,16 @@ describe("Usage page preferences", () => {
     expect(readUsagePagePreferences()).toEqual(preferences);
   });
 
+  it("clears a saved sort so the metric's default applies again", () => {
+    saveUsagePagePreferences({
+      metric: "tokens",
+      windowDays: 7,
+      sort: [{ field: "label", direction: "ascending" }],
+    });
+    saveUsagePagePreferences({ ...readUsagePagePreferences(), sort: undefined });
+    expect(readUsagePagePreferences()).toEqual({ metric: "tokens", windowDays: 7 });
+  });
+
   it("drops only the view settings it cannot use and de-duplicates the rest", () => {
     values.set(
       key,

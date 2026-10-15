@@ -71,7 +71,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
-import { UsageBreakdownTable, withTableSort } from "./UsageBreakdownTable";
+import { UsageBreakdownTable, usageTableView } from "./UsageBreakdownTable";
 import { UsageChart } from "./UsageChart";
 import { ProviderMark } from "./ProviderMark";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
@@ -234,13 +234,14 @@ export function UsagePage() {
       ),
     [chartDimensions, grouping, merged.entries, metric, periods],
   );
-  const tableView = useMemo(() => {
-    const stored = {
-      tableDimensions: preferences.tableDimensions ?? DEFAULT_USAGE_VIEW.tableDimensions,
-      sort: preferences.sort ?? DEFAULT_USAGE_VIEW.sort,
-    };
-    return withTableSort(stored, stored.sort);
-  }, [preferences.sort, preferences.tableDimensions]);
+  const tableView = useMemo(
+    () =>
+      usageTableView(
+        { tableDimensions: preferences.tableDimensions, sort: preferences.sort },
+        metric === "tokens" ? "tokens" : "cost",
+      ),
+    [metric, preferences.sort, preferences.tableDimensions],
+  );
   const environmentLabels = useMemo(
     () =>
       new Map(environments.map((environment) => [environment.environmentId, environment.label])),

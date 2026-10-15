@@ -8,6 +8,7 @@ import {
   pivotUsage,
   sortUsageRows,
   type UsageDimension,
+  type UsagePivotMetric,
   type UsagePivotRow,
   type UsageSortCriterion,
   type UsageSortField,
@@ -31,7 +32,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ProviderMark } from "./ProviderMark";
 import { modelShare } from "./usageBreakdown";
-import { DEFAULT_USAGE_VIEW } from "./usagePagePreferences";
+import { DEFAULT_USAGE_VIEW, type UsagePagePreferences } from "./usagePagePreferences";
 import {
   DIMENSION_NAMES,
   GROUPING_NAMES,
@@ -46,26 +47,50 @@ export interface UsageTableView {
   readonly sort: readonly UsageSortCriterion[];
 }
 
+/** What the table saves: a sort only once the user has picked one. */
+export type UsageTableViewPatch = Pick<UsagePagePreferences, "tableDimensions" | "sort">;
+
+const DEFAULT_SORT: { readonly [Metric in UsagePivotMetric]: readonly UsageSortCriterion[] } = {
+  cost: [{ field: "costUsd", direction: "descending" }],
+  tokens: [{ field: "totalTokens", direction: "descending" }],
+};
+
+/** The saved view, sorted by the page's metric until the user picks a sort. */
+export function usageTableView(
+  saved: { readonly [Field in keyof UsageTableView]: UsageTableView[Field] | undefined },
+  metric: UsagePivotMetric,
+): UsageTableView {
+  return withTableSort({
+    tableDimensions: saved.tableDimensions ?? DEFAULT_USAGE_VIEW.tableDimensions,
+    sort: saved.sort ?? DEFAULT_SORT[metric],
+  });
+}
+
 /** Sorting by period needs periods to sort, so it brings the dimension along. */
-export function withTableSort(view: UsageTableView, sort: UsageTableView["sort"]): UsageTableView {
+export function withTableSort({ tableDimensions, sort }: UsageTableView): UsageTableView {
   const needsPeriod = sort.some((criterion) => criterion.field === "period");
   return {
     sort,
     tableDimensions:
-      needsPeriod && !view.tableDimensions.includes("period")
-        ? [...view.tableDimensions, "period"]
-        : view.tableDimensions,
+      needsPeriod && !tableDimensions.includes("period")
+        ? [...tableDimensions, "period"]
+        : tableDimensions,
   };
 }
 
-/** Dropping the period dimension drops the period sort with it. */
+/**
+ * Dropping the period dimension drops the period sort with it, back to the
+ * default sort if nothing else is left.
+ */
 export function withTableDimensions(
   view: UsageTableView,
   tableDimensions: UsageTableView["tableDimensions"],
-): UsageTableView {
-  if (tableDimensions.includes("period")) return { ...view, tableDimensions };
+): UsageTableViewPatch {
   const sort = view.sort.filter((criterion) => criterion.field !== "period");
-  return { tableDimensions, sort: sort.length > 0 ? sort : DEFAULT_USAGE_VIEW.sort };
+  if (tableDimensions.includes("period") || sort.length === view.sort.length) {
+    return { tableDimensions };
+  }
+  return { tableDimensions, sort: sort.length > 0 ? sort : undefined };
 }
 
 const DEFAULT_DIRECTION: { readonly [Field in UsageSortField]: UsageSortCriterion["direction"] } = {
@@ -131,7 +156,7 @@ interface UsageBreakdownTableProps {
   readonly entries: readonly UsageEntry[];
   readonly view: UsageTableView;
   readonly chartSeries: UsageChartSeries;
-  readonly onViewChange: (view: UsageTableView) => void;
+  readonly onViewChange: (patch: UsageTableViewPatch) => void;
   readonly grouping: UsageTimeGrouping;
   readonly metric: "cost" | "tokens";
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
@@ -189,7 +214,7 @@ export function UsageBreakdownTable({
           <UsageSortEditor
             sort={sort}
             grouping={grouping}
-            onChange={(next) => onViewChange(withTableSort(view, next))}
+            onChange={(next) => onViewChange(withTableSort({ ...view, sort: next }))}
           />
         </div>
       </div>
