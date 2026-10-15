@@ -1,5 +1,6 @@
 import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type ModelTotals } from "@t3tools/shared/usageMerge";
+import type { UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 
 import { mergeAnsweredUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -13,7 +14,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
+import { UsageChart, type UsageChartMetric } from "./UsageChart";
 import { UsageShareBar } from "./UsageShareBar";
 import {
   cacheHitRate,
@@ -24,10 +25,11 @@ import {
 } from "./usageBreakdown";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
+const BY_PROVIDER = ["provider"] as const;
+
 export interface UsageChartWindow {
-  readonly days: readonly string[];
-  readonly hours: readonly string[];
-  readonly resolution: "day" | "hour";
+  readonly periods: readonly string[];
+  readonly grouping: UsageTimeGrouping;
   readonly timeZone: string;
   readonly referenceTime: string | undefined;
 }
@@ -51,7 +53,6 @@ export function UsageModelDialog({
     environments,
     (bucket) => bucket.provider === model.provider && bucket.model === model.model,
   );
-  const providers = [model.provider];
   const presentation = PROVIDER_PRESENTATION[model.provider];
   const costUnknown = isModelCostUnknown(model);
   const hitRate = cacheHitRate(model);
@@ -97,15 +98,13 @@ export function UsageModelDialog({
             </div>
 
             {/* Unpriced cost is unknown, not zero, so its trend shows tokens. */}
-            <UsageProviderChart
-              providers={providers}
-              days={chartWindow.days}
-              daily={usage.daily}
-              hours={chartWindow.hours}
-              hourly={usage.hourly}
+            <UsageChart
+              entries={usage.entries}
+              dimensions={BY_PROVIDER}
+              grouping={chartWindow.grouping}
+              periods={chartWindow.periods}
               metric={costUnknown ? "tokens" : metric}
               referenceTime={chartWindow.referenceTime}
-              resolution={chartWindow.resolution}
               timeZone={chartWindow.timeZone}
             />
 

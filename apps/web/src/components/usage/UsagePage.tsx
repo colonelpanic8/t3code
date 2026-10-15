@@ -32,6 +32,7 @@ import {
   type HourlyTotals,
   type MergedUsage,
 } from "@t3tools/shared/usageMerge";
+import { enumeratePeriods, type UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -83,7 +84,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
-import { UsageProviderChart } from "./UsageProviderChart";
+import { UsageChart } from "./UsageChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
 import {
@@ -102,10 +103,15 @@ import {
 import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
 import {
+  DEFAULT_USAGE_VIEW,
+  USAGE_CHART_DIMENSIONS,
+  USAGE_DAY_GROUPINGS,
   readUsagePagePreferences,
   saveUsagePagePreferences,
+  type UsageChartDimension,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
+import { DIMENSION_NAMES, GROUPING_ADJECTIVES, GROUPING_NAMES } from "./usageSeries";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -346,6 +352,14 @@ export function UsagePage() {
     shownWindow.sinceTime === undefined || shownWindow.untilTime === undefined
       ? []
       : enumerateHourStarts(shownWindow.sinceTime, shownWindow.untilTime);
+  const grouping: UsageTimeGrouping = shownHourly
+    ? "hour"
+    : (preferences.timeGrouping ?? DEFAULT_USAGE_VIEW.timeGrouping);
+  const periods = enumeratePeriods(shownHourly ? hours : days, grouping);
+  const chartDimensions = preferences.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const environmentLabels = new Map(
+    environments.map((environment) => [environment.environmentId, environment.label]),
+  );
   const showChatGptSharing =
     !hiddenProviders.has("codex") &&
     [...providersByEnvironment].some(
@@ -546,8 +560,11 @@ export function UsagePage() {
               <UsageOverview
                 merged={merged}
                 shownWindow={shownWindow}
-                days={days}
-                hours={hours}
+                periods={periods}
+                grouping={grouping}
+                chartDimensions={chartDimensions}
+                environmentLabels={environmentLabels}
+                onPreferencesChange={updatePreferences}
                 showingKept={showingKept}
                 metric={metric === "tokens" ? "tokens" : "cost"}
                 selectedEnvironments={selectedEnvironments}
@@ -571,9 +588,8 @@ export function UsagePage() {
           environments={selectedEnvironments}
           metric={metric === "tokens" ? "tokens" : "cost"}
           chartWindow={{
-            days,
-            hours,
-            resolution: shownHourly ? "hour" : "day",
+            periods,
+            grouping,
             timeZone: shownWindow.timeZone,
             referenceTime: shownWindow.untilTime,
           }}
@@ -597,8 +613,11 @@ export function UsagePage() {
 function UsageOverview({
   merged,
   shownWindow,
-  days,
-  hours,
+  periods,
+  grouping,
+  chartDimensions,
+  environmentLabels,
+  onPreferencesChange,
   showingKept,
   metric,
   selectedEnvironments,
@@ -611,8 +630,11 @@ function UsageOverview({
 }: {
   readonly merged: MergedUsage;
   readonly shownWindow: UsageSummaryInput;
-  readonly days: readonly string[];
-  readonly hours: readonly string[];
+  readonly periods: readonly string[];
+  readonly grouping: UsageTimeGrouping;
+  readonly chartDimensions: readonly UsageChartDimension[];
+  readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
+  readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
   readonly showingKept: boolean;
   readonly metric: "tokens" | "cost";
   readonly selectedEnvironments: readonly EnvironmentUsageStatus[];
@@ -625,6 +647,9 @@ function UsageOverview({
 }) {
   const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const shownHourly = shownWindow.resolution === "hour";
+  const groupingOptions: readonly UsageTimeGrouping[] = shownHourly
+    ? ["hour"]
+    : USAGE_DAY_GROUPINGS;
   const loading = usageLoading(showingKept, selectedEnvironments, refreshingUsage, hiddenProviders);
   // A primitive copy: reading `loading.partial` in the JSX would keep `loading` alive
   // across every derivation below and fold them into one cache scope.
@@ -812,19 +837,56 @@ function UsageOverview({
         </div>
 
         <div className="flex min-w-0 flex-col gap-3">
-          <h2 className="text-sm font-medium text-foreground">
-            {shownHourly ? "Hourly" : "Daily"} {metric === "tokens" ? "processed tokens" : "cost"}
-          </h2>
-          <UsageProviderChart
-            providers={activeProviders}
-            loadingProviders={chartLoadingProviders}
-            days={days}
-            daily={merged.daily}
-            hours={hours}
-            hourly={merged.hourly}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-medium text-foreground">
+              {GROUPING_ADJECTIVES[grouping]} {metric === "tokens" ? "processed tokens" : "cost"}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <ToggleGroup
+                aria-label="Chart by"
+                variant="segmented"
+                multiple
+                value={[...chartDimensions]}
+                onValueChange={(next) =>
+                  onPreferencesChange({
+                    chartDimensions: USAGE_CHART_DIMENSIONS.filter((dimension) =>
+                      next.includes(dimension),
+                    ),
+                  })
+                }
+              >
+                {USAGE_CHART_DIMENSIONS.map((dimension) => (
+                  <Toggle key={dimension} value={dimension}>
+                    {DIMENSION_NAMES[dimension]}
+                  </Toggle>
+                ))}
+              </ToggleGroup>
+              <ToggleGroup
+                aria-label="Time grouping"
+                variant="segmented"
+                value={[grouping]}
+                onValueChange={(next) => {
+                  const value = USAGE_DAY_GROUPINGS.find((option) => option === next[0]);
+                  if (value) onPreferencesChange({ timeGrouping: value });
+                }}
+              >
+                {groupingOptions.map((option) => (
+                  <Toggle key={option} value={option}>
+                    {GROUPING_NAMES[option]}
+                  </Toggle>
+                ))}
+              </ToggleGroup>
+            </div>
+          </div>
+          <UsageChart
+            entries={merged.entries}
+            dimensions={chartDimensions}
+            grouping={grouping}
+            periods={periods}
             metric={metric}
+            environmentLabels={environmentLabels}
+            loadingProviders={chartLoadingProviders}
             referenceTime={shownWindow.untilTime}
-            resolution={shownHourly ? "hour" : "day"}
             timeZone={shownWindow.timeZone}
           />
         </div>
