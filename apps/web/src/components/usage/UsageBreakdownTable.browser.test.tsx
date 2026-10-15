@@ -54,16 +54,16 @@ describe("UsageBreakdownTable", () => {
       button.textContent?.startsWith("Show all"),
     );
 
-  it("renders the first 200 rows until asked for all of them", async () => {
-    await act(() => {
+  const renderTable = (rows: readonly UsageEntry[]) =>
+    act(() => {
       renderer.render(
         <UsageBreakdownTable
-          entries={entries}
+          entries={rows}
           view={{
             tableDimensions: ["period"],
             sort: [{ field: "period", direction: "ascending" }],
           }}
-          chartSeries={buildUsageChartSeries(entries, [], "day", [], "cost")}
+          chartSeries={buildUsageChartSeries(rows, [], "day", [], "cost")}
           onViewChange={() => {}}
           grouping="day"
           metric="cost"
@@ -75,6 +75,9 @@ describe("UsageBreakdownTable", () => {
       );
     });
 
+  it("renders the first 200 rows until asked for all of them", async () => {
+    await renderTable(entries);
+
     expect(bodyRows()).toHaveLength(200);
     const button = showAllButton();
     expect(button?.textContent).toBe("Show all 250 rows");
@@ -82,6 +85,13 @@ describe("UsageBreakdownTable", () => {
     await userEvent.click(button!);
 
     expect(bodyRows()).toHaveLength(250);
+    expect(showAllButton()).toBeUndefined();
+  });
+
+  it("renders a short table whole, without the control", async () => {
+    await renderTable(entries.slice(0, 3));
+
+    expect(bodyRows()).toHaveLength(3);
     expect(showAllButton()).toBeUndefined();
   });
 });
