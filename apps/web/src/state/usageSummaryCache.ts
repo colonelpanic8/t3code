@@ -35,23 +35,20 @@ export interface UsageSummaryBackend {
 
 const recordId = (environmentId: EnvironmentId, key: string) => `${environmentId}:${key}`;
 
-/**
- * Every window ends when it is requested, so a summary saved before today
- * describes a window that ended before today.
- */
-function isCurrent(record: unknown, now: number): record is StoredUsageSummary {
-  return isStoredUsageSummary(record) && record.savedAt >= startOfLocalDay(new Date(now)).getTime();
-}
-
 export function makeUsageSummaryStore(
   backend: UsageSummaryBackend,
   { now = Date.now, maxEntries = MAX_STORED_USAGE_SUMMARIES } = {},
 ): QueryStore {
   const prune = backend.entries.pipe(
     Effect.flatMap((entries) => {
+      // Housekeeping only: whether a summary still fits a window is decided
+      // when it is loaded.
+      const today = startOfLocalDay(new Date(now())).getTime();
       const current = entries
         .flatMap(([id, record]) =>
-          isCurrent(record, now()) ? [{ id, savedAt: record.savedAt }] : [],
+          isStoredUsageSummary(record) && record.savedAt >= today
+            ? [{ id, savedAt: record.savedAt }]
+            : [],
         )
         .toSorted((a, b) => b.savedAt - a.savedAt);
       const kept = new Set(current.slice(0, maxEntries).map(({ id }) => id));
@@ -65,7 +62,7 @@ export function makeUsageSummaryStore(
       return backend.get(id).pipe(
         Effect.flatMap((record) => {
           if (record === undefined) return Effect.succeedNone;
-          if (isCurrent(record, now())) return Effect.succeedSome(record.payload);
+          if (isStoredUsageSummary(record)) return Effect.succeedSome(record.payload);
           return backend.remove([id]).pipe(Effect.as(Option.none<string>()));
         }),
         Effect.orElseSucceed(() => Option.none<string>()),

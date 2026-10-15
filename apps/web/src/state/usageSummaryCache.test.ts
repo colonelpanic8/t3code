@@ -89,15 +89,30 @@ describe("usage summary cache", () => {
     );
   });
 
-  it.effect("forgets summaries once local midnight passes", () => {
+  it.effect("serves windows by what they cover and prunes days that have passed", () => {
     const { run, records, setNow } = harness("2026-10-14T23:00:00Z");
+    const weekSummary = {
+      ...summary,
+      sinceDay: UsageDay.make("2026-10-08"),
+      untilDay: UsageDay.make("2026-10-14"),
+    };
     return run(
       Effect.gen(function* () {
         yield* cache.save(environmentId, morning, summary);
-        yield* cache.save(environmentId, week, summary);
+        yield* cache.save(environmentId, week, weekSummary);
         setNow("2026-10-15T00:01:00Z");
-        expect(yield* cache.load(environmentId, morning)).toEqual(Option.none());
-        expect(records.size).toBe(1);
+        expect(yield* cache.load(environmentId, week)).toEqual(Option.some(weekSummary));
+        const nextWeek = keyFor({
+          sinceDay: UsageDay.make("2026-10-09"),
+          untilDay: UsageDay.make("2026-10-15"),
+          timeZone: "UTC",
+          resolution: "day",
+        });
+        expect(yield* cache.load(environmentId, nextWeek)).toEqual(Option.none());
+        const sinceMidnight = keyFor(
+          hourly("2026-10-14T00:01:00.000Z", "2026-10-15T00:01:00.000Z"),
+        );
+        expect(yield* cache.load(environmentId, sinceMidnight)).toEqual(Option.some(summary));
         yield* cache.save(EnvironmentId.make("remote"), morning, summary);
         expect([...records.keys()]).toEqual([`remote:["usage-summary","UTC","24h"]`]);
       }),

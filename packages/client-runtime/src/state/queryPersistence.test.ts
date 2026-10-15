@@ -146,15 +146,78 @@ describe("usage summary persistence", () => {
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
 
+  const days = (sinceDay: string, untilDay: string): UsageSummary => ({
+    ...summary,
+    sinceDay: UsageDay.make(sinceDay),
+    untilDay: UsageDay.make(untilDay),
+    sources: [],
+  });
+
   it.effect("keeps day windows of different lengths apart", () =>
     Effect.gen(function* () {
-      yield* cache.save(env, runtimeKey(daily("2026-10-08", "2026-10-14")), summary);
-      expect(
-        Option.isSome(yield* cache.load(env, runtimeKey(daily("2026-10-08", "2026-10-14")))),
-      ).toBe(true);
+      const week = days("2026-10-08", "2026-10-14");
+      yield* cache.save(env, runtimeKey(daily("2026-10-08", "2026-10-14")), week);
+      expect(yield* cache.load(env, runtimeKey(daily("2026-10-08", "2026-10-14")))).toEqual(
+        Option.some(week),
+      );
       expect(yield* cache.load(env, runtimeKey(daily("2026-09-15", "2026-10-14")))).toEqual(
         Option.none(),
       );
+    }).pipe(Effect.provideService(UsageQueryStore, store())),
+  );
+
+  it.effect("serves a day window only the summary that answered it", () =>
+    Effect.gen(function* () {
+      // Requested before midnight, answered after it.
+      yield* cache.save(
+        env,
+        runtimeKey(daily("2026-09-14", "2026-10-13")),
+        days("2026-09-14", "2026-10-13"),
+      );
+      expect(yield* cache.load(env, runtimeKey(daily("2026-09-15", "2026-10-14")))).toEqual(
+        Option.none(),
+      );
+    }).pipe(Effect.provideService(UsageQueryStore, store())),
+  );
+
+  it.effect("keeps only the hours a moved 24-hour window still covers", () =>
+    Effect.gen(function* () {
+      const bucket = (hourStart: string, costUsd: number) => ({
+        day: UsageDay.make(hourStart.slice(0, 10)),
+        hourStart,
+        provider: "codex" as const,
+        model: "gpt",
+        totals: {
+          uncachedInputTokens: 1,
+          cachedInputTokens: 0,
+          cacheCreationTokens: 0,
+          outputTokens: 1,
+          reasoningTokens: 0,
+        },
+        costUsd,
+        cacheSavingsUsd: 0,
+        costSource: "modelPriced" as const,
+        records: 1,
+        unpricedRecords: 0,
+        sessions: 1,
+      });
+      const early = bucket("2026-10-13T10:00:00.000Z", 1);
+      const late = bucket("2026-10-14T08:00:00.000Z", 2);
+      yield* cache.save(env, runtimeKey(morning), {
+        ...summary,
+        sources: [],
+        buckets: [early, late],
+      });
+      expect(
+        Option.map(yield* cache.load(env, runtimeKey(afternoon)), ({ buckets }) => buckets),
+      ).toEqual(Option.some([late]));
+      // Read at 09:00 on the 14th, so it says nothing about a window opening later.
+      expect(
+        yield* cache.load(
+          env,
+          runtimeKey(hourly("2026-10-14T09:30:00.000Z", "2026-10-15T09:30:00.000Z")),
+        ),
+      ).toEqual(Option.none());
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
 
