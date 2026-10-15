@@ -95,9 +95,11 @@ const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
 
 /**
  * Most scans change the cache, and each write serializes all of it, so a burst
- * of scans writes once, this long after the last one.
+ * of scans writes once, this long after the last one, but no later than
+ * `SCAN_CACHE_PERSIST_MAX_WAIT_MS` after the first change since the last write.
  */
-const SCAN_CACHE_PERSIST_DELAY = Duration.seconds(5);
+const SCAN_CACHE_PERSIST_DELAY_MS = 5 * 1000;
+const SCAN_CACHE_PERSIST_MAX_WAIT_MS = 30 * 1000;
 
 /**
  * Files are filtered by mtime before opening. The slack covers a session whose
@@ -484,6 +486,9 @@ export const make = Effect.gen(function* () {
   // keeps an older snapshot from landing after a newer one.
   const persistLock = yield* Semaphore.make(1);
 
+  /** When the first change since the last write must be written by. */
+  let persistDeadlineMs: number | undefined;
+
   // The dirty flag is cleared before encoding, so a change while the write is
   // in flight marks it dirty again. A failed write restores the flag, so the
   // next persist retries instead of leaving disk stale. A cache we cannot
@@ -492,6 +497,7 @@ export const make = Effect.gen(function* () {
   const persistCaches = Effect.gen(function* () {
     if (cacheDirty) {
       cacheDirty = false;
+      persistDeadlineMs = undefined;
       yield* Effect.sync(() =>
         writeScanCache(fileCache, { sources: Object.fromEntries(sourceCache) }),
       ).pipe(
@@ -509,13 +515,16 @@ export const make = Effect.gen(function* () {
     Effect.withSpan("UsageService.persistCaches"),
   );
 
-  /** The write waiting out `SCAN_CACHE_PERSIST_DELAY`, if any. */
+  /** The write waiting out its delay, if any. */
   let pendingPersist: Fiber.Fiber<void> | undefined;
-  /** Restarts the delay before writing dirty caches, in the background. */
+  /** Restarts the delay, capped at the deadline, before writing dirty caches in the background. */
   const schedulePersist = Effect.gen(function* () {
     if (!cacheDirty) return;
+    const now = yield* Clock.currentTimeMillis;
+    persistDeadlineMs ??= now + SCAN_CACHE_PERSIST_MAX_WAIT_MS;
+    const delayMs = Math.max(0, Math.min(SCAN_CACHE_PERSIST_DELAY_MS, persistDeadlineMs - now));
     const previous = pendingPersist;
-    pendingPersist = yield* Effect.sleep(SCAN_CACHE_PERSIST_DELAY).pipe(
+    pendingPersist = yield* Effect.sleep(Duration.millis(delayMs)).pipe(
       Effect.andThen(persistCaches),
       Effect.forkDetach,
     );
