@@ -2315,6 +2315,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       name: "an unknown nested key",
       managed: { observability: { otlpTracesUrlTypo: "http://collector" } },
     },
+    { name: "a value decoding coerces to null", managed: { worktreeSubmodules: "recursve" } },
+    {
+      name: "an unknown key inside a whole entry",
+      managed: { providerInstances: { codex_x: { driver: "codex", enabeld: false } } },
+    },
+    {
+      name: "an unknown key inside a nested whole entry",
+      managed: {
+        projectSettingsOverrides: {
+          p1: { providerInstances: { codex: { driver: "codex", enabeld: false } } },
+        },
+      },
+    },
     {
       name: "an entry referencing a missing file",
       managed: {
@@ -2418,6 +2431,48 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         assert.equal(settings.branchNamePrefix, "nix/");
         assert.deepEqual(yield* service.managedSettingPaths, [
           ["branchNamePrefix"],
+          ["providerInstances", "codex_x"],
+        ]);
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
+  it.effect("keeps a managed null and a referenced secret marked as redacted", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-null-" });
+      const tokenPath = `${baseDir}/openai-key`;
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(tokenPath, "sk-file\n");
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({
+          defaultThreadEnvMode: null,
+          providerInstances: {
+            codex_x: {
+              driver: "codex",
+              environment: [
+                {
+                  name: "OPENAI_API_KEY",
+                  value: { $file: tokenPath },
+                  sensitive: true,
+                  valueRedacted: true,
+                },
+              ],
+            },
+          },
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(
+          settings.providerInstances[ProviderInstanceId.make("codex_x")]?.environment?.[0]?.value,
+          "sk-file",
+        );
+        assert.deepEqual(yield* service.managedSettingPaths, [
+          ["defaultThreadEnvMode"],
           ["providerInstances", "codex_x"],
         ]);
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
