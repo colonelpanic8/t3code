@@ -87,6 +87,12 @@ const RATES_TTL_MS = 24 * 60 * 60 * 1000;
 const RATES_REFRESH_FLOOR_MS = 60 * 1000;
 
 /**
+ * A failed fetch is not retried sooner, since each attempt can hold a scan for
+ * its timeout. An explicit refresh still tries.
+ */
+const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+/**
  * Files are filtered by mtime before opening. The slack covers a session whose
  * last write lands just before local midnight on the window's first day.
  */
@@ -250,6 +256,9 @@ export const make = Effect.gen(function* () {
   let rates: RateTable = new Map();
   let ratesFetchedAtMs: number | null = null;
   let ratesStatus: UsagePricing["status"] = "unavailable";
+  let ratesFailedAtMs: number | null = null;
+  const ratesBackingOff = (now: number) =>
+    ratesFailedAtMs !== null && now - ratesFailedAtMs < RATES_RETRY_BACKOFF_MS;
   // One fetch at a time. A burst of refreshes from several clients waits on
   // the first fetch and then sees a table young enough to skip its own.
   const ratesLock = yield* Semaphore.make(1);
@@ -289,21 +298,22 @@ export const make = Effect.gen(function* () {
       }
     }
 
+    if (!force && ratesBackingOff(now)) return;
+
     const fetched = yield* httpClient.get(LITELLM_RATES_URL).pipe(
       Effect.flatMap(HttpClientResponse.filterStatusOk),
       Effect.flatMap((response) => response.json),
       Effect.timeout(10_000),
       Effect.catchCause(() => Effect.succeed(null)),
     );
-    if (fetched === null) {
-      // The refresh failed; whatever we are serving is now past its TTL and
-      // must not keep claiming to be fresh.
+    const parsed = fetched === null ? null : parseRateTable(fetched);
+    if (parsed === null || parsed.size === 0) {
+      // Whatever we are serving is now past its TTL and must not keep
+      // claiming to be fresh.
       if (rates.size > 0) ratesStatus = "cached";
+      ratesFailedAtMs = now;
       return;
     }
-
-    const parsed = parseRateTable(fetched);
-    if (parsed.size === 0) return;
 
     rates = parsed;
     ratesFetchedAtMs = now;
@@ -316,6 +326,12 @@ export const make = Effect.gen(function* () {
   });
 
   const ensureRates = (force: boolean) => ratesLock.withPermit(loadRates(force));
+
+  // During backoff a scan skips the lock too, so it never waits on an explicit
+  // refresh that is likely to fail the same way.
+  const ensureScanRates = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+    ratesBackingOff(now) ? Effect.void : ensureRates(false),
+  );
 
   const refreshRates = ensureRates(true).pipe(
     Effect.map(pricing),
@@ -753,7 +769,7 @@ export const make = Effect.gen(function* () {
     // fetch on a slow network no longer delays the scan by its own timeout.
     const [, scannedDirs] = yield* Effect.all(
       [
-        ensureRates(false),
+        ensureScanRates,
         collectDirs(windowStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
       ],
       { concurrency: 2 },
