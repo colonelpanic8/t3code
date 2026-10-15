@@ -13,17 +13,22 @@ import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { installLocationFlags, resolveInstallLocations, type ServerStorage } from "./config.ts";
 
+/** The background service for these install locations, managed by `cliVersion` (this CLI by default). */
 export const layer = (
   config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir"> & {
     readonly storage: ServerStorage;
   },
+  cliVersion: string = packageJson.version,
 ) =>
   BootService.layer({
     baseDir: config.baseDir,
     storageRoots: config.storage.roots,
     logsDir: config.logsDir,
-    cliVersion: packageJson.version,
-  }).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(FetchHttpClient.layer));
+    cliVersion,
+  }).pipe(
+    Layer.provide(ProcessRunner.layer),
+    Layer.provide(FetchHttpClient.layer),
+  );
 
 export type ServiceReconcileResult =
   | {
