@@ -105,4 +105,35 @@ warning naming the `~/.t3` it ignores. If either location cannot be checked,
 for example because of its permissions, the server refuses to start rather than
 guess. Startup does not copy, move, delete, or automatically switch any data.
 An SSH connection from the desktop app uses a remote's split directories when
-they already hold a server's state, and `~/.t3` on the remote otherwise.
+they already hold a server's state or the remote's `~/.t3` was migrated, and
+`~/.t3` on the remote otherwise.
+
+### Moving to the split layout
+
+To leave `~/.t3`, stop the server, quit the desktop app, and run:
+
+```bash
+t3 storage migrate --dry-run
+t3 storage migrate
+```
+
+The dry run lists every copy, what stays behind and why, and anything that
+blocks the migration. The migration copies the database and files into the
+server and [desktop](#desktop-app-storage) directories, verifies each copy, and
+only then writes `storage-migration.json` into `~/.t3/userdata`, which retires
+that tree. Nothing under `~/.t3` is moved or deleted. Worktrees stay where they
+are because threads refer to them by path, and logs stay with the old tree. If
+a destination already holds different contents, the migration stops;
+`--replace-existing` moves those files aside first.
+
+Files a server location override or a client directory keeps elsewhere stay
+put, because that copy is already the one T3 Code reads in either layout. Run
+the migration with the same `T3CODE_SERVER_*` and `T3CODE_CLIENT_DIR`
+variables the server and desktop use, or pass `--server-config-dir`,
+`--server-data-dir`, `--server-config-file`, and `--client-dir`.
+
+`t3 storage migrate --rollback` returns to the old tree. It moves the copies
+aside rather than deleting them, and does not copy back anything written since
+the migration. A server pointed at a retired tree with `T3CODE_HOME`,
+`--base-dir`, or `--storage-layout legacy` refuses to start until you unset it
+or roll back.

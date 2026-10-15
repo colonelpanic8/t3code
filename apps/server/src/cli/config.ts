@@ -11,6 +11,7 @@ import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import {
   applyT3StorageDirectoryOverrides,
+  legacyT3StorageMigrationMarkerPath,
   resolveDefaultT3StorageRoots,
   resolveLegacyT3StorageRoots,
   resolveT3ClientStorageRoots,
@@ -304,6 +305,15 @@ export class ServerLocationSelectorConflictError extends Schema.TaggedError<Serv
 ) {
   override get message(): string {
     return `${this.override} names '${this.overrideDir}' but ${this.selector} names '${this.selectorDir}' for the same files. Unset one, or point both at the same directory.`;
+  }
+}
+
+export class LegacyStorageMigratedError extends Schema.TaggedError<LegacyStorageMigratedError>()(
+  "LegacyStorageMigratedError",
+  { stateDir: Schema.String },
+) {
+  override get message(): string {
+    return `The legacy storage at '${this.stateDir}' was copied to the split layout by \`t3 storage migrate\`. Unset T3CODE_HOME and drop --base-dir or --storage-layout legacy to use the copy, or run \`t3 storage migrate --rollback\` to return to the legacy tree.`;
   }
 }
 
@@ -889,6 +899,12 @@ export const resolveServerConfig = (
       storageHost.userId !== undefined
     ) {
       yield* prepareSplitRuntimeDirectory(derivedPaths.runtimeDir, storageHost.userId);
+    }
+    if (
+      storage.roots.layout === "legacy" &&
+      (yield* fs.exists(legacyT3StorageMigrationMarkerPath(storage.roots, path)))
+    ) {
+      return yield* new LegacyStorageMigratedError({ stateDir: storage.roots.stateDir });
     }
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
