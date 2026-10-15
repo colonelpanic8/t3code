@@ -14,10 +14,10 @@ import {
   resolveT3ConfiguredPath,
   resolveT3StorageDirectoryOverrides,
   selectT3Storage,
+  T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES,
   T3CODE_CACHE_DIR_ENV,
   T3CODE_CONFIG_DIR_ENV,
   T3CODE_DATA_DIR_ENV,
-  T3CODE_RUNTIME_DIR_ENV,
   T3CODE_STATE_DIR_ENV,
   type T3StorageConfigurationError,
   type T3StorageDirectoryOverrides,
@@ -271,7 +271,6 @@ const optionalEnv = (name: string) =>
   Config.String(name).pipe(Config.option, Config.map(Option.getOrUndefined));
 
 const ServerLocationEnv = Config.all({
-  t3Home: Config.String("T3CODE_HOME").pipe(Config.option),
   serverConfigDir: nonEmptyEnv("T3CODE_SERVER_CONFIG_DIR"),
   serverDataDir: nonEmptyEnv("T3CODE_SERVER_DATA_DIR"),
   serverCacheDir: nonEmptyEnv("T3CODE_SERVER_CACHE_DIR"),
@@ -279,21 +278,9 @@ const ServerLocationEnv = Config.all({
 });
 
 /** The storage layout selectors and the platform variables behind the split layout's defaults. */
-const StorageLayoutEnv = Config.all({
-  T3CODE_HOME: optionalEnv("T3CODE_HOME"),
-  [T3CODE_CONFIG_DIR_ENV]: optionalEnv(T3CODE_CONFIG_DIR_ENV),
-  [T3CODE_DATA_DIR_ENV]: optionalEnv(T3CODE_DATA_DIR_ENV),
-  [T3CODE_STATE_DIR_ENV]: optionalEnv(T3CODE_STATE_DIR_ENV),
-  [T3CODE_CACHE_DIR_ENV]: optionalEnv(T3CODE_CACHE_DIR_ENV),
-  [T3CODE_RUNTIME_DIR_ENV]: optionalEnv(T3CODE_RUNTIME_DIR_ENV),
-  XDG_CONFIG_HOME: optionalEnv("XDG_CONFIG_HOME"),
-  XDG_DATA_HOME: optionalEnv("XDG_DATA_HOME"),
-  XDG_STATE_HOME: optionalEnv("XDG_STATE_HOME"),
-  XDG_CACHE_HOME: optionalEnv("XDG_CACHE_HOME"),
-  XDG_RUNTIME_DIR: optionalEnv("XDG_RUNTIME_DIR"),
-  APPDATA: optionalEnv("APPDATA"),
-  LOCALAPPDATA: optionalEnv("LOCALAPPDATA"),
-});
+const StorageLayoutEnv = Config.all(
+  Object.fromEntries(T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES.map((name) => [name, optionalEnv(name)])),
+);
 
 /** Where the server keeps its files. Each value is a flag that wins over its env var. */
 export interface CliServerLocationFlags {

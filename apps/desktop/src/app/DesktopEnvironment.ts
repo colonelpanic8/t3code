@@ -197,20 +197,6 @@ const make = Effect.fn("desktop.environment.make")(function* (
     resolve: (...paths: ReadonlyArray<string>) => path.resolve(...paths),
     isAbsolute: (candidate: string) => path.isAbsolute(candidate),
   };
-  const storageEnvironment = {
-    T3CODE_CONFIG_DIR: Option.getOrUndefined(config.t3ConfigDir),
-    T3CODE_DATA_DIR: Option.getOrUndefined(config.t3DataDir),
-    T3CODE_STATE_DIR: Option.getOrUndefined(config.t3StateDir),
-    T3CODE_CACHE_DIR: Option.getOrUndefined(config.t3CacheDir),
-    T3CODE_RUNTIME_DIR: Option.getOrUndefined(config.t3RuntimeDir),
-    XDG_CONFIG_HOME: Option.getOrUndefined(config.xdgConfigHome),
-    XDG_DATA_HOME: Option.getOrUndefined(config.xdgDataHome),
-    XDG_STATE_HOME: Option.getOrUndefined(config.xdgStateHome),
-    XDG_CACHE_HOME: Option.getOrUndefined(config.xdgCacheHome),
-    XDG_RUNTIME_DIR: Option.getOrUndefined(config.xdgRuntimeDir),
-    APPDATA: Option.getOrUndefined(config.appDataDirectory),
-    LOCALAPPDATA: Option.getOrUndefined(config.localAppDataDirectory),
-  };
   // Synchronous probes: this runs before Electron is ready (see main.ts).
   const selection = selectT3Storage({
     platform: input.platform,
@@ -218,7 +204,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     temporaryDirectory: input.temporaryDirectory ?? NodeOS.tmpdir(),
     ...(input.userId === undefined ? {} : { userId: input.userId }),
     isDevelopment,
-    environment: { ...storageEnvironment, T3CODE_HOME: Option.getOrUndefined(config.t3Home) },
+    environment: config.storageEnvironment,
     path: pathOperations,
     exists: t3StoragePathExists,
   });
