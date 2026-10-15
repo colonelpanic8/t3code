@@ -104,10 +104,13 @@ const layerDesktopEnvironment = Layer.unwrap(
       ...metadata,
       clientDirSwitch: DesktopPreReadyPlatform.readClientDirSwitch(),
     }).pipe(
-      // Nothing can render yet, and a storage conflict or an unreadable ~/.t3
-      // is the user's to fix, so say why before exiting. Safe before ready.
+      // A storage conflict or an unreadable ~/.t3 is the user's to fix, so say
+      // why before exiting. Before ready, Linux only prints the box to stderr.
       Layer.tapError((error) =>
-        Effect.sync(() => Electron.dialog.showErrorBox("T3 Code failed to start", error.message)),
+        Effect.gen(function* () {
+          if (platform === "linux") yield* Effect.promise(() => Electron.app.whenReady());
+          Electron.dialog.showErrorBox("T3 Code failed to start", error.message);
+        }),
       ),
     );
   }),
