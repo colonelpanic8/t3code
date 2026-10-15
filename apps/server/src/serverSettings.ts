@@ -358,13 +358,14 @@ function migrateLegacySourceControlSettings(
     legacyName: (field: string, serverHost: string | null) => string | undefined,
   ) => {
     const shared = sourceControlHosts[kind];
-    sourceControlHosts[kind] =
-      shared === undefined
-        ? blob
-        : layerSettingsDocuments(
-            shared,
-            dropUnstoredPlaceholders(blob, unstoredSecrets, legacyName),
-          );
+    if (shared === undefined) {
+      sourceControlHosts[kind] = blob;
+      return;
+    }
+    const folded = canonicalizeSecretFields({
+      sourceControlHosts: { [kind]: dropUnstoredPlaceholders(blob, unstoredSecrets, legacyName) },
+    }).document.sourceControlHosts as SettingsDocument;
+    sourceControlHosts[kind] = layerSettingsDocuments(shared, folded[kind] as SettingsDocument);
   };
   if (legacy.bitbucket !== undefined && !localKinds.has("bitbucket")) {
     fold("bitbucket", legacy.bitbucket, (field, serverHost) =>
@@ -570,6 +571,62 @@ type SettingsDocument = Record<string, unknown>;
 
 const isSettingsDocument = (value: unknown): value is SettingsDocument =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const SECRET_SECTIONS = ["providerInstances", "sourceControlHosts", "usageLimitSources"] as const;
+
+/** Whether `mapSettingsSecrets` can walk a raw entry; the decoder rejects the rest. */
+const isWalkableSecretEntry = (section: string, entry: unknown) =>
+  isSettingsDocument(entry) &&
+  (section !== "providerInstances" ||
+    entry.environment === undefined ||
+    (Array.isArray(entry.environment) &&
+      entry.environment.every(
+        (variable) => isSettingsDocument(variable) && typeof variable.name === "string",
+      )));
+
+/**
+ * Rewrites a raw settings document's secret fields into the form `mapSettingsSecrets` saves:
+ * host keys trimmed and lowercased, `valueRedacted: false` dropped, non-string values removed.
+ * Canonical documents layer per host, so settings.json wins for each host it names, and inherited
+ * shared values match what a save produces. Of several spellings of one host in a document the
+ * last wins; `duplicates` counts the rest.
+ */
+function canonicalizeSecretFields(document: SettingsDocument): {
+  readonly document: SettingsDocument;
+  readonly duplicates: number;
+} {
+  const sections: Record<string, SettingsDocument> = {};
+  for (const section of SECRET_SECTIONS) {
+    const value = document[section];
+    if (!isSettingsDocument(value)) continue;
+    sections[section] = Object.fromEntries(
+      Object.entries(value).filter(([, entry]) => isWalkableSecretEntry(section, entry)),
+    );
+  }
+  if (Object.keys(sections).length === 0) return { document, duplicates: 0 };
+  const seen = new Set<string>();
+  let duplicates = 0;
+  const canonical = mapSettingsSecrets(
+    {
+      providerInstances: {},
+      sourceControlHosts: {},
+      usageLimitSources: {},
+      ...sections,
+    } as unknown as ServerSettings,
+    (secret) => {
+      if (secret.kind === "field") {
+        if (seen.has(secret.secretName)) duplicates += 1;
+        seen.add(secret.secretName);
+      }
+      return secret;
+    },
+  ) as unknown as Record<string, SettingsDocument>;
+  const next = { ...document };
+  for (const section of Object.keys(sections)) {
+    next[section] = { ...(document[section] as SettingsDocument), ...canonical[section] };
+  }
+  return { document: next, duplicates };
+}
 
 /**
  * The inverse of `stripDefaultServerSettings`: objects merge key by key, while
@@ -936,6 +993,14 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const warnDuplicateSecretHosts = (path: string, duplicates: number) =>
+    duplicates === 0
+      ? Effect.void
+      : Effect.logWarning("a settings file names one secret host more than once; the last wins", {
+          path,
+          duplicates,
+        });
+
   /** Read on every load like settings.json, and never written. */
   const loadSharedSettings = Effect.gen(function* () {
     if (sharedSettingsPath === undefined) return undefined;
@@ -945,12 +1010,14 @@ const make = Effect.gen(function* () {
       });
       return { document: {}, baseline: DEFAULT_SERVER_SETTINGS, status: "missing" } as const;
     }
-    const raw = yield* Effect.exit(fs.readFileString(sharedSettingsPath));
-    if (Exit.isFailure(raw)) return yield* unusableSharedSettings(raw.cause);
-    const parsed = decodeSettingsDocumentExit(raw.value);
+    const contents = yield* Effect.exit(fs.readFileString(sharedSettingsPath));
+    if (Exit.isFailure(contents)) return yield* unusableSharedSettings(contents.cause);
+    const parsed = decodeSettingsDocumentExit(contents.value);
     if (Exit.isFailure(parsed)) return yield* unusableSharedSettings(Cause.pretty(parsed.cause));
     // The fold marker records this machine's migration history, not a preference.
-    const { projectSettingsFolded: _machineLocal, ...document } = parsed.value;
+    const { projectSettingsFolded: _machineLocal, ...raw } = parsed.value;
+    const { document, duplicates } = canonicalizeSecretFields(raw);
+    yield* warnDuplicateSecretHosts(sharedSettingsPath, duplicates);
     const decoded = decodePersistedServerSettingsExit(document);
     if (Exit.isFailure(decoded)) return yield* unusableSharedSettings(Cause.pretty(decoded.cause));
     const baseline = yield* Effect.exit(normalizeServerSettings(decoded.value));
@@ -960,21 +1027,14 @@ const make = Effect.gen(function* () {
 
   const loadSettingsFromDisk = Effect.gen(function* () {
     const shared = yield* loadSharedSettings;
-    // Every patch stores `backgroundActivity` normalized, and every save rewrites secret fields
-    // through `mapSettingsSecrets` (host keys, redaction flags). Over a shared layer the loaded
-    // settings and the baseline must hold those same forms, or each write would persist the
-    // shared values' rewritten copies.
-    const normalizeLayered = (settings: ServerSettings): ServerSettings =>
+    // Every patch stores `backgroundActivity` normalized. Over a shared layer the
+    // loaded settings and the baseline must hold that same form, or each write
+    // would persist the shared value's normalized copy.
+    const normalizeBackgroundActivity = (settings: ServerSettings): ServerSettings =>
       shared === undefined
         ? settings
-        : mapSettingsSecrets(
-            {
-              ...settings,
-              backgroundActivity: normalizeServerBackgroundActivitySettings(settings),
-            },
-            (secret) => secret,
-          );
-    const baseline = normalizeLayered(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
+        : { ...settings, backgroundActivity: normalizeServerBackgroundActivitySettings(settings) };
+    const baseline = normalizeBackgroundActivity(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
     const layer: SettingsLayer = {
       baseline,
       keepLocalKeys: shared !== undefined && shared.status !== "loaded",
@@ -992,12 +1052,17 @@ const make = Effect.gen(function* () {
     if (yield* readConfigExists) {
       const raw = yield* readRawConfig;
       const document = decodeSettingsDocumentExit(raw);
+      const local =
+        shared !== undefined && Exit.isSuccess(document)
+          ? canonicalizeSecretFields(document.value)
+          : undefined;
+      if (local !== undefined) yield* warnDuplicateSecretHosts(settingsPath, local.duplicates);
       const decoded = Exit.isFailure(document)
         ? Exit.failCause(document.cause)
         : decodePersistedServerSettingsExit(
-            shared === undefined
+            shared === undefined || local === undefined
               ? document.value
-              : layerSettingsDocuments(shared.document, document.value),
+              : layerSettingsDocuments(shared.document, local.document),
           );
       const legacySettings = decodeLegacyProviderSettingsJsonExit(raw);
       if (legacySettings._tag === "Success") {
@@ -1020,7 +1085,7 @@ const make = Effect.gen(function* () {
           });
         }
       } else {
-        settings = normalizeLayered(decoded.value);
+        settings = normalizeBackgroundActivity(decoded.value);
         if (Exit.isSuccess(document) && isSettingsDocument(document.value.providerInstances)) {
           localInstanceIds = new Set(Object.keys(document.value.providerInstances));
         }
@@ -1103,11 +1168,15 @@ const make = Effect.gen(function* () {
         : [],
       (move) =>
         secretStore.get(move.from).pipe(
-          Effect.flatMap((secret) => {
-            if (Option.isSome(secret)) return secretStore.set(move.to, secret.value);
-            unstoredLegacySecrets.add(move.from);
-            return Effect.void;
-          }),
+          Effect.flatMap((secret) =>
+            Option.isSome(secret)
+              ? secretStore.set(move.to, secret.value)
+              : secretStore.get(move.to).pipe(
+                  Effect.map((current) => {
+                    if (Option.isNone(current)) unstoredLegacySecrets.add(move.from);
+                  }),
+                ),
+          ),
           Effect.as(true),
           Effect.catch(() =>
             Effect.logWarning("failed to copy a source control secret to its new name", {
