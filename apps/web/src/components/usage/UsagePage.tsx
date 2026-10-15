@@ -118,6 +118,15 @@ function isUsageWindowDays(value: number): value is UsagePagePreferences["window
 
 const providerLabel = (provider: UsageProviderKind) => PROVIDER_PRESENTATION[provider].label;
 
+/**
+ * Takes the joined members so the compiler caches on a string and the set keeps its identity
+ * while its members stay the same.
+ */
+function providerSet(key: string): ReadonlySet<UsageProviderKind> {
+  const members = key.split(",");
+  return new Set(PROVIDER_ORDER.filter((provider) => members.includes(provider)));
+}
+
 function usageLoading(
   showingKept: boolean,
   selectedEnvironments: Parameters<typeof usageLoadingState>[0],
@@ -363,9 +372,11 @@ export function UsagePage() {
     { tableDimensions: preferences.tableDimensions, sort: preferences.sort },
     metric === "tokens" ? "tokens" : "cost",
   );
-  const environmentLabels = new Map(
+  // Keyed by content: environment statuses change identity on every update.
+  const environmentLabelsKey = JSON.stringify(
     environments.map((environment) => [environment.environmentId, environment.label]),
   );
+  const environmentLabels = new Map(JSON.parse(environmentLabelsKey) as [EnvironmentId, string][]);
   const showChatGptSharing =
     !hiddenProviders.has("codex") &&
     [...providersByEnvironment].some(
@@ -662,8 +673,10 @@ function UsageOverview({
   // A primitive copy: reading `loading.partial` in the JSX would keep `loading` alive
   // across every derivation below and fold them into one cache scope.
   const loadingPartial = loading.partial === true;
-  const loadingProviders = new Set(
-    PROVIDER_ORDER.filter((provider) => loading.everyProvider || loading.providers.has(provider)),
+  const loadingProviders = providerSet(
+    PROVIDER_ORDER.filter(
+      (provider) => loading.everyProvider || loading.providers.has(provider),
+    ).join(","),
   );
   const providersWithData = new Set(providersWithUsage(merged.providers));
   // `everyProvider` marks shown providers as loading; only `loading.providers`, which excludes
@@ -672,8 +685,8 @@ function UsageOverview({
   const activeProviders = [...PROVIDER_ORDER].filter(
     (provider) => providersWithData.has(provider) || loading.providers.has(provider),
   );
-  const chartLoadingProviders = new Set(
-    activeProviders.filter((provider) => loadingProviders.has(provider)),
+  const chartLoadingProviders = providerSet(
+    activeProviders.filter((provider) => loadingProviders.has(provider)).join(","),
   );
   const sourceMessages = [
     ...new Set(
@@ -956,9 +969,7 @@ function UsageOverview({
         metric={metric}
         environmentLabels={environmentLabels}
         timeZone={shownWindow.timeZone}
-        isRowLoading={(row) =>
-          row.provider === undefined ? loadingPartial : loadingProviders.has(row.provider)
-        }
+        loadingProviders={loadingProviders}
         onOpenModel={(row) => onSelectModel(`${row.provider}:${row.model}`)}
       />
     </div>
