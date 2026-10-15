@@ -799,6 +799,19 @@ function restoreUnmanagedSettings(
   return restored;
 }
 
+/** What the managed layer is checked by: each top-level key, or each whole atomic entry. */
+function managedEntryDocuments(
+  document: SettingsDocument,
+): ReadonlyArray<readonly [string, SettingsDocument]> {
+  return Object.entries(document).flatMap(([key, value]) =>
+    ATOMIC_ENTRY_SETTINGS_KEYS.has(key) && isSettingsDocument(value)
+      ? Object.entries(value).map(
+          ([id, entry]) => [`${key}.${id}`, { [key]: { [id]: entry } }] as const,
+        )
+      : [[key, { [key]: value }] as const],
+  );
+}
+
 function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unknown {
   return path.reduce<unknown>(
     (current, segment) => (isSettingsDocument(current) ? current[segment] : undefined),
@@ -1400,12 +1413,10 @@ const make = Effect.gen(function* () {
 
   const applyManagedLayer = (
     settings: ServerSettings,
-    managed: ManagedSettingsLayer,
+    managed: SettingsDocument,
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     encodeServerSettings(settings).pipe(
-      Effect.flatMap((encoded) =>
-        decodeServerSettings(layerSettingsDocuments(encoded, managed.document)),
-      ),
+      Effect.flatMap((encoded) => decodeServerSettings(layerSettingsDocuments(encoded, managed))),
       Effect.mapError(managedFileError),
       Effect.flatMap(normalizeServerSettings),
     );
@@ -1414,27 +1425,45 @@ const make = Effect.gen(function* () {
     layer: SettingsLayer,
     settings: ServerSettings,
     managed: ManagedSettingsLayer | undefined,
-  ): Effect.Effect<SettingsState> => {
-    const { baseline, keepLocalKeys } = layer;
-    const unmanaged: SettingsState = {
-      baseline,
-      keepLocalKeys,
-      settings,
-      effective: settings,
-      managed: undefined,
-    };
-    return managed === undefined
-      ? Effect.succeed(unmanaged)
-      : applyManagedLayer(settings, managed).pipe(
-          Effect.map((effective): SettingsState => ({ ...unmanaged, effective, managed })),
+  ): Effect.Effect<SettingsState> =>
+    Effect.gen(function* () {
+      const { baseline, keepLocalKeys } = layer;
+      const unmanaged: SettingsState = {
+        baseline,
+        keepLocalKeys,
+        settings,
+        effective: settings,
+        managed: undefined,
+      };
+      if (managed === undefined) return unmanaged;
+      const whole = yield* Effect.exit(applyManagedLayer(settings, managed.document));
+      if (Exit.isSuccess(whole)) return { ...unmanaged, effective: whole.value, managed };
+      // Drop only the entries that do not fit, so the rest of the file stays enforced.
+      let document: SettingsDocument = {};
+      for (const [setting, entry] of managedEntryDocuments(managed.document)) {
+        const fits = yield* applyManagedLayer(settings, entry).pipe(
+          Effect.as(true),
           Effect.catch((error) =>
-            Effect.logWarning("ignoring managed settings that do not fit the settings schema", {
+            Effect.logWarning("ignoring a managed setting that does not fit the settings schema", {
               path: managedSettingsPath,
+              setting,
               cause: error.cause,
-            }).pipe(Effect.as(unmanaged)),
+            }).pipe(Effect.as(false)),
           ),
         );
-  };
+        if (fits) document = layerSettingsDocuments(document, entry);
+      }
+      const fitting: ManagedSettingsLayer = { document, paths: managedLeafPaths(document) };
+      return yield* applyManagedLayer(settings, document).pipe(
+        Effect.map((effective): SettingsState => ({ ...unmanaged, effective, managed: fitting })),
+        Effect.catch((error) =>
+          Effect.logWarning("ignoring managed settings that do not fit the settings schema", {
+            path: managedSettingsPath,
+            cause: error.cause,
+          }).pipe(Effect.as(unmanaged)),
+        ),
+      );
+    });
 
   const settingsBeneathManaged = (
     current: SettingsState,

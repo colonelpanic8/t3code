@@ -209,8 +209,13 @@ reinstalls and cannot drift. Point these variables at read-only files:
 - `T3CODE_MANAGED_SETTINGS_FILE`, read by the server: same format as its
   `settings.json`, and it wins over both that file and a
   [shared settings file](#share-settings-across-machines). Nested objects merge
-  key by key, except settings saved whole, which it replaces entirely. Keys you
-  leave out stay editable.
+  key by key, except settings saved whole, which it replaces entirely. Each
+  provider instance, usage limit source, and price override is one of these:
+  give it whole, including its `driver`, and it replaces your entry of the same
+  name. Top-level keys and whole entries you leave out stay editable; fields
+  you leave out of a managed entry do not. An entry or key that is not valid
+  settings is ignored with a warning in the server log, and the rest of the
+  file still applies.
 - `T3CODE_MANAGED_KEYBINDINGS_FILE`, read by the server and the desktop app:
   same format as `keybindings.json`. A managed rule replaces your rules for the
   same command or the same shortcut. The desktop app layers it over whichever

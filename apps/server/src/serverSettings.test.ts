@@ -2277,6 +2277,49 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }),
   );
 
+  it.effect("ignores an invalid managed entry and keeps enforcing the rest of the file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-partial-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/settings.json`,
+        JSON.stringify({
+          providerInstances: { codex: { driver: "codex", config: { homePath: "/local" } } },
+        }),
+      );
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({
+          branchNamePrefix: "nix/",
+          providerInstances: {
+            codex: { config: { homePath: "/managed" } },
+            codex_work: { driver: "codex", config: { homePath: "/work" } },
+          },
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.branchNamePrefix, "nix/");
+        assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("codex")]?.config, {
+          homePath: "/local",
+        });
+        assert.deepEqual(
+          settings.providerInstances[ProviderInstanceId.make("codex_work")]?.config,
+          { homePath: "/work" },
+        );
+        assert.deepEqual(yield* service.managedSettingPaths, [
+          ["branchNamePrefix"],
+          ["providerInstances", "codex_work"],
+        ]);
+        const rejected = yield* Effect.flip(service.updateSettings({ branchNamePrefix: "user/" }));
+        assert.equal(rejected._tag, "ManagedSettingWriteError");
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
   it.effect("reads managed credentials only from referenced files", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
