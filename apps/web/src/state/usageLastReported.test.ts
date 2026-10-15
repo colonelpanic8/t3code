@@ -1,4 +1,5 @@
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import { usageEnvironmentProgress } from "@t3tools/client-runtime/state/usage-progress";
 import {
   EnvironmentId,
   UsageDay,
@@ -81,10 +82,10 @@ function presentations(phase: EnvironmentConnectionPhase) {
 }
 
 describe("restored usage from an environment that is not connected", () => {
-  it("stays in the totals but reports as last reported, then rescans on connection", () => {
+  function mountWith(phase: EnvironmentConnectionPhase) {
     const registry = AtomRegistry.make({
       initialValues: [
-        [mocks.presentationsAtom, presentations("offline")],
+        [mocks.presentationsAtom, presentations(phase)],
         // A persisted summary settles while its environment cannot answer.
         [mocks.query, AsyncResult.success(summary)],
       ],
@@ -92,12 +93,39 @@ describe("restored usage from an environment that is not connected", () => {
     registries.push(registry);
     const atom = usageByWindowAtom(JSON.stringify(input));
     registry.mount(atom);
+    return { registry, atom, status: () => registry.get(atom)[0]! };
+  }
 
-    expect(registry.get(atom)[0]).toMatchObject({ isPending: false, isConnected: false, summary });
-    expect(registry.get(atom)[0]?.error).not.toBeNull();
+  it("reads as stale, not failed, while its environment first connects", () => {
+    const { registry, status } = mountWith("connecting");
+    expect(status()).toMatchObject({
+      isPending: false,
+      isConnected: false,
+      isConnecting: true,
+      error: null,
+      summary,
+    });
+    expect(usageEnvironmentProgress(status())).toEqual({ phase: "stale" });
 
     registry.set(mocks.presentationsAtom, presentations("connected"));
     registry.set(mocks.query, AsyncResult.waiting(AsyncResult.success(summary)));
-    expect(registry.get(atom)[0]).toMatchObject({ isPending: true, error: null, summary });
+    expect(status()).toMatchObject({ isPending: true, error: null, summary });
+    expect(usageEnvironmentProgress(status())).toEqual({ phase: "stale" });
+  });
+
+  it("stays out of the failed list without holding progress while it retries", () => {
+    const { status } = mountWith("reconnecting");
+    expect(status()).toMatchObject({ isConnecting: false, error: null, summary });
+    expect(usageEnvironmentProgress(status())).toEqual({ phase: "inactive" });
+  });
+
+  it("reports as not connected once no connection attempt runs", () => {
+    const { status } = mountWith("offline");
+    expect(status()).toMatchObject({
+      isPending: false,
+      error: "This environment is not connected. Totals include its last reported usage.",
+      summary,
+    });
+    expect(usageEnvironmentProgress(status())).toEqual({ phase: "inactive" });
   });
 });
