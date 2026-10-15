@@ -229,8 +229,11 @@ reinstalls and cannot drift. Point these variables at read-only files:
 Managed values show as **Managed by system configuration** and cannot be changed
 from any client or agent. Your own values stay saved underneath, so removing a
 key from the managed file gives it back. Credentials such as GitHub tokens must
-not appear inline; write `{"$file": "/path/to/secret"}` instead. A managed
-settings file with an inline credential is ignored entirely. Restart the
+not appear inline; write `{"$file": "/path/to/secret"}` instead. `$file` works
+only for credentials: environment variable values, provider and source control
+credential fields, and usage limit management keys. Anywhere else its entry is
+ignored with a warning, and the file is not read. A managed settings file with
+an inline credential is ignored entirely. Restart the
 server or app after changing a managed file.
 
 ## Next steps
