@@ -1,5 +1,5 @@
 import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
-import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
+import { formatCount, formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type UsageEntry } from "@t3tools/shared/usageMerge";
 import {
   USAGE_DIMENSIONS,
@@ -23,6 +23,7 @@ import {
   PlusIcon,
   XIcon,
 } from "lucide-react";
+import { memo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -92,6 +93,8 @@ export function withTableDimensions(
   return { tableDimensions, sort: sort.length > 0 ? sort : undefined };
 }
 
+const MAX_VISIBLE_ROWS = 200;
+
 const DEFAULT_DIRECTION: { readonly [Field in UsageSortField]: UsageSortCriterion["direction"] } = {
   costUsd: "descending",
   totalTokens: "descending",
@@ -143,6 +146,7 @@ export function layoutBreakdownTable(
   };
   return {
     grouped,
+    rowCount: sorted.length,
     groups: groups.map((group) => ({
       ...group,
       heading: name(group.rows[0], headingDimensions),
@@ -160,11 +164,29 @@ interface UsageBreakdownTableProps {
   readonly metric: "cost" | "tokens";
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   readonly timeZone: string;
-  readonly isRowLoading: (row: UsagePivotRow) => boolean;
+  /** Providers whose figures are still coming in. */
+  readonly loadingProviders: ReadonlySet<UsageProviderKind>;
   readonly onOpenModel: (row: UsagePivotRow & { readonly model: string }) => void;
 }
 
-export function UsageBreakdownTable({
+/** The first `limit` rows, keeping each group's heading and full totals. */
+function firstRows<Group extends { readonly rows: readonly unknown[] }>(
+  groups: readonly Group[],
+  limit: number,
+): readonly Group[] {
+  const visible: Group[] = [];
+  let remaining = limit;
+  for (const group of groups) {
+    if (remaining <= 0) break;
+    visible.push(
+      group.rows.length <= remaining ? group : { ...group, rows: group.rows.slice(0, remaining) },
+    );
+    remaining -= group.rows.length;
+  }
+  return visible;
+}
+
+export const UsageBreakdownTable = memo(function UsageBreakdownTable({
   entries,
   view,
   chartSeries,
@@ -173,9 +195,10 @@ export function UsageBreakdownTable({
   metric,
   environmentLabels,
   timeZone,
-  isRowLoading,
+  loadingProviders,
   onOpenModel,
 }: UsageBreakdownTableProps) {
+  const [showAllRows, setShowAllRows] = useState(false);
   const { tableDimensions: dimensions, sort } = view;
   const table = layoutBreakdownTable(
     entries,
@@ -183,6 +206,9 @@ export function UsageBreakdownTable({
     { environmentLabels, grouping, timeZone },
     chartSeries,
   );
+  const groups = showAllRows ? table.groups : firstRows(table.groups, MAX_VISIBLE_ROWS);
+  const isRowLoading = (row: UsagePivotRow) =>
+    row.provider === undefined ? loadingProviders.size > 0 : loadingProviders.has(row.provider);
 
   const shareOf = (totals: UsageTotals) => modelShare(totals, metric);
 
@@ -238,7 +264,7 @@ export function UsageBreakdownTable({
             <th className="py-2 pl-6 font-normal">Tokens</th>
           </tr>
         </thead>
-        {table.groups.length === 0 ? (
+        {groups.length === 0 ? (
           <tbody>
             <tr>
               <td colSpan={4} className="py-6 text-center text-muted-foreground">
@@ -247,7 +273,7 @@ export function UsageBreakdownTable({
             </tr>
           </tbody>
         ) : (
-          table.groups.map((group) => (
+          groups.map((group) => (
             <tbody key={group.key}>
               {table.grouped ? (
                 <tr className="border-b border-border/50 text-right whitespace-nowrap text-foreground tabular-nums">
@@ -302,9 +328,16 @@ export function UsageBreakdownTable({
           ))
         )}
       </table>
+      {groups === table.groups ? null : (
+        <div>
+          <Button size="xs" variant="ghost-muted" onClick={() => setShowAllRows(true)}>
+            Show all {formatCount(table.rowCount)} rows
+          </Button>
+        </div>
+      )}
     </section>
   );
-}
+});
 
 function BreakdownNameView({ name }: { readonly name: BreakdownName }) {
   return (
