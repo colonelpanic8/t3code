@@ -1,4 +1,5 @@
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
+import { isRemoteEnvironmentId, type EnvironmentPresenceScope } from "./environmentPresence";
 import {
   buildProjectGroups,
   derivePhysicalProjectKey,
@@ -115,6 +116,7 @@ export function buildSidebarProjectSnapshots(input: {
   settings: ProjectGroupingSettings;
   groupScratchProjects?: boolean;
   primaryEnvironmentId: EnvironmentId | null;
+  ownsLocalEnvironment: boolean;
   resolveEnvironmentLabel: (environmentId: EnvironmentId) => string | null;
   // Returns true when an env id maps to a desktop-local saved-env
   // record. Defaults to "false for every
@@ -123,6 +125,10 @@ export function buildSidebarProjectSnapshots(input: {
   isDesktopLocalEnvironment?: (environmentId: EnvironmentId) => boolean;
   isWslEnvironment?: (environmentId: EnvironmentId) => boolean;
 }): SidebarProjectSnapshot[] {
+  const presenceScope: EnvironmentPresenceScope = {
+    primaryEnvironmentId: input.primaryEnvironmentId,
+    ownsLocalEnvironment: input.ownsLocalEnvironment,
+  };
   return buildProjectGroups({
     projects: input.projects,
     groupScratchProjects: input.groupScratchProjects ?? false,
@@ -143,17 +149,11 @@ export function buildSidebarProjectSnapshots(input: {
           member.id === group.representative.id,
       ) ?? members[0]!;
 
-    const hasLocal =
-      input.primaryEnvironmentId !== null &&
-      members.some((member) => member.environmentId === input.primaryEnvironmentId);
-    const hasRemote =
-      input.primaryEnvironmentId !== null
-        ? members.some((member) => member.environmentId !== input.primaryEnvironmentId)
-        : false;
-    const remoteMembers = members.filter(
-      (member) =>
-        input.primaryEnvironmentId !== null && member.environmentId !== input.primaryEnvironmentId,
+    const remoteMembers = members.filter((member) =>
+      isRemoteEnvironmentId(member.environmentId, presenceScope),
     );
+    const hasRemote = remoteMembers.length > 0;
+    const hasLocal = remoteMembers.length < members.length;
     const remoteEnvironmentLabels = remoteMembers
       .flatMap((member) => (member.environmentLabel ? [member.environmentLabel] : []))
       .filter((label, index, labels) => labels.indexOf(label) === index);
