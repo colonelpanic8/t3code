@@ -2270,6 +2270,71 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         ]);
         const rejected = yield* Effect.flip(service.updateSettings({ branchNamePrefix: "user/" }));
         assert.equal(rejected._tag, "ManagedSettingWriteError");
+
+        const codex = ProviderInstanceId.make("codex");
+        const updated = yield* service.updateSettings({
+          providerInstances: {
+            ...settings.providerInstances,
+            [codex]: { driver: ProviderDriverKind.make("codex"), config: { homePath: "/edited" } },
+          },
+        });
+        assert.deepEqual(updated.providerInstances[codex]?.config, { homePath: "/edited" });
+        const config = yield* ServerConfig.ServerConfig;
+        assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+          providerInstances: { codex: { driver: "codex", config: { homePath: "/edited" } } },
+        });
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
+  it.effect.each([
+    { name: "a wrong-typed key", managed: { defaultAutoPull: "yes" } },
+    { name: "an entry map that is not an object", managed: { providerInstances: ["codex"] } },
+    { name: "an unknown key", managed: { branchNamePrefx: "typo/" } },
+    {
+      name: "a key derived from projectSettingsOverrides",
+      managed: { projectAutoPullOverrides: { "project-1": true } },
+    },
+    {
+      name: "an entry whose id decodes differently",
+      managed: {
+        usagePriceOverrides: {
+          " gpt-x ": { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 },
+        },
+      },
+    },
+    {
+      name: "an entry referencing a missing file",
+      managed: {
+        providerInstances: {
+          codex_work: {
+            driver: "codex",
+            environment: [
+              {
+                name: "OPENAI_API_KEY",
+                value: { $file: "/nonexistent/t3-secret" },
+                sensitive: true,
+              },
+            ],
+          },
+        },
+      },
+    },
+  ])("ignores $name in the managed file and keeps enforcing the rest", ({ managed }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-dropped-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({ branchNamePrefix: "nix/", ...managed }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.branchNamePrefix, "nix/");
+        assert.deepEqual(yield* service.managedSettingPaths, [["branchNamePrefix"]]);
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
     }),
   );

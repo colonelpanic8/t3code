@@ -859,18 +859,48 @@ function restoreUnmanagedSettings(
   return restored;
 }
 
+interface ManagedEntry {
+  readonly key: string;
+  /** Set for one whole entry of an atomic entry map. */
+  readonly id?: string;
+  /** `key`, or `key.id`, for warnings. */
+  readonly setting: string;
+  readonly document: SettingsDocument;
+}
+
 /** What the managed layer is checked by: each top-level key, or each whole atomic entry. */
-function managedEntryDocuments(
-  document: SettingsDocument,
-): ReadonlyArray<readonly [string, SettingsDocument]> {
-  return Object.entries(document).flatMap(([key, value]) =>
+function managedEntries(document: SettingsDocument): ReadonlyArray<ManagedEntry> {
+  return Object.entries(document).flatMap(([key, value]): ManagedEntry[] =>
     ATOMIC_ENTRY_SETTINGS_KEYS.has(key) && isSettingsDocument(value)
-      ? Object.entries(value).map(
-          ([id, entry]) => [`${key}.${id}`, { [key]: { [id]: entry } }] as const,
-        )
-      : [[key, { [key]: value }] as const],
+      ? Object.entries(value).map(([id, entry]) => ({
+          key,
+          id,
+          setting: `${key}.${id}`,
+          document: { [key]: { [id]: entry } },
+        }))
+      : [{ key, setting: key, document: { [key]: value } }],
   );
 }
+
+/** Whether `settings` lacks the id of an atomic entry in `document`, as decoding rewrote it. */
+function hasRewrittenEntryId(settings: ServerSettings, document: SettingsDocument): boolean {
+  const decoded: SettingsDocument = settings;
+  return managedEntries(document).some(({ key, id }) => {
+    const entries = decoded[key];
+    return id !== undefined && !(isSettingsDocument(entries) && Object.hasOwn(entries, id));
+  });
+}
+
+const hasFileReference = (value: unknown): boolean =>
+  Array.isArray(value)
+    ? value.some(hasFileReference)
+    : isSettingsDocument(value) &&
+      ("$file" in value || Object.values(value).some(hasFileReference));
+
+// Normalizing rebuilds these from `projectSettingsOverrides`, so a managed value would never hold.
+const DERIVED_SETTINGS_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(deriveLegacyProjectOverrides({ projectSettingsOverrides: {} })),
+);
 
 function readSettingsPath(document: unknown, path: ReadonlyArray<string>): unknown {
   return path.reduce<unknown>(
@@ -918,6 +948,8 @@ function findInlineManagedSecret(document: SettingsDocument): string | undefined
 interface ManagedSettingsLayer {
   readonly document: SettingsDocument;
   readonly paths: ManagedSettingPaths;
+  /** Settings holding values read from `$file` references, whose schema errors are not logged. */
+  readonly fromFiles: ReadonlySet<string>;
 }
 
 interface SettingsState extends SettingsLayer {
@@ -1460,6 +1492,16 @@ const make = Effect.gen(function* () {
     ).pipe(Effect.map(Object.fromEntries));
   };
 
+  const ignoreManagedSetting = (
+    setting: string,
+    details: { readonly reason: string; readonly cause?: unknown },
+  ) =>
+    Effect.logWarning("ignoring a managed setting", {
+      path: managedSettingsPath,
+      setting,
+      ...details,
+    });
+
   // Read on every load, like settings.json; an unusable file leaves the layers beneath in charge.
   const loadManagedLayer = Effect.gen(function* () {
     if (managedSettingsPath === undefined) return undefined;
@@ -1470,14 +1512,45 @@ const make = Effect.gen(function* () {
     if (decoded._tag === "Failure") {
       return yield* managedFileError(decoded.cause);
     }
+    // An inline credential voids the whole file rather than one entry: it is already exposed
+    // wherever the file lives, and that should not go unnoticed behind the rest still applying.
     const inlineSecret = findInlineManagedSecret(decoded.value);
     if (inlineSecret !== undefined) {
       return yield* managedFileError(
         new Error(`${inlineSecret} must reference a file with {"$file": "/path"}`),
       );
     }
-    const document = (yield* resolveManagedFileReferences(decoded.value)) as SettingsDocument;
-    return { document, paths: managedLeafPaths(document) } satisfies ManagedSettingsLayer;
+    let document: SettingsDocument = {};
+    const fromFiles = new Set<string>();
+    for (const entry of managedEntries(decoded.value)) {
+      if (!Object.hasOwn(ServerSettings.fields, entry.key)) {
+        yield* ignoreManagedSetting(entry.setting, { reason: "is not a known setting" });
+        continue;
+      }
+      if (DERIVED_SETTINGS_KEYS.has(entry.key)) {
+        yield* ignoreManagedSetting(entry.setting, {
+          reason: "is derived from projectSettingsOverrides; manage that instead",
+        });
+        continue;
+      }
+      const resolved = yield* resolveManagedFileReferences(entry.document).pipe(
+        Effect.map((value) => value as SettingsDocument),
+        Effect.catch((error) =>
+          ignoreManagedSetting(entry.setting, {
+            reason: "references a file that cannot be read",
+            cause: error.cause,
+          }).pipe(Effect.as(undefined)),
+        ),
+      );
+      if (resolved === undefined) continue;
+      if (hasFileReference(entry.document)) fromFiles.add(entry.setting);
+      document = layerSettingsDocuments(document, resolved);
+    }
+    return {
+      document,
+      paths: managedLeafPaths(document),
+      fromFiles,
+    } satisfies ManagedSettingsLayer;
   }).pipe(
     Effect.catch((error: ServerSettingsError) =>
       Effect.logWarning("ignoring managed settings file", {
@@ -1513,29 +1586,39 @@ const make = Effect.gen(function* () {
       };
       if (managed === undefined) return unmanaged;
       const whole = yield* Effect.exit(applyManagedLayer(settings, managed.document));
-      if (Exit.isSuccess(whole)) return { ...unmanaged, effective: whole.value, managed };
-      // Drop only the entries that do not fit, so the rest of the file stays enforced.
+      if (Exit.isSuccess(whole) && !hasRewrittenEntryId(whole.value, managed.document)) {
+        return { ...unmanaged, effective: whole.value, managed };
+      }
+      // Drop only the entries not enforced as written, so the rest of the file still is.
       let document: SettingsDocument = {};
-      for (const [setting, entry] of managedEntryDocuments(managed.document)) {
-        const fits = yield* applyManagedLayer(settings, entry).pipe(
-          Effect.as(true),
+      for (const entry of managedEntries(managed.document)) {
+        const rejection = yield* applyManagedLayer(settings, entry.document).pipe(
+          Effect.map((effective) =>
+            hasRewrittenEntryId(effective, entry.document)
+              ? { reason: "has an id that is not kept as written" }
+              : undefined,
+          ),
           Effect.catch((error) =>
-            Effect.logWarning("ignoring a managed setting that does not fit the settings schema", {
-              path: managedSettingsPath,
-              setting,
-              cause: error.cause,
-            }).pipe(Effect.as(false)),
+            Effect.succeed({
+              reason: "does not fit the settings schema",
+              ...(managed.fromFiles.has(entry.setting) ? {} : { cause: error.cause }),
+            }),
           ),
         );
-        if (fits) document = layerSettingsDocuments(document, entry);
+        if (rejection === undefined) document = layerSettingsDocuments(document, entry.document);
+        else yield* ignoreManagedSetting(entry.setting, rejection);
       }
-      const fitting: ManagedSettingsLayer = { document, paths: managedLeafPaths(document) };
+      const fitting: ManagedSettingsLayer = {
+        document,
+        paths: managedLeafPaths(document),
+        fromFiles: managed.fromFiles,
+      };
       return yield* applyManagedLayer(settings, document).pipe(
         Effect.map((effective): SettingsState => ({ ...unmanaged, effective, managed: fitting })),
         Effect.catch((error) =>
           Effect.logWarning("ignoring managed settings that do not fit the settings schema", {
             path: managedSettingsPath,
-            cause: error.cause,
+            ...(managed.fromFiles.size > 0 ? {} : { cause: error.cause }),
           }).pipe(Effect.as(unmanaged)),
         ),
       );
