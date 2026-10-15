@@ -74,11 +74,22 @@ it("warns about unknown keys in the server log when `serve` starts", async () =>
     try {
       const stdout = await new Promise<string>((resolve, reject) => {
         let output = "";
+        // Rejects well inside the test timeout so the finally below always stops serve.
+        const timeout = setTimeout(
+          () => reject(new Error(`no warning within 45s:\n${output}`)),
+          45_000,
+        );
         child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
           output += chunk;
-          if (unknownKeyWarning.test(output)) resolve(output);
+          if (unknownKeyWarning.test(output)) {
+            clearTimeout(timeout);
+            resolve(output);
+          }
         });
-        void exited.then(() => reject(new Error(`serve exited before warning:\n${output}`)));
+        void exited.then(() => {
+          clearTimeout(timeout);
+          reject(new Error(`serve exited before warning:\n${output}`));
+        });
       });
       assert.match(stdout, unknownKeyWarning);
     } finally {
