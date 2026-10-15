@@ -158,6 +158,31 @@ describe("fleet sync plan", () => {
     expect(plan).toEqual({ root: A, join: [], relabel: [], rejoin: [], remove: [] });
   });
 
+  it("follows only switched-on environments and joins nothing through a switched-off root", () => {
+    const off = (entry: ConnectionCatalogEntry) => ({ ...entry, enabled: false });
+
+    expect(
+      planFleetSync({
+        entries: catalog(off(pairedEntry(A))),
+        source: A,
+        fleet: [member(A), member(B)],
+      }),
+    ).toBeNull();
+    expect(
+      planFleetSync({
+        entries: catalog(off(pairedEntry(A)), joinedEntry(member(B), A)),
+        source: B,
+        fleet: [member(A), { ...member(B), label: "renamed" }, member(C)],
+      }),
+    ).toEqual({
+      root: A,
+      join: [],
+      relabel: [{ ...member(B), label: "renamed" }],
+      rejoin: [],
+      remove: [],
+    });
+  });
+
   it("takes a fleet off the device with the machine it joined through", () => {
     const joined = catalog(pairedEntry(A), joinedEntry(member(B), A), joinedEntry(member(C), A));
     const afterRemovingRoot = catalog(joinedEntry(member(B), A), joinedEntry(member(C), A));
