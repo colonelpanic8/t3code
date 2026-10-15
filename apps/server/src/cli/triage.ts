@@ -31,7 +31,7 @@ import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntim
 import {
   resolveServerConfigFilePath,
   resolveServerLocations,
-  serverLocationFlags,
+  serverConfigFileFlags,
   traceFileConfig,
 } from "./config.ts";
 import { resolveCliCommand } from "./invocation.ts";
@@ -157,7 +157,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 
 export const triageCommand = Command.make("triage", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   agent: agentFlag,
   model: modelFlag,
 }).pipe(
@@ -180,12 +180,21 @@ export const triageCommand = Command.make("triage", {
       const serverConfig = yield* readServerConfigFile(configFile.path, {
         explicit: configFile.explicit,
       }).pipe(
-        Effect.map((file) => ({ traceFile: file.traceFile, description: configFile.path })),
+        Effect.map((file) => ({
+          traceFile: file.options.traceFile,
+          description: configFile.path,
+        })),
         Effect.catchTags({
           ServerConfigFileError: (error) =>
             Effect.succeed({
               traceFile: undefined,
-              description: `${configFile.path} (invalid, so the server will not start: ${error.detail})`,
+              // Fenced and indented so a multi-line detail stays inside its bullet.
+              description: [
+                `${configFile.path} (invalid, so the server will not start):`,
+                "```",
+                ...error.detail.split("\n"),
+                "```",
+              ].join("\n  "),
             }),
         }),
       );

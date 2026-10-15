@@ -20,7 +20,7 @@ import {
   DurationFromString,
   loadServerConfigFile,
   resolveServerLocations,
-  serverLocationFlags,
+  serverConfigFileFlags,
   traceFileConfig,
   traceMaxFilesConfig,
 } from "./config.ts";
@@ -171,7 +171,7 @@ function formatTraceSummary(
 }
 
 const traceSummaryCommand = Command.make("summary", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   since: Flag.String("since").pipe(
     Flag.withSchema(DurationFromString),
     Flag.withDescription("Only count spans that ended in this window, for example 30m or 2h."),
@@ -191,7 +191,10 @@ const traceSummaryCommand = Command.make("summary", {
       // trace file in the server's data dir. Implicit dev runs write
       // elsewhere; set T3CODE_TRACE_FILE.
       const { derivedPaths } = yield* resolveServerLocations(flags, { devUrl: undefined });
-      const serverConfigFile = yield* loadServerConfigFile(flags, derivedPaths.configDir);
+      const { options: serverConfigFile } = yield* loadServerConfigFile(
+        flags,
+        derivedPaths.configDir,
+      );
       const traceFilePath =
         (yield* traceFileConfig) ?? serverConfigFile.traceFile ?? derivedPaths.serverTracePath;
       const traceMaxFiles =
