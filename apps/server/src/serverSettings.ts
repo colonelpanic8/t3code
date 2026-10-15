@@ -924,58 +924,74 @@ function withoutSettingsKey(value: unknown, path: ReadonlyArray<string>): unknow
 const decodeProviderInstanceOption = Schema.decodeUnknownOption(ProviderInstanceConfig);
 const decodeUsageLimitSourceOption = Schema.decodeUnknownOption(UsageLimitSourceConfig);
 
-/** The entries of `map` that decode, keyed by `prefix` and their id. */
+/** The entries of `map` that decode. */
 function decodedEntries(
   map: unknown,
   decode: (entry: unknown) => Option.Option<unknown>,
-  prefix = "",
 ): Array<readonly [string, unknown]> {
   if (!isSettingsDocument(map)) return [];
   return Object.entries(map).flatMap(([id, entry]) =>
     Option.match(decode(entry), {
       onNone: () => [],
-      onSome: (decoded) => [[`${prefix}${id}`, decoded] as const],
+      onSome: (decoded) => [[id, decoded] as const],
     }),
   );
 }
 
+/** The entries of `map` that are objects `keep` accepts. */
+function rawEntries(
+  map: unknown,
+  keep: (entry: unknown) => boolean = isSettingsDocument,
+): Record<string, unknown> {
+  return isSettingsDocument(map)
+    ? Object.fromEntries(Object.entries(map).filter(([, entry]) => keep(entry)))
+    : {};
+}
+
 // Credentials reach the managed file only as `{ "$file": "/path" }`, since the
 // file itself usually lives somewhere world-readable such as the Nix store.
-// Entries are decoded first so secret fields resolve by the driver names and
-// defaults the runtime sees; ones that do not decode are dropped later anyway.
-// Returns the store name of the first secret written inline.
+// Secret fields are walked twice: on decoded entries, so they resolve by the
+// driver names and defaults the runtime sees, and on raw ones, so an entry that
+// fails to decode cannot hide one. Project provider overrides accept only
+// `enabled`, so any `config` or `environment` there counts as inline.
+// Returns a description of the first credential written inline.
 function findInlineManagedSecret(document: SettingsDocument): string | undefined {
   const marked = markFileReferences(document) as SettingsDocument;
-  const projects = isSettingsDocument(marked.projectSettingsOverrides)
-    ? Object.entries(marked.projectSettingsOverrides)
-    : [];
-  const providerInstances = Object.fromEntries([
-    ...decodedEntries(marked.providerInstances, decodeProviderInstanceOption),
-    ...projects.flatMap(([projectId, project]) =>
-      isSettingsDocument(project)
-        ? decodedEntries(project.providerInstances, decodeProviderInstanceOption, `${projectId}/`)
-        : [],
+  for (const [projectId, project] of Object.entries(rawEntries(marked.projectSettingsOverrides))) {
+    const instances = rawEntries((project as SettingsDocument).providerInstances);
+    for (const [instanceId, instance] of Object.entries(instances)) {
+      const key = ["config", "environment"].find((field) => field in (instance as object));
+      if (key !== undefined) {
+        return `projectSettingsOverrides.${projectId}.providerInstances.${instanceId}.${key}`;
+      }
+    }
+  }
+  const decoded = {
+    providerInstances: Object.fromEntries(
+      decodedEntries(marked.providerInstances, decodeProviderInstanceOption),
     ),
-  ]);
-  const sourceControlHosts = isSettingsDocument(marked.sourceControlHosts)
-    ? Object.fromEntries(
-        Object.entries(marked.sourceControlHosts).filter(([, host]) => isSettingsDocument(host)),
-      )
-    : {};
-  const usageLimitSources = Object.fromEntries(
-    decodedEntries(marked.usageLimitSources, decodeUsageLimitSourceOption),
-  );
+    sourceControlHosts: rawEntries(marked.sourceControlHosts),
+    usageLimitSources: Object.fromEntries(
+      decodedEntries(marked.usageLimitSources, decodeUsageLimitSourceOption),
+    ),
+  };
+  const raw = {
+    providerInstances: rawEntries(marked.providerInstances, (entry) =>
+      isWalkableSecretEntry("providerInstances", entry),
+    ),
+    sourceControlHosts: decoded.sourceControlHosts,
+    usageLimitSources: rawEntries(marked.usageLimitSources),
+  };
   let inline: string | undefined;
-  mapSettingsSecrets(
-    { providerInstances, sourceControlHosts, usageLimitSources } as unknown as ServerSettings,
-    (secret) => {
-      const value = secret.value.trim();
+  for (const sections of [decoded, raw]) {
+    mapSettingsSecrets(sections as unknown as ServerSettings, (secret) => {
+      const value = typeof secret.value === "string" ? secret.value.trim() : "";
       if (secret.sensitive && value.length > 0 && value !== SECRET_REDACTED) {
-        inline ??= secret.secretName;
+        inline ??= `secret ${secret.secretName}`;
       }
       return secret;
-    },
-  );
+    });
+  }
   return inline;
 }
 
@@ -1538,7 +1554,7 @@ const make = Effect.gen(function* () {
     const inlineSecret = findInlineManagedSecret(decoded.value);
     if (inlineSecret !== undefined) {
       return yield* managedFileError(
-        new Error(`secret ${inlineSecret} must reference a file with {"$file": "/path"}`),
+        new Error(`${inlineSecret} must reference a file with {"$file": "/path"}`),
       );
     }
     let document: SettingsDocument = {};
