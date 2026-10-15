@@ -1212,10 +1212,15 @@ describe("persisted environment queries", () => {
         );
         yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
         yield* Deferred.await(seeded);
-        expect(Option.getOrNull(AsyncResult.value(registry.get(harness.atom)))).toBe("cached");
+        expect(registry.get(harness.atom)).toMatchObject({
+          _tag: "Success",
+          value: "cached",
+          waiting: true,
+        });
         yield* Deferred.succeed(response, "fresh");
         yield* Deferred.await(refreshed);
         expect(yield* readEnvironmentQuery(registry, harness.atom)).toBe("fresh");
+        expect(registry.get(harness.atom).waiting).toBe(false);
       }),
     ),
   );
