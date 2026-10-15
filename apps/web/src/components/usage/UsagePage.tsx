@@ -27,6 +27,7 @@ import {
   type HourlyTotals,
   type MergedUsage,
 } from "@t3tools/shared/usageMerge";
+import { enumeratePeriods, type UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -77,7 +78,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
-import { UsageProviderChart } from "./UsageProviderChart";
+import { UsageChart } from "./UsageChart";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
 import {
@@ -96,10 +97,14 @@ import {
 import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
 import {
+  DEFAULT_USAGE_VIEW,
+  USAGE_CHART_DIMENSIONS,
+  USAGE_DAY_GROUPINGS,
   readUsagePagePreferences,
   saveUsagePagePreferences,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
+import { DIMENSION_NAMES, GROUPING_ADJECTIVES, GROUPING_NAMES } from "./usageSeries";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -216,6 +221,22 @@ export function UsagePage() {
         ? []
         : enumerateHourStarts(shownWindow.sinceTime, shownWindow.untilTime),
     [shownWindow.sinceTime, shownWindow.untilTime],
+  );
+  const grouping: UsageTimeGrouping = shownHourly
+    ? "hour"
+    : (preferences.timeGrouping ?? DEFAULT_USAGE_VIEW.timeGrouping);
+  const groupingOptions: readonly UsageTimeGrouping[] = shownHourly
+    ? ["hour"]
+    : USAGE_DAY_GROUPINGS;
+  const periods = useMemo(
+    () => enumeratePeriods(shownHourly ? hours : days, grouping),
+    [days, grouping, hours, shownHourly],
+  );
+  const chartDimensions = preferences.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const environmentLabels = useMemo(
+    () =>
+      new Map(environments.map((environment) => [environment.environmentId, environment.label])),
+    [environments],
   );
   // Newest first: the window can run 90 periods, so the interesting end
   // belongs at the top of the table.
@@ -707,20 +728,57 @@ export function UsagePage() {
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3">
-                    <h2 className="text-sm font-medium text-foreground">
-                      {shownHourly ? "Hourly" : "Daily"}{" "}
-                      {metric === "tokens" ? "processed tokens" : "cost"}
-                    </h2>
-                    <UsageProviderChart
-                      providers={activeProviders}
-                      loadingProviders={chartLoadingProviders}
-                      days={days}
-                      daily={merged.daily}
-                      hours={hours}
-                      hourly={merged.hourly}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-medium text-foreground">
+                        {GROUPING_ADJECTIVES[grouping]}{" "}
+                        {metric === "tokens" ? "processed tokens" : "cost"}
+                      </h2>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ToggleGroup
+                          aria-label="Chart by"
+                          variant="segmented"
+                          multiple
+                          value={[...chartDimensions]}
+                          onValueChange={(next) =>
+                            updatePreferences({
+                              chartDimensions: USAGE_CHART_DIMENSIONS.filter((dimension) =>
+                                next.includes(dimension),
+                              ),
+                            })
+                          }
+                        >
+                          {USAGE_CHART_DIMENSIONS.map((dimension) => (
+                            <Toggle key={dimension} value={dimension}>
+                              {DIMENSION_NAMES[dimension]}
+                            </Toggle>
+                          ))}
+                        </ToggleGroup>
+                        <ToggleGroup
+                          aria-label="Time grouping"
+                          variant="segmented"
+                          value={[grouping]}
+                          onValueChange={(next) => {
+                            const value = USAGE_DAY_GROUPINGS.find((option) => option === next[0]);
+                            if (value) updatePreferences({ timeGrouping: value });
+                          }}
+                        >
+                          {groupingOptions.map((option) => (
+                            <Toggle key={option} value={option}>
+                              {GROUPING_NAMES[option]}
+                            </Toggle>
+                          ))}
+                        </ToggleGroup>
+                      </div>
+                    </div>
+                    <UsageChart
+                      entries={merged.entries}
+                      dimensions={chartDimensions}
+                      grouping={grouping}
+                      periods={periods}
                       metric={metric}
+                      environmentLabels={environmentLabels}
+                      loadingProviders={chartLoadingProviders}
                       referenceTime={shownWindow.untilTime}
-                      resolution={shownHourly ? "hour" : "day"}
                       timeZone={shownWindow.timeZone}
                     />
                   </div>
@@ -984,9 +1042,8 @@ export function UsagePage() {
           environments={selectedEnvironments}
           metric={metric === "tokens" ? "tokens" : "cost"}
           chartWindow={{
-            days,
-            hours,
-            resolution: shownHourly ? "hour" : "day",
+            periods,
+            grouping,
             timeZone: shownWindow.timeZone,
             referenceTime: shownWindow.untilTime,
           }}
