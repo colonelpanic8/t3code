@@ -23,6 +23,18 @@ export const T3_STORAGE_ENVIRONMENT_NAMES = [
   ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
 ] as const;
 
+/** Every variable storage selection reads, so each process reads the same ones. */
+export const T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES = [
+  ...T3_STORAGE_ENVIRONMENT_NAMES,
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_RUNTIME_DIR",
+  "APPDATA",
+  "LOCALAPPDATA",
+] as const;
+
 /** Per-category server location overrides, which apply on top of either layout. */
 export const T3_SERVER_LOCATION_ENVIRONMENT_NAMES = [
   "T3CODE_SERVER_CONFIG_DIR",
@@ -115,7 +127,7 @@ export const resolveT3ConfiguredPath = (
     : path.resolve(expandT3HomePath(candidate, homeDirectory, path));
 };
 
-export function hasT3StorageDirectoryOverrides(overrides: T3StorageDirectoryOverrides): boolean {
+function hasT3StorageDirectoryOverrides(overrides: T3StorageDirectoryOverrides): boolean {
   return Object.values(overrides).some((value) => value !== undefined);
 }
 
@@ -261,7 +273,7 @@ export function legacyT3StorageArtifactPaths(
 }
 
 /** Files whose presence marks the split layout as holding a server's state. */
-export function splitT3StorageArtifactPaths(
+function splitT3StorageArtifactPaths(
   roots: T3StorageRoots,
   path: Pick<StoragePathOperations, "join">,
 ): ReadonlyArray<string> {
