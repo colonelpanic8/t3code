@@ -25,7 +25,7 @@ import {
   T3CODE_STATE_DIR_ENV,
   type T3StorageConfigurationError,
   type T3StorageDirectoryOverrides,
-  type T3StorageProbeError,
+  T3StorageProbeError,
   t3StoragePathExists,
   type T3StorageRoots,
 } from "@t3tools/shared/storagePaths";
@@ -592,7 +592,10 @@ export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* 
   readonly host: StorageHost;
 }): Effect.fn.Return<
   ServerStorage,
-  Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
+  | Config.ConfigError
+  | T3StorageConfigurationError
+  | T3StorageProbeError
+  | LegacyStorageMigratedError,
   Path.Path
 > {
   const path = yield* Path.Path;
@@ -622,8 +625,19 @@ export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* 
     case "ProbeFailed":
       return yield* selection.error;
     case "Selected":
-      return selection;
+      break;
   }
+  // A retired tree is a stale copy; serving or editing it would diverge from the migrated one.
+  const { roots } = selection;
+  if (roots.layout === "legacy") {
+    const markerPath = legacyT3StorageMigrationMarkerPath(roots, path);
+    const retired = yield* Effect.try({
+      try: () => t3StoragePathExists(markerPath),
+      catch: (cause) => new T3StorageProbeError({ path: markerPath, cause }),
+    });
+    if (retired) return yield* new LegacyStorageMigratedError({ stateDir: roots.stateDir });
+  }
+  return selection;
 });
 
 /** Every server path for `storage`, each location override winning for its category. */
@@ -899,12 +913,6 @@ export const resolveServerConfig = (
       storageHost.userId !== undefined
     ) {
       yield* prepareSplitRuntimeDirectory(derivedPaths.runtimeDir, storageHost.userId);
-    }
-    if (
-      storage.roots.layout === "legacy" &&
-      (yield* fs.exists(legacyT3StorageMigrationMarkerPath(storage.roots, path)))
-    ) {
-      return yield* new LegacyStorageMigratedError({ stateDir: storage.roots.stateDir });
     }
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(

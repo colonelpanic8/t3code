@@ -15,6 +15,7 @@ import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
+import * as DesktopCliCommand from "./DesktopCliCommand.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
@@ -188,6 +189,11 @@ const bootstrap = Effect.gen(function* () {
   );
 
   yield* snapShot.initialize;
+  yield* Effect.forkScoped(
+    (yield* DesktopCliCommand.DesktopCliCommand).followLauncher.pipe(
+      Effect.catch((error) => logStartupWarning("could not update the t3 command", { error })),
+    ),
+  );
 
   if (!settings.localEnvironmentEnabled) {
     yield* logBootstrapInfo("bootstrap skipping local environment (disabled in settings)");
