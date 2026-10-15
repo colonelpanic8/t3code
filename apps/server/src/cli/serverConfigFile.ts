@@ -76,8 +76,10 @@ export class ServerConfigFileError extends Schema.TaggedError<ServerConfigFileEr
 /**
  * Reads the server config file. A missing file reads as empty unless it was
  * named explicitly. traceFile comes back absolute, resolved against the
- * file's directory. Unknown keys are ignored with a warning, as settings.json
- * ignores them, so a file written for a newer release still starts an older one.
+ * file's directory. Unknown keys are ignored, as settings.json ignores them,
+ * so a file written for a newer release still starts an older one. They are
+ * returned rather than logged: the server warns through its own logger, and
+ * other commands keep stdout, where the default logger writes, for their output.
  */
 export const readServerConfigFile = Effect.fn("readServerConfigFile")(function* (
   filePath: string,
@@ -101,7 +103,7 @@ export const readServerConfigFile = Effect.fn("readServerConfigFile")(function* 
     }),
   );
   if (Option.isNone(raw)) {
-    return {} satisfies ServerConfigFile;
+    return { options: {} satisfies ServerConfigFile, unknownKeys: [] };
   }
 
   const document = decodeDocument(raw.value);
@@ -118,15 +120,9 @@ export const readServerConfigFile = Effect.fn("readServerConfigFile")(function* 
     });
   }
   const unknownKeys = Object.keys(document.value).filter((key) => !knownKeys.has(key));
-  if (unknownKeys.length > 0) {
-    yield* Effect.logWarning("ignoring unknown keys in the server config file", {
-      path: filePath,
-      keys: unknownKeys,
-    });
-  }
 
   const { traceFile } = decoded.value;
-  return (
+  const fileOptions = (
     traceFile === undefined
       ? decoded.value
       : {
@@ -134,4 +130,5 @@ export const readServerConfigFile = Effect.fn("readServerConfigFile")(function* 
           traceFile: path.resolve(path.dirname(filePath), yield* expandHomePath(traceFile)),
         }
   ) satisfies ServerConfigFile;
+  return { options: fileOptions, unknownKeys };
 });

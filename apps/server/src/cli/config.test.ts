@@ -300,6 +300,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
       assert.equal(resolved.stateDir, join(baseDir, "userdata"));
     }),
@@ -370,6 +371,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: true,
         tailscaleServePort: 8443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
       assert.equal(resolved.dbPath, join(baseDir, "userdata", "statev2.sqlite"));
     }),
@@ -443,6 +445,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
     }),
   );
@@ -526,6 +529,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
       assert.equal(join(baseDir, "userdata"), resolved.stateDir);
       assert.equal(resolved.desktopTelemetryFd, 4);
@@ -774,6 +778,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
     }),
   );
@@ -845,6 +850,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: {
+          path: path.join(derivedPaths.configDir, "server.json"),
+          unknownKeys: [],
+        },
       });
     }),
   );
@@ -1008,6 +1017,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
     }),
   );
@@ -1475,6 +1485,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           path.join(home, "userdata", "server-runtime.json"),
         );
         expect(resolved.providerStatusCacheDir).toBe(path.join(home, "caches"));
+        expect(resolved.serverConfigFile).toEqual({
+          path: path.join(home, "userdata", "server.json"),
+          unknownKeys: ["serverDataDir", "serverCacheDir"],
+        });
       }),
     );
 
