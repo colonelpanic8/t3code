@@ -32,6 +32,7 @@ import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
   type CliServerFlags,
+  LegacyStorageMigratedError,
   resolveInstallLocations,
   resolveServerConfig,
   resolveServerStorage,
@@ -1695,6 +1696,36 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       expect(resolved.serverRuntimeStatePath).toBe(
         path.join(root, "runtime", "t3code", "server-runtime.json"),
       );
+    }),
+  );
+
+  it.effect("leaves a migrated legacy tree for split storage and refuses to serve it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, home, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-migrated-");
+      const legacyStateDir = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(legacyStateDir, { recursive: true });
+      yield* fs.writeFileString(path.join(legacyStateDir, "settings.json"), "{}");
+      yield* fs.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+
+      const resolved = yield* resolveWith(xdgEnv, storageHost);
+      expect(resolved.layout).toBe("split");
+      expect(resolved.stateDir).toBe(path.join(root, "state", "t3code"));
+
+      for (const flags of [
+        { baseDir: Option.some(path.join(home, ".t3")) },
+        { storageLayout: Option.some("legacy" as const) },
+      ]) {
+        const error = yield* resolveWith(xdgEnv, storageHost, flags).pipe(Effect.flip);
+        expect(error).toBeInstanceOf(LegacyStorageMigratedError);
+      }
+      const error = yield* resolveWith(
+        { ...xdgEnv, T3CODE_HOME: path.join(home, ".t3") },
+        storageHost,
+      ).pipe(Effect.flip);
+      expect(error).toBeInstanceOf(LegacyStorageMigratedError);
+      expect(yield* fs.exists(path.join(legacyStateDir, "logs"))).toBe(false);
     }),
   );
 
