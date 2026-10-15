@@ -161,6 +161,7 @@ describe("usage summary persistence", () => {
         usageEnvironmentProgress({
           label: "local",
           isConnected: true,
+          isConnecting: false,
           isPending: true,
           error: null,
           summary: restored,
