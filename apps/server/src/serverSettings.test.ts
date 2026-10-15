@@ -2253,6 +2253,23 @@ const writeSharedSettings = (contents: unknown) =>
     return raw;
   });
 
+const layerSecretStoreFailingSets = (fails: (secretName: string) => boolean) =>
+  Layer.effect(
+    ServerSecretStore.ServerSecretStore,
+    Effect.map(ServerSecretStore.ServerSecretStore, (store) => ({
+      ...store,
+      set: (secretName: string, value: Uint8Array) =>
+        fails(secretName)
+          ? Effect.fail(
+              new ServerSecretStore.SecretStorePersistError({
+                resource: "provider environment secret",
+                cause: new Error("Secret storage unavailable"),
+              }),
+            )
+          : store.set(secretName, value),
+    })),
+  ).pipe(Layer.provide(ServerSecretStore.layer));
+
 const readStoredSecret = (secretName: string) =>
   Effect.gen(function* () {
     const store = yield* ServerSecretStore.ServerSecretStore;
@@ -2759,42 +2776,147 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
       }).pipe(Effect.provide(layerSharedServerSettings())),
   );
 
-  it.effect("leaves settings.json alone when a migrated shared secret cannot be stored", () => {
-    const layerSecret = Layer.effect(
-      ServerSecretStore.ServerSecretStore,
-      Effect.map(ServerSecretStore.ServerSecretStore, (store) => ({
-        ...store,
-        set: () =>
-          Effect.fail(
-            new ServerSecretStore.SecretStorePersistError({
-              resource: "provider environment secret",
-              cause: new Error("Secret storage unavailable"),
-            }),
+  const OPENAI_KEY_SECRET = "provider-env-Y29kZXg-T1BFTkFJX0FQSV9LRVk";
+  const OTHER_KEY_SECRET = "provider-env-Y29kZXg-T1RIRVJfS0VZ";
+  const LEGACY_CODEX_DISABLED = JSON.stringify({ providers: { codex: { enabled: false } } });
+  const writeSharedCodexSecrets = writeSharedSettings({
+    providerInstances: {
+      codex: {
+        driver: "codex",
+        environment: [
+          { name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true },
+          { name: "OTHER_KEY", value: "other-shared", sensitive: true },
+        ],
+        config: {},
+      },
+    },
+  });
+
+  it.effect.each([{ failing: OPENAI_KEY_SECRET }, { failing: OTHER_KEY_SECRET }])(
+    "leaves settings.json and the store alone when storing $failing fails during migration",
+    ({ failing }) =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* writeSharedCodexSecrets;
+        yield* fs.writeFileString(config.settingsPath, LEGACY_CODEX_DISABLED);
+
+        const settings = yield* service.getSettings;
+
+        assert.equal(yield* fs.readFileString(config.settingsPath), LEGACY_CODEX_DISABLED);
+        assert.deepEqual(yield* readStoredSecret(OPENAI_KEY_SECRET), Option.none());
+        assert.deepEqual(yield* readStoredSecret(OTHER_KEY_SECRET), Option.none());
+        assert.isFalse(settings.providerInstances[ProviderInstanceId.make("codex")]?.enabled);
+      }).pipe(
+        Effect.provide(
+          layerSharedServerSettings(
+            layerSecretStoreFailingSets((secretName) => secretName === failing),
           ),
-      })),
-    ).pipe(Layer.provide(ServerSecretStore.layer));
-    return Effect.gen(function* () {
+        ),
+      ),
+  );
+
+  it.effect(
+    "stores shared secrets on the first save after a migration could not store them",
+    () => {
+      let storeAvailable = false;
+      return Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        yield* writeSharedCodexSecrets;
+        yield* fs.writeFileString(config.settingsPath, LEGACY_CODEX_DISABLED);
+        yield* service.getSettings;
+        storeAvailable = true;
+
+        const updated = yield* service.updateSettings({ defaultAutoPull: true });
+
+        const raw = yield* fs.readFileString(config.settingsPath);
+        assert.notInclude(raw, "sk-shared");
+        assert.notInclude(raw, "other-shared");
+        const persisted = JSON.parse(raw);
+        assert.isUndefined(persisted.providers);
+        assert.deepEqual(persisted.providerInstances.codex.environment, [
+          { name: "OPENAI_API_KEY", value: "", sensitive: true, valueRedacted: true },
+          { name: "OTHER_KEY", value: "", sensitive: true, valueRedacted: true },
+        ]);
+        assert.deepEqual(yield* readStoredSecret(OPENAI_KEY_SECRET), Option.some("sk-shared"));
+        assert.deepEqual(yield* readStoredSecret(OTHER_KEY_SECRET), Option.some("other-shared"));
+        const codex = updated.providerInstances[ProviderInstanceId.make("codex")];
+        assert.isFalse(codex?.enabled);
+        assert.equal(codex?.environment?.[0]?.value, "sk-shared");
+      }).pipe(
+        Effect.provide(
+          layerSharedServerSettings(layerSecretStoreFailingSets(() => !storeAvailable)),
+        ),
+      );
+    },
+  );
+
+  it.effect("disables a history-enabled shared cursor without pinning it", () =>
+    Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const fs = yield* FileSystem.FileSystem;
       const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* recordProviderUsage("cursor");
       yield* writeSharedSettings({
-        providerInstances: {
-          codex: {
-            driver: "codex",
-            environment: [{ name: "OPENAI_API_KEY", value: "sk-shared", sensitive: true }],
-            config: {},
-          },
-        },
+        providerInstances: { cursor: { driver: "cursor", config: { binaryPath: "/opt/cursor" } } },
       });
-      const legacy = JSON.stringify({ providers: { codex: { enabled: false } } });
-      yield* fs.writeFileString(config.settingsPath, legacy);
+      yield* fs.writeFileString(
+        config.settingsPath,
+        JSON.stringify({ providers: { cursor: { enabled: false } } }),
+      );
 
       const settings = yield* service.getSettings;
 
-      assert.equal(yield* fs.readFileString(config.settingsPath), legacy);
-      assert.isFalse(settings.providerInstances[ProviderInstanceId.make("codex")]?.enabled);
-    }).pipe(Effect.provide(layerSharedServerSettings(layerSecret)));
-  });
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("cursor")], {
+        driver: ProviderDriverKind.make("cursor"),
+        config: { binaryPath: "/opt/cursor" },
+      });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {});
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
+
+  it.effect("layers the retired source control keys over shared hosts of the same kind", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const secrets = yield* ServerSecretStore.ServerSecretStore;
+      const marker = "\u2022\u2022\u2022\u2022\u2022\u2022";
+      const gheTokenSecret = `github-token-${Buffer.from("ghe.acme.test").toString("base64url")}`;
+      yield* secrets.set(gheTokenSecret, new TextEncoder().encode("ghe-saved"));
+      yield* secrets.set("bitbucket-access-token", new TextEncoder().encode("bb-saved"));
+      yield* writeSharedSettings({
+        sourceControlHosts: {
+          bitbucket: { email: "shared@example.com", accessToken: "bb-shared" },
+          github: { tokens: { "github.com": "ghp_shared" } },
+        },
+      });
+      const local = {
+        bitbucket: { accessToken: marker },
+        github: {
+          hosts: { "ghe.acme.test": { account: "work" } },
+          tokens: { "ghe.acme.test": marker },
+        },
+      };
+      yield* fs.writeFileString(config.settingsPath, JSON.stringify(local));
+
+      const loaded = (yield* service.getSettings).sourceControlHosts;
+
+      assert.deepEqual(loaded.bitbucket, { email: "shared@example.com", accessToken: "bb-saved" });
+      assert.deepEqual(loaded.github, {
+        hosts: { "ghe.acme.test": { account: "work" } },
+        tokens: { "github.com": "ghp_shared", "ghe.acme.test": "ghe-saved" },
+      });
+      assert.deepEqual(JSON.parse(yield* fs.readFileString(config.settingsPath)), {
+        sourceControlHosts: local,
+      });
+      assert.deepEqual(yield* readStoredSecret(gheTokenSecret), Option.none());
+      assert.deepEqual(yield* readStoredSecret("bitbucket-access-token"), Option.none());
+    }).pipe(Effect.provide(layerSharedServerSettings())),
+  );
 
   it.effect("keeps a cleared thread env mode over the shared value across a reload", () =>
     Effect.gen(function* () {
