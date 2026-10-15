@@ -73,7 +73,7 @@ export const make = Effect.gen(function* () {
   const windows = environment.platform === "win32";
   const launcher = DesktopCliShim.launcherPath(environment);
   const binDirectory = path.dirname(launcher);
-  const ownedPathMarker = path.join(environment.stateDir, "cli-command-path-entry");
+  const ownedPathMarker = path.join(environment.clientRoots.stateDir, "cli-command-path-entry");
 
   const fail = (message: string) => new DesktopCliCommandError({ message });
   const exists = (target: string) => fs.exists(target).pipe(Effect.orElseSucceed(() => false));
