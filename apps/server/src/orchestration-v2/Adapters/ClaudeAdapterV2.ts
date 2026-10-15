@@ -124,6 +124,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import {
   claudeSignedOutMessage,
+  hasClaudeManagedMcpConfig,
   makeClaudeEnvironment,
 } from "../../provider/Drivers/ClaudeHome.ts";
 import {
@@ -1081,6 +1082,8 @@ export function makeClaudeQueryOptions(input: {
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   readonly allowDangerouslySkipPermissions?: boolean;
+  /** Present for blank-slate threads; see OrchestrationV2AppThread.blankSlate. */
+  readonly blankSlate?: { readonly managedMcpConfig: boolean };
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection);
   const {
@@ -1094,6 +1097,8 @@ export function makeClaudeQueryOptions(input: {
   if (requestThinkingSummaries && extraArgs["thinking-display"] === undefined) {
     extraArgs["thinking-display"] = "summarized";
   }
+  // The user's Claude in Chrome setting would otherwise add its browser tools.
+  if (input.blankSlate !== undefined) extraArgs["no-chrome"] = null;
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -1108,12 +1113,20 @@ export function makeClaudeQueryOptions(input: {
       : typeof input.sdkSettings === "object" && input.sdkSettings !== null
         ? ({ ...input.sdkSettings, ...selectionSettings } as ClaudeSdkSettings)
         : selectionSettings;
-  const effectiveQuerySettings =
+  const compactedQuerySettings =
     input.settings?.autoCompactWindow === undefined || input.settings.autoCompactWindow.length === 0
       ? querySettings
       : ({
           ...(typeof querySettings === "object" && querySettings !== null ? querySettings : {}),
           autoCompactWindow: Number(input.settings.autoCompactWindow),
+        } as ClaudeSdkSettings);
+  const effectiveQuerySettings =
+    input.blankSlate === undefined || typeof compactedQuerySettings === "string"
+      ? compactedQuerySettings
+      : ({
+          ...compactedQuerySettings,
+          disableAllHooks: true,
+          autoMemoryEnabled: false,
         } as ClaudeSdkSettings);
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
@@ -1160,13 +1173,30 @@ export function makeClaudeQueryOptions(input: {
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
-    systemPrompt: {
-      type: "preset" as const,
-      preset: "claude_code" as const,
-      append:
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
-        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
-    },
+    systemPrompt:
+      input.blankSlate === undefined
+        ? {
+            type: "preset" as const,
+            preset: "claude_code" as const,
+            append:
+              buildRuntimeInstructions({ harness: "Claude Code" }) +
+              (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+          }
+        : { type: "preset" as const, preset: "claude_code" as const },
+    ...(input.blankSlate === undefined
+      ? {}
+      : {
+          // No CLAUDE.md, settings-defined hooks, plugins, or MCP servers.
+          settingSources: [],
+          skills: [],
+          mcpServers: input.mcpServers ?? {},
+          // Claude refuses this flag next to a managed-mcp.json, which already
+          // keeps the user's own MCP servers out.
+          ...(input.blankSlate.managedMcpConfig ? {} : { strictMcpConfig: true }),
+          ...(input.environment === undefined
+            ? {}
+            : { env: { ...input.environment, ENABLE_CLAUDEAI_MCP_SERVERS: "false" } }),
+        }),
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
@@ -3372,6 +3402,7 @@ export interface ClaudeAdapterV2Options {
   readonly queryRunner: ClaudeAgentSdkQueryRunnerShape;
   readonly scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>;
   readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
+  readonly hasManagedMcpConfig?: Effect.Effect<boolean>;
   readonly continuationRequests?: {
     readonly offer: (
       request: ProviderContinuationRequests.ProviderContinuationRequest,
@@ -8411,6 +8442,15 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             canUseTool,
             onUserDialog,
             supportedDialogKinds: ["resume_return"],
+            ...(turnInput.runtimePolicy.blankSlate === true
+              ? {
+                  blankSlate: {
+                    managedMcpConfig: yield* (
+                      adapterOptions.hasManagedMcpConfig ?? Effect.succeed(false)
+                    ),
+                  },
+                }
+              : {}),
           });
           const querySession = yield* queryRunner
             .open({
@@ -9415,11 +9455,16 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       expandHomePath(config.binaryPath, yield* HostProcess.HomeDirectory),
       claudeEnvironment,
     );
+    const platform = yield* HostProcess.Platform;
     return yield* makeClaudeAdapterV2({
       instanceId,
       settings: { ...config, enabled, binaryPath },
       environment: claudeEnvironment,
       attachmentsDir: serverConfig.attachmentsDir,
+      hasManagedMcpConfig: hasClaudeManagedMcpConfig().pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(HostProcess.Platform, platform),
+      ),
       fileSystem,
       path,
       crypto,
