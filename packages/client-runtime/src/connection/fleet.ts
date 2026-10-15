@@ -35,7 +35,9 @@ import { connectionRoutes } from "./routes.ts";
  * client is connected to a member, it joins every member it has not saved
  * with a handoff that member issues, so pairing one machine pairs the fleet.
  * Joined members reach each machine at its declared URL, follow the declared
- * labels and URLs, and leave when the fleet no longer lists them.
+ * labels and URLs, and leave when the fleet no longer lists them. A credential
+ * belongs to the URLs it was issued for: a member whose URL changes joins again
+ * there, and keeps its old route until that succeeds.
  *
  * A joined member records the saved environment it was joined through, its
  * root. Removing the root removes what joined through it, which is how a user
@@ -76,8 +78,10 @@ export interface FleetSyncPlan {
   readonly root: EnvironmentId;
   /** Declared members this client has not saved. */
   readonly join: ReadonlyArray<ServerFleetEnvironment>;
-  /** Joined members whose declared label or URLs changed. */
-  readonly update: ReadonlyArray<ServerFleetEnvironment>;
+  /** Joined members whose declared label changed at the same URLs. */
+  readonly relabel: ReadonlyArray<ServerFleetEnvironment>;
+  /** Joined members whose declared URLs changed. */
+  readonly rejoin: ReadonlyArray<ServerFleetEnvironment>;
   /** Joined members the fleet no longer lists. */
   readonly remove: ReadonlyArray<EnvironmentId>;
 }
@@ -100,7 +104,8 @@ export function planFleetSync(input: {
   }
   const root = fleetRoot(sourceEntry) ?? input.source;
   const join: Array<ServerFleetEnvironment> = [];
-  const update: Array<ServerFleetEnvironment> = [];
+  const relabel: Array<ServerFleetEnvironment> = [];
+  const rejoin: Array<ServerFleetEnvironment> = [];
   for (const member of input.fleet) {
     const entry = input.entries.get(member.environmentId);
     if (entry === undefined) {
@@ -115,20 +120,18 @@ export function planFleetSync(input: {
           candidate?._tag === "BearerConnectionProfile" &&
           fleetConnectionRoot(candidate.connectionId) !== null,
       );
-    if (
-      profile?._tag === "BearerConnectionProfile" &&
-      (profile.label !== member.label ||
-        profile.httpBaseUrl !== member.httpBaseUrl ||
-        profile.wsBaseUrl !== member.wsBaseUrl)
-    ) {
-      update.push(member);
+    if (profile?._tag !== "BearerConnectionProfile") continue;
+    if (profile.httpBaseUrl !== member.httpBaseUrl || profile.wsBaseUrl !== member.wsBaseUrl) {
+      rejoin.push(member);
+    } else if (profile.label !== member.label) {
+      relabel.push(member);
     }
   }
   const declared = new Set(input.fleet.map((member) => member.environmentId));
   const remove = fleetMembersJoinedThrough(input.entries, root).filter(
     (environmentId) => !declared.has(environmentId),
   );
-  return { root, join, update, remove };
+  return { root, join, relabel, rejoin, remove };
 }
 
 function fleetRegistration(
@@ -230,7 +233,7 @@ export const syncFleets = Effect.fn("clientRuntime.connection.syncFleets")(funct
       { discard: true },
     );
     yield* Effect.forEach(
-      plan.update,
+      plan.relabel,
       (member) =>
         credentials.get(fleetConnectionId(member.environmentId, plan.root)).pipe(
           Effect.flatMap(
@@ -240,25 +243,30 @@ export const syncFleets = Effect.fn("clientRuntime.connection.syncFleets")(funct
                 registry.register(fleetRegistration(member, plan.root, credential)),
             }),
           ),
-          logFailure("Could not update a fleet machine.", { environmentId: member.environmentId }),
+          logFailure("Could not rename a fleet machine.", { environmentId: member.environmentId }),
         ),
       { discard: true },
     );
-    yield* Effect.forEach(
-      plan.join,
-      (member) =>
-        prepareFleetMemberRegistration({
-          member,
-          root: plan.root,
-          issueHandoff: (environmentId) =>
-            session.client[WS_METHODS.serverIssueFleetHandoff]({ environmentId }),
-        }).pipe(
-          Effect.flatMap(registry.register),
-          Effect.provideService(ClientCapabilities.ClientPresentation, presentation),
-          Effect.provideService(HttpClient.HttpClient, httpClient),
-          // Offline or off the tailnet: the next connection to any member tries again.
-          logFailure("Could not join a fleet machine.", { environmentId: member.environmentId }),
+    const joinMember = (member: ServerFleetEnvironment, failure: string) =>
+      prepareFleetMemberRegistration({
+        member,
+        root: plan.root,
+        issueHandoff: (environmentId) =>
+          session.client[WS_METHODS.serverIssueFleetHandoff]({ environmentId }),
+      }).pipe(
+        Effect.flatMap(registry.register),
+        Effect.provideService(ClientCapabilities.ClientPresentation, presentation),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        // Offline or off the tailnet: the next connection to any member tries again.
+        logFailure(failure, { environmentId: member.environmentId }),
+      );
+    yield* Effect.all(
+      [
+        ...plan.join.map((member) => joinMember(member, "Could not join a fleet machine.")),
+        ...plan.rejoin.map((member) =>
+          joinMember(member, "Could not join a fleet machine at its new address."),
         ),
+      ],
       { concurrency: "unbounded", discard: true },
     );
   });
