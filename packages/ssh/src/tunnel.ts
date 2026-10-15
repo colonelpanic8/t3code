@@ -8,6 +8,10 @@ import {
 } from "@t3tools/shared/httpReadiness";
 import { cliReleaseDownloadBaseUrl } from "@t3tools/shared/cliRelease";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as NetService from "@t3tools/shared/Net";
 import { extractJsonObject, fromLenientJson } from "@t3tools/shared/schemaJson";
 import { satisfiesSemverRange } from "@t3tools/shared/semver";
@@ -553,8 +557,10 @@ exec "$T3_RUNTIME_DIR/t3" "$@"
 // inherited one would hide a running server and point a second one at the same
 // database. An inherited config file would replace ~/.t3's server.json. The
 // storage selectors cannot be combined with --base-dir at all.
-const CLEAR_SERVER_LOCATION_ENV =
-  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE T3CODE_CONFIG_DIR T3CODE_DATA_DIR T3CODE_STATE_DIR T3CODE_CACHE_DIR T3CODE_RUNTIME_DIR";
+const CLEAR_SERVER_LOCATION_ENV = `unset ${[
+  ...T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+].join(" ")}`;
 
 const REMOTE_LAUNCH_SCRIPT = `set -eu
 ${CLEAR_SERVER_LOCATION_ENV}

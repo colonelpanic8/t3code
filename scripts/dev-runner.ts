@@ -8,6 +8,10 @@ import * as NetService from "@t3tools/shared/Net";
 import { resolveGitWorktreePath, resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Hash from "effect/Hash";
@@ -319,15 +323,12 @@ export function createDevRunnerEnv({
     // worktree's dev server at the real database and run branch migrations on
     // it, or apply the real server's options to it. A split-layout service
     // exports the storage selectors into every agent shell.
-    delete output.T3CODE_SERVER_CONFIG_DIR;
-    delete output.T3CODE_SERVER_DATA_DIR;
-    delete output.T3CODE_SERVER_CACHE_DIR;
-    delete output.T3CODE_SERVER_CONFIG_FILE;
-    delete output.T3CODE_CONFIG_DIR;
-    delete output.T3CODE_DATA_DIR;
-    delete output.T3CODE_STATE_DIR;
-    delete output.T3CODE_CACHE_DIR;
-    delete output.T3CODE_RUNTIME_DIR;
+    for (const name of [
+      ...T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+      ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+    ]) {
+      delete output[name];
+    }
     // A dev desktop would otherwise share the real desktop's settings, window
     // state, and saved connections.
     delete output.T3CODE_CLIENT_DIR;
