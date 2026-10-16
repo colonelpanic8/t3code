@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   remove: vi.fn(),
 }));
 
+vi.mock("expo-secure-store", () => import("./fleetEnrollmentKey.secure-store-mock"));
 vi.mock("expo-document-picker", () => ({ getDocumentAsync: mocks.pick }));
 vi.mock("expo-file-system", () => ({
   FileMode: { ReadOnly: "read" },
@@ -53,6 +54,16 @@ describe("fleet file cache cleanup", () => {
       expect(mocks.remove).toHaveBeenCalledOnce();
     },
   );
+
+  it.each([
+    ["binary", "age-encryption.org/v1\n-> X25519 fixture\n"],
+    ["armored", "\n-----BEGIN AGE ENCRYPTED FILE-----\nYWdl\n-----END AGE ENCRYPTED FILE-----\n"],
+  ])("hands a %s age file to enrollment and deletes the copy", async (_format, contents) => {
+    const bytes = new TextEncoder().encode(contents);
+    mocks.read.mockResolvedValueOnce(bytes);
+    expect(await pickFleetImportFile()).toEqual(Result.succeed({ kind: "enrollment", bytes }));
+    expect(mocks.remove).toHaveBeenCalledOnce();
+  });
 
   it("leaves files alone when the picker is canceled", async () => {
     mocks.pick.mockResolvedValueOnce({ canceled: true });
