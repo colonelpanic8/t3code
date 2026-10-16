@@ -283,6 +283,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
       const service = BootService.BootService.of({
         install: () => Effect.die("unexpected service install"),
         restart: Effect.die("unexpected service restart"),
+        withStopped: () => Effect.die("unexpected service pause"),
         uninstall: Effect.die("unexpected service uninstall"),
         status: Effect.sync(() => {
           statusCalls += 1;
