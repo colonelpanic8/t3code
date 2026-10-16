@@ -8,7 +8,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { AsyncResult } from "effect/reactivity";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -64,9 +64,17 @@ export function FleetImportSection(props: {
   const [state, setState] = useState<FleetFileState>({ step: "pick" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const enroll = useAtomCommand(connectFleetEnrollment, { reportFailure: false });
 
   const show = (next: FleetFileState, nextError: string | null = null) => {
+    if (!mounted.current) return;
     setState(next);
     setError(nextError);
   };
@@ -95,8 +103,10 @@ export function FleetImportSection(props: {
     setBusy(true);
     try {
       await task();
+    } catch {
+      if (mounted.current) setError("Could not finish that action. Try again.");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -113,6 +123,7 @@ export function FleetImportSection(props: {
   const handleJoin = (enrollment: FleetEnrollment) =>
     run(async () => {
       const result = await enroll(enrollment);
+      if (!mounted.current) return;
       if (AsyncResult.isSuccess(result)) {
         if (result.value === "enrolled") props.onEnrolled();
         else props.onOpenSaved(enrollment.anchor.environmentId);
@@ -160,7 +171,7 @@ export function FleetImportSection(props: {
       );
     case "key":
       return (
-        <FleetFileCard title="Fleet enrollment key" onCancel={handleClear}>
+        <FleetFileCard title="Fleet enrollment key" onCancel={handleClear} busy={busy}>
           <Text className="px-4 pt-4 text-sm leading-normal text-foreground-muted">
             This file is encrypted. Paste the fleet enrollment key from your backup to open it.
           </Text>
@@ -171,7 +182,7 @@ export function FleetImportSection(props: {
       const { anchor } = state.enrollment;
       return (
         <View collapsable={false} className="gap-2">
-          <FleetFileCard title="Fleet enrollment" onCancel={handleClear}>
+          <FleetFileCard title="Fleet enrollment" onCancel={handleClear} busy={busy}>
             <View className="gap-1 p-4">
               <Text className="text-base text-foreground">Join fleet via {anchor.label}</Text>
               <Text className="text-sm text-foreground-muted" numberOfLines={1}>
@@ -206,13 +217,19 @@ export function FleetImportSection(props: {
 function FleetFileCard(props: {
   readonly title: string;
   readonly onCancel: () => void;
+  readonly busy: boolean;
   readonly children: ReactNode;
 }) {
   return (
     <View collapsable={false} className="gap-2">
       <View className="flex-row items-center justify-between px-4">
         <Text className="text-sm font-t3-medium text-foreground-muted">{props.title}</Text>
-        <Pressable accessibilityRole="button" onPress={props.onCancel} hitSlop={8}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={props.onCancel}
+          disabled={props.busy}
+          hitSlop={8}
+        >
           <Text className="text-sm font-t3-medium text-foreground-muted">Cancel</Text>
         </Pressable>
       </View>
