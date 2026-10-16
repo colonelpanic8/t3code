@@ -50,7 +50,11 @@ import * as NodeOS from "node:os";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "../os-jank.ts";
-import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import {
+  isProcessAlive,
+  isRespondingServerRuntime,
+  readPersistedServerRuntimeState,
+} from "../serverRuntimeState.ts";
 import { readServerConfigFile } from "./serverConfigFile.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
@@ -841,6 +845,7 @@ export const resolveServerConfig = (
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
     readonly storageHost?: StorageHost;
+    readonly intent?: "start-server" | "manage-auth";
   },
 ) =>
   Effect.gen(function* () {
@@ -918,14 +923,25 @@ export const resolveServerConfig = (
       mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
     const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
-    // An interactive CLI must not start over a discovered server. Lifetime locking
-    // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
-    if (options?.rejectRunningServer && mode === "web") {
-      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
-      if (Option.isSome(runtime) && runtime.value.pid > 0 && isProcessAlive(runtime.value.pid)) {
-        return yield* new CliError.UserError({
-          cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
-        });
+    if (options?.intent !== "manage-auth") {
+      // An interactive CLI must not start over a discovered server. Lifetime locking
+      // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
+      if (options?.rejectRunningServer && mode === "web") {
+        const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+        if (Option.isSome(runtime) && runtime.value.pid > 0 && isProcessAlive(runtime.value.pid)) {
+          return yield* new CliError.UserError({
+            cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
+          });
+        }
+      } else {
+        // Supervised (`t3 serve`) and desktop-spawned servers restart after crashes,
+        // so they yield only to a server that still answers at its recorded origin.
+        const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+        if (Option.isSome(runtime) && (yield* isRespondingServerRuntime(runtime.value))) {
+          return yield* new CliError.UserError({
+            cause: `Another T3 Code server (pid ${runtime.value.pid}, ${runtime.value.origin}) already owns ${baseDir}. Two servers sharing one T3 home corrupt its state. Stop that server or use a different --base-dir.`,
+          });
+        }
       }
     }
     yield* fs.makeDirectory(cwd, { recursive: true });
@@ -1149,6 +1165,7 @@ export const resolveCliAuthConfig = (
       sharedSettingsFile: flags.sharedSettingsFile ?? Option.none(),
     },
     cliLogLevel,
+    { intent: "manage-auth" },
   );
 
 /**
