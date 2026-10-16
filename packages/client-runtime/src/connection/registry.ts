@@ -92,12 +92,12 @@ export class PlatformEnvironmentRemovalError extends Schema.TaggedError<Platform
 }
 
 /**
- * A condition a registration is saved under. `admits` sees the catalog at the
- * moment of saving, while the registered environment and every environment in
- * `reads` are locked, so a change to any of them lands either before the check
- * or after the save.
+ * A condition a registration is saved or an environment removed under.
+ * `admits` sees the catalog at the moment of the change, while the changed
+ * environment and every environment in `reads` are locked, so a change to any
+ * of them lands either before the check or after the change.
  */
-export interface RegistrationGuard {
+export interface CatalogGuard {
   readonly reads: ReadonlyArray<EnvironmentId>;
   readonly admits: (entries: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) => boolean;
 }
@@ -117,7 +117,7 @@ export class EnvironmentRegistry extends Context.Service<
      */
     readonly register: (
       registration: ConnectionRegistration,
-      options?: { readonly knownAddressOnly?: boolean; readonly guard?: RegistrationGuard },
+      options?: { readonly knownAddressOnly?: boolean; readonly guard?: CatalogGuard },
     ) => Effect.Effect<boolean, Persistence.ConnectionPersistenceError | ConnectionBlockedError>;
     /**
      * Fails when the route would add a new address to a saved user environment. Pairing that does
@@ -129,8 +129,10 @@ export class EnvironmentRegistry extends Context.Service<
     readonly reconcilePlatform: (
       registrations: ReadonlyArray<PlatformConnectionRegistration>,
     ) => Effect.Effect<void>;
+    /** Forgets an environment; with a guard, only while the guard admits the catalog. */
     readonly remove: (
       environmentId: EnvironmentId,
+      guard?: CatalogGuard,
     ) => Effect.Effect<
       void,
       | Persistence.ConnectionPersistenceError
@@ -580,7 +582,7 @@ export const make = Effect.gen(function* () {
 
   const register = Effect.fn("EnvironmentRegistry.register")(function* (
     registration: ConnectionRegistration,
-    options?: { readonly knownAddressOnly?: boolean; readonly guard?: RegistrationGuard },
+    options?: { readonly knownAddressOnly?: boolean; readonly guard?: CatalogGuard },
   ) {
     const registered = connectionRegistrationCatalogEntry(registration);
     const environmentId = registered.target.environmentId;
@@ -901,8 +903,17 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const remove = Effect.fn("EnvironmentRegistry.remove")(function* (environmentId: EnvironmentId) {
-    return yield* withLeaseLock(environmentId, removeLocked(environmentId));
+  const remove = Effect.fn("EnvironmentRegistry.remove")(function* (
+    environmentId: EnvironmentId,
+    guard?: CatalogGuard,
+  ) {
+    return yield* withLeaseLocks(
+      [environmentId, ...(guard?.reads ?? [])],
+      Effect.gen(function* () {
+        if (guard !== undefined && !guard.admits(yield* SubscriptionRef.get(entries))) return;
+        yield* removeLocked(environmentId);
+      }),
+    );
   });
 
   const disconnectSsh = (environmentId: EnvironmentId, profile: SshConnectionProfile) =>
