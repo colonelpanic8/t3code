@@ -69,6 +69,8 @@ const layerConfig = (overrides: Partial<ServerConfig.ServerConfig["Service"]>) =
         port: 0,
         host: undefined,
         desktopBootstrapToken: undefined,
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         desktopTelemetryFd: undefined,
         desktopTelemetryControlFd: undefined,
         resourceMonitorPath: undefined,
