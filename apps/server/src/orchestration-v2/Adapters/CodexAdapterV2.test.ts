@@ -751,6 +751,7 @@ describe("CodexAdapterV2 process spawning", () => {
       }).config,
       {
         "tools.update_plan.enabled": true,
+        mcp_optional_startup_grace_ms: 10000,
         project_doc_max_bytes: 0,
         "skills.include_instructions": false,
         "memories.use_memories": false,
