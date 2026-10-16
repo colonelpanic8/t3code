@@ -1,0 +1,1 @@
+{"version":1,"type":"t3code.fleet-enrollment","anchor":{"environmentId":"fixture-anchor","label":"Fixture anchor","httpBaseUrl":"http://anchor.fixture.test:3773","wsBaseUrl":"ws://anchor.fixture.test:3773"},"credential":"t3enroll1.xZSZlsh64YNCEvl5tDAwOoVuViHtzyVDCe-_caN5byM","expiresAt":"2099-01-01T00:00:00.000Z"}
