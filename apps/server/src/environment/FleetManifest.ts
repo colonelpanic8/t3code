@@ -20,7 +20,7 @@ import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
 
-const FleetManifestDocument = Schema.Struct({
+export const FleetManifestDocument = Schema.Struct({
   version: Schema.Literal(1),
   environments: Schema.Array(ServerFleetEnvironment),
 });
