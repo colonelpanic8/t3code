@@ -2312,7 +2312,7 @@ describe("fleet sync", () => {
     }).pipe(Effect.scoped),
   );
 
-  describe("a joined member whose declared route changes", () => {
+  describe("a joined member that needs a fresh session", () => {
     const OLD_TOKEN = "old-member-token";
     const memberConnectionId = fleetConnectionId(MEMBER, PAIRED);
     const memberTarget = new BearerConnectionTarget({
@@ -2339,15 +2339,18 @@ describe("fleet sync", () => {
     const followFleet = <A, E>(input: {
       readonly fleet: ReadonlyArray<ReturnType<typeof declared>>;
       readonly newOriginAnswersAs: EnvironmentId;
+      readonly rejectOldSession?: boolean;
       readonly observe: (context: {
         readonly registry: EnvironmentRegistry.EnvironmentRegistry["Service"];
         readonly credentials: ConnectionCredentialStore.ConnectionCredentialStore["Service"];
         readonly warnings: Queue.Queue<string>;
+        readonly cacheClears: Ref.Ref<ReadonlyArray<EnvironmentId>>;
       }) => Effect.Effect<A, E>;
     }) =>
       Effect.gen(function* () {
         const requests: Array<string> = [];
         const registrations: Array<readonly [string, string]> = [];
+        let memberCredentialReplaced = false;
         const handoffs = yield* Ref.make<ReadonlyArray<EnvironmentId>>([]);
         const warnings = yield* Queue.unbounded<string>();
         const harness = yield* makeHarness(
@@ -2361,12 +2364,19 @@ describe("fleet sync", () => {
             beforeRegistrationRegister: (registration) =>
               Effect.sync(() => {
                 if (registration._tag === "BearerConnectionRegistration") {
+                  if (registration.target.environmentId === MEMBER) {
+                    memberCredentialReplaced = registration.credential.token !== OLD_TOKEN;
+                  }
                   registrations.push([
                     registration.profile.httpBaseUrl,
                     registration.credential.token,
                   ]);
                 }
               }),
+            prepareRoute: (target) =>
+              input.rejectOldSession && target.environmentId === MEMBER && !memberCredentialReplaced
+                ? new ConnectionBlockedError({ reason: "authentication", detail: "Expired." })
+                : undefined,
             session: () => ({
               initialConfig: Effect.succeed({ fleet: input.fleet } as unknown as ServerConfig),
               client: {
@@ -2426,6 +2436,7 @@ describe("fleet sync", () => {
             registry,
             credentials: harness.credentialStore,
             warnings,
+            cacheClears: harness.cacheClears,
           });
         }).pipe(
           Effect.provide(
@@ -2467,6 +2478,34 @@ describe("fleet sync", () => {
       if (profile._tag !== "BearerConnectionProfile") throw new Error("Expected a bearer profile.");
       return profile;
     };
+
+    it.effect(
+      "recovers a rejected session through the real registry without clearing its cache",
+      () =>
+        Effect.gen(function* () {
+          const { registrations, handoffs } = yield* followFleet({
+            fleet: [declared(PAIRED), declared(MEMBER)],
+            newOriginAnswersAs: MEMBER,
+            rejectOldSession: true,
+            observe: ({ registry, credentials, cacheClears }) =>
+              Effect.gen(function* () {
+                yield* awaitConnectionState(
+                  registry,
+                  MEMBER,
+                  (state) => state.phase === "connected",
+                );
+                expect(yield* credentials.get(memberConnectionId)).toEqual(
+                  Option.some(new BearerConnectionCredential({ token: "fresh-member-session" })),
+                );
+                expect(yield* Ref.get(cacheClears)).not.toContain(MEMBER);
+                const entry = (yield* SubscriptionRef.get(registry.entries)).get(MEMBER)!;
+                expect(entry.target).toMatchObject({ connectionId: memberConnectionId });
+              }),
+          });
+          expect(registrations).toEqual([[declared(MEMBER).httpBaseUrl, "fresh-member-session"]]);
+          expect(handoffs).toEqual([MEMBER]);
+        }),
+    );
 
     it.effect("joins again at the new URL and never sends the old credential there", () =>
       Effect.gen(function* () {
