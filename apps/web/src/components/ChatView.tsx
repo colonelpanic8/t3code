@@ -8332,7 +8332,9 @@ export default function ChatView(props: ChatViewProps) {
                               handleRuntimeModeChange={handleRuntimeModeChangeStable}
                               handleInteractionModeChange={handleInteractionModeChangeStable}
                               blankSlate={blankSlate}
-                              onToggleBlankSlate={isLocalDraftThread ? toggleBlankSlateStable : undefined}
+                              onToggleBlankSlate={
+                                isLocalDraftThread ? toggleBlankSlateStable : undefined
+                              }
                               focusComposer={focusComposerStable}
                               scheduleComposerFocus={scheduleComposerFocusStable}
                               setThreadError={setThreadError}
