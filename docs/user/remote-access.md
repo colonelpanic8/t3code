@@ -232,8 +232,8 @@ t3 auth enrollment export \
 ```
 
 The command uses the standard `age` executable. It checks the recipients before creating
-the credential and replaces the output only after encryption succeeds. An unsuccessful
-export revokes its new credential and preserves any previous output. The default lifetime
+the credential and replaces the output only after encryption succeeds. A failure before
+publication revokes its new credential and preserves any previous output. The default lifetime
 is 365 days; use `--ttl` to choose a different lifetime. `--fleet-manifest` selects the
 manifest when it is not supplied by the server configuration.
 
