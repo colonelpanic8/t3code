@@ -116,7 +116,7 @@ const make = Effect.gen(function* () {
       Effect.mapError((cause) => errorResult(`Invalid arguments: ${cause.message}`)),
     );
 
-  const mintId = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const mintId = crypto.randomUUIDv4().pipe(Effect.orDie);
 
   const threadShell = Effect.fn("VoiceLiveToolExecutor.threadShell")(function* (
     threadId: ThreadId,
