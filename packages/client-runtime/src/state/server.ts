@@ -48,6 +48,7 @@ import {
 } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
+import { persistUsageSummary } from "./usagePersistence.ts";
 import {
   applyServerConfigProjection,
   type ServerConfigProjection,
@@ -1090,6 +1091,7 @@ export function createServerEnvironmentAtoms<R, E>(
     usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:usage-summary",
       tag: WS_METHODS.serverGetUsageSummary,
+      persistence: persistUsageSummary(),
       staleTimeMs: 60_000,
       refreshTrigger: ({ environmentId }) => usageScanSettingsAtom(environmentId),
       execute: (input, emit) =>
