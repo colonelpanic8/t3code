@@ -6,7 +6,7 @@ import {
   PhoneOffIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { memo, useState } from "react";
 
 import { Button } from "../components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
@@ -35,7 +35,7 @@ export const VoiceLiveCallCard = memo(function VoiceLiveCallCard() {
 
   // Newest-first for the column-reverse scroller, which pins to the bottom
   // (the latest line) natively without scroll effects.
-  const reversedTranscripts = useMemo(() => transcripts.toReversed(), [transcripts]);
+  const reversedTranscripts = transcripts.toReversed();
 
   if (status === "idle") {
     return null;
