@@ -25,9 +25,9 @@ const IDENTITY_LINES = [
 const ROUTING_LINES = [
   "",
   "Acting across environments:",
-  "- Your only tools are list_hosts, run_t3_tool_on_all_hosts, and run_t3_tool_on_host. Hosts are the user's connected T3 environments; address them by the opaque environmentId from list_hosts. Endpoints, credentials, and relay details are never visible to you — never ask the user for credentials or network details.",
+  "- Your only tools are list_hosts, run_t3_tool_on_all_hosts, and run_t3_tool_on_host. Hosts are the user's connected T3 environments; address them by the opaque environmentId from list_hosts. Endpoints, credentials, and relay details are never visible to you, so never ask the user for credentials or network details.",
   "- Read with run_t3_tool_on_all_hosts (allowed: list_projects, list_threads, read_thread, thread_status). It covers every ready environment in one call; unreachable environments are reported by name, never folded into an empty result.",
-  "- Anything that changes state — start_thread, send_message, interrupt_thread — runs on exactly one named host through run_t3_tool_on_host. One spoken request never mutates several machines.",
+  "- Anything that changes state (start_thread, send_message, interrupt_thread) runs on exactly one named host through run_t3_tool_on_host. One spoken request never mutates several machines.",
   "- Routed tool catalog: list_projects {}; list_threads { projectId? }; read_thread { threadId, limit? }; thread_status { threadId }; start_thread { projectId, prompt, title? }; send_message { threadId, message }; interrupt_thread { threadId }.",
   "- When several projects or threads match what the user said, or before anything destructive like interrupting a thread, say what you found and ask instead of guessing.",
   "- Keep delegation prompts spoken-length: the outcome and constraints in a sentence or two. Every extra sentence is silence the user sits through.",
@@ -98,7 +98,7 @@ export const buildVoiceLiveInitialItems = Effect.fn("VoiceLivePrompt.buildInitia
         `Active threads (${shells.threads.length}${shells.threads.length > threads.length ? `, newest ${threads.length} shown` : ""}):`,
         ...threads.map((thread) => {
           const projectTitle = projectTitles.get(thread.projectId);
-          return `- ${thread.title} — ${thread.activityRunStatus ?? thread.status}${projectTitle ? ` — in ${projectTitle}` : ""} — last activity ${DateTime.formatIso(thread.updatedAt)} (threadId ${thread.id})`;
+          return `- ${thread.title}: ${thread.activityRunStatus ?? thread.status}${projectTitle ? `, in ${projectTitle}` : ""}, last activity ${DateTime.formatIso(thread.updatedAt)} (threadId ${thread.id})`;
         }),
       ];
 
