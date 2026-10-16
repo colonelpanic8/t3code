@@ -157,13 +157,116 @@ For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
 open it, or pair from the desktop app. On mobile, an IP address entered without a
 scheme uses HTTP, so include `https://` when your server uses HTTPS.
 
-## Declarative desktop connections
+## Declarative fleets
 
-Managed desktop installations can provision a stable fleet without an interactive pairing step.
-Give each server a stable `T3CODE_ENVIRONMENT_ID` and set `T3CODE_MANAGED_ACCESS_TOKEN_FILE` to the
-path of a file holding the shared token. The server reads the file at startup and refuses to start
-if it is missing, unreadable, or empty. `T3CODE_MANAGED_ACCESS_TOKEN` still accepts the token
-inline, but set only one of the two. Then start the desktop app with
+Managed installations can declare several servers as one fleet, so pairing a device with one of
+them pairs it with all of them. Give every server its own stable `T3CODE_ENVIRONMENT_ID` and set
+`T3CODE_MANAGED_ACCESS_TOKEN_FILE` to a file holding the shared token. The server reads the file
+at startup and refuses to start if it is missing, unreadable, or empty.
+`T3CODE_MANAGED_ACCESS_TOKEN` still accepts the token inline; set only one of the two.
+Set `T3CODE_FLEET_MANIFEST_FILE` to a manifest that lists every member,
+itself included:
+
+```json
+{
+  "version": 1,
+  "environments": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "httpBaseUrl": "https://build-host.example.ts.net/",
+      "wsBaseUrl": "wss://build-host.example.ts.net/"
+    }
+  ]
+}
+```
+
+The manifest holds no secrets. Pair a phone, browser, or desktop app with any member as usual;
+T3 Code then adds the other members, each at its declared address, and follows later changes to
+the manifest, including members that leave. Every member issues the device its own session, which
+appears under its authorized clients and can be revoked there. A member that does not answer, for
+example while your phone is off the tailnet, stays pending on the Connections screen. Choose
+**Retry all** to try again. T3 Code also retries when the app returns, the network changes, or a
+member connects, with up to three additional attempts five minutes apart.
+
+Members added this way are managed by system configuration: you can switch one off, but not edit
+or remove it. To take the fleet off a device, remove the machine you paired with.
+
+### Import a fleet on mobile
+
+Copy the fleet manifest JSON to your phone and choose **Import fleet file** when adding
+an environment. Review the list, select a member, and enter that member's pairing code.
+The file supplies addresses, not access: pairing is still required. Already saved environments
+keep their existing addresses and credentials. The imported list is used only during setup;
+after pairing, the connected servers supply fleet membership.
+
+Nix can generate the same file from the list used to configure your servers:
+
+```nix
+import "${inputs.t3code}/nix/fleet-import.nix" {
+  inherit pkgs;
+  environments = import ./fleet.nix;
+}
+```
+
+The result is a JSON file that can be copied to any device. Keep it free of tokens and
+passwords, including credentials embedded in URLs. HTTP and WebSocket addresses must
+refer to the same host and use matching secure or insecure schemes.
+
+### Encrypted fleet enrollment
+
+An encrypted enrollment file supplies both the fleet's anchor address and a reusable
+enrollment credential. Each device gets its own session; the servers' shared
+managed-access token is never included. The ciphertext can be kept in a public Git repository.
+
+Create a dedicated age identity for your phones and back it up in a password manager. Put
+its public `age1…` recipient in an age recipients file alongside your existing SSH public
+keys. Keep the `AGE-SECRET-KEY-…` identity private. On the anchor server, with the same state
+directory and fleet configuration as the running server, export:
+
+```sh
+t3 auth enrollment export \
+  --recipients-file recipients.txt \
+  --output fleet.age \
+  --label phones
+```
+
+The command uses the standard `age` executable. It checks the recipients before creating
+the credential and replaces the output only after encryption succeeds. A failure before
+publication revokes its new credential and preserves any previous output. The default lifetime
+is 365 days; use `--ttl` to choose a positive, finite lifetime. The anchor URLs must point
+to the server origin, without a base path. `--fleet-manifest` selects the manifest when it
+is not supplied by the server configuration.
+
+On mobile, choose **Import fleet file**, select `fleet.age`, and import the backed-up age
+identity when prompted. Review the anchor name, address, and expiry before joining. age
+protects the file's contents but does not verify who published it. The phone keeps the
+identity in secure storage; Settings lets you import or remove it and copy its public
+recipient. Decrypted enrollment data is kept in memory.
+
+If an existing anchor session has expired, let the connection show that sign-in is required,
+then import the enrollment file again. Importing while the saved connection is still trying
+to connect opens that connection instead of creating another session.
+Fleet members with expired sessions reconnect through the anchor once it is connected.
+
+The file can enroll several devices until it expires or is revoked. List and revoke it
+with `t3 auth pairing list` and `t3 auth pairing revoke <id>`. Creating a new file does not
+revoke an older one. To rotate enrollment, export and distribute the replacement, then
+revoke the old credential. Existing device sessions remain valid until their normal
+expiry or separate revocation under authorized clients.
+
+After reinstalling the app, import the same backed-up age identity to open the existing
+file. A newly generated identity cannot decrypt it until you add that identity's recipient
+and re-encrypt the file. Removing a recipient only protects future ciphertext: previously
+published copies remain readable by that key. If a phone is lost, revoke the enrollment
+credential and that phone's sessions on each fleet member.
+
+Revoke active enrollment credentials before rolling a server back to a version that does
+not support them; older versions cannot list their pairing records.
+
+### Declarative desktop connections
+
+A desktop app can also load its connections from a file instead of pairing. Start it with
 `T3CODE_MANAGED_CONNECTIONS_FILE` pointing to a JSON file:
 
 ```json
