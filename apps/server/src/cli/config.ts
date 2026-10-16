@@ -888,40 +888,6 @@ const resolveManagedAccessToken = Effect.fn(function* (
   return fileToken;
 });
 
-const resolveManagedAccessToken = Effect.fn(function* (
-  inlineToken: string | undefined,
-  tokenFile: string | undefined,
-) {
-  const token = inlineToken?.trim() || undefined;
-  const file = tokenFile?.trim() || undefined;
-  if (file === undefined) {
-    return token;
-  }
-  if (token !== undefined) {
-    return yield* new CliError.UserError({
-      cause:
-        "Set only one of T3CODE_MANAGED_ACCESS_TOKEN and T3CODE_MANAGED_ACCESS_TOKEN_FILE, not both.",
-    });
-  }
-  const fs = yield* FileSystem.FileSystem;
-  const contents = yield* fs.readFileString(file).pipe(
-    Effect.mapError(
-      (cause) =>
-        new CliError.UserError({
-          cause,
-          userMessage: `T3CODE_MANAGED_ACCESS_TOKEN_FILE could not be read (${cause.reason._tag}): ${file}`,
-        }),
-    ),
-  );
-  const fileToken = contents.trim();
-  if (fileToken.length === 0) {
-    return yield* new CliError.UserError({
-      cause: `T3CODE_MANAGED_ACCESS_TOKEN_FILE is empty: ${file}`,
-    });
-  }
-  return fileToken;
-});
-
 export const resolveServerConfig = (
   flags: CliServerFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
