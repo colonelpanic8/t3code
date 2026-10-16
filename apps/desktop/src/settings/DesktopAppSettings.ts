@@ -28,6 +28,8 @@ import { isValidDistroName } from "../wsl/wslPathParsing.ts";
 export interface DesktopSettings {
   readonly localEnvironmentEnabled: boolean;
   readonly linuxPasswordStore: LinuxPasswordStorePreference;
+  // Window state written by older builds. Read-only here and kept on save;
+  // DesktopWindowState falls back to it until desktop-window-state.json exists.
   readonly mainWindowBounds: DesktopWindowBounds | null;
   readonly mainWindowMaximized: boolean;
   readonly serverExposureMode: DesktopServerExposureMode;
@@ -35,19 +37,9 @@ export interface DesktopSettings {
   readonly tailscaleServePort: number;
   readonly updateChannel: DesktopUpdateChannel;
   readonly updateChannelConfiguredByUser: boolean;
-  // Was a "local" | "wsl" swap mode in an earlier iteration of the WSL
-  // integration. We now run Windows and WSL backends side by side, so the
-  // setting is just whether the WSL backend should be running alongside the
-  // primary. Persisted documents that still carry the legacy `wslMode: "wsl"`
-  // value are migrated to `wslBackendEnabled: true` on load.
   readonly wslBackendEnabled: boolean;
   readonly wslDistro: string | null;
-  // When true (and wslBackendEnabled is also true) the desktop runs only
-  // the WSL backend as the primary, and the Windows-side Node backend is
-  // not started. Designed for users who develop entirely inside WSL and
-  // don't want a second backend process running. Defaults to false so
-  // existing setups stay on the parallel-backends behavior. Changing
-  // this requires a desktop restart because the pool's primary spec is
+  // Changing this requires a desktop restart because the pool's primary spec is
   // chosen once at layer init.
   readonly wslOnly: boolean;
 }
@@ -106,9 +98,6 @@ const DesktopSettingsDocument = Schema.Struct({
   tailscaleServePort: Schema.optionalKey(Schema.Number),
   updateChannel: Schema.optionalKey(DesktopUpdateChannelSchema),
   updateChannelConfiguredByUser: Schema.optionalKey(Schema.Boolean),
-  // Newer form of the WSL toggle. `wslMode` is still accepted on load so
-  // existing on-disk settings keep working; on the next persist we write the
-  // new boolean and the legacy key drops out.
   wslBackendEnabled: Schema.optionalKey(Schema.Boolean),
   wslMode: Schema.optionalKey(Schema.Literals(["local", "wsl"])),
   wslDistro: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -122,7 +111,6 @@ const DesktopSettingsJson = fromLenientJson(DesktopSettingsDocument);
 const decodeDesktopSettingsJson = Schema.decodeEffect(DesktopSettingsJson);
 const encodeDesktopSettingsJson = Schema.encodeEffect(DesktopSettingsJson);
 const decodeDesktopWindowBounds = Schema.decodeUnknownOption(DesktopWindowBoundsSchema);
-const desktopWindowBoundsEquivalence = Schema.toEquivalence(DesktopWindowBoundsSchema);
 
 const settingsChange = (settings: DesktopSettings, changed: boolean): DesktopSettingsChange => ({
   settings,
@@ -159,10 +147,6 @@ export class DesktopAppSettings extends Context.Service<
     readonly get: Effect.Effect<DesktopSettings>;
     readonly setLocalEnvironmentEnabled: (
       enabled: boolean,
-    ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
-    readonly setMainWindowBounds: (
-      bounds: DesktopWindowBounds,
-      isMaximized: boolean,
     ) => Effect.Effect<DesktopSettingsChange, DesktopSettingsWriteError>;
     readonly setServerExposureMode: (
       mode: DesktopServerExposureMode,
@@ -224,9 +208,6 @@ function normalizeDesktopSettingsDocument(
     parsed.updateChannelConfiguredByUser === true ||
     (isLegacySettings && Option.contains(parsedUpdateChannel, "nightly"));
 
-  // Newer form wins when both are present; otherwise fall back to the legacy
-  // `wslMode === "wsl"` signal so users coming off the swap-mode build keep
-  // their WSL backend enabled.
   const wslBackendEnabled =
     parsed.wslBackendEnabled === true ||
     (parsed.wslBackendEnabled === undefined && parsed.wslMode === "wsl");
@@ -306,22 +287,6 @@ function setServerExposureMode(
     : {
         ...settings,
         serverExposureMode: requestedMode,
-      };
-}
-
-function setMainWindowBounds(
-  settings: DesktopSettings,
-  bounds: DesktopWindowBounds,
-  isMaximized: boolean,
-): DesktopSettings {
-  return settings.mainWindowBounds !== null &&
-    desktopWindowBoundsEquivalence(settings.mainWindowBounds, bounds) &&
-    settings.mainWindowMaximized === isMaximized
-    ? settings
-    : {
-        ...settings,
-        mainWindowBounds: bounds,
-        mainWindowMaximized: isMaximized,
       };
 }
 
@@ -481,6 +446,7 @@ const writeSettings = Effect.fn("desktop.settings.writeSettings")(function* (inp
   );
 });
 
+/** @public */
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -538,18 +504,6 @@ export const make = Effect.gen(function* () {
       );
       return yield* SynchronizedRef.setAndGet(settingsRef, settings);
     }).pipe(Effect.withSpan("desktop.settings.load")),
-    setMainWindowBounds: (bounds, isMaximized) =>
-      persist((settings) => setMainWindowBounds(settings, bounds, isMaximized)).pipe(
-        Effect.withSpan("desktop.settings.setMainWindowBounds", {
-          attributes: {
-            x: bounds.x,
-            y: bounds.y,
-            width: bounds.width,
-            height: bounds.height,
-            isMaximized,
-          },
-        }),
-      ),
     setServerExposureMode: (mode) =>
       persist((settings) => setServerExposureMode(settings, mode)).pipe(
         Effect.withSpan("desktop.settings.setServerExposureMode", { attributes: { mode } }),
@@ -611,8 +565,6 @@ export const layerTest = (initialSettings: DesktopSettings = DEFAULT_DESKTOP_SET
       return DesktopAppSettings.of({
         get: SynchronizedRef.get(settingsRef),
         load: SynchronizedRef.get(settingsRef),
-        setMainWindowBounds: (bounds, isMaximized) =>
-          update((settings) => setMainWindowBounds(settings, bounds, isMaximized)),
         setServerExposureMode: (mode) =>
           update((settings) => setServerExposureMode(settings, mode)),
         setTailscaleServe: (input) => update((settings) => setTailscaleServe(settings, input)),
