@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { PendingFleetMember } from "@t3tools/client-runtime/connection";
 import { Pressable, View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 import { pendingFleetJoinsAtom, retryPendingFleetMembers } from "../../connection/fleet";
 import { useAtomCommand } from "../../state/use-atom-command";
