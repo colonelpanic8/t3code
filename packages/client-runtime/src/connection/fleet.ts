@@ -43,7 +43,9 @@ import * as ConnectionWakeups from "./wakeups.ts";
  * Joined members reach each machine at its declared URL, follow the declared
  * labels and URLs, and leave when the fleet no longer lists them. A credential
  * belongs to the URLs it was issued for: a member whose URL changes joins again
- * there, and keeps its old route until that succeeds.
+ * there, and keeps its old route until that succeeds. A member whose session
+ * the server rejects, for example once it expires, joins again through its
+ * root's own session.
  *
  * A joined member records the saved environment it was joined through, its
  * root. Removing the root removes what joined through it, which is how a user
@@ -88,7 +90,10 @@ export interface FleetSyncPlan {
   readonly join: ReadonlyArray<ServerFleetEnvironment>;
   /** Joined members whose declared label changed at the same URLs. */
   readonly relabel: ReadonlyArray<ServerFleetEnvironment>;
-  /** Joined members whose declared URLs changed, while the root is switched on. */
+  /**
+   * Joined members whose declared URLs changed, or whose session was rejected,
+   * while the root is switched on.
+   */
   readonly rejoin: ReadonlyArray<ServerFleetEnvironment>;
   /** Joined members the fleet no longer lists. */
   readonly remove: ReadonlyArray<EnvironmentId>;
@@ -103,6 +108,8 @@ export function planFleetSync(input: {
   readonly entries: CatalogEntries;
   readonly source: EnvironmentId;
   readonly fleet: ReadonlyArray<ServerFleetEnvironment>;
+  /** Environments whose session was rejected and that have not been joined again since. */
+  readonly rejected?: ReadonlySet<EnvironmentId>;
 }): FleetSyncPlan | null {
   const sourceEntry = input.entries.get(input.source);
   if (
@@ -137,6 +144,14 @@ export function planFleetSync(input: {
     if (profile.httpBaseUrl !== member.httpBaseUrl || profile.wsBaseUrl !== member.wsBaseUrl) {
       // Joining again issues a new credential, which a switched-off root does not.
       if (rootEntry.enabled) rejoin.push(member);
+    } else if (
+      input.source === root &&
+      entry.enabled &&
+      input.rejected?.has(member.environmentId) === true
+    ) {
+      // Only the root's live session replaces a rejected credential, so a fleet
+      // comes back with the machine the user paired, not any reachable member.
+      rejoin.push(member);
     } else if (profile.label !== member.label) {
       relabel.push(member);
     }
@@ -162,6 +177,7 @@ const plannedIds = (plan: FleetSyncPlan, change: FleetChange): ReadonlyArray<Env
 function stillPlanned(input: {
   readonly source: EnvironmentId;
   readonly fleet: ReadonlyArray<ServerFleetEnvironment>;
+  readonly rejected: ReadonlySet<EnvironmentId>;
   readonly root: EnvironmentId;
   readonly member: EnvironmentId;
   readonly changes: ReadonlyArray<FleetChange>;
@@ -169,7 +185,12 @@ function stillPlanned(input: {
   return {
     reads: [input.source, input.root],
     admits: (entries) => {
-      const plan = planFleetSync({ entries, source: input.source, fleet: input.fleet });
+      const plan = planFleetSync({
+        entries,
+        source: input.source,
+        fleet: input.fleet,
+        rejected: input.rejected,
+      });
       return (
         plan?.root === input.root &&
         input.changes.some((change) => plannedIds(plan, change).includes(input.member))
@@ -261,7 +282,8 @@ export type PendingFleetMemberStatus = "not-joined" | "joining" | "failed";
 /**
  * A member a followed fleet declares that this client has not joined at its
  * declared URLs. It is derived from live reports and never saved: `join` is a
- * machine not on this device yet, `rejoin` one still reached at its old URLs.
+ * machine not on this device yet, `rejoin` one still reached at its old URLs
+ * or with a rejected session.
  */
 export interface PendingFleetMember {
   readonly environmentId: EnvironmentId;
@@ -329,12 +351,24 @@ export const make = Effect.gen(function* () {
   /** The fleet each live session reported, by the environment it reached. */
   const reports = new Map<EnvironmentId, Report>();
   const attempts = new Map<EnvironmentId, "joining" | "failed">();
+  /** Environments whose session was rejected, until they connect or are joined again. */
+  const rejected = new Set<EnvironmentId>();
+  /**
+   * Members joined again after a rejection that have not connected since. A
+   * further rejection does not join them again, so a member that refuses its
+   * new credential is not joined in a loop.
+   */
+  const rejoined = new Set<EnvironmentId>();
+  const forgetRejection = (environmentId: EnvironmentId) => {
+    rejected.delete(environmentId);
+    rejoined.delete(environmentId);
+  };
   const pending = yield* SubscriptionRef.make<ReadonlyArray<PendingFleetMember>>([]);
 
   const pendingIn = (entries: CatalogEntries): ReadonlyArray<PendingFleetMember> => {
     const members = new Map<EnvironmentId, PendingFleetMember>();
     for (const [source, { fleet }] of reports) {
-      const plan = planFleetSync({ entries, source, fleet });
+      const plan = planFleetSync({ entries, source, fleet, rejected });
       if (plan === null) continue;
       for (const [kind, declared] of [
         ["join", plan.join],
@@ -381,7 +415,7 @@ export const make = Effect.gen(function* () {
     attempted: Set<EnvironmentId>,
   ) {
     const guard = (member: EnvironmentId, changes: ReadonlyArray<FleetChange>) =>
-      stillPlanned({ source, fleet, root: plan.root, member, changes });
+      stillPlanned({ source, fleet, rejected, root: plan.root, member, changes });
     yield* Effect.forEach(
       plan.remove,
       (environmentId) =>
@@ -424,7 +458,9 @@ export const make = Effect.gen(function* () {
         ),
         Effect.tap((saved) =>
           saved
-            ? Effect.void
+            ? Effect.sync(() => {
+                if (rejected.delete(member.environmentId)) rejoined.add(member.environmentId);
+              })
             : Effect.logInfo("A fleet machine changed while it was joining, so it was not saved.", {
                 environmentId: member.environmentId,
               }),
@@ -453,7 +489,12 @@ export const make = Effect.gen(function* () {
           joinMember(member, "Could not join a fleet machine."),
         ),
         ...unattempted(plan.rejoin).map((member) =>
-          joinMember(member, "Could not join a fleet machine at its new address."),
+          joinMember(
+            member,
+            rejected.has(member.environmentId)
+              ? "Could not join a fleet machine again after its session was rejected."
+              : "Could not join a fleet machine at its new address.",
+          ),
         ),
       ],
       { concurrency: "unbounded", discard: true },
@@ -468,6 +509,7 @@ export const make = Effect.gen(function* () {
         entries: yield* SubscriptionRef.get(registry.entries),
         source,
         fleet: report.fleet,
+        rejected,
       });
       if (plan !== null) yield* applyPlan(plan, source, report, attempted);
     });
@@ -526,25 +568,58 @@ export const make = Effect.gen(function* () {
         Effect.ensuring(publish),
       );
 
+  const followSupervisor = <A>(
+    environmentId: EnvironmentId,
+    changes: (
+      supervisor: EnvironmentSupervisor.EnvironmentSupervisor["Service"],
+    ) => Stream.Stream<A>,
+  ) =>
+    registry.followStream(
+      environmentId,
+      Stream.unwrap(Effect.map(EnvironmentSupervisor.EnvironmentSupervisor, changes)),
+    );
+
   const followSessions = (environmentId: EnvironmentId) =>
-    registry
-      .followStream(
-        environmentId,
-        Stream.unwrap(
-          Effect.map(EnvironmentSupervisor.EnvironmentSupervisor, (supervisor) =>
-            SubscriptionRef.changes(supervisor.session),
-          ),
+    followSupervisor(environmentId, (supervisor) =>
+      SubscriptionRef.changes(supervisor.session),
+    ).pipe(
+      Stream.runForEach(
+        Option.match({
+          onNone: () =>
+            Effect.sync(() => reports.delete(environmentId)).pipe(Effect.andThen(publish)),
+          onSome: (session) => syncFrom(environmentId, session),
+        }),
+      ),
+    );
+
+  // Acceptance and rejection come from one stream per connection, in the order
+  // they settle, so neither can overtake the other.
+  const followCredential = (environmentId: EnvironmentId) =>
+    followSupervisor(environmentId, (supervisor) =>
+      SubscriptionRef.changes(supervisor.state).pipe(
+        Stream.map((state) =>
+          state.phase === "connected"
+            ? "accepted"
+            : state.phase === "blocked" && state.lastFailure?.reason === "authentication"
+              ? "rejected"
+              : null,
         ),
-      )
-      .pipe(
-        Stream.runForEach(
-          Option.match({
-            onNone: () =>
-              Effect.sync(() => reports.delete(environmentId)).pipe(Effect.andThen(publish)),
-            onSome: (session) => syncFrom(environmentId, session),
-          }),
-        ),
-      );
+        Stream.changes,
+      ),
+    ).pipe(
+      Stream.runForEach((verdict) => {
+        switch (verdict) {
+          case "accepted":
+            return Effect.sync(() => forgetRejection(environmentId)).pipe(Effect.andThen(publish));
+          case "rejected":
+            return Effect.sync(() => {
+              if (!rejoined.has(environmentId)) rejected.add(environmentId);
+            }).pipe(Effect.andThen(retry));
+          case null:
+            return Effect.void;
+        }
+      }),
+    );
 
   yield* SubscriptionRef.changes(registry.entries).pipe(
     Stream.runForEach((entries) =>
@@ -559,10 +634,19 @@ export const make = Effect.gen(function* () {
             ),
           { discard: true },
         );
+        for (const environmentId of [...rejected, ...rejoined]) {
+          if (!entries.has(environmentId)) forgetRejection(environmentId);
+        }
         for (const environmentId of entries.keys()) {
-          yield* FiberMap.run(followers, environmentId, followSessions(environmentId), {
-            onlyIfMissing: true,
-          });
+          yield* FiberMap.run(
+            followers,
+            environmentId,
+            Effect.all([followSessions(environmentId), followCredential(environmentId)], {
+              concurrency: "unbounded",
+              discard: true,
+            }),
+            { onlyIfMissing: true },
+          );
         }
         yield* publish;
       }),
