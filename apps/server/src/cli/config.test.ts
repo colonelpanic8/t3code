@@ -25,7 +25,7 @@ import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -208,7 +208,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       }),
   );
 
-  it.effect("refuses supervised and desktop startup only when the owner still answers", () =>
+  it.effect("refuses a second server while permitting auth management for the running owner", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -284,6 +284,20 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         } else {
           expect(result._tag).toBe("Success");
         }
+
+        const authConfig = yield* resolveCliAuthConfig(
+          { baseDir: Option.some(baseDir) },
+          Option.none(),
+        ).pipe(
+          Effect.provide(
+            Layer.merge(
+              NetService.layer,
+              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            ),
+          ),
+        );
+        expect(authConfig.baseDir).toBe(baseDir);
+        expect(authConfig.environmentIdPath).toBe(path.join(stateDir, "environment-id"));
       }
     }),
   );

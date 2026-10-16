@@ -260,6 +260,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
+    readonly intent?: "start-server" | "manage-auth";
   },
 ) {
   const { findAvailablePort } = yield* NetService.NetService;
@@ -332,6 +333,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
     baseDirIsExplicit: Option.isSome(explicitBaseDir),
   });
+    if (options?.intent !== "manage-auth") {
   // An interactive CLI must not start over a discovered server. Lifetime locking
   // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
   if (options?.rejectRunningServer && mode === "web") {
@@ -357,6 +359,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
         });
       }
   }
+    }
   yield* fs.makeDirectory(cwd, { recursive: true });
   yield* ServerConfig.ensureServerDirectories(derivedPaths);
   const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
@@ -519,6 +522,7 @@ export const resolveCliAuthConfig = (
       tailscaleServePort: Option.none(),
     },
     cliLogLevel,
+    { intent: "manage-auth" },
   );
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
