@@ -139,6 +139,12 @@ function PairingForm({
     navigation.navigate("SettingsEnvironmentDetail", { environmentId });
   };
 
+  const handleEnrolled = () => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.dispatch(StackActions.replace("Home"));
+  };
+
   const handleCodeChange = (value: string) => {
     setCodeInput(value);
     clearError();
@@ -262,6 +268,7 @@ function PairingForm({
               onSelect={handleImportedSelect}
               onClearSelection={handleImportedClear}
               onOpenSaved={openSavedEnvironment}
+              onEnrolled={handleEnrolled}
             />
           ) : null}
 

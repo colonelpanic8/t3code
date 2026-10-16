@@ -6,14 +6,20 @@ import type { ServerFleetEnvironment } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 
 import { beginForegroundHandoff } from "../../lib/foreground-handoff";
+import { isAgeEncryptedFile } from "./fleetEnrollmentKey";
+
+export type PickedFleetFile =
+  | { readonly kind: "inventory"; readonly environments: ReadonlyArray<ServerFleetEnvironment> }
+  /** An age-encrypted enrollment, still to be decrypted and confirmed. */
+  | { readonly kind: "enrollment"; readonly bytes: Uint8Array };
 
 /**
- * Lets the user pick a fleet file and decodes it. Reads stop one byte past the
- * size limit, so an oversized pick is never loaded whole. Resolves null when
- * the user cancels.
+ * Lets the user pick a fleet file, either a plain inventory or an encrypted
+ * enrollment. Reads stop one byte past the size limit, so an oversized pick is
+ * never loaded whole. Resolves null when the user cancels.
  */
 export async function pickFleetImportFile(): Promise<Result.Result<
-  ReadonlyArray<ServerFleetEnvironment>,
+  PickedFleetFile,
   string
 > | null> {
   const endHandoff = beginForegroundHandoff();
@@ -37,7 +43,15 @@ export async function pickFleetImportFile(): Promise<Result.Result<
   } catch {
     return Result.fail("Could not read that file.");
   }
-  return Result.mapError(decodeFleetImport(bytes), (error) => error.message);
+  if (isAgeEncryptedFile(bytes)) {
+    return bytes.byteLength > FLEET_IMPORT_MAX_BYTES
+      ? Result.fail("That fleet enrollment file is too large.")
+      : Result.succeed({ kind: "enrollment", bytes });
+  }
+  return Result.mapBoth(decodeFleetImport(bytes), {
+    onSuccess: (environments) => ({ kind: "inventory", environments }),
+    onFailure: (error) => error.message,
+  });
 }
 
 async function readAndDeleteCacheCopy(uri: string, maxBytes: number): Promise<Uint8Array> {
