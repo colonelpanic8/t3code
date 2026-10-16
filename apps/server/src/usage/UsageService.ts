@@ -50,7 +50,7 @@ import {
 import {
   decodeScanCache,
   dedupeWithinFile,
-  LEGACY_SCAN_CACHE_FILE_NAME,
+  LEGACY_SCAN_CACHE_FILE_NAMES,
   makeScanCacheWriter,
   pruneScanCache,
   SCAN_CACHE_FILE_NAME,
@@ -202,7 +202,9 @@ export const make = Effect.gen(function* () {
 
   const ratesCachePath = path.join(config.stateDir, "usage-model-rates.json");
   const scanCachePath = path.join(config.stateDir, SCAN_CACHE_FILE_NAME);
-  const legacyScanCachePath = path.join(config.stateDir, LEGACY_SCAN_CACHE_FILE_NAME);
+  const legacyScanCachePaths = LEGACY_SCAN_CACHE_FILE_NAMES.map((name) =>
+    path.join(config.stateDir, name),
+  );
   const writeCacheFile = (filePath: string, contents: string) =>
     writeFileStringAtomically({ filePath, contents }).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
@@ -378,8 +380,9 @@ export const make = Effect.gen(function* () {
           Effect.catchCause(() => Effect.succeed(null)),
         );
       let document = yield* readDocument(scanCachePath);
-      if (document === null) {
-        document = yield* readDocument(legacyScanCachePath);
+      for (const legacyPath of legacyScanCachePaths) {
+        if (document !== null) break;
+        document = yield* readDocument(legacyPath);
         cacheDirty = document !== null;
       }
       if (document === null) return;
@@ -485,9 +488,10 @@ export const make = Effect.gen(function* () {
         };
 
       const base = parsed.resumed && cached !== undefined ? cached.records : [];
-      const seen = new Set<string>();
-      const records = dedupeWithinFile([...base, ...parsed.records], seen);
-      const tailRecords = dedupeWithinFile(parsed.tailRecords, seen);
+      const tail = new Set(parsed.tailRecords);
+      const kept = dedupeWithinFile([...base, ...parsed.records, ...parsed.tailRecords]);
+      const records = kept.filter((record) => !tail.has(record));
+      const tailRecords = kept.filter((record) => tail.has(record));
 
       return {
         records: tailRecords.length === 0 ? records : [...records, ...tailRecords],
