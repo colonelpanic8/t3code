@@ -12,6 +12,19 @@ in
   assert rejected [(member // {httpBaseUrl = "https://alpha.example.test/?token=fixture";})];
   assert rejected [(member // {httpBaseUrl = "https://alpha.example.test/#token=fixture";})];
   assert rejected [(member // {wsBaseUrl = "wss://elsewhere.example.test/";})];
+  assert builtins.all (url:
+    rejected [
+      (member
+        // {
+          httpBaseUrl = url;
+          wsBaseUrl = pkgs.lib.replaceStrings ["https:"] ["wss:"] url;
+        })
+    ]) [
+    "https://alpha.example.test/path@secret"
+    "https://alpha.example.test:65536/"
+    "https://alpha.example.test:abc/"
+    "https://alpha.example.test:123456/"
+  ];
     pkgs.runCommand "t3code-fleet-import-check" {nativeBuildInputs = [pkgs.jq];} ''
       jq --sort-keys --compact-output . ${makeManifest document.environments} > actual.json
       jq --sort-keys --compact-output . ${fixture} > expected.json
