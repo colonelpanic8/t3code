@@ -336,6 +336,40 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 [Antigravity](./providers-antigravity.md), [Pi](./providers-pi.md), and
 [Muse Code](./providers-muse.md).
 
+## Managed settings
+
+A system configuration such as Nix or MDM can fix settings so they survive
+reinstalls and cannot drift. Point these variables at read-only files:
+
+- `T3CODE_MANAGED_SETTINGS_FILE`, read by the server: same format as its
+  `settings.json`, and it wins over both that file and a
+  [shared settings file](#share-settings-across-machines). Nested objects merge
+  key by key, except settings saved whole, which it replaces entirely. Each
+  provider instance, usage limit source, and price override is one of these:
+  give it whole, with every required field (a provider instance's `driver`, a
+  usage limit source's `kind`, a price override's input and output costs), and
+  it replaces your entry of the same name. Top-level keys and whole entries you
+  leave out stay editable; fields you leave out of a managed entry do not. A key
+  or entry that is not a valid setting, or whose `$file` cannot be read, is
+  ignored with a warning in the server log, and the rest of the file still
+  applies.
+- `T3CODE_MANAGED_KEYBINDINGS_FILE`, read by the server and the desktop app:
+  same format as `keybindings.json`. A managed rule replaces your rules for the
+  same command or the same shortcut. The desktop app layers it over whichever
+  environment it uses, so a client-only desktop gets these bindings too.
+- `T3CODE_MANAGED_CLIENT_SETTINGS_FILE`, read by the desktop app: top-level
+  client settings such as fonts, diff layout, or confirmations.
+
+Managed values show as **Managed by system configuration** and cannot be changed
+from any client or agent. Your own values stay saved underneath, so removing a
+key from the managed file gives it back. Credentials such as GitHub tokens must
+not appear inline; write `{"$file": "/path/to/secret"}` instead. `$file` works
+only for credentials: environment variable values, provider and source control
+credential fields, and usage limit management keys. Anywhere else its entry is
+ignored with a warning, and the file is not read. A managed settings file with
+an inline credential is ignored entirely. Restart the
+server or app after changing a managed file.
+
 ## Next steps
 
 - [Working with threads](./thread-sidebar.md): start tasks and organize parallel work.
