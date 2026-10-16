@@ -34,7 +34,7 @@ import type {
   PersistedConnectionTarget,
   SupervisorConnectionState,
 } from "./model.ts";
-import { ConnectionBlockedError } from "./model.ts";
+import { ConnectionBlockedError, fleetConnectionRoot } from "./model.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionDriver from "./driver.ts";
@@ -91,6 +91,17 @@ export class PlatformEnvironmentRemovalError extends Schema.TaggedError<Platform
   }
 }
 
+/**
+ * A condition a registration is saved or an environment removed under.
+ * `admits` sees the catalog at the moment of the change, while the changed
+ * environment and every environment in `reads` are locked, so a change to any
+ * of them lands either before the check or after the change.
+ */
+export interface CatalogGuard {
+  readonly reads: ReadonlyArray<EnvironmentId>;
+  readonly admits: (entries: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) => boolean;
+}
+
 export class EnvironmentRegistry extends Context.Service<
   EnvironmentRegistry,
   {
@@ -99,19 +110,19 @@ export class EnvironmentRegistry extends Context.Service<
     >;
     readonly networkStatus: SubscriptionRef.SubscriptionRef<NetworkStatus>;
     readonly start: Effect.Effect<void>;
-    /**
-     * Succeeds with `false` and changes nothing when the environment is
-     * platform-managed, since the host owns that entry.
-     */
+    /** Returns false when the platform owns the entry or the catalog guard refuses it. */
     readonly register: (
       registration: ConnectionRegistration,
+      guard?: CatalogGuard,
     ) => Effect.Effect<boolean, Persistence.ConnectionPersistenceError>;
     readonly registerPlatform: (registration: PrimaryConnectionRegistration) => Effect.Effect<void>;
     readonly reconcilePlatform: (
       registrations: ReadonlyArray<PlatformConnectionRegistration>,
     ) => Effect.Effect<void>;
+    /** Forgets an environment; with a guard, only while the guard admits the catalog. */
     readonly remove: (
       environmentId: EnvironmentId,
+      guard?: CatalogGuard,
     ) => Effect.Effect<
       void,
       | Persistence.ConnectionPersistenceError
@@ -322,6 +333,15 @@ export const make = Effect.gen(function* () {
           }),
         ),
     ).pipe(Effect.withSpan("EnvironmentRegistry.withLeaseLock"));
+
+  /** Holds several lease locks, always taken in the same order. */
+  const withLeaseLocks = <A, E, R>(
+    environmentIds: ReadonlyArray<EnvironmentId>,
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> =>
+    [...new Set(environmentIds)]
+      .sort()
+      .reduceRight((locked, environmentId) => withLeaseLock(environmentId, locked), effect);
 
   const getEntry = Effect.fn("EnvironmentRegistry.getEntry")(function* (
     environmentId: EnvironmentId,
@@ -543,20 +563,31 @@ export const make = Effect.gen(function* () {
 
   const register = Effect.fn("EnvironmentRegistry.register")(function* (
     registration: ConnectionRegistration,
+    guard?: CatalogGuard,
   ) {
     const registered = connectionRegistrationCatalogEntry(registration);
     const environmentId = registered.target.environmentId;
-    return yield* withLeaseLock(
-      environmentId,
+    return yield* withLeaseLocks(
+      [environmentId, ...(guard?.reads ?? [])],
       Effect.gen(function* () {
         if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
           return false;
         }
-        const previous = (yield* SubscriptionRef.get(entries)).get(environmentId);
+        const catalog = yield* SubscriptionRef.get(entries);
+        if (guard !== undefined && !guard.admits(catalog)) return false;
+        const previous = catalog.get(environmentId);
         let entry = registered;
         if (previous !== undefined) {
           const route: ConnectionRoute = { target: registered.target, profile: registered.profile };
-          const existing = connectionRoutes(previous);
+          let existing = connectionRoutes(previous);
+          // Pairing a fleet member by hand takes it out of the fleet: its fleet
+          // routes, and the learned routes borrowing their tokens, go.
+          if (fleetConnectionRoot(connectionRouteId(route.target)) === null) {
+            for (const fleetRoute of existing) {
+              const id = connectionRouteId(fleetRoute.target);
+              if (fleetConnectionRoot(id) !== null) existing = routesAfterRemoving(existing, id);
+            }
+          }
           const sameAddress = findRouteToSameAddress(existing, route);
           const routes = existing.filter(
             (existing) =>
@@ -854,8 +885,17 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const remove = Effect.fn("EnvironmentRegistry.remove")(function* (environmentId: EnvironmentId) {
-    return yield* withLeaseLock(environmentId, removeLocked(environmentId));
+  const remove = Effect.fn("EnvironmentRegistry.remove")(function* (
+    environmentId: EnvironmentId,
+    guard?: CatalogGuard,
+  ) {
+    return yield* withLeaseLocks(
+      [environmentId, ...(guard?.reads ?? [])],
+      Effect.gen(function* () {
+        if (guard !== undefined && !guard.admits(yield* SubscriptionRef.get(entries))) return;
+        yield* removeLocked(environmentId);
+      }),
+    );
   });
 
   const disconnectSsh = (environmentId: EnvironmentId, profile: SshConnectionProfile) =>
