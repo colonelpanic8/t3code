@@ -1,6 +1,5 @@
 import * as NodeNet from "node:net";
 
-
 // @effect-diagnostics-next-line nodeBuiltinImport:off - a stand-in for a running remote server.
 import * as NodeHttp from "node:http";
 
