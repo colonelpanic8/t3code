@@ -6,7 +6,12 @@
   fields = ["environmentId" "httpBaseUrl" "label" "wsBaseUrl"];
   nonBlank = value: builtins.isString value && lib.trim value != "";
   parseUrl = value:
-    builtins.match "(https?|wss?)://([^/?#@[:space:]]+)(/[^?#[:space:]]*)?" value;
+    builtins.match "(https?|wss?)://([^/?#@[:space:][:cntrl:]]+)(/[^?#@[:space:][:cntrl:]]*)?" value;
+  validAuthority = authority: let
+    parts = builtins.match "([[][0-9a-fA-F:]+[]]|[a-zA-Z0-9._-]+)(:([0-9]{1,5}))?" authority;
+    port = builtins.elemAt parts 2;
+  in
+    parts != null && (port == null || lib.strings.toIntBase10 port <= 65535);
   validMember = member:
     builtins.isAttrs member
     && builtins.attrNames member == fields
@@ -19,6 +24,8 @@
       http
       != null
       && ws != null
+      && validAuthority (builtins.elemAt http 1)
+      && validAuthority (builtins.elemAt ws 1)
       && builtins.elemAt http 1 == builtins.elemAt ws 1
       && (
         (builtins.elemAt http 0 == "https" && builtins.elemAt ws 0 == "wss")
