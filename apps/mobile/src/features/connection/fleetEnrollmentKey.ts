@@ -104,8 +104,8 @@ const readStoredIdentity = Effect.tryPromise({
 
 async function recipientOf(identity: string): Promise<AgeRecipient | null> {
   if (!IDENTITY_PATTERN.test(identity)) return null;
-  const { identityToRecipient } = await import("age-encryption");
   try {
+    const { identityToRecipient } = await import("age-encryption");
     return Option.getOrNull(decodeAgeRecipient(await identityToRecipient(identity)));
   } catch {
     return null;

@@ -8,6 +8,16 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
+
+export class FleetEnrollmentExpiredError extends Schema.TaggedError<FleetEnrollmentExpiredError>()(
+  "FleetEnrollmentExpiredError",
+  {},
+) {
+  override get message(): string {
+    return "This fleet enrollment has expired. Export a new one.";
+  }
+}
 
 const isAuthenticationRejected = (state: SupervisorConnectionState) =>
   state.phase === "blocked" &&
@@ -23,6 +33,9 @@ const isAuthenticationRejected = (state: SupervisorConnectionState) =>
  */
 export const enrollThroughFleetAnchor = Effect.fn("mobile.connection.enrollThroughFleetAnchor")(
   function* (enrollment: FleetEnrollment) {
+    if (isFleetEnrollmentExpired(enrollment, yield* DateTime.now)) {
+      return yield* new FleetEnrollmentExpiredError({});
+    }
     const { anchor } = enrollment;
     const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
     const saved = yield* registry.state(anchor.environmentId).pipe(Effect.option);
