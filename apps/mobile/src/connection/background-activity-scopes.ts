@@ -2,15 +2,7 @@ import type { EnvironmentRpcSubscriptionObservation } from "@t3tools/client-runt
 import { type BackgroundScope, type EnvironmentId, WS_METHODS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-/**
- * Client-local scope union. `call` marks an active Live Voice call hosted on
- * an environment. Contracts' BackgroundScope has no `call` variant yet (the
- * schema is frozen for this change), so it must never cross the wire — the
- * server would reject the whole activity report at schema decode. It still
- * drives report cadence and the per-call `recentlyInteracted` signal in
- * background-activity.ts. TODO(contracts): add `{ type: "call" }` to
- * BackgroundScope and report it directly.
- */
+/** The client-only call scope drives reporting cadence and stays off the wire. */
 export type MobileBackgroundScope = BackgroundScope | { readonly type: "call" };
 
 interface RetainedScope {
