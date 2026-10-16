@@ -261,7 +261,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
   const start: VoiceLiveService["Service"]["start"] = Effect.fn("VoiceLiveService.start")(
     function* (input, owner) {
       const ownerKey = ownerKeyOf(owner);
-      const liveSessionId: VoiceLiveSessionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+      const liveSessionId: VoiceLiveSessionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
       const reserved = yield* SynchronizedRef.modify(state, (current) => {
         if (current.owners.has(ownerKey)) return [false, current] as const;
         const owners = new Map(current.owners);
@@ -497,7 +497,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
       (request.kind === "list_hosts"
         ? DEFAULT_LIST_HOSTS_TIMEOUT_MS
         : DEFAULT_EXECUTE_TOOL_TIMEOUT_MS);
-    const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    const requestId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
     const deferred = yield* Deferred.make<VoiceLiveRouteResult, VoiceLiveError>();
     const registered = yield* SynchronizedRef.modify(state, (current) => {
       const record = current.calls.get(liveSessionId);
