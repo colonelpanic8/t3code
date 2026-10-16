@@ -9,7 +9,7 @@ import {
   type UsageProviderKind,
 } from "@t3tools/contracts";
 import { CircleAlertIcon, ChevronDownIcon, InfoIcon, SlidersHorizontalIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   cursorKeychainAccessEnvironments,
   refreshUsageLimits,
@@ -20,13 +20,8 @@ import {
   usageLoadingState,
 } from "@t3tools/client-runtime/state/usage-progress";
 
-import {
-  isCompatibleUsageContractVersion,
-  isModelCostUnknown,
-  type DailyTotals,
-  type HourlyTotals,
-  type MergedUsage,
-} from "@t3tools/shared/usageMerge";
+import { isCompatibleUsageContractVersion, type MergedUsage } from "@t3tools/shared/usageMerge";
+import { enumeratePeriods, type UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
@@ -43,7 +38,6 @@ import {
   formatCount,
   formatDateTimeShort,
   formatDayShort,
-  formatHourShort,
   formatPercent,
   formatTokens,
   formatUsageContractMismatch,
@@ -77,16 +71,12 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { UsageLimitsSection } from "./UsageLimits";
 import { UsagePriceOverrides } from "./UsagePriceOverrides";
-import { UsageProviderChart } from "./UsageProviderChart";
+import { UsageBreakdownTable, usageTableView } from "./UsageBreakdownTable";
+import { UsageChart } from "./UsageChart";
+import { ProviderMark } from "./ProviderMark";
 import { SpeedPremium, UsageModelDialog } from "./UsageModelDialog";
 import { UsageShareBar } from "./UsageShareBar";
-import {
-  costTypeSegments,
-  modelShare,
-  sortModelsByTokens,
-  speedCostSegments,
-  tokenTypeSegments,
-} from "./usageBreakdown";
+import { costTypeSegments, speedCostSegments, tokenTypeSegments } from "./usageBreakdown";
 import {
   METRIC_OPTIONS,
   WINDOW_OPTIONS,
@@ -96,10 +86,19 @@ import {
 import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
 import { PROVIDER_ORDER, PROVIDER_PRESENTATION, providersWithUsage } from "./usageProviders";
 import {
+  DEFAULT_USAGE_VIEW,
+  USAGE_CHART_DIMENSIONS,
+  USAGE_DAY_GROUPINGS,
   readUsagePagePreferences,
   saveUsagePagePreferences,
   type UsagePagePreferences,
 } from "./usagePagePreferences";
+import {
+  DIMENSION_NAMES,
+  GROUPING_ADJECTIVES,
+  GROUPING_NAMES,
+  buildUsageChartSeries,
+} from "./usageSeries";
 
 function isUsageMetric(value: string | null | undefined): value is UsageMetric {
   return METRIC_OPTIONS.some((option) => option.value === value);
@@ -110,6 +109,15 @@ function isUsageWindowDays(value: number): value is UsagePagePreferences["window
 }
 
 const providerLabel = (provider: UsageProviderKind) => PROVIDER_PRESENTATION[provider].label;
+
+/** A provider set that keeps its identity while its members stay the same. */
+function useProviderSet(providers: readonly UsageProviderKind[]): ReadonlySet<UsageProviderKind> {
+  const key = providers.join(",");
+  return useMemo(() => {
+    const members = key.split(",");
+    return new Set(PROVIDER_ORDER.filter((provider) => members.includes(provider)));
+  }, [key]);
+}
 
 export function UsagePage() {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
@@ -136,7 +144,6 @@ export function UsagePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [limitsNow, setLimitsNow] = useState(() => Date.now());
   const refreshingRef = useRef(false);
-  const [breakdown, setBreakdown] = useState<"model" | "time">("model");
   const [priceDialog, setPriceDialog] = useState<{ readonly model?: string } | null>(null);
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
@@ -214,16 +221,43 @@ export function UsagePage() {
         : enumerateHourStarts(shownWindow.sinceTime, shownWindow.untilTime),
     [shownWindow.sinceTime, shownWindow.untilTime],
   );
-  const breakdownPeriods = useMemo<readonly (DailyTotals | HourlyTotals)[]>(
-    () => (shownHourly ? merged.hourly : merged.daily).toReversed(),
-    [shownHourly, merged.daily, merged.hourly],
+  const grouping: UsageTimeGrouping = shownHourly
+    ? "hour"
+    : (preferences.timeGrouping ?? DEFAULT_USAGE_VIEW.timeGrouping);
+  const groupingOptions: readonly UsageTimeGrouping[] = shownHourly
+    ? ["hour"]
+    : USAGE_DAY_GROUPINGS;
+  const periods = useMemo(
+    () => enumeratePeriods(shownHourly ? hours : days, grouping),
+    [days, grouping, hours, shownHourly],
   );
-  const breakdownModels = useMemo(
+  const chartDimensions = preferences.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const chartSeries = useMemo(
     () =>
-      breakdown === "model" && metric === "tokens"
-        ? sortModelsByTokens(merged.models)
-        : merged.models,
-    [breakdown, merged.models, metric],
+      buildUsageChartSeries(
+        merged.entries,
+        chartDimensions,
+        grouping,
+        periods,
+        metric === "tokens" ? "tokens" : "cost",
+      ),
+    [chartDimensions, grouping, merged.entries, metric, periods],
+  );
+  const tableView = useMemo(
+    () =>
+      usageTableView(
+        { tableDimensions: preferences.tableDimensions, sort: preferences.sort },
+        metric === "tokens" ? "tokens" : "cost",
+      ),
+    [metric, preferences.sort, preferences.tableDimensions],
+  );
+  // Keyed by content: environment statuses change identity on every update.
+  const environmentLabelsKey = JSON.stringify(
+    environments.map((environment) => [environment.environmentId, environment.label]),
+  );
+  const environmentLabels = useMemo(
+    () => new Map(JSON.parse(environmentLabelsKey) as [EnvironmentId, string][]),
+    [environmentLabelsKey],
   );
   const providersWithData = useMemo(() => providersWithUsage(merged.providers), [merged.providers]);
   const activeProviders = useMemo(
@@ -233,23 +267,12 @@ export function UsagePage() {
       ),
     [loading.providers, providersWithData],
   );
-  const chartLoadingProviders = useMemo(
-    () =>
-      new Set(
-        activeProviders.filter(
-          (provider) => loading.everyProvider || loading.providers.has(provider),
-        ),
-      ),
-    [activeProviders, loading.everyProvider, loading.providers],
-  );
+  const loadingProviders = useProviderSet(PROVIDER_ORDER.filter(isProviderLoading));
+  const chartLoadingProviders = useProviderSet(activeProviders.filter(isProviderLoading));
   const selectedModel =
     selectedModelKey === null
       ? undefined
       : merged.models.find((model) => `${model.provider}:${model.model}` === selectedModelKey);
-  const breakdownPeak = breakdownModels.reduce(
-    (peak, model) => Math.max(peak, metric === "tokens" ? model.totalTokens : model.costUsd),
-    0,
-  );
   const summaryRows: Array<
     | { readonly kind: "usage"; readonly provider: UsageProviderKind }
     | { readonly kind: "enable"; readonly environment: EnvironmentUsageStatus }
@@ -261,13 +284,23 @@ export function UsagePage() {
     0,
     ...cursorAccessEnvironments.map((environment) => ({ kind: "enable" as const, environment })),
   );
-  const timeValueColumnWidth = `${60 / (activeProviders.length + 2)}%`;
 
-  const updatePreferences = (patch: Partial<UsagePagePreferences>) => {
-    const nextPreferences = { ...preferences, ...patch };
-    setPreferences(nextPreferences);
-    saveUsagePagePreferences(nextPreferences);
-  };
+  const savedPreferences = useRef(preferences);
+  useEffect(() => {
+    if (savedPreferences.current === preferences) return;
+    savedPreferences.current = preferences;
+    saveUsagePagePreferences(preferences);
+  }, [preferences]);
+  const updatePreferences = useCallback(
+    (patch: Partial<UsagePagePreferences>) =>
+      setPreferences((current) => ({ ...current, ...patch })),
+    [],
+  );
+  const openModel = useCallback(
+    (row: { readonly provider?: UsageProviderKind; readonly model: string }) =>
+      setSelectedModelKey(`${row.provider}:${row.model}`),
+    [],
+  );
   const selectWindow = (days: number) => {
     if (!isUsageWindowDays(days)) return;
     updatePreferences({ windowDays: days });
@@ -709,20 +742,55 @@ export function UsagePage() {
                   </div>
 
                   <div className="flex min-w-0 flex-col gap-3">
-                    <h2 className="text-sm font-medium text-foreground">
-                      {shownHourly ? "Hourly" : "Daily"}{" "}
-                      {metric === "tokens" ? "processed tokens" : "cost"}
-                    </h2>
-                    <UsageProviderChart
-                      providers={activeProviders}
-                      loadingProviders={chartLoadingProviders}
-                      days={days}
-                      daily={merged.daily}
-                      hours={hours}
-                      hourly={merged.hourly}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-medium text-foreground">
+                        {GROUPING_ADJECTIVES[grouping]}{" "}
+                        {metric === "tokens" ? "processed tokens" : "cost"}
+                      </h2>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ToggleGroup
+                          aria-label="Chart by"
+                          variant="segmented"
+                          multiple
+                          value={[...chartDimensions]}
+                          onValueChange={(next) =>
+                            updatePreferences({
+                              chartDimensions: USAGE_CHART_DIMENSIONS.filter((dimension) =>
+                                next.includes(dimension),
+                              ),
+                            })
+                          }
+                        >
+                          {USAGE_CHART_DIMENSIONS.map((dimension) => (
+                            <Toggle key={dimension} value={dimension}>
+                              {DIMENSION_NAMES[dimension]}
+                            </Toggle>
+                          ))}
+                        </ToggleGroup>
+                        <ToggleGroup
+                          aria-label="Time grouping"
+                          variant="segmented"
+                          value={[grouping]}
+                          onValueChange={(next) => {
+                            const value = USAGE_DAY_GROUPINGS.find((option) => option === next[0]);
+                            if (value) updatePreferences({ timeGrouping: value });
+                          }}
+                        >
+                          {groupingOptions.map((option) => (
+                            <Toggle key={option} value={option}>
+                              {GROUPING_NAMES[option]}
+                            </Toggle>
+                          ))}
+                        </ToggleGroup>
+                      </div>
+                    </div>
+                    <UsageChart
+                      series={chartSeries}
+                      grouping={grouping}
                       metric={metric}
+                      environmentLabels={environmentLabels}
+                      loadingProviders={chartLoadingProviders}
                       referenceTime={shownWindow.untilTime}
-                      resolution={shownHourly ? "hour" : "day"}
                       timeZone={shownWindow.timeZone}
                     />
                   </div>
@@ -792,186 +860,18 @@ export function UsagePage() {
                   </section>
                 ) : null}
 
-                <section className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-sm font-medium text-foreground">Breakdown</h2>
-                    <ToggleGroup
-                      aria-label="Usage breakdown"
-                      variant="segmented"
-                      value={[breakdown]}
-                      onValueChange={(next) => {
-                        const value = next[0];
-                        if (value === "model" || value === "time") setBreakdown(value);
-                      }}
-                    >
-                      {(
-                        [
-                          { value: "model", label: "Model" },
-                          { value: "time", label: shownHourly ? "Hour" : "Day" },
-                        ] as const
-                      ).map((option) => (
-                        <Toggle key={option.value} value={option.value}>
-                          {option.label}
-                        </Toggle>
-                      ))}
-                    </ToggleGroup>
-                  </div>
-
-                  {breakdown === "model" ? (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border text-right text-xs text-muted-foreground">
-                          <th className="py-2 pr-3 text-left font-normal">#</th>
-                          <th className="w-full py-2 text-left font-normal">Model</th>
-                          <th className="py-2 pl-6 font-normal">Cost</th>
-                          <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
-                          <th className="py-2 pl-6 font-normal">Tokens</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {breakdownModels.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-6 text-center text-muted-foreground">
-                              No activity in this window.
-                            </td>
-                          </tr>
-                        ) : (
-                          breakdownModels.map((model, index) => {
-                            const key = `${model.provider}:${model.model}`;
-                            const value = metric === "tokens" ? model.totalTokens : model.costUsd;
-                            const share = modelShare(
-                              model,
-                              metric === "tokens" ? "tokens" : "cost",
-                            );
-                            const rowFigures = figureClass(isProviderLoading(model.provider));
-                            return (
-                              <tr
-                                key={key}
-                                className="relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors hover:bg-muted/50 has-focus-visible:bg-muted/50"
-                              >
-                                <td className="py-2.5 pr-3 text-left text-xs">{index + 1}</td>
-                                <td className="py-2.5 text-left whitespace-normal">
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedModelKey(key)}
-                                    className="flex items-center gap-2 text-left text-foreground outline-none after:absolute after:inset-0"
-                                  >
-                                    <ProviderMark provider={model.provider} className="size-3.5" />
-                                    {model.model}
-                                  </button>
-                                  <div
-                                    aria-hidden
-                                    className={cn("mt-1.5 h-0.5 max-w-48", rowFigures)}
-                                  >
-                                    <div
-                                      className="h-full rounded-full"
-                                      style={{
-                                        width:
-                                          value > 0 && breakdownPeak > 0
-                                            ? `max(0.5rem, ${(value / breakdownPeak) * 100}%)`
-                                            : 0,
-                                        backgroundColor:
-                                          PROVIDER_PRESENTATION[model.provider].color,
-                                      }}
-                                    />
-                                  </div>
-                                </td>
-                                <td className={cn("py-2.5 pl-6 text-foreground", rowFigures)}>
-                                  {isModelCostUnknown(model) ? (
-                                    <span className="text-muted-foreground">Unpriced</span>
-                                  ) : (
-                                    formatUsd(model.costUsd)
-                                  )}
-                                </td>
-                                <td className={cn("hidden py-2.5 pl-6 sm:table-cell", rowFigures)}>
-                                  {share === null ? "" : formatPercent(share)}
-                                </td>
-                                <td className={cn("py-2.5 pl-6", rowFigures)}>
-                                  {formatTokens(model.totalTokens)}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <table className="w-full table-fixed text-sm">
-                      <colgroup>
-                        <col className="w-2/5" />
-                        {activeProviders.map((provider) => (
-                          <col key={provider} style={{ width: timeValueColumnWidth }} />
-                        ))}
-                        <col style={{ width: timeValueColumnWidth }} />
-                        <col style={{ width: timeValueColumnWidth }} />
-                      </colgroup>
-                      <thead>
-                        <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                          <th className="py-2 font-normal">{shownHourly ? "Hour" : "Day"}</th>
-                          {activeProviders.map((provider) => (
-                            <th key={provider} className="py-2 text-right font-normal">
-                              {PROVIDER_PRESENTATION[provider].label}
-                            </th>
-                          ))}
-                          <th className="py-2 text-right font-normal">Total</th>
-                          <th className="py-2 text-right font-normal">Tokens</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {breakdownPeriods.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={activeProviders.length + 3}
-                              className="py-6 text-center text-muted-foreground"
-                            >
-                              No activity in this window.
-                            </td>
-                          </tr>
-                        ) : (
-                          breakdownPeriods.map((period) => (
-                            <tr
-                              key={"hourStart" in period ? period.hourStart : period.day}
-                              className="border-b border-border/50 transition-colors hover:bg-muted/50"
-                            >
-                              <td className="py-2 text-foreground">
-                                {"hourStart" in period
-                                  ? formatHourShort(period.hourStart, shownWindow.timeZone)
-                                  : formatDayShort(period.day)}
-                              </td>
-                              {activeProviders.map((provider) => (
-                                <td
-                                  key={provider}
-                                  className={cn(
-                                    "py-2 text-right text-muted-foreground tabular-nums",
-                                    figureClass(isProviderLoading(provider)),
-                                  )}
-                                >
-                                  {formatUsd(period.byProvider.get(provider)?.costUsd ?? 0)}
-                                </td>
-                              ))}
-                              <td
-                                className={cn(
-                                  "py-2 text-right text-foreground tabular-nums",
-                                  figureClass(loading.partial),
-                                )}
-                              >
-                                {formatUsd(period.costUsd)}
-                              </td>
-                              <td
-                                className={cn(
-                                  "py-2 text-right text-muted-foreground tabular-nums",
-                                  figureClass(loading.partial),
-                                )}
-                              >
-                                {formatTokens(period.totalTokens)}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  )}
-                </section>
+                <UsageBreakdownTable
+                  entries={merged.entries}
+                  view={tableView}
+                  chartSeries={chartSeries}
+                  onViewChange={updatePreferences}
+                  grouping={grouping}
+                  metric={metric}
+                  environmentLabels={environmentLabels}
+                  timeZone={shownWindow.timeZone}
+                  loadingProviders={loadingProviders}
+                  onOpenModel={openModel}
+                />
               </div>
             )}
           </WorkspacePageContainer>
@@ -983,9 +883,8 @@ export function UsagePage() {
           environments={selectedEnvironments}
           metric={metric === "tokens" ? "tokens" : "cost"}
           chartWindow={{
-            days,
-            hours,
-            resolution: shownHourly ? "hour" : "day",
+            periods,
+            grouping,
             timeZone: shownWindow.timeZone,
             referenceTime: shownWindow.untilTime,
           }}
@@ -1138,23 +1037,6 @@ function CursorEnableLimits({
         </div>
       </div>
     </section>
-  );
-}
-
-function ProviderMark({
-  provider,
-  className,
-}: {
-  readonly provider: UsageProviderKind;
-  readonly className: string;
-}) {
-  const presentation = PROVIDER_PRESENTATION[provider];
-  return (
-    <ProviderInstanceIcon
-      driverKind={presentation.driverKind}
-      displayName={presentation.label}
-      iconClassName={className}
-    />
   );
 }
 

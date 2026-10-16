@@ -55,7 +55,8 @@ vi.mock("../../state/usage", () => ({
     refresh: async () => undefined,
   }),
 }));
-vi.mock("./usagePagePreferences", () => ({
+vi.mock("./usagePagePreferences", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./usagePagePreferences")>()),
   readUsagePagePreferences: () => ({ metric: state.metric, windowDays: 30 }),
   saveUsagePagePreferences: vi.fn(),
 }));
@@ -88,7 +89,7 @@ vi.mock("../WorkspaceBreadcrumb", () => ({
 }));
 vi.mock("../WorkspacePageContainer", () => ({ WorkspacePageContainer: "main" }));
 vi.mock("../WorkspacePageHeader", () => ({ WorkspacePageHeader: "header" }));
-vi.mock("./UsageProviderChart", () => ({ UsageProviderChart: "div" }));
+vi.mock("./UsageChart", () => ({ UsageChart: "div" }));
 vi.mock("./UsagePriceOverrides", () => ({ UsagePriceOverrides: () => null }));
 vi.mock("../chat/ProviderInstanceIcon", () => ({ ProviderInstanceIcon: () => null }));
 vi.mock("../settings/RedactedSensitiveText", () => ({ RedactedSensitiveText: "span" }));
