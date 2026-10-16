@@ -86,6 +86,7 @@ it("context file labels the CLI version as the CLI's, not the user's build", () 
       stateDir: "/home/u/.t3/userdata",
       dbPath: "/home/u/.t3/userdata/state.sqlite",
       settingsPath: "/home/u/.t3/userdata/settings.json",
+      serverConfigFile: "/home/u/.t3/userdata/server.json",
       logsDir: "/home/u/.t3/userdata/logs",
       serviceLogPath: "/home/u/.t3/userdata/logs/boot-service.log",
       desktopBackendLogGlob: "/home/u/.t3/userdata/logs/server-child*.log*",
