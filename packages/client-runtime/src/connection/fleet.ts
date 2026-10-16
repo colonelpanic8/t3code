@@ -72,11 +72,13 @@ export function fleetMembersJoinedThrough(
   );
 }
 
-/** Fleet members whose root is no longer saved. */
-export function orphanedFleetMembers(entries: CatalogEntries): ReadonlyArray<EnvironmentId> {
+/** Fleet members whose root is no longer saved, with that root. */
+export function orphanedFleetMembers(
+  entries: CatalogEntries,
+): ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly root: EnvironmentId }> {
   return [...entries].flatMap(([environmentId, entry]) => {
     const root = fleetRoot(entry);
-    return root !== null && !entries.has(root) ? [environmentId] : [];
+    return root !== null && !entries.has(root) ? [{ environmentId, root }] : [];
   });
 }
 
@@ -86,7 +88,7 @@ export interface FleetSyncPlan {
   readonly join: ReadonlyArray<ServerFleetEnvironment>;
   /** Joined members whose declared label changed at the same URLs. */
   readonly relabel: ReadonlyArray<ServerFleetEnvironment>;
-  /** Joined members whose declared URLs changed. */
+  /** Joined members whose declared URLs changed, while the root is switched on. */
   readonly rejoin: ReadonlyArray<ServerFleetEnvironment>;
   /** Joined members the fleet no longer lists. */
   readonly remove: ReadonlyArray<EnvironmentId>;
@@ -133,7 +135,8 @@ export function planFleetSync(input: {
       );
     if (profile?._tag !== "BearerConnectionProfile") continue;
     if (profile.httpBaseUrl !== member.httpBaseUrl || profile.wsBaseUrl !== member.wsBaseUrl) {
-      rejoin.push(member);
+      // Joining again issues a new credential, which a switched-off root does not.
+      if (rootEntry.enabled) rejoin.push(member);
     } else if (profile.label !== member.label) {
       relabel.push(member);
     }
@@ -145,28 +148,46 @@ export function planFleetSync(input: {
   return { root, join, relabel, rejoin, remove };
 }
 
+type FleetChange = "join" | "relabel" | "rejoin" | "remove";
+
+const plannedIds = (plan: FleetSyncPlan, change: FleetChange): ReadonlyArray<EnvironmentId> =>
+  change === "remove" ? plan.remove : plan[change].map((declared) => declared.environmentId);
+
 /**
- * Saves a member only while following `fleet` from `source` still calls for
- * it as one of `kinds`. Joining waits on round trips, during which the root
- * can be switched off or removed, or the user can save the member by hand.
+ * Changes a member only while following `fleet` from `source` still calls for
+ * it as one of `changes`. Between planning and the change come round trips and
+ * other members' changes, during which the root can be switched off or
+ * removed, or the user can save the member by hand.
  */
 function stillPlanned(input: {
   readonly source: EnvironmentId;
   readonly fleet: ReadonlyArray<ServerFleetEnvironment>;
   readonly root: EnvironmentId;
   readonly member: EnvironmentId;
-  readonly kinds: ReadonlyArray<"join" | "relabel" | "rejoin">;
-}): EnvironmentRegistry.RegistrationGuard {
+  readonly changes: ReadonlyArray<FleetChange>;
+}): EnvironmentRegistry.CatalogGuard {
   return {
     reads: [input.source, input.root],
     admits: (entries) => {
       const plan = planFleetSync({ entries, source: input.source, fleet: input.fleet });
       return (
         plan?.root === input.root &&
-        input.kinds.some((kind) =>
-          plan[kind].some((declared) => declared.environmentId === input.member),
-        )
+        input.changes.some((change) => plannedIds(plan, change).includes(input.member))
       );
+    },
+  };
+}
+
+/** Removes a member only while it is still joined through `root` and `root` is gone. */
+function stillOrphaned(
+  member: EnvironmentId,
+  root: EnvironmentId,
+): EnvironmentRegistry.CatalogGuard {
+  return {
+    reads: [root],
+    admits: (entries) => {
+      const entry = entries.get(member);
+      return entry !== undefined && fleetRoot(entry) === root && !entries.has(root);
     },
   };
 }
@@ -359,15 +380,13 @@ export const make = Effect.gen(function* () {
     { session, fleet }: Report,
     attempted: Set<EnvironmentId>,
   ) {
-    const guard = (
-      member: ServerFleetEnvironment,
-      kinds: ReadonlyArray<"join" | "relabel" | "rejoin">,
-    ) => stillPlanned({ source, fleet, root: plan.root, member: member.environmentId, kinds });
+    const guard = (member: EnvironmentId, changes: ReadonlyArray<FleetChange>) =>
+      stillPlanned({ source, fleet, root: plan.root, member, changes });
     yield* Effect.forEach(
       plan.remove,
       (environmentId) =>
         registry
-          .remove(environmentId)
+          .remove(environmentId, guard(environmentId, ["remove"]))
           .pipe(logFailure("Could not remove a machine that left the fleet.", { environmentId })),
       { discard: true },
     );
@@ -381,7 +400,7 @@ export const make = Effect.gen(function* () {
               onSome: (credential) =>
                 registry.register(
                   fleetRegistration(member, plan.root, credential),
-                  guard(member, ["relabel"]),
+                  guard(member.environmentId, ["relabel"]),
                 ),
             }),
           ),
@@ -401,7 +420,7 @@ export const make = Effect.gen(function* () {
           }),
         ),
         Effect.flatMap((registration) =>
-          registry.register(registration, guard(member, ["join", "rejoin"])),
+          registry.register(registration, guard(member.environmentId, ["join", "rejoin"])),
         ),
         Effect.tap((saved) =>
           saved
@@ -532,8 +551,8 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* Effect.forEach(
           orphanedFleetMembers(entries),
-          (environmentId) =>
-            registry.remove(environmentId).pipe(
+          ({ environmentId, root }) =>
+            registry.remove(environmentId, stillOrphaned(environmentId, root)).pipe(
               logFailure("Could not remove a fleet machine after its root was removed.", {
                 environmentId,
               }),
