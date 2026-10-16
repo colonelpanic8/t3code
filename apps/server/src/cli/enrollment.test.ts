@@ -3,6 +3,8 @@ import { decodeFleetEnrollment } from "@t3tools/shared/fleetEnrollment";
 import * as NetService from "@t3tools/shared/Net";
 import { expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -208,7 +210,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
           _tag: "FleetEnrollmentAgeError",
           stage: "encrypt",
           exitCode: 1,
-          stderr: "age: error: write failed",
         });
         expect(yield* fileSystem.readFileString(output)).toBe("previous export");
         expect(yield* fileSystem.readDirectory(outputDirectory)).toEqual(["fleet.age"]);
@@ -216,7 +217,70 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
       }).pipe(Effect.scoped),
     );
 
-    it.effect("reports why age rejected the recipients", () =>
+    it.effect("cleans up a cancelled export before publication", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const { config, outputDirectory, output, exportArgs } = yield* setUp({});
+        yield* fileSystem.writeFileString(output, "previous export");
+        const readyToPublish = yield* Deferred.make<void>();
+        const blockedSyncFs = FileSystem.FileSystem.of({
+          ...fileSystem,
+          open: (path, options) =>
+            path.endsWith(".partial")
+              ? Deferred.succeed(readyToPublish, undefined).pipe(Effect.andThen(Effect.never))
+              : fileSystem.open(path, options),
+        });
+        const exporting = yield* runCli(exportArgs).pipe(
+          Effect.provideService(FileSystem.FileSystem, blockedSyncFs),
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(readyToPublish);
+        yield* Fiber.interrupt(exporting);
+        expect(yield* fileSystem.readFileString(output)).toBe("previous export");
+        expect(yield* fileSystem.readDirectory(outputDirectory)).toEqual(["fleet.age"]);
+        expect(yield* withAuth(config, (auth) => auth.listPairingLinks())).toEqual([]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("keeps a published enrollment valid if cancellation arrives during rename", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const { config, outputDirectory, output, exportArgs } = yield* setUp({});
+        yield* fileSystem.writeFileString(output, "previous export");
+        const renamed = yield* Deferred.make<void>();
+        const finishRename = yield* Deferred.make<void>();
+        const controlledFs = FileSystem.FileSystem.of({
+          ...fileSystem,
+          rename: (from, to) =>
+            fileSystem
+              .rename(from, to)
+              .pipe(
+                Effect.andThen(
+                  to === output
+                    ? Deferred.succeed(renamed, undefined).pipe(
+                        Effect.andThen(Deferred.await(finishRename)),
+                      )
+                    : Effect.void,
+                ),
+              ),
+        });
+        const exporting = yield* runCli(exportArgs).pipe(
+          Effect.provideService(FileSystem.FileSystem, controlledFs),
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(renamed);
+        const interruption = yield* Fiber.interrupt(exporting).pipe(
+          Effect.forkScoped({ startImmediately: true }),
+        );
+        yield* Deferred.succeed(finishRename, undefined);
+        yield* Fiber.join(interruption);
+        expect(yield* fileSystem.readFileString(output)).toContain("BEGIN AGE ENCRYPTED FILE");
+        expect(yield* fileSystem.readDirectory(outputDirectory)).toEqual(["fleet.age"]);
+        expect(yield* withAuth(config, (auth) => auth.listPairingLinks())).toHaveLength(1);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("reports recipient rejection without exposing command output", () =>
       Effect.gen(function* () {
         const { exportArgs } = yield* setUp({ age: { recipientsExit: 1 } });
 
@@ -226,8 +290,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
           _tag: "FleetEnrollmentAgeError",
           stage: "recipients",
           exitCode: 1,
-          stderr: "age: error: unknown recipient type",
         });
+        expect(JSON.stringify(error)).not.toContain("unknown recipient type");
       }).pipe(Effect.scoped),
     );
 

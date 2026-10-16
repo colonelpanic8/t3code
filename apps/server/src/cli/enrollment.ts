@@ -6,7 +6,6 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -27,7 +26,6 @@ import * as FleetManifest from "../environment/FleetManifest.ts";
 import { authLocationFlags, DurationFromString, resolveCliAuthConfig } from "./config.ts";
 
 const DEFAULT_ENROLLMENT_TTL = Duration.days(365);
-const AGE_STDERR_MAX_CHARS = 500;
 
 class FleetEnrollmentPreflightError extends Schema.TaggedError<FleetEnrollmentPreflightError>()(
   "FleetEnrollmentPreflightError",
@@ -65,8 +63,6 @@ class FleetEnrollmentAgeError extends Schema.TaggedError<FleetEnrollmentAgeError
   {
     stage: Schema.Literals(["recipients", "encrypt"]),
     exitCode: Schema.NullOr(Schema.Number),
-    // age reports recipient and I/O problems here; plaintext only ever reaches its stdin.
-    stderr: Schema.String,
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -74,7 +70,7 @@ class FleetEnrollmentAgeError extends Schema.TaggedError<FleetEnrollmentAgeError
     const action =
       this.stage === "recipients" ? "rejected the recipients file" : "failed to encrypt";
     const status = this.exitCode === null ? "could not run" : `exit ${this.exitCode}`;
-    return `age ${action} (${status})${this.stderr ? `: ${this.stderr}` : "."}`;
+    return `age ${action} (${status}). Check the recipients file, executable, and output directory.`;
   }
 }
 
@@ -104,26 +100,25 @@ const runAge = Effect.fn("runAge")(function* (input: {
 }) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const failed = (cause: unknown) =>
-    new FleetEnrollmentAgeError({ stage: input.stage, exitCode: null, stderr: "", cause });
-  const [stderr, written, exitCode] = yield* Effect.scoped(
+    new FleetEnrollmentAgeError({ stage: input.stage, exitCode: null, cause });
+  const [written, exitCode] = yield* Effect.scoped(
     Effect.gen(function* () {
       const child = yield* spawner.spawn(ChildProcess.make(input.ageBin, input.args));
-      const [stderr, , written] = yield* Effect.all(
+      const [, , written] = yield* Effect.all(
         [
-          child.stderr.pipe(Stream.decodeText(), Stream.mkString),
+          Stream.runDrain(child.stderr),
           Stream.runDrain(child.stdout),
           Stream.run(Stream.make(input.stdin), child.stdin).pipe(Effect.result),
         ],
         { concurrency: "unbounded" },
       );
-      return [stderr, written, yield* child.exitCode] as const;
+      return [written, yield* child.exitCode] as const;
     }),
   ).pipe(Effect.mapError(failed));
   if (exitCode !== 0) {
     return yield* new FleetEnrollmentAgeError({
       stage: input.stage,
       exitCode,
-      stderr: stderr.trim().slice(0, AGE_STDERR_MAX_CHARS),
     });
   }
   if (Result.isFailure(written)) {
@@ -222,6 +217,8 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
     `.${path.basename(outputPath)}.${suffix}.partial`,
   );
 
+  let published = false;
+
   const publish = (enrollment: PairingGrantStore.IssuedFleetEnrollment) =>
     Effect.gen(function* () {
       const plaintext = encodeFleetEnrollment({
@@ -243,11 +240,15 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
       ).pipe(
         Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })),
       );
-      yield* fileSystem
-        .rename(partialPath, outputPath)
-        .pipe(
-          Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })),
-        );
+      yield* fileSystem.rename(partialPath, outputPath).pipe(
+        Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            published = true;
+          }),
+        ),
+        Effect.uninterruptible,
+      );
     });
 
   const discard = (id: string) =>
@@ -263,7 +264,7 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
   const issued = yield* Effect.acquireUseRelease(
     environmentAuth.createFleetEnrollment({ ttl: input.ttl, label: input.label }),
     (enrollment) => publish(enrollment).pipe(Effect.as(enrollment)),
-    (enrollment, exit) => (Exit.isSuccess(exit) ? Effect.void : discard(enrollment.id)),
+    (enrollment) => (published ? Effect.void : discard(enrollment.id)),
   );
 
   return {
