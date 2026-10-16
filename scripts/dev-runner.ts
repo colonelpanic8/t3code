@@ -315,6 +315,11 @@ export function createDevRunnerEnv({
     } else {
       delete output.T3CODE_HOME;
     }
+    // These outrank the home chosen above, so an exported one would point a
+    // worktree's dev server at the real database and run branch migrations on it.
+    delete output.T3CODE_SERVER_CONFIG_DIR;
+    delete output.T3CODE_SERVER_DATA_DIR;
+    delete output.T3CODE_SERVER_CACHE_DIR;
 
     // A dev-runner server is never launcher-managed. When the shell that runs
     // this script was itself spawned by the machine's managed t3 service (an
