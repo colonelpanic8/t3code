@@ -36,6 +36,8 @@ class FleetEnrollmentPreflightError extends Schema.TaggedError<FleetEnrollmentPr
       "manifest-unreadable",
       "anchor-missing",
       "anchor-unsafe-url",
+      "anchor-base-path",
+      "invalid-ttl",
     ]),
     path: Schema.optional(Schema.String),
     environmentId: Schema.optional(Schema.String),
@@ -54,6 +56,10 @@ class FleetEnrollmentPreflightError extends Schema.TaggedError<FleetEnrollmentPr
         return `The fleet manifest has no entry for this server's environment '${this.environmentId}'.`;
       case "anchor-unsafe-url":
         return `The fleet manifest entry for '${this.environmentId}' does not have plain matching http(s)/ws(s) URLs.`;
+      case "anchor-base-path":
+        return "Fleet enrollment requires anchor URLs at the server origin, without a base path.";
+      case "invalid-ttl":
+        return "The fleet enrollment lifetime must be positive and finite.";
     }
   }
 }
@@ -179,6 +185,9 @@ const planFleetEnrollmentExport = Effect.fn("planFleetEnrollmentExport")(functio
   }
   if (!isPlainFleetEndpointPair(anchor)) {
     return yield* new FleetEnrollmentPreflightError({ reason: "anchor-unsafe-url", environmentId });
+  }
+  if (new URL(anchor.httpBaseUrl).pathname !== "/" || new URL(anchor.wsBaseUrl).pathname !== "/") {
+    return yield* new FleetEnrollmentPreflightError({ reason: "anchor-base-path" });
   }
 
   yield* runAge({
@@ -332,6 +341,10 @@ const exportCommand = Command.make("export", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
+      const ttl = Option.getOrElse(flags.ttl, () => DEFAULT_ENROLLMENT_TTL);
+      if (!Duration.isPositive(ttl) || !Duration.isFinite(ttl)) {
+        return yield* new FleetEnrollmentPreflightError({ reason: "invalid-ttl" });
+      }
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveCliAuthConfig(flags, logLevel);
       const layerBase = Layer.mergeAll(
@@ -347,7 +360,7 @@ const exportCommand = Command.make("export", {
       const exported = yield* writeFleetEnrollmentExport(plan, {
         output: flags.output,
         label: flags.label,
-        ttl: Option.getOrElse(flags.ttl, () => DEFAULT_ENROLLMENT_TTL),
+        ttl,
       }).pipe(Effect.provide(EnvironmentAuth.layerRuntime.pipe(Layer.provideMerge(layerBase))));
       yield* Console.log(formatExport(exported, flags.json));
     }),
