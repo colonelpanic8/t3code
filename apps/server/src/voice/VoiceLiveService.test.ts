@@ -38,7 +38,7 @@ const otherOwner: VoiceLiveService.VoiceLiveOwner = {
   rpcClientId: RpcClientId.make(2),
 };
 
-const defaultSettings = Schema.decodeUnknownSync(ServerSettings)({});
+const defaultSettings = Schema.decodeSync(ServerSettings)({});
 
 const fakeHttpServer = HttpServer.HttpServer.of({
   address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
