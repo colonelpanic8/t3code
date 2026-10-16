@@ -1924,26 +1924,26 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
   stream: true,
 });
 
-export const WsVoiceLiveStartRpc = Rpc.make(WS_METHODS.voiceLiveStart, {
+const WsVoiceLiveStartRpc = Rpc.make(WS_METHODS.voiceLiveStart, {
   payload: VoiceLiveStartInput,
   success: VoiceLiveStreamEvent,
   error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
   stream: true,
 });
 
-export const WsVoiceLiveStopRpc = Rpc.make(WS_METHODS.voiceLiveStop, {
+const WsVoiceLiveStopRpc = Rpc.make(WS_METHODS.voiceLiveStop, {
   payload: VoiceLiveStopInput,
   success: VoiceLiveStopResult,
   error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceLiveRouteRespondRpc = Rpc.make(WS_METHODS.voiceLiveRouteRespond, {
+const WsVoiceLiveRouteRespondRpc = Rpc.make(WS_METHODS.voiceLiveRouteRespond, {
   payload: VoiceLiveRouteResponse,
   success: VoiceLiveRouteRespondResult,
   error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
 });
 
-export const WsVoiceLiveToolExecuteRpc = Rpc.make(WS_METHODS.voiceLiveToolExecute, {
+const WsVoiceLiveToolExecuteRpc = Rpc.make(WS_METHODS.voiceLiveToolExecute, {
   payload: VoiceLiveToolExecuteInput,
   success: VoiceLiveToolExecuteResult,
   error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),

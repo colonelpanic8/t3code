@@ -1,10 +1,9 @@
 const { AndroidConfig, withInfoPlist } = require("expo/config-plugins");
 
-// Native configuration for Live Voice calls (react-native-webrtc, audio-only).
-// A custom plugin instead of @config-plugins/react-native-webrtc: that plugin
-// unconditionally adds camera permissions (NSCameraUsageDescription, Android
-// CAMERA) plus SYSTEM_ALERT_WINDOW, none of which this mic-only feature uses,
-// and it omits the background-audio and foreground-service pieces we do need.
+// Native configuration for audio-only Live Voice calls. Not
+// @config-plugins/react-native-webrtc: it adds camera and SYSTEM_ALERT_WINDOW
+// permissions this mic-only feature never uses, and omits the background-audio
+// and foreground-service pieces it needs.
 
 const MICROPHONE_USAGE_DESCRIPTION =
   "Allow T3 Code to access your microphone so you can talk to your agents with Live Voice.";

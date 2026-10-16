@@ -11,15 +11,13 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 /**
- * A hidden Codex app-server session that hosts one Live Voice call. It is not
- * attached to any T3 project or thread: the Codex thread lives in the Codex
- * home, and none of its events enter the orchestration timeline. Codex's own
- * ChatGPT-subscription (or API-key) auth carries the OpenAI realtime
- * connection; T3 never sees an OpenAI credential.
+ * A hidden Codex app-server session hosting one Live Voice call, outside any T3 project or
+ * thread; none of its events enter the orchestration timeline. Codex's own auth carries the
+ * OpenAI realtime connection, so T3 never sees an OpenAI credential.
  */
 
 /** `--enable realtime_conversation` and the v3 WebRTC transport ship in 0.145.0. */
-export const CODEX_REALTIME_MIN_VERSION: readonly [number, number, number] = [0, 145, 0];
+const CODEX_REALTIME_MIN_VERSION: readonly [number, number, number] = [0, 145, 0];
 
 export function codexVersionSupportsRealtime(version: string | undefined): boolean {
   if (!version) return false;
@@ -90,7 +88,7 @@ export function ensureSdpLineTermination(sdp: string): string {
   return sdp.endsWith("\n") ? sdp : `${sdp}\r\n`;
 }
 
-export const VOICE_MCP_SERVER_NAME = "t3-code-voice";
+const VOICE_MCP_SERVER_NAME = "t3-code-voice";
 
 const tableKeys = (value: unknown): ReadonlyArray<string> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? Object.keys(value) : [];

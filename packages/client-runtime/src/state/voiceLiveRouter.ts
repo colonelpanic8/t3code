@@ -12,11 +12,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 /**
- * Cross-host routing for Live Voice: the owning client answers `routeRequest`
- * events by reporting its connected environments (sanitized label + status
- * only) or by executing one routed tool against a target environment. The
- * error codes let the server's tools distinguish an unreachable host from a
- * tool that ran and failed.
+ * The owning client answers `routeRequest` events with its connected environments (label
+ * and status only) or by running one routed tool on a target environment. The error codes
+ * tell an unreachable host apart from a tool that ran and failed.
  */
 
 export type VoiceLiveRouteFailureCode =
