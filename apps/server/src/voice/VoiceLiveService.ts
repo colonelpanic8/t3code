@@ -46,11 +46,9 @@ import {
 import * as VoiceLivePrompt from "./VoiceLivePrompt.ts";
 
 /**
- * In-memory broker for Live Voice calls. A call is owned by the exact client
- * socket that started it, lives exactly as long as its `voice.live.start`
- * stream, and never touches the durable orchestration timeline. Every exit —
- * client stop, socket loss, Codex death, startup failure — converges on the
- * same idempotent teardown.
+ * A call is owned by the client socket that started it, lives exactly as long as its
+ * `voice.live.start` stream, and never touches the durable orchestration timeline. Every
+ * exit (client stop, socket loss, Codex death, startup failure) takes the same teardown.
  */
 
 export interface VoiceLiveOwner {
@@ -100,7 +98,7 @@ export class VoiceLiveService extends Context.Service<
 
 /** Discovery answers fast or not at all; agent-backed tool turns can be slow. */
 export const DEFAULT_LIST_HOSTS_TIMEOUT_MS = 30_000;
-export const DEFAULT_EXECUTE_TOOL_TIMEOUT_MS = 600_000;
+const DEFAULT_EXECUTE_TOOL_TIMEOUT_MS = 600_000;
 
 const SDP_ANSWER_TIMEOUT_MS = 60_000;
 
@@ -261,7 +259,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
   const start: VoiceLiveService["Service"]["start"] = Effect.fn("VoiceLiveService.start")(
     function* (input, owner) {
       const ownerKey = ownerKeyOf(owner);
-      const liveSessionId: VoiceLiveSessionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+      const liveSessionId: VoiceLiveSessionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
       const reserved = yield* SynchronizedRef.modify(state, (current) => {
         if (current.owners.has(ownerKey)) return [false, current] as const;
         const owners = new Map(current.owners);
@@ -497,7 +495,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
       (request.kind === "list_hosts"
         ? DEFAULT_LIST_HOSTS_TIMEOUT_MS
         : DEFAULT_EXECUTE_TOOL_TIMEOUT_MS);
-    const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    const requestId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
     const deferred = yield* Deferred.make<VoiceLiveRouteResult, VoiceLiveError>();
     const registered = yield* SynchronizedRef.modify(state, (current) => {
       const record = current.calls.get(liveSessionId);

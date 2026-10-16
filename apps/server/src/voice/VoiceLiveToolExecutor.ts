@@ -21,11 +21,9 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 
 /**
- * The curated catalog of tools a Live Voice call may run on this host via
- * `voice.live.tool.execute`. Deliberately small: reads are bounded, and every
- * mutation maps to one ordinary orchestration operation. Unknown tools and bad
- * arguments come back as `isError` results the voice model can read aloud, not
- * thrown errors.
+ * Tools a Live Voice call may run here via `voice.live.tool.execute`: reads are bounded and
+ * each mutation is one ordinary orchestration operation. Unknown tools and bad arguments
+ * return `isError` results the voice model can read aloud, not thrown errors.
  */
 
 export class VoiceLiveToolExecutor extends Context.Service<
@@ -112,11 +110,11 @@ const make = Effect.gen(function* () {
   const projectStore = yield* ProjectStore.ProjectStoreV2;
 
   const decodeArgs = <S extends Schema.Top>(schema: S, args: unknown) =>
-    Schema.decodeUnknownEffect(schema)(args ?? {}).pipe(
+    Schema.decodeEffect(schema)(args ?? {}).pipe(
       Effect.mapError((cause) => errorResult(`Invalid arguments: ${cause.message}`)),
     );
 
-  const mintId = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const mintId = crypto.randomUUIDv4().pipe(Effect.orDie);
 
   const threadShell = Effect.fn("VoiceLiveToolExecutor.threadShell")(function* (
     threadId: ThreadId,
