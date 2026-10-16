@@ -474,11 +474,14 @@ export const make = Effect.gen(function* () {
   const issueFleetEnrollment: PairingGrantStore["Service"]["issueFleetEnrollment"] = Effect.fn(
     "PairingGrantStore.issueFleetEnrollment",
   )(function* (input) {
-    const id = yield* crypto.randomUUIDv4.pipe(
-      Effect.mapError(
-        (cause) => new PairingCredentialRandomGenerationError({ operation: "generate-id", cause }),
-      ),
-    );
+    const id = yield* crypto
+      .randomUUIDv4()
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new PairingCredentialRandomGenerationError({ operation: "generate-id", cause }),
+        ),
+      );
     const secret = yield* crypto
       .randomBytes(FLEET_ENROLLMENT_SECRET_BYTES)
       .pipe(
