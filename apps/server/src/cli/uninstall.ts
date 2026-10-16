@@ -11,11 +11,15 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import * as BootService from "../cloud/bootService.ts";
 import { pinnedRuntimeVersionsDir } from "../cloud/pinnedRuntime.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import {
+  installLocationFlags,
+  resolveInstallLocations,
+  resolveServerLocationOverrides,
+} from "./config.ts";
 import * as CliService from "./service.ts";
 import { findWindowsShim, launcherOwnsVersionsDir, resolveLauncherPath } from "./update.ts";
 
@@ -28,24 +32,15 @@ export class CliUninstallError extends Schema.TaggedError<CliUninstallError>()(
   }
 }
 
-/**
- * What `t3 uninstall` would remove for one T3 home. Computed before anything
- * is touched so the user sees the whole plan in one place.
- */
 export interface UninstallPlan {
-  /** The background service serves this home and will be stopped and removed. */
   readonly service: boolean;
-  /** The `t3` launcher (symlink or `.cmd` shim) that points into this home's runtime tree. */
   readonly launcher: string | undefined;
-  /** `<home>/runtime`, holding every downloaded version, when it exists. */
   readonly runtimeDir: string | undefined;
-  /** `<home>/userdata`, which is never removed; shown so the user knows where it is. */
-  readonly userdataDir: string;
+  readonly keptDirs: ReadonlyArray<string>;
 }
 
 /**
- * Finds the launcher this install left on PATH. Only a launcher that points
- * into this home's `runtime/versions` is claimed: a plain copy of the
+ * Only a launcher that points into this home's `runtime/versions` is claimed: a plain copy of the
  * executable, or a launcher for another home, is not ours to delete.
  */
 export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(function* (input: {
@@ -77,6 +72,7 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const service = yield* BootService.BootService;
+  const overrides = yield* resolveServerLocationOverrides({ baseDir: Option.none() });
   const status = yield* service.status;
   const servesThisHome =
     status.installedBaseDir !== undefined &&
@@ -90,13 +86,22 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
     runtimeDir: (yield* fs.exists(runtimeDir).pipe(Effect.orElseSucceed(() => false)))
       ? runtimeDir
       : undefined,
-    userdataDir: path.join(input.baseDir, "userdata"),
+    keptDirs: [
+      ...new Set(
+        [
+          path.join(input.baseDir, "userdata"),
+          overrides.configDir,
+          overrides.dataDir,
+          overrides.cacheDir,
+        ].filter((dir): dir is string => dir !== undefined),
+      ),
+    ],
   };
   return plan;
 });
 
 export const uninstallCommand = Command.make("uninstall", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   yes: Flag.Boolean("yes").pipe(
     Flag.withAlias("y"),
     Flag.withDescription(
@@ -110,8 +115,7 @@ export const uninstallCommand = Command.make("uninstall", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveCliAuthConfig(flags, logLevel);
+      const config = yield* resolveInstallLocations(flags);
       return yield* runUninstall({ baseDir: config.baseDir, assumeYes: flags.yes }).pipe(
         Effect.provide(CliService.layer(config)),
       );
@@ -146,7 +150,7 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
     yield* Console.log(`  every downloaded version under ${plan.runtimeDir}`);
   }
   yield* Console.log(
-    `Your projects, threads, and settings under ${plan.userdataDir} are kept. Delete that directory yourself if you want them gone too.`,
+    `Your projects, threads, and settings under ${plan.keptDirs.join(", ")} are kept. Delete ${plan.keptDirs.length === 1 ? "that directory" : "those directories"} yourself if you want them gone too.`,
   );
 
   if (!input.assumeYes) {

@@ -66,17 +66,8 @@ const REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS = 900_000;
 const REMOTE_REUSE_READY_TIMEOUT_MS = 2_000;
 
 export interface RemoteT3RunnerOptions {
-  /**
-   * Dev mode: run `node <path>` on the remote instead of a release archive.
-   * The only mode that needs Node on the remote.
-   */
   readonly nodeScriptPath?: string | null;
   readonly nodeEngineRange?: string | null;
-  /**
-   * Exact version whose self-contained release archive the remote installs
-   * and runs. Required unless `nodeScriptPath` is set; the remote then needs
-   * neither Node nor npm.
-   */
   readonly archiveVersion?: string | null;
   readonly releaseBaseUrl?: string | null;
 }
@@ -246,8 +237,6 @@ function applyScriptPlaceholders(
   return result;
 }
 
-// Re-exported from the shared HTTP readiness module so existing importers
-// (notably tunnel.test.ts) keep resolving it from here.
 export { describeReadinessCause };
 
 export const REMOTE_PICK_PORT_SCRIPT = `const fs = require("node:fs");
@@ -558,7 +547,14 @@ fi
 exec "$T3_RUNTIME_DIR/t3" "$@"
 `;
 
+// The launcher pins the server to ~/.t3 and finds a running one by its
+// runtime file there. These variables outrank --base-dir, so an inherited one
+// would hide a running server and point a second one at the same database.
+const CLEAR_SERVER_LOCATION_ENV =
+  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR";
+
 const REMOTE_LAUNCH_SCRIPT = `set -eu
+${CLEAR_SERVER_LOCATION_ENV}
 @@T3_NODE_ENV_SCRIPT@@
 STATE_KEY="$1"
 STATE_DIR="$HOME/.t3/ssh-launch/$STATE_KEY"
@@ -758,6 +754,7 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 `;
 
 const REMOTE_PAIRING_SCRIPT = `set -eu
+${CLEAR_SERVER_LOCATION_ENV}
 STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
 DEFAULT_SERVER_HOME="$HOME/.t3"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
@@ -834,7 +831,6 @@ export function buildRemoteT3RunnerScript(input?: RemoteT3RunnerOptions): string
   if (archiveVersion !== "" && !EXACT_ARCHIVE_VERSION.test(archiveVersion)) {
     throw new SshInvalidArchiveVersionError({ archiveVersion });
   }
-  // Strip the `/v<version>` the helper appends: the script builds URLs itself.
   const releaseBaseUrl = cliReleaseDownloadBaseUrl("", input?.releaseBaseUrl ?? undefined).replace(
     /\/v$/u,
     "",
@@ -975,8 +971,6 @@ export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingT
   const result = yield* runSshCommand(target, {
     remoteCommandArgs: ["sh", "-s"],
     stdin: buildRemotePairingScript(stateKey, runner),
-    // Pairing may be the first command on a cold remote, so it can install
-    // the archive on the way.
     ...(isNodeScriptRunner(runner) ? {} : { timeoutMs: REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS }),
     ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),
     ...(input?.batchMode === undefined ? {} : { batchMode: input.batchMode }),

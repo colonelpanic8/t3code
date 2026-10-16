@@ -20,8 +20,11 @@ import * as NetService from "@t3tools/shared/Net";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import { resolveInstallLocations, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -608,6 +611,95 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("reads settings from the config dir and opens the database in the data dir", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-locations-" });
+      const home = path.join(root, "home");
+      const configDir = path.join(root, "config");
+      const dataDir = path.join(root, "data");
+      const envDataDir = path.join(root, "env-data");
+      const cacheDir = path.join(root, "cache");
+      yield* fs.makeDirectory(configDir, { recursive: true });
+      yield* fs.writeFileString(
+        path.join(configDir, "settings.json"),
+        `${JSON.stringify({ observability: { otlpLogsUrl: "http://config-dir:4318/v1/logs" } })}\n`,
+      );
+
+      const resolved = yield* resolveServerConfig(
+        { ...minimalDesktopFlags(home), serverDataDir: Option.some(dataDir) },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_SERVER_CONFIG_DIR: configDir,
+                  T3CODE_SERVER_DATA_DIR: envDataDir,
+                  T3CODE_SERVER_CACHE_DIR: cacheDir,
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.otlpLogsUrl).toBe("http://config-dir:4318/v1/logs");
+      expect(resolved.settingsPath).toBe(path.join(root, "config", "settings.json"));
+      expect(resolved.dbPath).toBe(path.join(root, "data", "statev2.sqlite"));
+      expect(resolved.worktreesDir).toBe(path.join(root, "data", "worktrees"));
+      expect(resolved.providerStatusCacheDir).toBe(path.join(root, "cache"));
+
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`SELECT 1`;
+      }).pipe(
+        Effect.provide(
+          SqlitePersistence.layerConfig.pipe(Layer.provide(ServerConfigLayer(resolved))),
+        ),
+      );
+      expect(yield* fs.exists(path.join(root, "data", "statev2.sqlite"))).toBe(true);
+      expect(yield* fs.exists(envDataDir)).toBe(false);
+      expect(yield* fs.exists(home)).toBe(false);
+    }),
+  );
+
+  it.effect(
+    "resolves install commands from the base dir alone, like the service, creating nothing",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-install-locations-" });
+        const home = path.join(root, "home");
+
+        const resolved = yield* resolveInstallLocations({ baseDir: Option.some(home) }).pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_SERVER_CONFIG_DIR: path.join(root, "config"),
+                  T3CODE_SERVER_DATA_DIR: path.join(root, "data"),
+                  T3CODE_SERVER_CACHE_DIR: path.join(root, "cache"),
+                },
+              }),
+            ),
+          ),
+        );
+
+        expect(resolved.logsDir).toBe(path.join(home, "userdata", "logs"));
+        expect(resolved.serverRuntimeStatePath).toBe(
+          path.join(home, "userdata", "server-runtime.json"),
+        );
+        expect(resolved.settingsPath).toBe(path.join(home, "userdata", "settings.json"));
+        expect(resolved.providerStatusCacheDir).toBe(path.join(home, "caches"));
+        expect(yield* fs.exists(home)).toBe(false);
+      }),
+  );
+
   it.effect("applies flag then env precedence over bootstrap envelope values", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
@@ -800,7 +892,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         ),
       );
 
-      // The switch beats every source, including an endpoint stored in Settings.
       expect(resolved.otlpTracesUrl).toBeUndefined();
       expect(resolved.otlpMetricsUrl).toBeUndefined();
       expect(resolved.otlpLogsUrl).toBeUndefined();
@@ -1121,7 +1212,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         const fd = yield* openBootstrapFd(
           makeDesktopBootstrap({
             otlpMetricsUrl: "http://bootstrap:4318/v1/metrics",
-            // Blank, not an endpoint: it must not stand in front of Settings.
             otlpLogsUrl: "",
           }),
         );
@@ -1153,21 +1243,14 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         );
 
-        // T3CODE_OTLP_TRACES_URL wins over the OTEL variable for the same
-        // signal, and keeps T3 Code's own headers since T3 Code still owns it.
         expect(resolved.otlpTracesUrl).toBe("http://t3:4318/v1/traces");
         expect(resolved.otlpTracesExport.headers).toEqual({ "x-key": "secret" });
-        // Metrics named no T3CODE_OTLP_METRICS_URL, so the OTEL endpoint wins
-        // over the bootstrap envelope and brings the OTEL headers and protocol.
         expect(resolved.otlpMetricsUrl).toBe("http://otel-metrics:4318/custom");
         expect(resolved.otlpMetricsExport).toEqual({
           ...DEFAULT_SIGNAL_EXPORT,
           protocol: "http/protobuf",
           headers: { "x-key": "otel" },
         });
-        // Logs named no T3 or OTEL endpoint and a blank bootstrap value, so
-        // Settings answers, and logs keep the shared headers since no OTEL
-        // endpoint claimed them.
         expect(resolved.otlpLogsUrl).toBe("http://settings:4318/v1/logs");
         expect(resolved.otlpLogsExport.headers).toEqual({ "x-key": "secret" });
       }),
@@ -1218,10 +1301,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         );
 
-        // T3CODE_OTLP_TRACES_URL still wins outright.
         expect(resolved.otlpTracesUrl).toBe("http://t3:4318/v1/traces");
-        // The OTEL endpoint claimed metrics and logs, so neither the bootstrap
-        // envelope nor Settings receives them with T3 Code's headers.
         expect(resolved.otlpMetricsUrl).toBeUndefined();
         expect(resolved.otlpLogsUrl).toBeUndefined();
       }),

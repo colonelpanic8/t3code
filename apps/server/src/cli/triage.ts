@@ -1,14 +1,3 @@
-/**
- * `t3 triage` - hand a misbehaving install to the user's own coding agent.
- *
- * The command is deliberately thin: it writes a `context.md` with machine facts
- * (versions, paths, server liveness), then launches claude or codex
- * interactively, seeded with the playbook from `triagePrompt.ts`. The agent
- * asks the user what went wrong, investigates, and files the issue; the
- * harness's own permission prompts gate anything it wants to run. With no
- * agent CLI installed, the prompt and context are written to disk for the user
- * to paste into whatever agent they do have.
- */
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
@@ -16,7 +5,6 @@ import * as NodeReadlinePromises from "node:readline/promises";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -28,10 +16,9 @@ import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
-import * as ServerConfig from "../config.ts";
-import { resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { baseDirFlag } from "./config.ts";
+import { resolveServerLocations, serverLocationFlags } from "./config.ts";
+import { interactiveStdin } from "./consoleStdin.ts";
 import { resolveCliCommand } from "./invocation.ts";
 import {
   buildTriageContext,
@@ -77,15 +64,9 @@ export class TriageAgentSpawnError extends Schema.TaggedError<TriageAgentSpawnEr
   }
 }
 
-/**
- * One human-readable line about the local server, for `context.md`. Includes
- * the version the server recorded, which can differ from this CLI's version.
- */
 export const describeServerProcess = Effect.fn("triage.describeServerProcess")(function* (
   serverRuntimeStatePath: string,
 ) {
-  // readPersistedServerRuntimeState swallows read/decode failures itself and
-  // returns none, so a corrupt state file reads as "not running" here.
   const state = yield* readPersistedServerRuntimeState(serverRuntimeStatePath);
   if (Option.isNone(state)) {
     return "not running (no server-runtime.json; the server may never have started here)";
@@ -126,11 +107,6 @@ const pickAgent = (agents: ReadonlyArray<TriageAgent>) =>
     }
   });
 
-/**
- * Run the agent CLI as a normal interactive session: the user's terminal is
- * the UI, and the harness's own permission prompts gate every action. Resolves
- * with the child's exit code.
- */
 const runInteractiveSession = (input: {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
@@ -140,7 +116,9 @@ const runInteractiveSession = (input: {
   Effect.callback<number, TriageAgentSpawnError>((resume) => {
     const child = NodeChildProcess.spawn(input.command, [...input.args], {
       cwd: input.cwd,
-      stdio: "inherit",
+      // The agent reads the user's terminal; under the desktop app's Windows
+      // launcher that is the reopened console, not the (missing) inherited stdin.
+      stdio: [interactiveStdin(), "inherit", "inherit"],
       shell: input.shell,
     });
     child.once("error", (cause) =>
@@ -161,7 +139,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 
 export const triageCommand = Command.make("triage", {
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   agent: agentFlag,
   model: modelFlag,
 }).pipe(
@@ -174,18 +152,16 @@ export const triageCommand = Command.make("triage", {
       const path = yield* Path.Path;
 
       // Triage is a user-facing feature: always the userdata state, never dev.
-      // --base-dir wins; T3CODE_HOME is its documented env equivalent (same
-      // precedence as `t3 pair`).
-      const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
-      const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-      const baseDir = yield* resolveBaseDir(explicitBaseDir ?? Option.getOrUndefined(envHome));
-      const paths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {});
+      const { baseDir, derivedPaths: paths } = yield* resolveServerLocations(flags, {
+        devUrl: undefined,
+      });
+
+      const userdataLogsDir = path.join(baseDir, "userdata", "logs");
 
       const now = yield* DateTime.now;
       const scratchDir = path.join(
         paths.stateDir,
         "triage",
-        // ISO instant, made safe for Windows paths.
         DateTime.formatIso(now).replaceAll(":", "-").replace(".", "-"),
       );
       yield* fs.makeDirectory(scratchDir, { recursive: true });
@@ -205,11 +181,8 @@ export const triageCommand = Command.make("triage", {
             dbPath: paths.dbPath,
             settingsPath: paths.settingsPath,
             logsDir: paths.logsDir,
-            // The server writes no log file of its own. Service installs and the
-            // desktop app capture its output. The glob covers every desktop backend
-            // (such as WSL) and rotated copies; names come from DesktopObservability.ts.
-            serviceLogPath: path.join(paths.logsDir, BootService.BOOT_SERVICE_LOG_FILE),
-            desktopBackendLogGlob: path.join(paths.logsDir, "server-child*.log*"),
+            serviceLogPath: path.join(userdataLogsDir, BootService.BOOT_SERVICE_LOG_FILE),
+            desktopBackendLogGlob: path.join(userdataLogsDir, "server-child*.log*"),
             serverTracePath: paths.serverTracePath,
             providerEventLogPath: paths.providerEventLogPath,
             terminalLogsDir: paths.terminalLogsDir,
@@ -245,10 +218,10 @@ export const triageCommand = Command.make("triage", {
         selected = yield* pickAgent(installed);
       }
 
-      // The full seed prompt always goes to disk. The agent is launched with a
-      // one-line pointer at it: Windows `.cmd` shims run through cmd.exe,
-      // which cannot carry the multiline playbook as an argv string, and with
-      // no agent installed the same file is the paste-anywhere fallback.
+      // The agent is launched with a one-line pointer at it: Windows `.cmd`
+      // shims run through cmd.exe, which cannot carry the multiline playbook as
+      // an argv string, and with no agent installed the same file is the
+      // paste-anywhere fallback.
       const promptFilePath = path.join(scratchDir, "prompt.md");
       yield* fs.writeFileString(promptFilePath, buildTriageSeedPrompt(contextFilePath));
 
