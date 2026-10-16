@@ -558,6 +558,15 @@ export class EnvironmentAuth extends Context.Service<
     readonly revokeConnectDevice: (
       proofKeyThumbprint: string,
     ) => Effect.Effect<boolean, ServerAuthInternalError>;
+    /**
+     * Mints a reusable enrollment grant. Each redemption issues its own
+     * session; revoking the grant (as a pairing link) only stops new ones.
+     */
+    readonly createFleetEnrollment: (input: {
+      readonly ttl: Duration.Duration;
+      readonly label: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+    }) => Effect.Effect<PairingGrantStore.IssuedFleetEnrollment, ServerAuthInternalError>;
     readonly issuePairingCredential: (
       input?: AuthCreatePairingCredentialInput,
     ) => Effect.Effect<
@@ -1188,6 +1197,12 @@ export const make = Effect.gen(function* () {
     return yield* issuePairingLink(input);
   });
 
+  const createFleetEnrollment: EnvironmentAuth["Service"]["createFleetEnrollment"] = (input) =>
+    bootstrapCredentials.issueFleetEnrollment(input).pipe(
+      Effect.mapError((cause) => new ServerAuthPairingLinkCreationError({ cause })),
+      Effect.withSpan("EnvironmentAuth.createFleetEnrollment"),
+    );
+
   const listPairingLinks: EnvironmentAuth["Service"]["listPairingLinks"] = (input) =>
     bootstrapCredentials.listActive().pipe(
       Effect.map((pairingLinks) => {
@@ -1646,6 +1661,7 @@ export const make = Effect.gen(function* () {
     listConnectDevices,
     revokeConnectDevice,
     revokeConnectDeviceByCode,
+    createFleetEnrollment,
     issuePairingCredential,
     issueStartupPairingCredential,
     listPairingLinks,
