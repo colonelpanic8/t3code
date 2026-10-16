@@ -98,6 +98,13 @@ describe("decodeFleetImport", () => {
     ["a query token", "https://alpha.example.test/pair?token=abc", "wss://alpha.example.test"],
     ["an empty query", "https://alpha.example.test/?", "wss://alpha.example.test"],
     ["userinfo", "https://user:pass@alpha.example.test", "wss://alpha.example.test"],
+    [
+      "an at sign in the path",
+      "https://alpha.example.test/path@secret",
+      "wss://alpha.example.test/path@secret",
+    ],
+    ["an out-of-range port", "https://alpha.example.test:65536", "wss://alpha.example.test:65536"],
+    ["a non-numeric port", "https://alpha.example.test:abc", "wss://alpha.example.test:abc"],
     ["surrounding whitespace", " https://alpha.example.test", "wss://alpha.example.test"],
     ["a control character", "https://alpha.example.test/\u0007", "wss://alpha.example.test"],
     ["a backslash", "https:\\\\alpha.example.test", "wss://alpha.example.test"],
