@@ -37,8 +37,11 @@ const enrollment = Result.getOrThrow(
 );
 const anchorId = EnvironmentId.make("anchor");
 
-function enroll(saved: SupervisorConnectionState | null) {
-  const pairings: Array<unknown> = [];
+function enroll(
+  saved: SupervisorConnectionState | null,
+  input = enrollment,
+  pairings: Array<unknown> = [],
+) {
   const registry = EnvironmentRegistry.EnvironmentRegistry.of({
     state: (environmentId: EnvironmentId) =>
       saved === null
@@ -49,7 +52,7 @@ function enroll(saved: SupervisorConnectionState | null) {
     registerPairing: (input: unknown) =>
       Effect.sync(() => pairings.push(input)).pipe(Effect.as(anchorId)),
   } as unknown as ConnectionOnboarding.ConnectionOnboarding["Service"]);
-  return enrollThroughFleetAnchor(enrollment).pipe(
+  return enrollThroughFleetAnchor(input).pipe(
     Effect.map((outcome) => ({ outcome, pairings })),
     Effect.provide(
       Layer.mergeAll(
@@ -100,6 +103,16 @@ describe("fleet enrollment", () => {
         expect(outcome).toBe("already-enrolled");
         expect(pairings).toEqual([]);
       }
+    }),
+  );
+
+  it.effect("refuses an enrollment that expired while awaiting confirmation without pairing", () =>
+    Effect.gen(function* () {
+      const pairings: Array<unknown> = [];
+      const expired = { ...enrollment, expiresAt: DateTime.makeUnsafe(0) };
+      const error = yield* Effect.flip(enroll(null, expired, pairings));
+      expect(error._tag).toBe("FleetEnrollmentExpiredError");
+      expect(pairings).toEqual([]);
     }),
   );
 

@@ -234,7 +234,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
           Effect.provideService(FileSystem.FileSystem, blockedSyncFs),
           Effect.forkScoped,
         );
-        yield* Deferred.await(readyToPublish);
+        yield* Deferred.await(readyToPublish).pipe(Effect.raceFirst(Fiber.join(exporting)));
         yield* Fiber.interrupt(exporting);
         expect(yield* fileSystem.readFileString(output)).toBe("previous export");
         expect(yield* fileSystem.readDirectory(outputDirectory)).toEqual(["fleet.age"]);
@@ -268,7 +268,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
           Effect.provideService(FileSystem.FileSystem, controlledFs),
           Effect.forkScoped,
         );
-        yield* Deferred.await(renamed);
+        yield* Deferred.await(renamed).pipe(Effect.raceFirst(Fiber.join(exporting)));
         const interruption = yield* Fiber.interrupt(exporting).pipe(
           Effect.forkScoped({ startImmediately: true }),
         );
