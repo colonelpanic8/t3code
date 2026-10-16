@@ -260,6 +260,7 @@ export const resolveServerConfig = (
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
+    readonly intent?: "start-server" | "manage-auth";
   },
 ) =>
   Effect.gen(function* () {
@@ -333,29 +334,31 @@ export const resolveServerConfig = (
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
     });
-    // An interactive CLI must not start over a discovered server. Lifetime locking
-    // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
-    if (options?.rejectRunningServer && mode === "web") {
-      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
-      // A killed container can leave a record with the new server's own PID.
-      if (
-        Option.isSome(runtime) &&
-        runtime.value.pid > 0 &&
-        runtime.value.pid !== process.pid &&
-        isProcessAlive(runtime.value.pid)
-      ) {
-        return yield* new CliError.UserError({
-          cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
-        });
-      }
-    } else {
-      // Supervised (`t3 serve`) and desktop-spawned servers restart after crashes,
-      // so they yield only to a server that still answers at its recorded origin.
-      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
-      if (Option.isSome(runtime) && (yield* isRespondingServerRuntime(runtime.value))) {
-        return yield* new CliError.UserError({
-          cause: `Another T3 Code server (pid ${runtime.value.pid}, ${runtime.value.origin}) already owns ${baseDir}. Two servers sharing one T3 home corrupt its state. Stop that server or use a different --base-dir.`,
-        });
+    if (options?.intent !== "manage-auth") {
+      // An interactive CLI must not start over a discovered server. Lifetime locking
+      // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
+      if (options?.rejectRunningServer && mode === "web") {
+        const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+        // A killed container can leave a record with the new server's own PID.
+        if (
+          Option.isSome(runtime) &&
+          runtime.value.pid > 0 &&
+          runtime.value.pid !== process.pid &&
+          isProcessAlive(runtime.value.pid)
+        ) {
+          return yield* new CliError.UserError({
+            cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
+          });
+        }
+      } else {
+        // Supervised (`t3 serve`) and desktop-spawned servers restart after crashes,
+        // so they yield only to a server that still answers at its recorded origin.
+        const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+        if (Option.isSome(runtime) && (yield* isRespondingServerRuntime(runtime.value))) {
+          return yield* new CliError.UserError({
+            cause: `Another T3 Code server (pid ${runtime.value.pid}, ${runtime.value.origin}) already owns ${baseDir}. Two servers sharing one T3 home corrupt its state. Stop that server or use a different --base-dir.`,
+          });
+        }
       }
     }
     yield* fs.makeDirectory(cwd, { recursive: true });
@@ -520,6 +523,7 @@ export const resolveCliAuthConfig = (
       tailscaleServePort: Option.none(),
     },
     cliLogLevel,
+    { intent: "manage-auth" },
   );
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
