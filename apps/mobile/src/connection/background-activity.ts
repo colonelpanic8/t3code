@@ -70,11 +70,9 @@ export const layerReporter = Layer.effectDiscard(
                 clientKind: "mobile",
                 visible: active,
                 focused: active,
-                // An active Live Voice call is live user interaction even
-                // while the app is backgrounded (iOS keeps us running via the
-                // audio background mode). The client-local `call` scope cannot
-                // cross the wire until contracts grow a call variant, so this
-                // flag is the keep-engaged signal for the hosting server.
+                // A Live Voice call is live interaction even while backgrounded. The
+                // client-local `call` scope cannot cross the wire until contracts grow a
+                // call variant, so this flag keeps the hosting server engaged.
                 recentlyInteracted:
                   active || hasRetainedMobileCallActivity(environmentId as EnvironmentId),
                 appState: normalizeAppState(appState),

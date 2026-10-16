@@ -1,5 +1,5 @@
 import { AudioLinesIcon } from "lucide-react";
-import { memo, useCallback, useMemo } from "react";
+import { memo } from "react";
 
 import { SidebarMenuButton, SidebarMenuItem, useSidebar } from "../components/ui/sidebar";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
@@ -18,25 +18,18 @@ export const VoiceLiveButton = memo(function VoiceLiveButton() {
   const status = useVoiceLiveStore((state) => state.status);
   const { isMobile, setOpenMobile } = useSidebar();
 
-  const eligibleHosts = useMemo(
-    () =>
-      environments.filter(
-        (environment) =>
-          environment.serverConfig?.environment.capabilities.voiceLive === true &&
-          environment.connection.phase === "connected",
-      ),
-    [environments],
+  const eligibleHosts = environments.filter(
+    (environment) =>
+      environment.serverConfig?.environment.capabilities.voiceLive === true &&
+      environment.connection.phase === "connected",
   );
 
-  const startCall = useCallback(
-    (host: EnvironmentPresentation) => {
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-      void startVoiceLiveCall({ environmentId: host.environmentId, label: host.label });
-    },
-    [isMobile, setOpenMobile],
-  );
+  const startCall = (host: EnvironmentPresentation) => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+    void startVoiceLiveCall({ environmentId: host.environmentId, label: host.label });
+  };
 
   const callActive = status === "connecting" || status === "active";
   const disabledReason = callActive

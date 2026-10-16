@@ -4,12 +4,9 @@ import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
 /**
- * Live Voice: an ephemeral realtime speech-to-speech call between a client and
- * OpenAI, brokered by one T3 server through a hidden Codex app-server session
- * (`--enable realtime_conversation`). Media flows client <-> OpenAI over
- * WebRTC; only SDP, control messages, finalized transcripts, and routed tool
- * calls cross the T3 wire. Nothing in this domain enters the durable
- * orchestration timeline.
+ * Live Voice media flows client <-> OpenAI over WebRTC, brokered by a hidden Codex session.
+ * Only SDP, control messages, finalized transcripts, and routed tool calls cross the T3
+ * wire, and nothing here enters the durable orchestration timeline.
  */
 
 export const VoiceLiveSessionId = TrimmedNonEmptyString.check(Schema.isMaxLength(64));

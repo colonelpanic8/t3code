@@ -12,11 +12,9 @@ import { VoiceToolkit } from "./toolkits/voice/tools.ts";
 import * as VoiceMcpInvocationContext from "./VoiceMcpInvocationContext.ts";
 
 /**
- * The dedicated MCP transport for Live Voice calls. It is a separate
- * `McpServer.layerHttp` at `/mcp/voice` carrying only the voice routing
- * toolkit: the hidden Codex session's tool catalog can never contain the
- * orchestrator, preview, or worktree tools, and its bearer credential names
- * one live call rather than a provider session.
+ * A separate `McpServer.layerHttp` at `/mcp/voice` carrying only the voice routing toolkit,
+ * so the hidden Codex session can never reach orchestrator, preview, or worktree tools, and
+ * its bearer credential names one live call rather than a provider session.
  */
 
 const unauthorized = HttpServerResponse.jsonUnsafe(
