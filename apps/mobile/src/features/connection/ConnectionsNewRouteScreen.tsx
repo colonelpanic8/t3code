@@ -140,6 +140,12 @@ export function ConnectionsNewRouteScreen({
     [navigation],
   );
 
+  const handleEnrolled = useCallback(() => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.dispatch(StackActions.replace("Home"));
+  }, [navigation]);
+
   const handleCodeChange = useCallback((value: string) => {
     setCodeInput(value);
     setPendingConnectionError(null);
@@ -297,6 +303,7 @@ export function ConnectionsNewRouteScreen({
               onSelect={handleImportedSelect}
               onClearSelection={handleImportedClear}
               onOpenSaved={openSavedEnvironment}
+              onEnrolled={handleEnrolled}
             />
           ) : null}
 
