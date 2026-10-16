@@ -3,6 +3,7 @@ import {
   TrimmedNonEmptyString,
   type ServerFleetEnvironment,
 } from "@t3tools/contracts";
+import { isPlainFleetEndpointPair } from "@t3tools/shared/fleetEnrollment";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
@@ -61,31 +62,6 @@ export class FleetImportError extends Schema.TaggedError<FleetImportError>()("Fl
   }
 }
 
-// Whitespace, controls, and characters that move the URL parser off the
-// plain `scheme://host[:port][/path]` form, or that start a query, fragment,
-// or userinfo, where a pairing token or password could ride along.
-const UNSAFE_URL_CHARACTER = /[\p{Cc}\s\\?#@]/u;
-
-function parsePlainUrl(value: string): URL | null {
-  if (UNSAFE_URL_CHARACTER.test(value)) return null;
-  try {
-    const url = new URL(value);
-    return value.toLowerCase().startsWith(`${url.protocol}//`) ? url : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Both addresses reach the same host and port, with TLS on both or neither. */
-function isPlainEndpointPair(environment: ServerFleetEnvironment): boolean {
-  const http = parsePlainUrl(environment.httpBaseUrl);
-  const ws = parsePlainUrl(environment.wsBaseUrl);
-  if (http === null || ws === null) return false;
-  const secure = http.protocol === "https:";
-  if (!secure && http.protocol !== "http:") return false;
-  return ws.protocol === (secure ? "wss:" : "ws:") && ws.host === http.host;
-}
-
 /** Decodes a fleet file's bytes or text into the environments it declares. */
 export function decodeFleetImport(
   source: Uint8Array | string,
@@ -119,7 +95,7 @@ export function decodeFleetImport(
   ) {
     return Result.fail(new FleetImportError({ reason: "duplicate-environment" }));
   }
-  if (!environments.every(isPlainEndpointPair)) {
+  if (!environments.every(isPlainFleetEndpointPair)) {
     return Result.fail(new FleetImportError({ reason: "unsafe-url" }));
   }
   return Result.succeed(environments);
