@@ -5,6 +5,10 @@ import {
   type ServerAuthBootstrapMethod,
 } from "@t3tools/contracts";
 import {
+  FleetEnrollmentCredential,
+  isFleetEnrollmentCredential,
+} from "@t3tools/shared/fleetEnrollment";
+import {
   DESKTOP_BOOTSTRAP_TOKEN_WINDOW_MS,
   isValidDesktopBootstrapToken,
 } from "@t3tools/shared/desktopBootstrapToken";
@@ -16,15 +20,22 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
+import * as Redacted from "effect/Redacted";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Base64Url from "effect/encoding/Base64Url";
+import * as Hex from "effect/encoding/Hex";
 
 import * as ServerConfig from "../config.ts";
 import * as AuthPairingLinks from "../persistence/AuthPairingLinks.ts";
 
+/**
+ * Reusable fleet-enrollment grants are redeemed here but never advertised as a
+ * client bootstrap method, like fleet handoffs.
+ */
 export interface BootstrapGrant {
-  readonly method: ServerAuthBootstrapMethod;
+  readonly method: ServerAuthBootstrapMethod | "fleet-enrollment";
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly subject: string;
   readonly label?: string;
@@ -125,7 +136,7 @@ export class PairingCredentialIssueError extends Schema.TaggedError<PairingCrede
 export class PairingCredentialRandomGenerationError extends Schema.TaggedError<PairingCredentialRandomGenerationError>()(
   "PairingCredentialRandomGenerationError",
   {
-    operation: Schema.Literals(["generate-id", "generate-token"]),
+    operation: Schema.Literals(["generate-id", "generate-token", "digest-token"]),
     cause: Schema.Defect(),
   },
 ) {
@@ -194,6 +205,12 @@ export interface IssuedBootstrapCredential {
   readonly expiresAt: DateTime.Utc;
 }
 
+export interface IssuedFleetEnrollment {
+  readonly id: string;
+  readonly credential: Redacted.Redacted<FleetEnrollmentCredential>;
+  readonly expiresAt: DateTime.Utc;
+}
+
 export type BootstrapCredentialChange =
   | {
       readonly type: "pairingLinkUpserted";
@@ -215,6 +232,15 @@ export class PairingGrantStore extends Context.Service<
       readonly proofKeyThumbprint?: string;
       readonly purpose?: "startup";
     }) => Effect.Effect<IssuedBootstrapCredential, BootstrapCredentialInternalError>;
+    /**
+     * Mints a reusable grant: each redemption issues an independent session
+     * until it is revoked or expires. Only its digest is stored.
+     */
+    readonly issueFleetEnrollment: (input: {
+      readonly ttl: Duration.Duration;
+      readonly label: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+    }) => Effect.Effect<IssuedFleetEnrollment, BootstrapCredentialInternalError>;
     readonly listActive: () => Effect.Effect<
       ReadonlyArray<AuthPairingLink>,
       BootstrapCredentialInternalError
@@ -249,6 +275,9 @@ type ConsumeResult =
 const DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES = Duration.minutes(5);
 const DESKTOP_BOOTSTRAP_TTL_HOURS = Duration.hours(24);
 const DEV_STARTUP_TTL_HOURS = Duration.hours(24);
+const FLEET_ENROLLMENT_CREDENTIAL_PREFIX = "t3enroll1.";
+const FLEET_ENROLLMENT_SECRET_BYTES = 32;
+const isFleetEnrollmentCredentialValue = Schema.is(FleetEnrollmentCredential);
 const PAIRING_TOKEN_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const PAIRING_TOKEN_LENGTH = 12;
 const PAIRING_TOKEN_REJECTION_LIMIT =
@@ -283,6 +312,14 @@ export const make = Effect.gen(function* () {
     }
     return credential;
   });
+
+  const digestFleetEnrollmentCredential = (credential: string) =>
+    crypto.digest("SHA-256", new TextEncoder().encode(credential)).pipe(
+      Effect.map((digest) => `sha256:${Hex.encode(digest)}`),
+      Effect.mapError(
+        (cause) => new PairingCredentialRandomGenerationError({ operation: "digest-token", cause }),
+      ),
+    );
 
   const seedGrant = (credential: string, grant: StoredBootstrapGrant) =>
     Ref.update(seededGrantsRef, (current) => {
@@ -434,9 +471,124 @@ export const make = Effect.gen(function* () {
     return issued;
   });
 
+  const issueFleetEnrollment: PairingGrantStore["Service"]["issueFleetEnrollment"] = Effect.fn(
+    "PairingGrantStore.issueFleetEnrollment",
+  )(function* (input) {
+    const id = yield* crypto.randomUUIDv4.pipe(
+      Effect.mapError(
+        (cause) => new PairingCredentialRandomGenerationError({ operation: "generate-id", cause }),
+      ),
+    );
+    const secret = yield* crypto
+      .randomBytes(FLEET_ENROLLMENT_SECRET_BYTES)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new PairingCredentialRandomGenerationError({ operation: "generate-token", cause }),
+        ),
+      );
+    const credential = FleetEnrollmentCredential.make(
+      `${FLEET_ENROLLMENT_CREDENTIAL_PREFIX}${Base64Url.encode(secret)}`,
+    );
+    const credentialDigest = yield* digestFleetEnrollmentCredential(credential);
+    const scopes = input.scopes ?? AuthStandardClientScopes;
+    const subject = `fleet-enrollment:${id}`;
+    const now = yield* DateTime.now;
+    const expiresAt = DateTime.add(now, { milliseconds: Duration.toMillis(input.ttl) });
+    yield* pairingLinks
+      .create({
+        id,
+        credential: credentialDigest,
+        method: "fleet-enrollment",
+        scopes,
+        subject,
+        label: input.label,
+        proofKeyThumbprint: null,
+        createdAt: now,
+        expiresAt,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new PairingCredentialIssueError({
+              pairingLinkId: id,
+              subject,
+              label: input.label,
+              cause,
+            }),
+        ),
+      );
+    yield* emitUpsert({
+      id,
+      scopes,
+      subject,
+      label: input.label,
+      createdAt: now,
+      expiresAt,
+    });
+    return {
+      id,
+      credential: Redacted.make(credential),
+      expiresAt,
+    } satisfies IssuedFleetEnrollment;
+  });
+
+  // Enrollment rows are never consumed, and redeeming one returns no label so
+  // each device keeps its own client label.
+  const redeemFleetEnrollment = Effect.fn("PairingGrantStore.redeemFleetEnrollment")(function* (
+    credential: string,
+    now: DateTime.Utc,
+    requestedScopes: ReadonlyArray<AuthEnvironmentScope> | undefined,
+  ) {
+    if (!isFleetEnrollmentCredentialValue(credential)) {
+      return yield* new UnknownBootstrapCredentialError({});
+    }
+    const credentialDigest = yield* digestFleetEnrollmentCredential(credential).pipe(
+      Effect.mapError((cause) => new BootstrapCredentialLookupError({ cause })),
+    );
+    const redeemable = yield* pairingLinks
+      .findRedeemableFleetEnrollment({
+        credentialDigest,
+        ...(requestedScopes !== undefined ? { requestedScopes } : {}),
+        now,
+      })
+      .pipe(Effect.mapError((cause) => new BootstrapCredentialLookupError({ cause })));
+    if (Option.isSome(redeemable)) {
+      return {
+        method: "fleet-enrollment",
+        scopes: redeemable.value.scopes,
+        subject: redeemable.value.subject,
+        expiresAt: redeemable.value.expiresAt,
+      } satisfies BootstrapGrant;
+    }
+
+    const matching = yield* pairingLinks
+      .getByCredential({ credential: credentialDigest })
+      .pipe(Effect.mapError((cause) => new BootstrapCredentialLookupError({ cause })));
+    if (Option.isNone(matching) || matching.value.method !== "fleet-enrollment") {
+      return yield* new UnknownBootstrapCredentialError({});
+    }
+    if (matching.value.revokedAt !== null) {
+      return yield* new UnavailableBootstrapCredentialError({});
+    }
+    if (DateTime.isGreaterThanOrEqualTo(now, matching.value.expiresAt)) {
+      return yield* new ExpiredBootstrapCredentialError({});
+    }
+    if (
+      requestedScopes !== undefined &&
+      !requestedScopes.some((scope) => matching.value.scopes.includes(scope))
+    ) {
+      return yield* new BootstrapCredentialScopeNotGrantedError({});
+    }
+    return yield* new UnavailableBootstrapCredentialError({});
+  });
+
   const consume: PairingGrantStore["Service"]["consume"] = Effect.fn("PairingGrantStore.consume")(
     function* (credential, input) {
       const now = yield* DateTime.now;
+      if (isFleetEnrollmentCredential(credential)) {
+        return yield* redeemFleetEnrollment(credential, now, input?.requestedScopes);
+      }
       if (consumeRotatingDesktopToken(credential, now.epochMilliseconds)) {
         return {
           method: "desktop-bootstrap",
@@ -570,7 +722,8 @@ export const make = Effect.gen(function* () {
       const matching = yield* pairingLinks
         .getByCredential({ credential })
         .pipe(Effect.mapError((cause) => new BootstrapCredentialLookupError({ cause })));
-      if (Option.isNone(matching)) {
+      // A stored enrollment digest is not itself a credential.
+      if (Option.isNone(matching) || matching.value.method === "fleet-enrollment") {
         return yield* new UnknownBootstrapCredentialError({});
       }
 
@@ -606,6 +759,7 @@ export const make = Effect.gen(function* () {
 
   return PairingGrantStore.of({
     issueOneTimeToken,
+    issueFleetEnrollment,
     listActive,
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);
