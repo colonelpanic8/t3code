@@ -145,6 +145,32 @@ export function planFleetSync(input: {
   return { root, join, relabel, rejoin, remove };
 }
 
+/**
+ * Saves a member only while following `fleet` from `source` still calls for
+ * it as one of `kinds`. Joining waits on round trips, during which the root
+ * can be switched off or removed, or the user can save the member by hand.
+ */
+function stillPlanned(input: {
+  readonly source: EnvironmentId;
+  readonly fleet: ReadonlyArray<ServerFleetEnvironment>;
+  readonly root: EnvironmentId;
+  readonly member: EnvironmentId;
+  readonly kinds: ReadonlyArray<"join" | "relabel" | "rejoin">;
+}): EnvironmentRegistry.RegistrationGuard {
+  return {
+    reads: [input.source, input.root],
+    admits: (entries) => {
+      const plan = planFleetSync({ entries, source: input.source, fleet: input.fleet });
+      return (
+        plan?.root === input.root &&
+        input.kinds.some((kind) =>
+          plan[kind].some((declared) => declared.environmentId === input.member),
+        )
+      );
+    },
+  };
+}
+
 function fleetRegistration(
   member: ServerFleetEnvironment,
   root: EnvironmentId,
@@ -257,6 +283,11 @@ function samePending(
   );
 }
 
+interface Report {
+  readonly session: RpcSession.RpcSession;
+  readonly fleet: ReadonlyArray<ServerFleetEnvironment>;
+}
+
 /**
  * Follows every saved environment's sessions and applies the fleet each one
  * reports. A member that could not be joined stays pending and is tried again
@@ -275,13 +306,7 @@ export const make = Effect.gen(function* () {
   const followers = yield* FiberMap.make<EnvironmentId>();
   const retries = yield* FiberHandle.make();
   /** The fleet each live session reported, by the environment it reached. */
-  const reports = new Map<
-    EnvironmentId,
-    {
-      readonly session: RpcSession.RpcSession;
-      readonly fleet: ReadonlyArray<ServerFleetEnvironment>;
-    }
-  >();
+  const reports = new Map<EnvironmentId, Report>();
   const attempts = new Map<EnvironmentId, "joining" | "failed">();
   const pending = yield* SubscriptionRef.make<ReadonlyArray<PendingFleetMember>>([]);
 
@@ -330,9 +355,14 @@ export const make = Effect.gen(function* () {
 
   const applyPlan = Effect.fn("clientRuntime.connection.fleet.applyPlan")(function* (
     plan: FleetSyncPlan,
-    session: RpcSession.RpcSession,
+    source: EnvironmentId,
+    { session, fleet }: Report,
     attempted: Set<EnvironmentId>,
   ) {
+    const guard = (
+      member: ServerFleetEnvironment,
+      kinds: ReadonlyArray<"join" | "relabel" | "rejoin">,
+    ) => stillPlanned({ source, fleet, root: plan.root, member: member.environmentId, kinds });
     yield* Effect.forEach(
       plan.remove,
       (environmentId) =>
@@ -349,7 +379,10 @@ export const make = Effect.gen(function* () {
             Option.match({
               onNone: () => Effect.void,
               onSome: (credential) =>
-                registry.register(fleetRegistration(member, plan.root, credential)),
+                registry.register(
+                  fleetRegistration(member, plan.root, credential),
+                  guard(member, ["relabel"]),
+                ),
             }),
           ),
           logFailure("Could not rename a fleet machine.", { environmentId: member.environmentId }),
@@ -367,7 +400,16 @@ export const make = Effect.gen(function* () {
               session.client[WS_METHODS.serverIssueFleetHandoff]({ environmentId }),
           }),
         ),
-        Effect.flatMap(registry.register),
+        Effect.flatMap((registration) =>
+          registry.register(registration, guard(member, ["join", "rejoin"])),
+        ),
+        Effect.tap((saved) =>
+          saved
+            ? Effect.void
+            : Effect.logInfo("A fleet machine changed while it was joining, so it was not saved.", {
+                environmentId: member.environmentId,
+              }),
+        ),
         Effect.onExit((exit) =>
           Effect.sync(() =>
             Exit.isSuccess(exit)
@@ -408,7 +450,7 @@ export const make = Effect.gen(function* () {
         source,
         fleet: report.fleet,
       });
-      if (plan !== null) yield* applyPlan(plan, report.session, attempted);
+      if (plan !== null) yield* applyPlan(plan, source, report, attempted);
     });
 
   const retryAll = lock
