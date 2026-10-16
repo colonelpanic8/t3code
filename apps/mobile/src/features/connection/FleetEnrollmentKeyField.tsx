@@ -1,10 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { RequestActionButton } from "../threads/RequestActionButton";
 import { type AgeRecipient, importEnrollmentIdentity } from "./fleetEnrollmentKey";
 
@@ -18,12 +18,22 @@ export function FleetEnrollmentKeyField(props: {
   const [identity, setIdentity] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/react-effect-budget -- an in-flight save must not set state after unmount
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const save = async () => {
+    if (saving || identity.trim().length === 0) return;
     setSaving(true);
     const result = await Effect.runPromise(
       Effect.result(importEnrollmentIdentity(Redacted.make(identity))),
     );
+    if (!mounted.current) return;
     setSaving(false);
     if (Result.isFailure(result)) {
       setError(result.failure.message);
