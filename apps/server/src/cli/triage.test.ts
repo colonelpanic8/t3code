@@ -3,7 +3,6 @@ import * as Console from "effect/Console";
 import * as ConfigProvider from "effect/ConfigProvider";
 import { Command } from "effect/cli";
 
-
 const triageContextFor = Effect.fn(function* (serverJson: unknown) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

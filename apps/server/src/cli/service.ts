@@ -25,10 +25,7 @@ export const layer = (
     storageRoots: config.storage.roots,
     logsDir: config.logsDir,
     cliVersion,
-  }).pipe(
-    Layer.provide(ProcessRunner.layer),
-    Layer.provide(FetchHttpClient.layer),
-  );
+  }).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(FetchHttpClient.layer));
 
 export type ServiceReconcileResult =
   | {
