@@ -3,9 +3,12 @@ import {
   authScopeResponse,
   AuthAdministrativeScopes,
   AuthStandardClientScopes,
+  EnvironmentId,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -17,6 +20,7 @@ import * as PersistenceErrors from "../persistence/Errors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
+import * as FleetHandoff from "./FleetHandoff.ts";
 
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -701,5 +705,160 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       } as never);
       expect(verified.sessionId).toBe(bearer.sessionId);
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
+  );
+
+  it.effect("exchanges a fleet handoff for its own revocable session", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-fleet-auth-" });
+      const fleetManifestPath = `${directory}/fleet.json`;
+      yield* fileSystem.writeFileString(
+        fleetManifestPath,
+        JSON.stringify({
+          version: 1,
+          environments: [
+            {
+              environmentId: "fleet:a",
+              label: "a",
+              httpBaseUrl: "https://a.example.ts.net/",
+              wsBaseUrl: "wss://a.example.ts.net/",
+            },
+          ],
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const handoff = yield* FleetHandoff.FleetHandoff;
+        const issued = yield* handoff.issue({
+          audience: EnvironmentId.make("fleet:a"),
+          scopes: ["orchestration:read", "terminal:operate"],
+        });
+
+        const exchanged = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+          issued.credential,
+          undefined,
+          { deviceType: "mobile", label: "Pixel" },
+        );
+        const session = yield* serverAuth.authenticateHttpRequest(
+          makeBearerRequest(exchanged.access_token),
+        );
+        const replayed = yield* serverAuth
+          .exchangeBootstrapCredentialForAccessToken(issued.credential, undefined, requestMetadata)
+          .pipe(Effect.flip);
+        const clients = yield* serverAuth.listClientSessions(session.sessionId);
+
+        expect(session.subject).toBe(FleetHandoff.FLEET_HANDOFF_SUBJECT);
+        expect(session.scopes).toEqual(["orchestration:read", "terminal:operate"]);
+        expect(replayed._tag).toBe("ServerAuthInvalidCredentialError");
+        expect(clients.find((client) => client.current)?.client).toMatchObject({
+          deviceType: "mobile",
+          label: "Pixel",
+        });
+        expect(yield* serverAuth.revokeSession(session.sessionId)).toBe(true);
+        expect(
+          (yield* Effect.flip(
+            serverAuth.authenticateHttpRequest(makeBearerRequest(exchanged.access_token)),
+          ))._tag,
+        ).toBe("ServerAuthInvalidCredentialError");
+      }).pipe(
+        Effect.provide(
+          layerEnvironmentAuth({
+            environmentIdOverride: "fleet:a",
+            managedAccessToken: "shared-fleet-token",
+            fleetManifestPath,
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("redeems one fleet enrollment into independent sessions for each device", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const enrollment = yield* serverAuth.createFleetEnrollment({
+        ttl: Duration.days(365),
+        label: "phones",
+      });
+      const credential = Redacted.value(enrollment.credential);
+
+      const pixel = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        credential,
+        undefined,
+        { deviceType: "mobile", label: "Pixel" },
+      );
+      const iphone = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        credential,
+        undefined,
+        { deviceType: "mobile", label: "iPhone" },
+      );
+      const pixelSession = yield* serverAuth.authenticateHttpRequest(
+        makeBearerRequest(pixel.access_token),
+      );
+      const iphoneSession = yield* serverAuth.authenticateHttpRequest(
+        makeBearerRequest(iphone.access_token),
+      );
+      const clients = yield* serverAuth.listClientSessions(pixelSession.sessionId);
+
+      expect(pixelSession.sessionId).not.toBe(iphoneSession.sessionId);
+      expect(pixelSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
+      expect(iphoneSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
+      expect(
+        clients
+          .map((client) => client.client.label)
+          .toSorted((left, right) => (left ?? "").localeCompare(right ?? "")),
+      ).toEqual(["iPhone", "Pixel"]);
+      expect((yield* serverAuth.listPairingLinks()).map((link) => link.id)).toContain(
+        enrollment.id,
+      );
+
+      // A pairing code field never accepts the reusable credential.
+      const approval = yield* Effect.flip(
+        serverAuth.consumeMcpApprovalCode(credential, "read-only"),
+      );
+      expect(approval).toMatchObject({ reason: "not_a_pairing_code" });
+
+      // Revoking the enrollment stops new devices but keeps enrolled ones.
+      expect(yield* serverAuth.revokePairingLink(enrollment.id)).toBe(true);
+      const late = yield* Effect.flip(
+        serverAuth.exchangeBootstrapCredentialForAccessToken(
+          credential,
+          undefined,
+          requestMetadata,
+        ),
+      );
+      expect(late._tag).toBe("ServerAuthInvalidCredentialError");
+      expect(
+        (yield* serverAuth.authenticateHttpRequest(makeBearerRequest(pixel.access_token)))
+          .sessionId,
+      ).toBe(pixelSession.sessionId);
+    }).pipe(Effect.provide(layerEnvironmentAuth())),
+  );
+
+  it.effect("rejects fleet enrollment scopes it does not grant without spending it", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const enrollment = yield* serverAuth.createFleetEnrollment({
+        ttl: Duration.days(1),
+        label: "readers",
+        scopes: ["orchestration:read"],
+      });
+      const credential = Redacted.value(enrollment.credential);
+
+      const denied = yield* Effect.flip(
+        serverAuth.exchangeBootstrapCredentialForAccessToken(
+          credential,
+          ["access:write"],
+          requestMetadata,
+        ),
+      );
+      const granted = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        credential,
+        ["orchestration:read", "access:write"],
+        requestMetadata,
+      );
+
+      expect(denied._tag).toBe("ServerAuthScopeNotGrantedError");
+      expect(granted.scope).toBe("orchestration:read");
+    }).pipe(Effect.provide(layerEnvironmentAuth())),
   );
 });

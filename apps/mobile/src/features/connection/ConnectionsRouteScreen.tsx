@@ -11,6 +11,7 @@ import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { LocalEnvironmentList } from "./LocalEnvironmentList";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
+import { PendingFleetMemberRows } from "./PendingFleetMemberRows";
 
 export function ConnectionsRouteScreen() {
   const {
@@ -69,6 +70,7 @@ export function ConnectionsRouteScreen() {
           onSetEnabled={onSetEnvironmentEnabled}
           onUpdate={onUpdateEnvironment}
         />
+        <PendingFleetMemberRows />
         <GitHubRoutingSettings />
       </ScrollView>
     </View>
