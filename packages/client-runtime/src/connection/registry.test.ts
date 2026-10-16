@@ -48,7 +48,12 @@ import * as ConnectionDriver from "./driver.ts";
 import type { RouteCheck } from "./driver.ts";
 import { fleetConnectionId } from "./model.ts";
 import * as FleetMembership from "./fleet.ts";
-import { connectionRouteId, connectionRouteKind, isManagedConnectionEntry } from "./routes.ts";
+import {
+  connectionRouteId,
+  connectionRouteKind,
+  connectionRoutes,
+  isManagedConnectionEntry,
+} from "./routes.ts";
 import {
   ConnectionTransientError,
   ConnectionBlockedError,
@@ -2808,6 +2813,340 @@ describe("fleet sync", () => {
         expect(result).toEqual([SAVED]);
         expect(requests).toEqual([]);
         expect(handoffs).toEqual([]);
+      }),
+    );
+  });
+
+  describe("a member saved by hand while the fleet changes it", () => {
+    const JOINED = EnvironmentId.make("fleet:joined");
+    const joinedConnectionId = fleetConnectionId(JOINED, PAIRED);
+    const joinedTarget = new BearerConnectionTarget({
+      environmentId: JOINED,
+      label: "joined",
+      connectionId: joinedConnectionId,
+    });
+    const joinedProfile = new BearerConnectionProfile({
+      connectionId: joinedConnectionId,
+      ...declared(JOINED),
+    });
+    const LAN_URL = "http://192.168.1.20:3773/";
+    const savedByHand = (httpBaseUrl: string) => {
+      const connectionId = `bearer:${MEMBER}:${httpBaseUrl}`;
+      return new BearerConnectionRegistration({
+        target: new BearerConnectionTarget({ environmentId: MEMBER, label: "mine", connectionId }),
+        profile: new BearerConnectionProfile({
+          connectionId,
+          environmentId: MEMBER,
+          label: "mine",
+          httpBaseUrl,
+          wsBaseUrl: httpBaseUrl.replace(/^http/, "ws"),
+        }),
+        credential: new BearerConnectionCredential({ token: "by-hand" }),
+      });
+    };
+    const routeIds = (entry: ConnectionCatalogEntry | undefined) =>
+      entry === undefined
+        ? []
+        : connectionRoutes(entry).map((route) => connectionRouteId(route.target));
+
+    /**
+     * JOINED, a member already joined through PAIRED, reports a fleet that
+     * adds MEMBER. Its handoff waits until `releaseHandoff`, so `meanwhile`
+     * runs while the join is in flight. Resolves once the join has finished.
+     */
+    const raceJoin = <A, E>(
+      meanwhile: (
+        registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      ) => Effect.Effect<A, E>,
+    ) =>
+      Effect.gen(function* () {
+        const handoffRequested = yield* Deferred.make<void>();
+        const releaseHandoff = yield* Deferred.make<void>();
+        const logs = yield* Queue.unbounded<string>();
+        const registrations: Array<string> = [];
+        const harness = yield* makeHarness(
+          [pairedTarget, joinedTarget],
+          [pairedProfile, joinedProfile],
+          [
+            [pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })],
+            [joinedConnectionId, new BearerConnectionCredential({ token: "joined" })],
+          ],
+          {
+            beforeRegistrationRegister: (registration) =>
+              Effect.sync(() => {
+                registrations.push(connectionRouteId(registration.target));
+              }),
+            session: (environmentId) => ({
+              initialConfig: Effect.succeed({
+                fleet:
+                  environmentId === JOINED
+                    ? [declared(PAIRED), declared(JOINED), declared(MEMBER)]
+                    : undefined,
+              } as unknown as ServerConfig),
+              client: {
+                [WS_METHODS.serverIssueFleetHandoff]: () =>
+                  Deferred.succeed(handoffRequested, undefined).pipe(
+                    Effect.andThen(Deferred.await(releaseHandoff)),
+                    Effect.as({
+                      credential: "t3fleet1.handoff",
+                      expiresAt: DateTime.makeUnsafe(0),
+                    }),
+                  ),
+              } as unknown as RpcSession.RpcSession["client"],
+            }),
+          },
+        );
+        const layerHttp = RpcHttp.layerRemoteHttpClient((async (input) => {
+          const url = String(input);
+          const host = new URL(url).hostname.split(".")[0]!;
+          if (url.endsWith("/.well-known/t3/environment")) {
+            return Response.json({
+              environmentId: `fleet:${host}`,
+              label: host,
+              platform: { os: "linux", arch: "x64" },
+              serverVersion: "0.0.0-test",
+              orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+              capabilities: { repositoryIdentity: true },
+            });
+          }
+          if (url.endsWith("/oauth/token")) {
+            return Response.json({
+              access_token: `${host}-session`,
+              issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+              token_type: "Bearer",
+              expires_in: 3600,
+              scope: "orchestration:read",
+            });
+          }
+          throw new Error(`Unexpected request: ${url}`);
+        }) satisfies typeof fetch);
+        const logFleet = Logger.make(({ message }) => {
+          const text = String([message].flat()[0]);
+          if (text.includes("fleet")) Queue.offerUnsafe(logs, text);
+        });
+
+        const entry = yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.start;
+          yield* FleetMembership.make;
+          yield* Deferred.await(handoffRequested);
+          yield* meanwhile(registry);
+          registrations.length = 0;
+          yield* Deferred.succeed(releaseHandoff, undefined);
+          expect(yield* Queue.take(logs)).toBe(
+            "A fleet machine changed while it was joining, so it was not saved.",
+          );
+          return (yield* SubscriptionRef.get(registry.entries)).get(MEMBER);
+        }).pipe(
+          Effect.provide(
+            Layer.provideMerge(
+              harness.layer,
+              Layer.mergeAll(
+                layerHttp,
+                Logger.layer([logFleet]),
+                Layer.succeed(
+                  ConnectionCredentialStore.ConnectionCredentialStore,
+                  harness.credentialStore,
+                ),
+                Layer.succeed(
+                  ClientCapabilities.ClientPresentation,
+                  ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
+                ),
+                layerNoWakeups,
+              ),
+            ),
+          ),
+        );
+        return { entry, registrations };
+      }).pipe(Effect.scoped);
+
+    it.effect("joins nothing through a root switched off while the join was in flight", () =>
+      Effect.gen(function* () {
+        const { entry, registrations } = yield* raceJoin((registry) =>
+          registry.setEnabled(PAIRED, false),
+        );
+
+        expect(entry).toBeUndefined();
+        expect(registrations).toEqual([]);
+      }),
+    );
+
+    it.effect("keeps a pairing saved while the join was in flight as the user saved it", () =>
+      Effect.gen(function* () {
+        const byHand = savedByHand(declared(MEMBER).httpBaseUrl);
+        const { entry, registrations } = yield* raceJoin((registry) => registry.register(byHand));
+
+        expect(routeIds(entry)).toEqual([byHand.target.connectionId]);
+        expect(isManagedConnectionEntry(entry!)).toBe(false);
+        expect(registrations).toEqual([]);
+      }),
+    );
+
+    it.effect("takes a joined member over when the user pairs it at any address", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness(
+          [pairedTarget],
+          [pairedProfile],
+          [[pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })]],
+        );
+        const joinedRegistration = new BearerConnectionRegistration({
+          target: new BearerConnectionTarget({
+            environmentId: MEMBER,
+            label: "member",
+            connectionId: fleetConnectionId(MEMBER, PAIRED),
+          }),
+          profile: new BearerConnectionProfile({
+            connectionId: fleetConnectionId(MEMBER, PAIRED),
+            ...declared(MEMBER),
+          }),
+          credential: new BearerConnectionCredential({ token: "member-session" }),
+        });
+
+        const after = yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          const pairAfterJoin = Effect.fn(function* (byHand: BearerConnectionRegistration) {
+            yield* registry.register(joinedRegistration);
+            yield* registry.register(byHand);
+            const entry = (yield* SubscriptionRef.get(registry.entries)).get(MEMBER)!;
+            yield* registry.remove(MEMBER);
+            return { routes: routeIds(entry), managed: isManagedConnectionEntry(entry) };
+          });
+          return [
+            yield* pairAfterJoin(savedByHand(declared(MEMBER).httpBaseUrl)),
+            yield* pairAfterJoin(savedByHand(LAN_URL)),
+          ];
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(after).toEqual([
+          {
+            routes: [savedByHand(declared(MEMBER).httpBaseUrl).target.connectionId],
+            managed: false,
+          },
+          { routes: [savedByHand(LAN_URL).target.connectionId], managed: false },
+        ]);
+      }).pipe(Effect.scoped),
+    );
+
+    const GONE = EnvironmentId.make("fleet:gone");
+    const LAST = EnvironmentId.make("fleet:last");
+    const joinedThroughPaired = (environmentId: EnvironmentId) => {
+      const connectionId = fleetConnectionId(environmentId, PAIRED);
+      return {
+        target: new BearerConnectionTarget({
+          environmentId,
+          label: environmentId,
+          connectionId,
+        }),
+        profile: new BearerConnectionProfile({ connectionId, ...declared(environmentId) }),
+        credential: [connectionId, new BearerConnectionCredential({ token: "joined" })] as const,
+      };
+    };
+
+    /**
+     * GONE, MEMBER, and LAST are joined through PAIRED, in that order, and the
+     * fleet removes all three, either because JOINED reports a fleet without
+     * them or because `start` removes PAIRED. GONE's removal waits until
+     * `meanwhile` has run. Resolves with MEMBER's entry once LAST is gone.
+     */
+    const raceRemoval = <E>(input: {
+      readonly joinedReportsFleet: boolean;
+      readonly start: (
+        registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      ) => Effect.Effect<void, E>;
+      readonly meanwhile: (
+        registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      ) => Effect.Effect<unknown, E>;
+    }) =>
+      Effect.gen(function* () {
+        const removalStarted = yield* Deferred.make<void>();
+        const releaseRemoval = yield* Deferred.make<void>();
+        const members = [JOINED, GONE, MEMBER, LAST].map(joinedThroughPaired);
+        const harness = yield* makeHarness(
+          [pairedTarget, ...members.map((member) => member.target)],
+          [pairedProfile, ...members.map((member) => member.profile)],
+          [
+            [pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })],
+            ...members.map((member) => member.credential),
+          ],
+          {
+            beforeRegistrationRemove: (environmentId) =>
+              environmentId === GONE
+                ? Deferred.succeed(removalStarted, undefined).pipe(
+                    Effect.andThen(Deferred.await(releaseRemoval)),
+                  )
+                : Effect.void,
+            session: (environmentId) => ({
+              initialConfig: Effect.succeed({
+                fleet:
+                  input.joinedReportsFleet && environmentId === JOINED
+                    ? [declared(PAIRED), declared(JOINED)]
+                    : undefined,
+              } as unknown as ServerConfig),
+            }),
+          },
+        );
+
+        return yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.start;
+          yield* FleetMembership.make;
+          yield* input.start(registry);
+          yield* Deferred.await(removalStarted);
+          yield* input.meanwhile(registry);
+          yield* Deferred.succeed(releaseRemoval, undefined);
+          const entries = yield* SubscriptionRef.changes(registry.entries).pipe(
+            Stream.filter((entries) => !entries.has(LAST)),
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          );
+          expect(entries.has(GONE)).toBe(false);
+          return entries.get(MEMBER);
+        }).pipe(
+          Effect.provide(
+            Layer.provideMerge(
+              harness.layer,
+              Layer.mergeAll(
+                layerMemberHttp,
+                Layer.succeed(
+                  ConnectionCredentialStore.ConnectionCredentialStore,
+                  harness.credentialStore,
+                ),
+                Layer.succeed(
+                  ClientCapabilities.ClientPresentation,
+                  ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
+                ),
+                layerNoWakeups,
+              ),
+            ),
+          ),
+        );
+      }).pipe(Effect.scoped);
+
+    it.effect("keeps a member paired by hand while the fleet was removing those it dropped", () =>
+      Effect.gen(function* () {
+        const byHand = savedByHand(LAN_URL);
+        const entry = yield* raceRemoval({
+          joinedReportsFleet: true,
+          start: () => Effect.void,
+          meanwhile: (registry) => registry.register(byHand),
+        });
+
+        expect(routeIds(entry)).toEqual([byHand.target.connectionId]);
+        expect(isManagedConnectionEntry(entry!)).toBe(false);
+      }),
+    );
+
+    it.effect("keeps a member paired by hand while its removed root's fleet was leaving", () =>
+      Effect.gen(function* () {
+        const byHand = savedByHand(declared(MEMBER).httpBaseUrl);
+        const entry = yield* raceRemoval({
+          joinedReportsFleet: false,
+          start: (registry) => registry.remove(PAIRED),
+          meanwhile: (registry) => registry.register(byHand),
+        });
+
+        expect(routeIds(entry)).toEqual([byHand.target.connectionId]);
+        expect(isManagedConnectionEntry(entry!)).toBe(false);
       }),
     );
   });
