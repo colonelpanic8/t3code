@@ -33,7 +33,7 @@ import type {
   PersistedConnectionTarget,
   SupervisorConnectionState,
 } from "./model.ts";
-import { ConnectionBlockedError } from "./model.ts";
+import { ConnectionBlockedError, fleetConnectionRoot } from "./model.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionDriver from "./driver.ts";
@@ -91,6 +91,17 @@ export class PlatformEnvironmentRemovalError extends Schema.TaggedError<Platform
   }
 }
 
+/**
+ * A condition a registration is saved under. `admits` sees the catalog at the
+ * moment of saving, while the registered environment and every environment in
+ * `reads` are locked, so a change to any of them lands either before the check
+ * or after the save.
+ */
+export interface RegistrationGuard {
+  readonly reads: ReadonlyArray<EnvironmentId>;
+  readonly admits: (entries: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) => boolean;
+}
+
 export class EnvironmentRegistry extends Context.Service<
   EnvironmentRegistry,
   {
@@ -101,12 +112,12 @@ export class EnvironmentRegistry extends Context.Service<
     readonly start: Effect.Effect<void>;
     /**
      * Succeeds with `false` and changes nothing when the environment is
-     * platform-managed, since the host owns that entry. With `knownAddressOnly`, it fails like
-     * `assertKnownAddress`, checked under the environment's lease.
+     * platform-managed, since the host owns that entry, or when `guard` refuses the catalog. With
+     * `knownAddressOnly`, it fails like `assertKnownAddress`, checked under the environment's lease.
      */
     readonly register: (
       registration: ConnectionRegistration,
-      options?: { readonly knownAddressOnly?: boolean },
+      options?: { readonly knownAddressOnly?: boolean; readonly guard?: RegistrationGuard },
     ) => Effect.Effect<boolean, Persistence.ConnectionPersistenceError | ConnectionBlockedError>;
     /**
      * Fails when the route would add a new address to a saved user environment. Pairing that does
@@ -330,6 +341,15 @@ export const make = Effect.gen(function* () {
           }),
         ),
     ).pipe(Effect.withSpan("EnvironmentRegistry.withLeaseLock"));
+
+  /** Holds several lease locks, always taken in the same order. */
+  const withLeaseLocks = <A, E, R>(
+    environmentIds: ReadonlyArray<EnvironmentId>,
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E, R> =>
+    [...new Set(environmentIds)]
+      .sort()
+      .reduceRight((locked, environmentId) => withLeaseLock(environmentId, locked), effect);
 
   const getEntry = Effect.fn("EnvironmentRegistry.getEntry")(function* (
     environmentId: EnvironmentId,
@@ -560,13 +580,14 @@ export const make = Effect.gen(function* () {
 
   const register = Effect.fn("EnvironmentRegistry.register")(function* (
     registration: ConnectionRegistration,
-    options?: { readonly knownAddressOnly?: boolean },
+    options?: { readonly knownAddressOnly?: boolean; readonly guard?: RegistrationGuard },
   ) {
     const registered = connectionRegistrationCatalogEntry(registration);
     const environmentId = registered.target.environmentId;
     const route: ConnectionRoute = { target: registered.target, profile: registered.profile };
-    return yield* withLeaseLock(
-      environmentId,
+    const guard = options?.guard;
+    return yield* withLeaseLocks(
+      [environmentId, ...(guard?.reads ?? [])],
       Effect.gen(function* () {
         if ((yield* Ref.get(platformEnvironmentIds)).has(environmentId)) {
           return false;
@@ -574,10 +595,20 @@ export const make = Effect.gen(function* () {
         if (options?.knownAddressOnly === true) {
           yield* assertKnownAddress(route);
         }
-        const previous = (yield* SubscriptionRef.get(entries)).get(environmentId);
+        const catalog = yield* SubscriptionRef.get(entries);
+        if (guard !== undefined && !guard.admits(catalog)) return false;
+        const previous = catalog.get(environmentId);
         let entry = registered;
         if (previous !== undefined) {
-          const existing = connectionRoutes(previous);
+          let existing = connectionRoutes(previous);
+          // Pairing a fleet member by hand takes it out of the fleet: its fleet
+          // routes, and the learned routes borrowing their tokens, go.
+          if (fleetConnectionRoot(connectionRouteId(route.target)) === null) {
+            for (const fleetRoute of existing) {
+              const id = connectionRouteId(fleetRoute.target);
+              if (fleetConnectionRoot(id) !== null) existing = routesAfterRemoving(existing, id);
+            }
+          }
           const sameAddress = findRouteToSameAddress(existing, route);
           const routes = existing.filter(
             (existing) =>
