@@ -37,7 +37,9 @@ import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as ServerConfig from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
@@ -264,7 +266,11 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
 /** The configured worktree path template; falls back to the default when settings cannot be read. */
 export const readWorktreePathTemplate = (serverSettings: ServerSettingsService["Service"]) =>
   serverSettings.getSettings.pipe(
-    Effect.map((settings) => settings.worktreePathTemplate),
+    Effect.flatMap((settings) =>
+      HostProcess.HomeDirectory.pipe(
+        Effect.map((home) => expandHomePath(settings.worktreePathTemplate, home)),
+      ),
+    ),
     Effect.catch((cause) =>
       Effect.logWarning("Failed to read worktree path template; using the default", {
         cause,
