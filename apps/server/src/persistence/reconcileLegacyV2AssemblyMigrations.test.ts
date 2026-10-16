@@ -122,6 +122,7 @@ describe("pre-merge V2 assembly upgrade", () => {
         [59, "McpAppModelContext"],
         [60, "ThreadSnapshotWindowIndexes"],
         [61, "PullRequestReviewGuides"],
+        [62, "ThreadFailureLookupIndex"],
       ]);
       yield* assertCanonicalUpgrade;
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
