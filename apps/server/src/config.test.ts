@@ -157,7 +157,6 @@ describe("deriveServerPaths", () => {
 import * as ServerConfig from "./config.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 
-
 describe("otlpResource", () => {
   const resource = (resourceAttributes: Record<string, string>) =>
     ServerConfig.otlpResource(
