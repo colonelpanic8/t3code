@@ -2836,7 +2836,7 @@ describe("fleet sync", () => {
     );
   });
 
-  describe("a member saved by hand around a join", () => {
+  describe("a member saved by hand while the fleet changes it", () => {
     const JOINED = EnvironmentId.make("fleet:joined");
     const joinedConnectionId = fleetConnectionId(JOINED, PAIRED);
     const joinedTarget = new BearerConnectionTarget({
@@ -3044,6 +3044,129 @@ describe("fleet sync", () => {
           { routes: [savedByHand(LAN_URL).target.connectionId], managed: false },
         ]);
       }).pipe(Effect.scoped),
+    );
+
+    const GONE = EnvironmentId.make("fleet:gone");
+    const LAST = EnvironmentId.make("fleet:last");
+    const joinedThroughPaired = (environmentId: EnvironmentId) => {
+      const connectionId = fleetConnectionId(environmentId, PAIRED);
+      return {
+        target: new BearerConnectionTarget({
+          environmentId,
+          label: environmentId,
+          connectionId,
+        }),
+        profile: new BearerConnectionProfile({ connectionId, ...declared(environmentId) }),
+        credential: [connectionId, new BearerConnectionCredential({ token: "joined" })] as const,
+      };
+    };
+
+    /**
+     * GONE, MEMBER, and LAST are joined through PAIRED, in that order, and the
+     * fleet removes all three, either because JOINED reports a fleet without
+     * them or because `start` removes PAIRED. GONE's removal waits until
+     * `meanwhile` has run. Resolves with MEMBER's entry once LAST is gone.
+     */
+    const raceRemoval = <E>(input: {
+      readonly joinedReportsFleet: boolean;
+      readonly start: (
+        registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      ) => Effect.Effect<void, E>;
+      readonly meanwhile: (
+        registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+      ) => Effect.Effect<unknown, E>;
+    }) =>
+      Effect.gen(function* () {
+        const removalStarted = yield* Deferred.make<void>();
+        const releaseRemoval = yield* Deferred.make<void>();
+        const members = [JOINED, GONE, MEMBER, LAST].map(joinedThroughPaired);
+        const harness = yield* makeHarness(
+          [pairedTarget, ...members.map((member) => member.target)],
+          [pairedProfile, ...members.map((member) => member.profile)],
+          [
+            [pairedTarget.connectionId, new BearerConnectionCredential({ token: "paired" })],
+            ...members.map((member) => member.credential),
+          ],
+          {
+            beforeRegistrationRemove: (environmentId) =>
+              environmentId === GONE
+                ? Deferred.succeed(removalStarted, undefined).pipe(
+                    Effect.andThen(Deferred.await(releaseRemoval)),
+                  )
+                : Effect.void,
+            session: (environmentId) => ({
+              initialConfig: Effect.succeed({
+                fleet:
+                  input.joinedReportsFleet && environmentId === JOINED
+                    ? [declared(PAIRED), declared(JOINED)]
+                    : undefined,
+              } as unknown as ServerConfig),
+            }),
+          },
+        );
+
+        return yield* Effect.gen(function* () {
+          const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+          yield* registry.start;
+          yield* FleetMembership.make;
+          yield* input.start(registry);
+          yield* Deferred.await(removalStarted);
+          yield* input.meanwhile(registry);
+          yield* Deferred.succeed(releaseRemoval, undefined);
+          const entries = yield* SubscriptionRef.changes(registry.entries).pipe(
+            Stream.filter((entries) => !entries.has(LAST)),
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          );
+          expect(entries.has(GONE)).toBe(false);
+          return entries.get(MEMBER);
+        }).pipe(
+          Effect.provide(
+            Layer.provideMerge(
+              harness.layer,
+              Layer.mergeAll(
+                layerMemberHttp,
+                Layer.succeed(
+                  ConnectionCredentialStore.ConnectionCredentialStore,
+                  harness.credentialStore,
+                ),
+                Layer.succeed(
+                  ClientCapabilities.ClientPresentation,
+                  ClientCapabilities.ClientPresentation.of({ metadata: { deviceType: "mobile" } }),
+                ),
+                layerNoWakeups,
+              ),
+            ),
+          ),
+        );
+      }).pipe(Effect.scoped);
+
+    it.effect("keeps a member paired by hand while the fleet was removing those it dropped", () =>
+      Effect.gen(function* () {
+        const byHand = savedByHand(LAN_URL);
+        const entry = yield* raceRemoval({
+          joinedReportsFleet: true,
+          start: () => Effect.void,
+          meanwhile: (registry) => registry.register(byHand),
+        });
+
+        expect(routeIds(entry)).toEqual([byHand.target.connectionId]);
+        expect(isManagedConnectionEntry(entry!)).toBe(false);
+      }),
+    );
+
+    it.effect("keeps a member paired by hand while its removed root's fleet was leaving", () =>
+      Effect.gen(function* () {
+        const byHand = savedByHand(declared(MEMBER).httpBaseUrl);
+        const entry = yield* raceRemoval({
+          joinedReportsFleet: false,
+          start: (registry) => registry.remove(PAIRED),
+          meanwhile: (registry) => registry.register(byHand),
+        });
+
+        expect(routeIds(entry)).toEqual([byHand.target.connectionId]);
+        expect(isManagedConnectionEntry(entry!)).toBe(false);
+      }),
     );
   });
 });
