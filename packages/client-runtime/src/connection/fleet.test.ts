@@ -158,8 +158,9 @@ describe("fleet sync plan", () => {
     expect(plan).toEqual({ root: A, join: [], relabel: [], rejoin: [], remove: [] });
   });
 
-  it("follows only switched-on environments and joins nothing through a switched-off root", () => {
+  it("follows only switched-on environments and never joins through a switched-off root", () => {
     const off = (entry: ConnectionCatalogEntry) => ({ ...entry, enabled: false });
+    const movedC = { ...member(C), httpBaseUrl: "https://c-new.example.ts.net/" };
 
     expect(
       planFleetSync({
@@ -170,9 +171,14 @@ describe("fleet sync plan", () => {
     ).toBeNull();
     expect(
       planFleetSync({
-        entries: catalog(off(pairedEntry(A)), joinedEntry(member(B), A)),
+        entries: catalog(off(pairedEntry(A)), joinedEntry(member(B), A), joinedEntry(member(C), A)),
         source: B,
-        fleet: [member(A), { ...member(B), label: "renamed" }, member(C)],
+        fleet: [
+          member(A),
+          { ...member(B), label: "renamed" },
+          movedC,
+          member(EnvironmentId.make("fleet:d")),
+        ],
       }),
     ).toEqual({
       root: A,
@@ -189,7 +195,10 @@ describe("fleet sync plan", () => {
 
     expect(fleetMembersJoinedThrough(joined, A)).toEqual([B, C]);
     expect(orphanedFleetMembers(joined)).toEqual([]);
-    expect(orphanedFleetMembers(afterRemovingRoot)).toEqual([B, C]);
+    expect(orphanedFleetMembers(afterRemovingRoot)).toEqual([
+      { environmentId: B, root: A },
+      { environmentId: C, root: A },
+    ]);
   });
 });
 
