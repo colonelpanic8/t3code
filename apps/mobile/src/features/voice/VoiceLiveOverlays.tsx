@@ -1,20 +1,18 @@
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
-import { ControlPill } from "../../components/ControlPill";
-import { GlassSurface } from "../../components/GlassSurface";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
+import { ControlPill } from "../../components/ui/ControlPill";
+import { GlassSurface } from "../../components/ui/GlassSurface";
 import { StatusPill, type StatusTone } from "../../components/StatusPill";
 import { useVoiceLiveState, useVoiceLiveTargets, type VoiceLiveTarget } from "./useVoiceLive";
 import { startVoiceCall, stopVoiceCall, toggleVoiceMute } from "./voiceLiveSession.native";
 import { voiceLiveStoreActions, type VoiceLiveStatus } from "./voiceLiveStore";
 
 /**
- * App-root Live Voice surfaces: the environment picker sheet and the active
- * call banner. Mounted once in App.tsx as a sibling of OverlayPortalHost —
- * deliberately not an RN Modal (a Modal is a separate native window that
- * steals focus; see components/OverlayPortal.tsx) — so the banner persists
+ * Mounted once in App.tsx beside OverlayPortalHost, not as an RN Modal (a separate native
+ * window that steals focus; see components/OverlayPortal.tsx), so the call banner persists
  * across all navigation.
  */
 export function VoiceLiveSurface() {
