@@ -2571,6 +2571,7 @@ it.layer(NodeServices.layer)("shared server settings", (it) => {
       const rules = {
         worktreeKeepWhen: "uncommitted-changes",
         worktreeAfterDays: 7,
+        worktreeSettledAfterDays: null,
         worktreeOnMerge: true,
         worktreeOnDelete: false,
         worktreeUnchanged: false,
