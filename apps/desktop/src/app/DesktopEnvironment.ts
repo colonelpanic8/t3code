@@ -16,6 +16,7 @@ import {
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -72,6 +73,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly clientSettingsPath: string;
     readonly connectionCatalogPath: string;
     readonly savedEnvironmentRegistryPath: string;
+    readonly managedConnectionsPath: Option.Option<string>;
     readonly serverSettingsPath: string;
     readonly logDir: string;
     readonly browserArtifactsDir: string;
@@ -169,9 +171,10 @@ const make = Effect.fn("desktop.environment.make")(function* (
 ): Effect.fn.Return<
   DesktopEnvironment["Service"],
   Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
-  Path.Path
+  FileSystem.FileSystem | Path.Path
 > {
   const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
   const config = yield* DesktopConfig.DesktopConfig;
   const homeDirectory = input.homeDirectory;
   const devServerUrl = config.devServerUrl;
@@ -227,6 +230,20 @@ const make = Effect.fn("desktop.environment.make")(function* (
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",
   );
+  let managedConnectionsPath = config.managedConnectionsFile;
+  if (Option.isNone(managedConnectionsPath)) {
+    const defaultManagedConnectionsPath = path.join(
+      Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config")),
+      "t3code",
+      "managed-connections.json",
+    );
+    const defaultManagedConnectionsExists = yield* fileSystem
+      .exists(defaultManagedConnectionsPath)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (defaultManagedConnectionsExists) {
+      managedConnectionsPath = Option.some(defaultManagedConnectionsPath);
+    }
+  }
   const resourcesPath = input.resourcesPath;
   const backendCwd = input.isPackaged ? homeDirectory : appRoot;
   // The local backend inherits this env and resolves the override against its cwd.
@@ -263,6 +280,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     cacheDir,
     runtimeDir,
     ...clientPaths,
+    managedConnectionsPath,
     serverSettingsPath: path.join(serverConfigDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
     browserArtifactsDir: path.join(serverDataDir, "browser-artifacts"),
