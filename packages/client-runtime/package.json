@@ -422,6 +422,10 @@
     "./pull-request-markdown": {
       "types": "./src/pullRequestMarkdown.ts",
       "default": "./src/pullRequestMarkdown.ts"
+    },
+    "./state/voice-live": {
+      "types": "./src/state/voiceLive.ts",
+      "default": "./src/state/voiceLive.ts"
     }
   },
   "scripts": {
