@@ -5,7 +5,11 @@ import {
   type SignalExport,
 } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
+import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import {
+  type PersistedServerObservabilitySettings,
+  parsePersistedServerObservabilitySettings,
+} from "@t3tools/shared/serverSettings";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
@@ -83,8 +87,13 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale-serve is enabled."),
   Flag.optional,
 );
+export const sharedSettingsFileFlag = Flag.String("server-shared-settings-file").pipe(
+  Flag.withDescription(
+    "Read-only settings file applied beneath this machine's settings.json, for settings kept in a dotfiles repository (equivalent to T3CODE_SERVER_SHARED_SETTINGS_FILE).",
+  ),
+  Flag.optional,
+);
 
-// Trace file location, shared by the server and `t3 trace summary`.
 export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
   Config.option,
   Config.map(Option.getOrUndefined),
@@ -164,6 +173,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  sharedSettingsFile: Config.String("T3CODE_SERVER_SHARED_SETTINGS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
 });
 
 const DevAuthTokenConfig = Config.Redacted("T3CODE_DEV_AUTH_TOKEN").pipe(
@@ -199,11 +212,13 @@ export interface CliServerFlags {
   readonly logWebSocketEvents: Option.Option<boolean>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
   readonly tailscaleServePort: Option.Option<number>;
+  readonly sharedSettingsFile: Option.Option<string>;
 }
 
 export interface CliAuthLocationFlags {
   readonly baseDir: Option.Option<string>;
   readonly devUrl?: Option.Option<URL>;
+  readonly sharedSettingsFile?: Option.Option<string>;
 }
 
 export const authLocationFlags = {
@@ -233,21 +248,46 @@ export const sharedServerCommandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
   tailscaleServeEnabled: tailscaleServeFlag,
   tailscaleServePort: tailscaleServePortFlag,
+  sharedSettingsFile: sharedSettingsFileFlag,
 } as const;
 
 const resolveOptionPrecedence = <Value>(
   ...values: ReadonlyArray<Option.Option<Value>>
 ): Option.Option<Value> => Option.firstSomeOf(values);
 
-const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: string) {
+const readSettingsFile = Effect.fn(function* (settingsPath: string) {
   const fs = yield* FileSystem.FileSystem;
   const exists = yield* fs.exists(settingsPath).pipe(Effect.orElseSucceed(() => false));
-  if (!exists) {
-    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined, otlpLogsUrl: undefined };
-  }
+  if (!exists) return "";
+  return yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
+});
 
-  const raw = yield* fs.readFileString(settingsPath).pipe(Effect.orElseSucceed(() => ""));
-  return parsePersistedServerObservabilitySettings(raw);
+const decodeObservabilityDocument = Schema.decodeUnknownOption(
+  fromLenientJson(Schema.Struct({ observability: Schema.Record(Schema.String, Schema.Unknown) })),
+);
+
+const loadPersistedObservabilitySettings = Effect.fn(function* (
+  settingsPath: string,
+  sharedSettingsPath: string | undefined,
+) {
+  const localRaw = yield* readSettingsFile(settingsPath);
+  const local = parsePersistedServerObservabilitySettings(localRaw);
+  if (sharedSettingsPath === undefined) return local;
+  const shared = parsePersistedServerObservabilitySettings(
+    yield* readSettingsFile(sharedSettingsPath),
+  );
+  // A key settings.json holds wins even when empty, which turns the export off.
+  const localKeys = Option.match(decodeObservabilityDocument(localRaw), {
+    onNone: () => ({}),
+    onSome: (document) => document.observability,
+  });
+  const pick = (key: keyof PersistedServerObservabilitySettings) =>
+    Object.hasOwn(localKeys, key) ? local[key] : shared[key];
+  return {
+    otlpTracesUrl: pick("otlpTracesUrl"),
+    otlpMetricsUrl: pick("otlpMetricsUrl"),
+    otlpLogsUrl: pick("otlpLogsUrl"),
+  } satisfies PersistedServerObservabilitySettings;
 });
 
 export const resolveServerConfig = (
@@ -277,6 +317,7 @@ export const resolveServerConfig = (
       logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
       tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
       tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
+      sharedSettingsFile: flags.sharedSettingsFile ?? Option.none(),
     } satisfies CliServerFlags;
     const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
     const bootstrapEnvelope =
@@ -342,8 +383,19 @@ export const resolveServerConfig = (
     }
     yield* fs.makeDirectory(cwd, { recursive: true });
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
+    const rawSharedSettingsFile = Option.getOrUndefined(
+      resolveOptionPrecedence(
+        normalizedFlags.sharedSettingsFile,
+        Option.fromUndefinedOr(env.sharedSettingsFile),
+      ).pipe(Option.filter((value) => value.trim().length > 0)),
+    );
+    const sharedSettingsPath =
+      rawSharedSettingsFile === undefined
+        ? undefined
+        : path.resolve(yield* expandHomePath(rawSharedSettingsFile.trim()));
     const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
       derivedPaths.settingsPath,
+      sharedSettingsPath,
     );
     const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
     yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
@@ -411,8 +463,6 @@ export const resolveServerConfig = (
 
     const otel = yield* OtelEnvironment.load;
 
-    // T3 Code's own OTLP variables name no signal, so the one answer they give
-    // is the answer for all three.
     const signalExport: SignalExport = {
       protocol: env.otlpProtocol,
       headers: env.otlpHeaders,
@@ -479,6 +529,7 @@ export const resolveServerConfig = (
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,
+      ...(sharedSettingsPath === undefined ? {} : { sharedSettingsPath }),
     };
 
     return config;
@@ -502,6 +553,7 @@ export const resolveCliAuthConfig = (
       logWebSocketEvents: Option.none(),
       tailscaleServeEnabled: Option.none(),
       tailscaleServePort: Option.none(),
+      sharedSettingsFile: flags.sharedSettingsFile ?? Option.none(),
     },
     cliLogLevel,
   );

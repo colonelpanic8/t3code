@@ -21,7 +21,7 @@ import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -39,6 +39,7 @@ const minimalDesktopFlags = (baseDir: string) => ({
   logWebSocketEvents: Option.none<boolean>(),
   tailscaleServeEnabled: Option.none<boolean>(),
   tailscaleServePort: Option.none<number>(),
+  sharedSettingsFile: Option.none(),
 });
 
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
@@ -160,6 +161,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: Option.none<boolean>(),
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
+        sharedSettingsFile: Option.none(),
       };
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromEnv({
@@ -185,6 +187,114 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("resolves the shared settings file, preferring the flag over the environment", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-shared-settings-" });
+      const sharedFromFlag = path.join(baseDir, "dotfiles", "t3code.json");
+      yield* fs.makeDirectory(path.dirname(sharedFromFlag), { recursive: true });
+      yield* fs.writeFileString(
+        sharedFromFlag,
+        JSON.stringify({ observability: { otlpTracesUrl: "http://collector.test/v1/traces" } }),
+      );
+      const flags = {
+        mode: Option.some("web" as const),
+        port: Option.some(8788),
+        host: Option.none<string>(),
+        baseDir: Option.some(baseDir),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+        sharedSettingsFile: Option.none<string>(),
+      };
+      const layerConfig = ConfigProvider.layer(
+        ConfigProvider.fromEnv({
+          env: { T3CODE_SERVER_SHARED_SETTINGS_FILE: path.join(baseDir, "from-env.json") },
+        }),
+      );
+      const provide = Effect.provide(Layer.mergeAll(layerConfig, NetService.layer));
+
+      const fromEnv = yield* resolveServerConfig(flags, Option.none()).pipe(provide);
+      const fromFlag = yield* resolveServerConfig(
+        { ...flags, sharedSettingsFile: Option.some(sharedFromFlag) },
+        Option.none(),
+      ).pipe(provide);
+      const off = yield* resolveServerConfig(flags, Option.none()).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      const fromCliFlag = yield* resolveCliAuthConfig(
+        { baseDir: Option.some(baseDir), sharedSettingsFile: Option.some(sharedFromFlag) },
+        Option.none(),
+      ).pipe(provide);
+      const fromCliEnv = yield* resolveCliAuthConfig(
+        { baseDir: Option.some(baseDir) },
+        Option.none(),
+      ).pipe(provide);
+
+      expect(fromEnv.sharedSettingsPath).toBe(path.join(baseDir, "from-env.json"));
+      expect(fromFlag.sharedSettingsPath).toBe(sharedFromFlag);
+      expect(fromFlag.otlpTracesUrl).toBe("http://collector.test/v1/traces");
+      expect("sharedSettingsPath" in off).toBe(false);
+      expect(fromCliFlag.sharedSettingsPath).toBe(sharedFromFlag);
+      expect(fromCliEnv.sharedSettingsPath).toBe(path.join(baseDir, "from-env.json"));
+    }),
+  );
+
+  it.effect("lets an empty local OTLP endpoint turn off the shared one", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-shared-otlp-" });
+      const sharedSettingsFile = path.join(baseDir, "dotfiles", "t3code.json");
+      yield* fs.makeDirectory(path.dirname(sharedSettingsFile), { recursive: true });
+      yield* fs.writeFileString(
+        sharedSettingsFile,
+        JSON.stringify({
+          observability: {
+            otlpTracesUrl: "http://collector.test/v1/traces",
+            otlpMetricsUrl: "http://collector.test/v1/metrics",
+          },
+        }),
+      );
+      const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
+      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+      yield* fs.writeFileString(
+        derivedPaths.settingsPath,
+        JSON.stringify({ observability: { otlpTracesUrl: "" } }),
+      );
+
+      const resolved = yield* resolveServerConfig(
+        {
+          ...minimalDesktopFlags(baseDir),
+          sharedSettingsFile: Option.some(sharedSettingsFile),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved.otlpTracesUrl).toBeUndefined();
+      expect(resolved.otlpMetricsUrl).toBe("http://collector.test/v1/metrics");
+    }),
+  );
+
   it.effect("does not expose an invalid reusable auth token", () =>
     Effect.gen(function* () {
       const secret = "short-secret";
@@ -204,6 +314,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: Option.none<boolean>(),
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
+        sharedSettingsFile: Option.none(),
       };
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromEnv({ env: { T3CODE_DEV_AUTH_TOKEN: secret } }),
@@ -251,6 +362,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -324,6 +436,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.some(true),
           tailscaleServeEnabled: Option.some(true),
           tailscaleServePort: Option.some(8443),
+          sharedSettingsFile: Option.none(),
         },
         Option.some("Debug"),
       ).pipe(
@@ -402,6 +515,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.some(false),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -482,6 +596,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -581,6 +696,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -642,6 +758,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.some("Debug"),
       ).pipe(
@@ -718,6 +835,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -789,6 +907,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -800,7 +919,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         ),
       );
 
-      // The switch beats every source, including an endpoint stored in Settings.
       expect(resolved.otlpTracesUrl).toBeUndefined();
       expect(resolved.otlpMetricsUrl).toBeUndefined();
       expect(resolved.otlpLogsUrl).toBeUndefined();
@@ -838,6 +956,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -878,6 +997,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
         {
@@ -940,6 +1060,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -983,6 +1104,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -1028,6 +1150,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -1068,6 +1191,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          sharedSettingsFile: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -1100,6 +1224,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     logWebSocketEvents: Option.none<boolean>(),
     tailscaleServeEnabled: Option.none<boolean>(),
     tailscaleServePort: Option.none<number>(),
+    sharedSettingsFile: Option.none(),
   });
 
   it.effect(
@@ -1121,7 +1246,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         const fd = yield* openBootstrapFd(
           makeDesktopBootstrap({
             otlpMetricsUrl: "http://bootstrap:4318/v1/metrics",
-            // Blank, not an endpoint: it must not stand in front of Settings.
             otlpLogsUrl: "",
           }),
         );
@@ -1153,21 +1277,14 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         );
 
-        // T3CODE_OTLP_TRACES_URL wins over the OTEL variable for the same
-        // signal, and keeps T3 Code's own headers since T3 Code still owns it.
         expect(resolved.otlpTracesUrl).toBe("http://t3:4318/v1/traces");
         expect(resolved.otlpTracesExport.headers).toEqual({ "x-key": "secret" });
-        // Metrics named no T3CODE_OTLP_METRICS_URL, so the OTEL endpoint wins
-        // over the bootstrap envelope and brings the OTEL headers and protocol.
         expect(resolved.otlpMetricsUrl).toBe("http://otel-metrics:4318/custom");
         expect(resolved.otlpMetricsExport).toEqual({
           ...DEFAULT_SIGNAL_EXPORT,
           protocol: "http/protobuf",
           headers: { "x-key": "otel" },
         });
-        // Logs named no T3 or OTEL endpoint and a blank bootstrap value, so
-        // Settings answers, and logs keep the shared headers since no OTEL
-        // endpoint claimed them.
         expect(resolved.otlpLogsUrl).toBe("http://settings:4318/v1/logs");
         expect(resolved.otlpLogsExport.headers).toEqual({ "x-key": "secret" });
       }),
@@ -1218,10 +1335,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         );
 
-        // T3CODE_OTLP_TRACES_URL still wins outright.
         expect(resolved.otlpTracesUrl).toBe("http://t3:4318/v1/traces");
-        // The OTEL endpoint claimed metrics and logs, so neither the bootstrap
-        // envelope nor Settings receives them with T3 Code's headers.
         expect(resolved.otlpMetricsUrl).toBeUndefined();
         expect(resolved.otlpLogsUrl).toBeUndefined();
       }),
