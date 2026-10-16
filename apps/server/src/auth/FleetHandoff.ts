@@ -138,7 +138,7 @@ const make = Effect.gen(function* () {
       const now = yield* DateTime.now;
       const expiresAt = DateTime.add(now, { milliseconds: Duration.toMillis(HANDOFF_TTL) });
       // Neither randomness nor encoding these claims can fail on a working host.
-      const nonce = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+      const nonce = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
       const claims = yield* encodeHandoffClaims({
         aud: input.audience,
         iss: yield* identity.getEnvironmentId,
