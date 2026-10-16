@@ -216,7 +216,7 @@ refer to the same host and use matching secure or insecure schemes.
 ### Encrypted fleet enrollment
 
 An encrypted enrollment file supplies both the fleet's anchor address and a reusable
-enrollment credential. Each import creates a separate device session; the servers' shared
+enrollment credential. Each device gets its own session; the servers' shared
 managed-access token is never included. The ciphertext can be kept in a public Git repository.
 
 Create a dedicated age identity for your phones and back it up in a password manager. Put
@@ -234,14 +234,20 @@ t3 auth enrollment export \
 The command uses the standard `age` executable. It checks the recipients before creating
 the credential and replaces the output only after encryption succeeds. A failure before
 publication revokes its new credential and preserves any previous output. The default lifetime
-is 365 days; use `--ttl` to choose a different lifetime. `--fleet-manifest` selects the
-manifest when it is not supplied by the server configuration.
+is 365 days; use `--ttl` to choose a positive, finite lifetime. The anchor URLs must point
+to the server origin, without a base path. `--fleet-manifest` selects the manifest when it
+is not supplied by the server configuration.
 
 On mobile, choose **Import fleet file**, select `fleet.age`, and import the backed-up age
 identity when prompted. Review the anchor name, address, and expiry before joining. age
 protects the file's contents but does not verify who published it. The phone keeps the
 identity in secure storage; Settings lets you import or remove it and copy its public
 recipient. Decrypted enrollment data is kept in memory.
+
+If an existing anchor session has expired, let the connection show that sign-in is required,
+then import the enrollment file again. Importing while the saved connection is still trying
+to connect opens that connection instead of creating another session.
+Fleet members with expired sessions reconnect through the anchor once it is connected.
 
 The file can enroll several devices until it expires or is revoked. List and revoke it
 with `t3 auth pairing list` and `t3 auth pairing revoke <id>`. Creating a new file does not
