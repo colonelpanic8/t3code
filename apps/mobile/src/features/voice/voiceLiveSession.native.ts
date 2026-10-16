@@ -15,25 +15,9 @@ import {
 } from "./webrtcModule";
 
 /**
- * Mobile Live Voice call session: mirrors the web session on top of
- * react-native-webrtc. Media flows this device <-> OpenAI over WebRTC; the
- * shared driver carries only SDP, transcripts, and routed tool calls over the
- * T3 socket.
- *
- * Lifetime and backgrounding:
- * - The call is NOT torn down on AppState changes. On iOS the active WebRTC
- *   audio session plus the `audio` UIBackgroundMode (added by
- *   plugins/withVoiceCall.cjs) keeps the app and its sockets alive in the
- *   background.
- * - Android v1 limitation: backgrounded calls are best-effort only. Keeping a
- *   call alive with the screen off requires a microphone foreground service
- *   (a native module we deliberately do not ship in v1; the
- *   FOREGROUND_SERVICE_MICROPHONE permission is already declared for it). The
- *   call survives while the app is foregrounded or recent, and the OS may
- *   reclaim it beyond that.
- * - Audio routing uses react-native-webrtc's defaults (AVAudioSession
- *   playAndRecord). Earpiece/speaker toggling would need InCallManager-style
- *   native support, which we intentionally avoid adding here.
+ * AppState changes never tear the call down: on iOS the WebRTC audio session plus the
+ * `audio` UIBackgroundMode keeps it alive. Android backgrounding is best-effort until a
+ * microphone foreground service ships (FOREGROUND_SERVICE_MICROPHONE is already declared).
  */
 
 type PeerConnection = InstanceType<VoiceWebRtc["RTCPeerConnection"]>;

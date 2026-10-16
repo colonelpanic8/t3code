@@ -9,7 +9,7 @@ export interface VoiceLiveTranscriptEntry {
   readonly text: string;
 }
 
-export const VOICE_LIVE_TRANSCRIPT_LIMIT = 200;
+const VOICE_LIVE_TRANSCRIPT_LIMIT = 200;
 
 interface VoiceLiveStoreState {
   readonly status: VoiceLiveStatus;
