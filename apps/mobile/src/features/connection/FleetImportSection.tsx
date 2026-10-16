@@ -82,8 +82,17 @@ export function FleetImportSection(props: {
   const openEnrollment = async (bytes: Uint8Array) => {
     const decrypted = await Effect.runPromise(Effect.result(decryptFleetEnrollmentFile(bytes)));
     if (Result.isFailure(decrypted)) {
-      if (decrypted.failure.reason === "no-identity") show({ step: "key", bytes });
-      else show({ step: "pick" }, decrypted.failure.message);
+      switch (decrypted.failure.reason) {
+        case "no-identity":
+          show({ step: "key", bytes });
+          break;
+        case "not-a-recipient":
+        case "storage":
+          show({ step: "key", bytes }, decrypted.failure.message);
+          break;
+        default:
+          show({ step: "pick" }, decrypted.failure.message);
+      }
       return;
     }
     const decoded = decodeFleetEnrollment(decrypted.success);
@@ -175,6 +184,7 @@ export function FleetImportSection(props: {
           <Text className="px-4 pt-4 text-sm leading-normal text-foreground-muted">
             This file is encrypted. Paste the fleet enrollment key from your backup to open it.
           </Text>
+          {errorText}
           <FleetEnrollmentKeyField onImported={() => void run(() => openEnrollment(state.bytes))} />
         </FleetFileCard>
       );

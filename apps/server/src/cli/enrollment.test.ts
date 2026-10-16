@@ -306,6 +306,14 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
         name: "the anchor URLs carry credentials",
         setup: { anchor: { ...ANCHOR, httpBaseUrl: "https://user@anchor.example.ts.net/" } },
       },
+      {
+        name: "the anchor HTTP URL has a base path",
+        setup: { anchor: { ...ANCHOR, httpBaseUrl: "https://anchor.example.ts.net/t3" } },
+      },
+      {
+        name: "the anchor WebSocket URL has a base path",
+        setup: { anchor: { ...ANCHOR, wsBaseUrl: "wss://anchor.example.ts.net/t3" } },
+      },
     ])("mints and writes nothing when $name", ({ setup }) =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -321,6 +329,20 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
           setup.writeEnvironmentId ?? true,
         );
         // Preflight runs before the auth runtime, so no database was created either.
+        expect(yield* fileSystem.exists(config.dbPath)).toBe(false);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("refuses a zero lifetime before creating a credential or output", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const { config, output, exportArgs } = yield* setUp({});
+        const error = yield* Effect.flip(runCli([...exportArgs, "--ttl", "0s"]));
+        expect(error).toMatchObject({
+          _tag: "FleetEnrollmentPreflightError",
+          reason: "invalid-ttl",
+        });
+        expect(yield* fileSystem.exists(output)).toBe(false);
         expect(yield* fileSystem.exists(config.dbPath)).toBe(false);
       }).pipe(Effect.scoped),
     );
