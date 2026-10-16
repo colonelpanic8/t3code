@@ -2,11 +2,11 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
-import { showConfirmDialog } from "../../components/ConfirmDialogHost";
-import { CopyTextButton } from "../../components/CopyTextButton";
+import { AppText as Text } from "../../components/ui/AppText";
+import * as Dialog from "../../components/ui/Dialog";
+import { CopyTextButton } from "../threads/CopyTextButton";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { FleetEnrollmentKeyField } from "./FleetEnrollmentKeyField";
 import {
@@ -40,7 +40,7 @@ export function FleetEnrollmentKeySettings() {
   }, []);
 
   const confirmRemove = () =>
-    showConfirmDialog({
+    Dialog.confirm({
       title: "Remove fleet enrollment key?",
       message:
         "This device can no longer open fleet enrollment files until you import the key again. Environments you already added stay connected.",
@@ -49,7 +49,7 @@ export function FleetEnrollmentKeySettings() {
       onConfirm: () => {
         void Effect.runPromise(Effect.result(removeEnrollmentIdentity())).then((result) => {
           if (Result.isSuccess(result)) setRecipient(null);
-          else Alert.alert("Could not remove the key", result.failure.message);
+          else Dialog.alert("Could not remove the key", result.failure.message);
         });
       },
     });
