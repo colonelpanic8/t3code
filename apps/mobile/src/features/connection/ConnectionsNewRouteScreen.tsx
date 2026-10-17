@@ -32,7 +32,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
 import { autoConnectReport, devAutoConnectAttemptAtom } from "./devAutoConnect";
-import { type FleetFileRequest, FleetImportSection } from "./FleetImportSection";
+import { type FleetFileRequest, FleetEnrollmentSection } from "./FleetEnrollmentSection";
 import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import { splitEnvironmentSections } from "./environmentSections";
 import { leaveSettingsPage } from "../settings/settings-navigation";
@@ -57,7 +57,7 @@ export function ConnectionsNewRouteScreen({
   const routePairingUrl = __DEV__ ? (params.pairingUrl?.trim() ?? "") : "";
   // Unlike pairing prefill, an enrollment link needs no __DEV__ gate: it only
   // opens the file, and joining still takes this device's own key and the
-  // user's confirmation of the anchor.
+  // user's confirmation of its machines.
   const [fleetRequest, setFleetRequest] = useState(() =>
     fleetRequestFromParam(params.fleetEnrollment),
   );
@@ -140,14 +140,9 @@ function PairingForm({
     clearError();
   };
 
-  const openSavedEnvironment = (environmentId: EnvironmentId) => {
-    navigation.navigate("SettingsEnvironmentDetail", { environmentId });
-  };
-
-  const handleEnrolled = () => {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (navigation.canGoBack()) navigation.goBack();
-    else navigation.dispatch(StackActions.replace("Home"));
+  const handleFleetDone = () => {
+    if (!navigation.canGoBack()) navigation.dispatch(StackActions.replace("Home"));
+    else leaveSettingsPage(navigation, workspaceHasColumns(), "SettingsEnvironments");
   };
 
   const handleCodeChange = (value: string) => {
@@ -286,11 +281,7 @@ function PairingForm({
                 scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
               }}
             >
-              <FleetImportSection
-                onOpenSaved={openSavedEnvironment}
-                onEnrolled={handleEnrolled}
-                request={fleetRequest}
-              />
+              <FleetEnrollmentSection onDone={handleFleetDone} request={fleetRequest} />
             </View>
           ) : null}
 
