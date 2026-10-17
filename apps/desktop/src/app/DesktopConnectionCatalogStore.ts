@@ -14,6 +14,7 @@ import {
   EMPTY_CONNECTION_CATALOG_DOCUMENT,
   registerConnectionInCatalog,
   removeConnectionFromCatalog,
+  setConnectionEnabledInCatalog,
   type ConnectionCatalogDocument as RuntimeConnectionCatalogDocumentType,
 } from "@t3tools/client-runtime/platform";
 import {
@@ -76,6 +77,7 @@ const ManagedConnection = Schema.Struct({
   httpBaseUrl: TrimmedNonEmptyString,
   wsBaseUrl: TrimmedNonEmptyString,
   token: Schema.Union([TrimmedNonEmptyString, ManagedCredentialFile]),
+  enabled: Schema.optional(Schema.Boolean),
 });
 type ManagedConnection = typeof ManagedConnection.Type;
 
@@ -354,7 +356,7 @@ function registerManagedConnections(
 ): RuntimeConnectionCatalogDocumentType {
   return connections.reduce((current, connection) => {
     const connectionId = managedConnectionId(connection.environmentId);
-    return registerConnectionInCatalog(
+    const registered = registerConnectionInCatalog(
       current,
       new BearerConnectionRegistration({
         target: new BearerConnectionTarget({
@@ -372,10 +374,15 @@ function registerManagedConnections(
         credential: new BearerConnectionCredential({ token: connection.token }),
       }),
     );
+    // The declaration owns the switch, so a flag persisted from the UI cannot hide it.
+    return setConnectionEnabledInCatalog(
+      registered,
+      connection.environmentId,
+      connection.enabled ?? true,
+    );
   }, catalog);
 }
 
-// Declared entries are re-registered in place so a switched-off flag survives reloads.
 function removeStaleManagedConnections(
   catalog: RuntimeConnectionCatalogDocumentType,
   connections: ReadonlyArray<ResolvedManagedConnection>,
