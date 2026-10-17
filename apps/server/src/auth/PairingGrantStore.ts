@@ -40,10 +40,7 @@ import * as ServerConfig from "../config.ts";
 import * as AuthConnectDevices from "../persistence/AuthConnectDevices.ts";
 import * as AuthPairingLinks from "../persistence/AuthPairingLinks.ts";
 
-/**
- * Reusable fleet-enrollment grants are redeemed here but never advertised as a
- * client bootstrap method, like fleet handoffs.
- */
+/** Reusable fleet-enrollment grants are redeemed here but never advertised as a client bootstrap method. */
 export interface BootstrapGrant {
   readonly method: ServerAuthBootstrapMethod | "fleet-enrollment";
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;

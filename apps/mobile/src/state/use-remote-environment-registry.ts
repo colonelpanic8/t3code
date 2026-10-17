@@ -1,7 +1,6 @@
 import * as Dialog from "../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
-import { fleetMembersJoinedThrough } from "@t3tools/client-runtime/connection";
 import { Discovery } from "@t3tools/client-runtime/relay";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -190,14 +189,6 @@ export function useRemoteConnections() {
         void controller.removeEnvironment(environmentId);
       },
     } as const;
-    const fleetMembers = fleetMembersJoinedThrough(
-      appAtomRegistry.get(environmentCatalog.catalogValueAtom).entries,
-      environmentId,
-    ).length;
-    const fleetNote =
-      fleetMembers === 0
-        ? ""
-        : ` ${fleetMembers === 1 ? "The fleet machine" : `The ${fleetMembers} fleet machines`} that joined through it will be removed too.`;
     if (environment.isRelayManaged) {
       const registration = Discovery.relayEnvironmentRegistration(
         appAtomRegistry.get(relayEnvironmentDiscovery.stateValueAtom),
@@ -209,7 +200,7 @@ export function useRemoteConnections() {
       };
       Dialog.alert(
         "Remove from this device?",
-        `Forget ${environment.environmentLabel} and its cached threads on this device.${fleetNote}\n\n${RELAY_REMOVAL_ACCOUNT_NOTE[registration]}`,
+        `Forget ${environment.environmentLabel} and its cached threads on this device.\n\n${RELAY_REMOVAL_ACCOUNT_NOTE[registration]}`,
         registration === "unregistered" || !hasCloudPublicConfig()
           ? [{ text: "Cancel", style: "cancel" }, remove]
           : [{ text: "Cancel", style: "cancel" }, openAccount, remove],
@@ -218,7 +209,7 @@ export function useRemoteConnections() {
     }
     Dialog.alert(
       "Remove from this device?",
-      `Forget ${environment.environmentLabel} and its cached threads on this device.${fleetNote} Switch it off instead to keep it saved.`,
+      `Forget ${environment.environmentLabel} and its cached threads on this device. Switch it off instead to keep it saved.`,
       [{ text: "Cancel", style: "cancel" }, remove],
     );
   };

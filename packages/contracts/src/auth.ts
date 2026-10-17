@@ -3,7 +3,6 @@ import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
 
 import {
   AuthSessionId,
-  EnvironmentId,
   ForwardCompatibleArray,
   ClientSurface,
   ClientWebDeployment,
@@ -338,30 +337,6 @@ export function connectDeviceVerificationCode(proofKeyThumbprint: string): strin
   }
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
-export const AuthFleetHandoffInput = Schema.Struct({
-  environmentId: EnvironmentId,
-});
-export type AuthFleetHandoffInput = typeof AuthFleetHandoffInput.Type;
-
-export const AuthFleetHandoffResult = Schema.Struct({
-  credential: TrimmedNonEmptyString,
-  expiresAt: Schema.DateTimeUtc,
-});
-export type AuthFleetHandoffResult = typeof AuthFleetHandoffResult.Type;
-
-export class AuthFleetHandoffError extends Schema.TaggedError<AuthFleetHandoffError>()(
-  "AuthFleetHandoffError",
-  {
-    reason: Schema.Literals(["not-configured", "not-a-member"]),
-  },
-) {
-  override get message(): string {
-    return this.reason === "not-configured"
-      ? "This environment does not belong to a fleet."
-      : "That environment is not part of this fleet.";
-  }
-}
-
 
 export const AuthClientMetadata = Schema.Struct({
   label: Schema.optionalKey(TrimmedNonEmptyString),
