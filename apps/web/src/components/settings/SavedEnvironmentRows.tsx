@@ -391,14 +391,20 @@ export function SavedBackendListRow({
             <Switch
               size="sm"
               checked={enabled}
-              disabled={isRemoving || blocked}
+              disabled={isRemoving || blocked || isManagedEnvironment}
               aria-label={`${enabled ? "Switch off" : "Switch on"} ${environment.label}`}
               onCheckedChange={(checked) => onSetEnabled(environmentId, checked)}
             />
           }
         />
         <TooltipPopup side="top">
-          {blocked ? "Client not supported" : enabled ? "Switch off" : "Switch on"}
+          {blocked
+            ? "Client not supported"
+            : isManagedEnvironment
+              ? "Managed by system configuration"
+              : enabled
+                ? "Switch off"
+                : "Switch on"}
         </TooltipPopup>
       </Tooltip>
       <Menu>
