@@ -17,7 +17,6 @@ import {
   type EnvironmentId,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
-import { fleetMembersJoinedThrough } from "@t3tools/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -602,16 +601,8 @@ export function ConnectionsSettings() {
       setPendingT3ConnectRemoval(environment);
       return;
     }
-    const fleetMembers = fleetMembersJoinedThrough(
-      new Map(savedEnvironments.map((saved) => [saved.environmentId, saved.entry])),
-      environment.environmentId,
-    ).length;
     const confirmed = await requestConfirmDialog(
-      `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here.${
-        fleetMembers === 0
-          ? ""
-          : ` ${fleetMembers === 1 ? "The fleet machine" : `The ${fleetMembers} fleet machines`} that joined through it will be removed too.`
-      } Switch it off instead to keep it saved.`,
+      `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved.`,
       { variant: "destructive" },
     );
     if (confirmed === true) await removeSavedBackend(environment);

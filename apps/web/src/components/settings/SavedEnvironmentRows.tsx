@@ -19,7 +19,7 @@ import {
   hasSavedBearerRoute,
   connectionStatusText,
   environmentMcpUrl,
-  isManagedConnectionEntry,
+  isManagedConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
 
@@ -171,7 +171,7 @@ export function SavedBackendListRow({
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
-  const isManagedEnvironment = isManagedConnectionEntry(environment.entry);
+  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
   // Discovery empties its map on every refresh, so hold the last descriptor
   // seen or the glyph would blink back to the generic one each time.

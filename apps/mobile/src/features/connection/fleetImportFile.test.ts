@@ -1,4 +1,3 @@
-import { FLEET_IMPORT_MAX_BYTES } from "@t3tools/client-runtime/connection/fleet-import";
 import * as Result from "effect/Result";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -23,7 +22,12 @@ vi.mock("expo-file-system", () => ({
 }));
 
 import { parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
-import { classifyFleetFile, downloadFleetFile, pickFleetImportFile } from "./fleetImportFile";
+import {
+  checkFleetEnrollmentFile,
+  downloadFleetFile,
+  FLEET_ENROLLMENT_FILE_MAX_BYTES,
+  pickFleetImportFile,
+} from "./fleetImportFile";
 
 function ageFile(byteLength: number): Uint8Array {
   const bytes = new Uint8Array(byteLength).fill(0x41);
@@ -31,20 +35,18 @@ function ageFile(byteLength: number): Uint8Array {
   return bytes;
 }
 
-describe("classifyFleetFile", () => {
+describe("checkFleetEnrollmentFile", () => {
   it("accepts an enrollment at the size limit and rejects one byte more", () => {
-    const atLimit = ageFile(FLEET_IMPORT_MAX_BYTES);
-    expect(classifyFleetFile(atLimit)).toEqual(
-      Result.succeed({ kind: "enrollment", bytes: atLimit }),
-    );
-    expect(classifyFleetFile(ageFile(FLEET_IMPORT_MAX_BYTES + 1))).toEqual(
+    const atLimit = ageFile(FLEET_ENROLLMENT_FILE_MAX_BYTES);
+    expect(checkFleetEnrollmentFile(atLimit)).toEqual(Result.succeed(atLimit));
+    expect(checkFleetEnrollmentFile(ageFile(FLEET_ENROLLMENT_FILE_MAX_BYTES + 1))).toEqual(
       Result.fail("That fleet enrollment file is too large."),
     );
   });
 
-  it("reports a file that is neither an enrollment nor an inventory", () => {
-    expect(classifyFleetFile(new TextEncoder().encode("<html></html>"))).toEqual(
-      Result.fail("That file is not a T3 Code fleet file."),
+  it("rejects a file that is not age-encrypted", () => {
+    expect(checkFleetEnrollmentFile(new TextEncoder().encode("<html></html>"))).toEqual(
+      Result.fail("That file is not an encrypted T3 Code fleet enrollment."),
     );
   });
 });
@@ -89,7 +91,7 @@ describe("fleet file cache cleanup", () => {
   ])("hands a %s age file to enrollment and deletes the copy", async (_format, contents) => {
     const bytes = new TextEncoder().encode(contents);
     mocks.read.mockResolvedValueOnce(bytes);
-    expect(await pickFleetImportFile()).toEqual(Result.succeed({ kind: "enrollment", bytes }));
+    expect(await pickFleetImportFile()).toEqual(Result.succeed(bytes));
     expect(mocks.remove).toHaveBeenCalledOnce();
   });
 
@@ -115,21 +117,8 @@ describe("downloadFleetFile", () => {
   it("hands a downloaded age file to enrollment", async () => {
     const bytes = new TextEncoder().encode("age-encryption.org/v1\n-> X25519 fixture\n");
     mocks.fetch.mockResolvedValueOnce(new Response(bytes));
-    expect(await downloadFleetFile(url)).toEqual(Result.succeed({ kind: "enrollment", bytes }));
+    expect(await downloadFleetFile(url)).toEqual(Result.succeed(bytes));
     expect(mocks.fetch.mock.calls[0]?.[0]).toBe("https://example.test/fleet.age");
-  });
-
-  it("lists the machines of a downloaded inventory", async () => {
-    const environment = {
-      environmentId: "env-alpha",
-      label: "Alpha",
-      httpBaseUrl: "https://alpha.example.test",
-      wsBaseUrl: "wss://alpha.example.test",
-    };
-    mocks.fetch.mockResolvedValueOnce(Response.json({ version: 1, environments: [environment] }));
-    expect(await downloadFleetFile(url)).toEqual(
-      Result.succeed({ kind: "inventory", environments: [environment] }),
-    );
   });
 
   it("reports the status of a failed download", async () => {

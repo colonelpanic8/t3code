@@ -34,7 +34,6 @@ function environment(
     environmentLabel: environmentId,
     displayUrl: "",
     isRelayManaged: false,
-    isManaged: false,
     isEnabled,
     connectionState,
     connectionError: null,
