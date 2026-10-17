@@ -187,6 +187,9 @@ every load, so a rotated token takes effect without editing the connections file
 file is missing, unreadable, or empty, the desktop reports the error instead of loading the
 catalog. An inline token makes the connections file a secret: keep it mode `0600`.
 
+Each connection is on unless it sets `"enabled": false`. The file owns that state: the settings
+switch is locked for managed connections, and every load re-applies the declared value.
+
 The desktop catalog overlays these entries on its encrypted user-managed catalog and reconciles
 removed entries on the next load. Treat the token files and server token as secrets. Use this mode
 only over a trusted private network or authenticated HTTPS endpoint, and rotate the token on every
