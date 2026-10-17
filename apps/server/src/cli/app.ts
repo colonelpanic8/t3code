@@ -29,8 +29,6 @@ import {
 } from "./config.ts";
 
 const CLI_RESPONSE_TIMEOUT_MS = 17_000;
-// Only its presence selects the development state directory.
-const DEV_VARIANT_PLACEHOLDER_URL = new URL("http://localhost");
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const isDesktopAppActivationResponse = Schema.is(DesktopAppActivationResponse);
 
