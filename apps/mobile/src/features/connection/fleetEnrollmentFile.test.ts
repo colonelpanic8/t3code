@@ -24,10 +24,10 @@ vi.mock("expo-file-system", () => ({
 import { parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import {
   checkFleetEnrollmentFile,
-  downloadFleetFile,
+  downloadFleetEnrollmentFile,
   FLEET_ENROLLMENT_FILE_MAX_BYTES,
-  pickFleetImportFile,
-} from "./fleetImportFile";
+  pickFleetEnrollmentFile,
+} from "./fleetEnrollmentFile";
 
 function ageFile(byteLength: number): Uint8Array {
   const bytes = new Uint8Array(byteLength).fill(0x41);
@@ -64,7 +64,7 @@ describe("fleet file cache cleanup", () => {
 
   it("deletes a rejected file containing credentials after closing the reader", async () => {
     mocks.read.mockResolvedValueOnce(new TextEncoder().encode('{"token":"fixture-secret"}'));
-    const result = await pickFleetImportFile();
+    const result = await pickFleetEnrollmentFile();
     expect(result !== null && Result.isFailure(result)).toBe(true);
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.remove).toHaveBeenCalledOnce();
@@ -79,7 +79,7 @@ describe("fleet file cache cleanup", () => {
       mocks[step].mockImplementationOnce(() => {
         throw new Error("fixture failure");
       });
-      const result = await pickFleetImportFile();
+      const result = await pickFleetEnrollmentFile();
       expect(result !== null && Result.isFailure(result)).toBe(true);
       expect(mocks.remove).toHaveBeenCalledOnce();
     },
@@ -91,19 +91,19 @@ describe("fleet file cache cleanup", () => {
   ])("hands a %s age file to enrollment and deletes the copy", async (_format, contents) => {
     const bytes = new TextEncoder().encode(contents);
     mocks.read.mockResolvedValueOnce(bytes);
-    expect(await pickFleetImportFile()).toEqual(Result.succeed(bytes));
+    expect(await pickFleetEnrollmentFile()).toEqual(Result.succeed(bytes));
     expect(mocks.remove).toHaveBeenCalledOnce();
   });
 
   it("leaves files alone when the picker is canceled", async () => {
     mocks.pick.mockResolvedValueOnce({ canceled: true });
-    expect(await pickFleetImportFile()).toBeNull();
+    expect(await pickFleetEnrollmentFile()).toBeNull();
     expect(mocks.open).not.toHaveBeenCalled();
     expect(mocks.remove).not.toHaveBeenCalled();
   });
 });
 
-describe("downloadFleetFile", () => {
+describe("downloadFleetEnrollmentFile", () => {
   const url = Result.getOrThrow(parseFleetEnrollmentUrl("https://example.test/fleet.age"));
 
   beforeEach(() => {
@@ -117,13 +117,13 @@ describe("downloadFleetFile", () => {
   it("hands a downloaded age file to enrollment", async () => {
     const bytes = new TextEncoder().encode("age-encryption.org/v1\n-> X25519 fixture\n");
     mocks.fetch.mockResolvedValueOnce(new Response(bytes));
-    expect(await downloadFleetFile(url)).toEqual(Result.succeed(bytes));
+    expect(await downloadFleetEnrollmentFile(url)).toEqual(Result.succeed(bytes));
     expect(mocks.fetch.mock.calls[0]?.[0]).toBe("https://example.test/fleet.age");
   });
 
   it("reports the status of a failed download", async () => {
     mocks.fetch.mockResolvedValueOnce(new Response("missing", { status: 404 }));
-    expect(await downloadFleetFile(url)).toEqual(
+    expect(await downloadFleetEnrollmentFile(url)).toEqual(
       Result.fail("Could not download the fleet file (HTTP 404)."),
     );
   });
@@ -134,7 +134,7 @@ describe("downloadFleetFile", () => {
       pull: (controller) => controller.enqueue(chunk),
     });
     mocks.fetch.mockResolvedValueOnce(new Response(body, { headers: { "Content-Length": "64" } }));
-    expect(await downloadFleetFile(url)).toEqual(
+    expect(await downloadFleetEnrollmentFile(url)).toEqual(
       Result.fail("That fleet enrollment file is too large."),
     );
   });
@@ -147,7 +147,7 @@ describe("downloadFleetFile", () => {
           init.signal.addEventListener("abort", () => reject(new Error("aborted")));
         }),
     );
-    const result = downloadFleetFile(url);
+    const result = downloadFleetEnrollmentFile(url);
     await vi.advanceTimersByTimeAsync(15_000);
     expect(await result).toEqual(Result.fail("Downloading the fleet file timed out."));
   });

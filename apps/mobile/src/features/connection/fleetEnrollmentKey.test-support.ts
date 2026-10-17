@@ -1,6 +1,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import { FLEET_ENROLLMENT_MAX_BYTES } from "@t3tools/shared/fleetEnrollment";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
@@ -57,7 +58,7 @@ export function itDecryptsFleetEnrollmentFiles() {
   });
 
   it("stops reading plaintext past the enrollment size cap", async () => {
-    expect(fixture("oversize.bin").byteLength).toBeGreaterThan(4096);
+    expect(fixture("oversize.bin").byteLength).toBeGreaterThan(FLEET_ENROLLMENT_MAX_BYTES);
     expect(failureReason(await decrypt(fixture("oversize.bin")))).toBe("too-large");
   });
 }

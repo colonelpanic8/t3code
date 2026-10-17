@@ -1,5 +1,5 @@
 import { ServerFleetEnvironment } from "@t3tools/contracts";
-import { encodeFleetEnrollment, isPlainFleetEndpointPair } from "@t3tools/shared/fleetEnrollment";
+import { encodeFleetEnrollment, isPlainFleetOriginPair } from "@t3tools/shared/fleetEnrollment";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
@@ -33,9 +33,8 @@ class FleetEnrollmentPreflightError extends Schema.TaggedError<FleetEnrollmentPr
       "environment-id-missing",
       "manifest-unconfigured",
       "manifest-unreadable",
-      "anchor-missing",
-      "anchor-unsafe-url",
-      "anchor-base-path",
+      "entry-missing",
+      "entry-not-origin",
       "invalid-ttl",
     ]),
     path: Schema.optional(Schema.String),
@@ -51,12 +50,10 @@ class FleetEnrollmentPreflightError extends Schema.TaggedError<FleetEnrollmentPr
         return "No fleet manifest: pass --fleet-manifest or set T3CODE_FLEET_MANIFEST_FILE.";
       case "manifest-unreadable":
         return `Could not read a valid fleet manifest at '${this.path}'.`;
-      case "anchor-missing":
+      case "entry-missing":
         return `The fleet manifest has no entry for this server's environment '${this.environmentId}'.`;
-      case "anchor-unsafe-url":
-        return `The fleet manifest entry for '${this.environmentId}' does not have plain matching http(s)/ws(s) URLs.`;
-      case "anchor-base-path":
-        return "Fleet enrollment requires anchor URLs at the server origin, without a base path.";
+      case "entry-not-origin":
+        return `The fleet manifest entry for '${this.environmentId}' needs matching plain http(s)/ws(s) URLs at the server origin, without a base path.`;
       case "invalid-ttl":
         return "The fleet enrollment lifetime must be positive and finite.";
     }
@@ -136,7 +133,7 @@ const runAge = Effect.fn("runAge")(function* (input: {
 
 /** Everything an export needs, checked before anything is minted or written. */
 interface FleetEnrollmentExportPlan {
-  readonly anchor: ServerFleetEnvironment;
+  readonly environment: ServerFleetEnvironment;
   readonly recipientsFile: string;
   readonly ageBin: string;
 }
@@ -181,15 +178,12 @@ const planFleetEnrollmentExport = Effect.fn("planFleetEnrollmentExport")(functio
         }),
     ),
   );
-  const anchor = manifest.environments.find((entry) => entry.environmentId === environmentId);
-  if (anchor === undefined) {
-    return yield* new FleetEnrollmentPreflightError({ reason: "anchor-missing", environmentId });
+  const environment = manifest.environments.find((entry) => entry.environmentId === environmentId);
+  if (environment === undefined) {
+    return yield* new FleetEnrollmentPreflightError({ reason: "entry-missing", environmentId });
   }
-  if (!isPlainFleetEndpointPair(anchor)) {
-    return yield* new FleetEnrollmentPreflightError({ reason: "anchor-unsafe-url", environmentId });
-  }
-  if (new URL(anchor.httpBaseUrl).pathname !== "/" || new URL(anchor.wsBaseUrl).pathname !== "/") {
-    return yield* new FleetEnrollmentPreflightError({ reason: "anchor-base-path" });
+  if (!isPlainFleetOriginPair(environment)) {
+    return yield* new FleetEnrollmentPreflightError({ reason: "entry-not-origin", environmentId });
   }
 
   yield* runAge({
@@ -200,14 +194,15 @@ const planFleetEnrollmentExport = Effect.fn("planFleetEnrollmentExport")(functio
   });
 
   return {
-    anchor,
+    environment,
     recipientsFile: input.recipientsFile,
     ageBin: input.ageBin,
   } satisfies FleetEnrollmentExportPlan;
 });
 
 /**
- * Mints a reusable enrollment and publishes it age-encrypted at `output`. The
+ * Mints a reusable enrollment and publishes it age-encrypted at `output` as a
+ * one-entry fleet enrollment, the unit bundles are concatenated from. The
  * plaintext only reaches age's stdin. Any failure after minting revokes the
  * new grant and removes the partial ciphertext; an existing `output` is
  * replaced only by a complete file.
@@ -233,9 +228,13 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
   const publish = (enrollment: PairingGrantStore.IssuedFleetEnrollment) =>
     Effect.gen(function* () {
       const plaintext = encodeFleetEnrollment({
-        anchor: plan.anchor,
-        credential: enrollment.credential,
-        expiresAt: enrollment.expiresAt,
+        environments: [
+          {
+            environment: plan.environment,
+            credential: enrollment.credential,
+            expiresAt: enrollment.expiresAt,
+          },
+        ],
       });
       if (Result.isFailure(plaintext)) {
         return yield* plaintext.failure;
@@ -282,7 +281,7 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
     id: issued.id,
     label: input.label,
     expiresAt: issued.expiresAt,
-    anchor: plan.anchor,
+    environment: plan.environment,
     path: outputPath,
   };
 });
@@ -295,12 +294,15 @@ const formatExport = (result: FleetEnrollmentExportResult, json: boolean) =>
         id: result.id,
         label: result.label,
         expiresAt: DateTime.formatIso(result.expiresAt),
-        anchor: { environmentId: result.anchor.environmentId, label: result.anchor.label },
+        environment: {
+          environmentId: result.environment.environmentId,
+          label: result.environment.label,
+        },
         path: result.path,
       })}`
     : [
         `Exported fleet enrollment ${result.id} (${result.label}).`,
-        `  anchor: ${result.anchor.label} (${result.anchor.environmentId})`,
+        `  machine: ${result.environment.label} (${result.environment.environmentId})`,
         `  expires: ${DateTime.formatIso(result.expiresAt)}`,
         `  file: ${result.path}`,
         `Revoke with: t3 auth pairing revoke ${result.id}`,
