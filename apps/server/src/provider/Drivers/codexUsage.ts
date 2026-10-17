@@ -227,6 +227,10 @@ export const codexUsageReader: ProviderUsageReader<CodexSettings, Path.Path> = {
         ? { ...config, homePath: environmentHome }
         : config,
     );
-    return [{ dir: path.resolve(layout.sharedHomePath, "sessions") }];
+    // Archiving moves a finished rollout out of `sessions`, so the archive holds
+    // the only copy. Each directory is its own usage source.
+    return ["sessions", "archived_sessions"].map((subdir) => ({
+      dir: path.resolve(layout.sharedHomePath, subdir),
+    }));
   }),
 };
