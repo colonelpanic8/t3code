@@ -1,3 +1,4 @@
+import { FLEET_IMPORT_MAX_BYTES } from "@t3tools/client-runtime/connection/fleet-import";
 import * as Result from "effect/Result";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -19,7 +20,31 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 
-import { pickFleetImportFile } from "./fleetImportFile";
+import { classifyFleetFile, pickFleetImportFile } from "./fleetImportFile";
+
+function ageFile(byteLength: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength).fill(0x41);
+  bytes.set(new TextEncoder().encode("age-encryption.org/v1\n"));
+  return bytes;
+}
+
+describe("classifyFleetFile", () => {
+  it("accepts an enrollment at the size limit and rejects one byte more", () => {
+    const atLimit = ageFile(FLEET_IMPORT_MAX_BYTES);
+    expect(classifyFleetFile(atLimit)).toEqual(
+      Result.succeed({ kind: "enrollment", bytes: atLimit }),
+    );
+    expect(classifyFleetFile(ageFile(FLEET_IMPORT_MAX_BYTES + 1))).toEqual(
+      Result.fail("That fleet enrollment file is too large."),
+    );
+  });
+
+  it("reports a file that is neither an enrollment nor an inventory", () => {
+    expect(classifyFleetFile(new TextEncoder().encode("<html></html>"))).toEqual(
+      Result.fail("That file is not a T3 Code fleet file."),
+    );
+  });
+});
 
 describe("fleet file cache cleanup", () => {
   beforeEach(() => {

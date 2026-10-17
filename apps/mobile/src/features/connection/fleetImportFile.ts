@@ -8,7 +8,7 @@ import * as Result from "effect/Result";
 import { beginForegroundHandoff } from "../../lib/foreground-handoff";
 import { isAgeEncryptedFile } from "./fleetEnrollmentKey";
 
-export type PickedFleetFile =
+export type FleetFile =
   | { readonly kind: "inventory"; readonly environments: ReadonlyArray<ServerFleetEnvironment> }
   /** An age-encrypted enrollment, still to be decrypted and confirmed. */
   | { readonly kind: "enrollment"; readonly bytes: Uint8Array };
@@ -18,10 +18,7 @@ export type PickedFleetFile =
  * enrollment. Reads stop one byte past the size limit, so an oversized pick is
  * never loaded whole. Resolves null when the user cancels.
  */
-export async function pickFleetImportFile(): Promise<Result.Result<
-  PickedFleetFile,
-  string
-> | null> {
+export async function pickFleetImportFile(): Promise<Result.Result<FleetFile, string> | null> {
   const endHandoff = beginForegroundHandoff();
   let uri: string;
   try {
@@ -43,6 +40,14 @@ export async function pickFleetImportFile(): Promise<Result.Result<
   } catch {
     return Result.fail("Could not read that file.");
   }
+  return classifyFleetFile(bytes);
+}
+
+/**
+ * Sorts a fleet file into an inventory or an encrypted enrollment. Sources
+ * read at most one byte past `FLEET_IMPORT_MAX_BYTES`, which this rejects.
+ */
+export function classifyFleetFile(bytes: Uint8Array): Result.Result<FleetFile, string> {
   if (isAgeEncryptedFile(bytes)) {
     return bytes.byteLength > FLEET_IMPORT_MAX_BYTES
       ? Result.fail("That fleet enrollment file is too large.")
