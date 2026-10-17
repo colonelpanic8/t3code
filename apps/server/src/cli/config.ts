@@ -104,30 +104,6 @@ const serverConfigFileFlag = Flag.String("server-config-file").pipe(
   ),
   Flag.optional,
 );
-const serverConfigDirFlag = Flag.String("server-config-dir").pipe(
-  Flag.withDescription(
-    "Directory for settings.json, keybindings.json, and themes (equivalent to T3CODE_SERVER_CONFIG_DIR). Defaults to the base dir's state directory.",
-  ),
-  Flag.optional,
-);
-const serverDataDirFlag = Flag.String("server-data-dir").pipe(
-  Flag.withDescription(
-    "Directory for the database, secrets, attachments, logs, and worktrees (equivalent to T3CODE_SERVER_DATA_DIR). Defaults to the base dir's state directory, with worktrees beside it.",
-  ),
-  Flag.optional,
-);
-const serverCacheDirFlag = Flag.String("server-cache-dir").pipe(
-  Flag.withDescription(
-    "Directory for provider status caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
-  ),
-  Flag.optional,
-);
-const serverConfigFileFlag = Flag.String("server-config-file").pipe(
-  Flag.withDescription(
-    "JSON file of server options below flags and env vars (equivalent to T3CODE_SERVER_CONFIG_FILE). Defaults to server.json in the server config dir.",
-  ),
-  Flag.optional,
-);
 const devUrlFlag = Flag.String("dev-url").pipe(
   Flag.withSchema(Schema.URLFromString),
   Flag.withDescription("Dev web URL to proxy/redirect to (equivalent to VITE_DEV_SERVER_URL)."),
