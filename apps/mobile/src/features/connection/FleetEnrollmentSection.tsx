@@ -57,7 +57,7 @@ function outcomeLabel(outcome: FleetJoinOutcome): string {
     case "joined":
       return "Joined";
     case "already-connected":
-      return "Already connected";
+      return "Already added";
     case "expired":
       return "Expired";
     case "failed":
