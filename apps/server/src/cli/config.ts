@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
 import {
   DEFAULT_SIGNAL_EXPORT,
@@ -11,6 +13,22 @@ import {
   type PersistedServerObservabilitySettings,
   parsePersistedServerObservabilitySettings,
 } from "@t3tools/shared/serverSettings";
+import {
+  resolveLegacyT3StorageRoots,
+  resolveT3ConfiguredPath,
+  resolveT3StorageDirectoryOverrides,
+  selectT3Storage,
+  T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES,
+  T3CODE_CACHE_DIR_ENV,
+  T3CODE_CONFIG_DIR_ENV,
+  T3CODE_DATA_DIR_ENV,
+  T3CODE_STATE_DIR_ENV,
+  type T3StorageConfigurationError,
+  type T3StorageDirectoryOverrides,
+  type T3StorageProbeError,
+  t3StoragePathExists,
+  type T3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 import { DesktopBackendBootstrap, PortSchema } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
@@ -25,10 +43,13 @@ import * as SchemaIssue from "effect/SchemaIssue";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { Argument, Flag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
+import * as NodeFS from "node:fs";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
 
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
-import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
+import { expandHomePath } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import { readServerConfigFile } from "./serverConfigFile.ts";
 
@@ -47,7 +68,39 @@ const hostFlag = Flag.String("host").pipe(
 );
 export const baseDirFlag = Flag.String("base-dir").pipe(
   Flag.withDescription(
-    "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
+    "Use the legacy unified T3 Code directory layout; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
+  ),
+  Flag.optional,
+);
+export const CliStorageLayout = Schema.Literals(["xdg", "legacy"]);
+export type CliStorageLayout = typeof CliStorageLayout.Type;
+const storageLayoutFlag = Flag.Literals("storage-layout", CliStorageLayout.literals).pipe(
+  Flag.withDescription(
+    "Force the XDG/platform-native split layout or the legacy unified layout instead of selecting automatically.",
+  ),
+  Flag.optional,
+);
+const serverConfigDirFlag = Flag.String("server-config-dir").pipe(
+  Flag.withDescription(
+    "Directory for settings.json, keybindings.json, and themes (equivalent to T3CODE_SERVER_CONFIG_DIR). Defaults to the base dir's state directory.",
+  ),
+  Flag.optional,
+);
+const serverDataDirFlag = Flag.String("server-data-dir").pipe(
+  Flag.withDescription(
+    "Directory for the database, secrets, attachments, logs, and worktrees (equivalent to T3CODE_SERVER_DATA_DIR). Defaults to the base dir's state directory, with worktrees beside it.",
+  ),
+  Flag.optional,
+);
+const serverCacheDirFlag = Flag.String("server-cache-dir").pipe(
+  Flag.withDescription(
+    "Directory for provider status caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
+  ),
+  Flag.optional,
+);
+const serverConfigFileFlag = Flag.String("server-config-file").pipe(
+  Flag.withDescription(
+    "JSON file of server options below flags and env vars (equivalent to T3CODE_SERVER_CONFIG_FILE). Defaults to server.json in the server config dir.",
   ),
   Flag.optional,
 );
@@ -250,22 +303,201 @@ const nonEmptyEnv = (name: string) =>
     Config.map(Option.filter((value) => value.trim().length > 0)),
   );
 
+const optionalEnv = (name: string) =>
+  Config.String(name).pipe(Config.option, Config.map(Option.getOrUndefined));
+
 const ServerLocationEnv = Config.all({
-  t3Home: Config.String("T3CODE_HOME").pipe(Config.option),
   serverConfigDir: nonEmptyEnv("T3CODE_SERVER_CONFIG_DIR"),
   serverDataDir: nonEmptyEnv("T3CODE_SERVER_DATA_DIR"),
   serverCacheDir: nonEmptyEnv("T3CODE_SERVER_CACHE_DIR"),
   serverConfigFile: nonEmptyEnv("T3CODE_SERVER_CONFIG_FILE"),
 });
 
+/** The storage layout selectors and the platform variables behind the split layout's defaults. */
+const StorageLayoutEnv = Config.all(
+  Object.fromEntries(T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES.map((name) => [name, optionalEnv(name)])),
+);
+
 /** Where the server keeps its files. Each value is a flag that wins over its env var. */
 export interface CliServerLocationFlags {
   readonly baseDir: Option.Option<string>;
+  readonly storageLayout?: Option.Option<CliStorageLayout>;
   readonly serverConfigDir?: Option.Option<string>;
   readonly serverDataDir?: Option.Option<string>;
   readonly serverCacheDir?: Option.Option<string>;
   readonly serverConfigFile?: Option.Option<string>;
 }
+
+export class ServerLocationSelectorConflictError extends Schema.TaggedError<ServerLocationSelectorConflictError>()(
+  "ServerLocationSelectorConflictError",
+  {
+    override: Schema.String,
+    overrideDir: Schema.String,
+    selector: Schema.String,
+    selectorDir: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${this.override} names '${this.overrideDir}' but ${this.selector} names '${this.selectorDir}' for the same files. Unset one, or point both at the same directory.`;
+  }
+}
+
+export class RuntimeDirectoryOpenError extends Schema.TaggedError<RuntimeDirectoryOpenError>()(
+  "RuntimeDirectoryOpenError",
+  {
+    runtimeDir: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Refusing to use runtime directory '${this.runtimeDir}' because it could not be opened without following symbolic links.`;
+  }
+}
+
+export class RuntimeDirectoryNotADirectoryError extends Schema.TaggedError<RuntimeDirectoryNotADirectoryError>()(
+  "RuntimeDirectoryNotADirectoryError",
+  {
+    runtimeDir: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Refusing to use runtime directory '${this.runtimeDir}' because it is not a directory.`;
+  }
+}
+
+export class RuntimeDirectoryOwnerMismatchError extends Schema.TaggedError<RuntimeDirectoryOwnerMismatchError>()(
+  "RuntimeDirectoryOwnerMismatchError",
+  {
+    runtimeDir: Schema.String,
+    expectedUserId: Schema.Number,
+    actualUserId: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return `Refusing to use runtime directory '${this.runtimeDir}' because it is owned by user ${this.actualUserId} instead of ${this.expectedUserId}.`;
+  }
+}
+
+export class RuntimeDirectoryChmodError extends Schema.TaggedError<RuntimeDirectoryChmodError>()(
+  "RuntimeDirectoryChmodError",
+  {
+    runtimeDir: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return `Failed to restrict runtime directory '${this.runtimeDir}' permissions.`;
+  }
+}
+
+const prepareSplitRuntimeDirectory = Effect.fn("prepareSplitRuntimeDirectory")(function* (
+  runtimeDir: string,
+  userId: number,
+) {
+  yield* Effect.tryPromise({
+    try: () => NodeFSP.mkdir(runtimeDir, { recursive: true, mode: 0o700 }),
+    catch: (cause) =>
+      new RuntimeDirectoryOpenError({
+        runtimeDir,
+        cause,
+      }),
+  });
+
+  return yield* Effect.acquireUseRelease(
+    Effect.tryPromise({
+      try: () =>
+        NodeFSP.open(
+          runtimeDir,
+          NodeFS.constants.O_RDONLY | NodeFS.constants.O_DIRECTORY | NodeFS.constants.O_NOFOLLOW,
+        ),
+      catch: (cause) =>
+        new RuntimeDirectoryOpenError({
+          runtimeDir,
+          cause,
+        }),
+    }),
+    (handle) =>
+      Effect.gen(function* () {
+        const stat = yield* Effect.tryPromise({
+          try: () => handle.stat(),
+          catch: (cause) =>
+            new RuntimeDirectoryOpenError({
+              runtimeDir,
+              cause,
+            }),
+        });
+        if (!stat.isDirectory()) {
+          return yield* new RuntimeDirectoryNotADirectoryError({
+            runtimeDir,
+          });
+        }
+        if (stat.uid !== userId) {
+          return yield* new RuntimeDirectoryOwnerMismatchError({
+            runtimeDir,
+            expectedUserId: userId,
+            actualUserId: stat.uid,
+          });
+        }
+        yield* Effect.tryPromise({
+          try: () => handle.chmod(0o700),
+          catch: (cause) =>
+            new RuntimeDirectoryChmodError({
+              runtimeDir,
+              cause,
+            }),
+        });
+      }),
+    (handle) => Effect.promise(() => handle.close()).pipe(Effect.ignore),
+  );
+});
+
+/** Each selector a location override shares files with: the data dir also holds split state. */
+const OVERRIDE_SELECTORS = [
+  {
+    category: "configDir",
+    override: "--server-config-dir/T3CODE_SERVER_CONFIG_DIR",
+    selector: T3CODE_CONFIG_DIR_ENV,
+    selectorDir: "configDir",
+  },
+  {
+    category: "dataDir",
+    override: "--server-data-dir/T3CODE_SERVER_DATA_DIR",
+    selector: T3CODE_DATA_DIR_ENV,
+    selectorDir: "dataDir",
+  },
+  {
+    category: "dataDir",
+    override: "--server-data-dir/T3CODE_SERVER_DATA_DIR",
+    selector: T3CODE_STATE_DIR_ENV,
+    selectorDir: "stateDir",
+  },
+  {
+    category: "cacheDir",
+    override: "--server-cache-dir/T3CODE_SERVER_CACHE_DIR",
+    selector: T3CODE_CACHE_DIR_ENV,
+    selectorDir: "cacheDir",
+  },
+] as const satisfies ReadonlyArray<{
+  readonly category: keyof ServerConfig.ServerLocationOverrides;
+  readonly override: string;
+  readonly selector: string;
+  readonly selectorDir: keyof T3StorageDirectoryOverrides;
+}>;
+
+const storagePathOperations = (path: Path.Path) => ({
+  join: (...paths: ReadonlyArray<string>) => path.join(...paths),
+  resolve: (...paths: ReadonlyArray<string>) => path.resolve(...paths),
+  isAbsolute: (candidate: string) => path.isAbsolute(candidate),
+});
+
+const resolveStorageSelectors = Effect.fn(function* (homeDirectory: string) {
+  const path = yield* Path.Path;
+  return resolveT3StorageDirectoryOverrides({
+    environment: yield* StorageLayoutEnv,
+    homeDirectory,
+    path: storagePathOperations(path),
+  });
+});
 
 const resolveLocationOverride = Effect.fn(function* (
   flag: Option.Option<string> | undefined,
@@ -291,33 +523,163 @@ export const resolveServerLocationOverrides = Effect.fn(function* (flags: CliSer
 });
 
 /**
- * Resolves the base dir (flag, then T3CODE_HOME, then `fallbackBaseDir`, then
- * `~/.t3`) and every server path. Every command that reads or writes server
- * files resolves through here so the CLI and the server agree.
+ * The overrides win over the split layout's directories, so a selector naming
+ * another directory for the same files is a conflict rather than something to
+ * pick between silently. The legacy layout ignores the selectors.
+ */
+const rejectSelectorConflicts = Effect.fn(function* (
+  overrides: ServerConfig.ServerLocationOverrides,
+) {
+  const selectors = yield* resolveStorageSelectors(yield* HostProcess.HomeDirectory);
+  for (const pair of OVERRIDE_SELECTORS) {
+    const overrideDir = overrides[pair.category];
+    const selectorDir = selectors[pair.selectorDir];
+    if (overrideDir !== undefined && selectorDir !== undefined && overrideDir !== selectorDir) {
+      return yield* new ServerLocationSelectorConflictError({
+        override: pair.override,
+        overrideDir,
+        selector: pair.selector,
+        selectorDir,
+      });
+    }
+  }
+});
+
+export interface StorageHost {
+  readonly homeDirectory: string;
+  readonly temporaryDirectory: string;
+  readonly platform: NodeJS.Platform;
+  readonly userId: number | undefined;
+}
+
+export const currentStorageHost = Effect.gen(function* () {
+  const platform = yield* HostProcess.Platform;
+  return {
+    homeDirectory: yield* HostProcess.HomeDirectory,
+    temporaryDirectory: NodeOS.tmpdir(),
+    platform,
+    userId: platform === "win32" ? undefined : NodeOS.userInfo().uid,
+  } satisfies StorageHost;
+});
+
+/** The storage a server uses, before any location override. */
+export interface ServerStorage {
+  readonly roots: T3StorageRoots;
+  /** Legacy only: a named home keeps `userdata` even in development. */
+  readonly baseDirIsExplicit: boolean;
+  /** An initialized ~/.t3 the selected split layout leaves unused. */
+  readonly shadowedLegacyStateDir?: string | undefined;
+}
+
+/** The storage a server started with these flags would use; see `selectT3Storage`. */
+export const resolveServerStorage = Effect.fn("resolveServerStorage")(function* (input: {
+  readonly baseDir: Option.Option<string>;
+  readonly storageLayout: Option.Option<CliStorageLayout>;
+  readonly isDevelopment: boolean;
+  readonly bootstrap?: Pick<DesktopBackendBootstrap, "storageRoots" | "t3Home"> | undefined;
+  readonly host: StorageHost;
+}): Effect.fn.Return<
+  ServerStorage,
+  Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
+  Path.Path
+> {
+  const path = yield* Path.Path;
+  const pathOperations = storagePathOperations(path);
+  const bootstrapHome = resolveT3ConfiguredPath(
+    input.bootstrap?.t3Home,
+    input.host.homeDirectory,
+    pathOperations,
+  );
+  const selection = selectT3Storage({
+    platform: input.host.platform,
+    homeDirectory: input.host.homeDirectory,
+    temporaryDirectory: input.host.temporaryDirectory,
+    ...(input.host.userId === undefined ? {} : { userId: input.host.userId }),
+    isDevelopment: input.isDevelopment,
+    environment: yield* StorageLayoutEnv,
+    path: pathOperations,
+    baseDir: Option.getOrUndefined(input.baseDir),
+    forcedLayout: Option.getOrUndefined(input.storageLayout),
+    pinned:
+      input.bootstrap?.storageRoots ??
+      (bootstrapHome === undefined
+        ? undefined
+        : resolveLegacyT3StorageRoots({
+            baseDir: bootstrapHome,
+            stateDirectoryName: input.isDevelopment ? "dev" : "userdata",
+            path,
+          })),
+    exists: t3StoragePathExists,
+  });
+  switch (selection._tag) {
+    case "Conflict":
+    case "ProbeFailed":
+      return yield* selection.error;
+    case "Selected":
+      return selection;
+  }
+});
+
+/** Every server path for `storage`, each location override winning for its category. */
+export const deriveServerStoragePaths = Effect.fn(function* (
+  storage: ServerStorage,
+  devUrl: URL | undefined,
+  overrides: ServerConfig.ServerLocationOverrides,
+) {
+  const { roots } = storage;
+  if (roots.layout === "split") yield* rejectSelectorConflicts(overrides);
+  if (roots.layout === "legacy") {
+    return {
+      baseDir: roots.legacyBaseDir,
+      derivedPaths: yield* ServerConfig.deriveServerPaths(roots.legacyBaseDir, devUrl, {
+        baseDirIsExplicit: storage.baseDirIsExplicit,
+        ...overrides,
+      }),
+    };
+  }
+  return {
+    baseDir: roots.dataDir,
+    derivedPaths: yield* ServerConfig.deriveServerPaths(roots.dataDir, devUrl, {
+      configDir: overrides.configDir ?? roots.configDir,
+      dataDir: overrides.dataDir ?? roots.dataDir,
+      cacheDir: overrides.cacheDir ?? roots.cacheDir,
+      // A data dir override carries the state and the runtime file, as it does
+      // in the legacy layout, so a server with its own data dir is told apart.
+      split: {
+        stateDir: overrides.dataDir ?? roots.stateDir,
+        runtimeDir: overrides.dataDir ?? roots.runtimeDir,
+      },
+    }),
+  };
+});
+
+/**
+ * Resolves the storage layout and every server path. Every command that reads
+ * or writes server files resolves through here so the CLI and the server agree.
  *
- * `ignoreLocationOverrides` derives every path from the base dir alone, as the
- * background service does, since it records only the base dir.
+ * `ignoreLocationOverrides` derives every path from the layout alone, as the
+ * background service does, since it records only the layout's directories.
  */
 export const resolveServerLocations = Effect.fn(function* (
   flags: CliServerLocationFlags,
   options: {
     readonly devUrl: URL | undefined;
-    readonly fallbackBaseDir?: string | undefined;
+    readonly bootstrap?: Pick<DesktopBackendBootstrap, "storageRoots" | "t3Home"> | undefined;
     readonly ignoreLocationOverrides?: boolean | undefined;
+    readonly host?: StorageHost | undefined;
   },
 ) {
-  const env = yield* ServerLocationEnv;
-  const explicitBaseDir = Option.orElse(flags.baseDir, () => env.t3Home).pipe(
-    Option.filter((value) => value.trim().length > 0),
-  );
-  const baseDir = yield* resolveBaseDir(
-    Option.getOrUndefined(explicitBaseDir) ?? options.fallbackBaseDir,
-  );
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, options.devUrl, {
-    baseDirIsExplicit: Option.isSome(explicitBaseDir),
-    ...(options.ignoreLocationOverrides ? {} : yield* resolveServerLocationOverrides(flags)),
+  const storage = yield* resolveServerStorage({
+    baseDir: flags.baseDir,
+    storageLayout: flags.storageLayout ?? Option.none(),
+    isDevelopment: options.devUrl !== undefined,
+    bootstrap: options.bootstrap,
+    host: options.host ?? (yield* currentStorageHost),
   });
-  return { baseDir, derivedPaths };
+  const overrides = options.ignoreLocationOverrides
+    ? {}
+    : yield* resolveServerLocationOverrides(flags);
+  return { storage, ...(yield* deriveServerStoragePaths(storage, options.devUrl, overrides)) };
 });
 
 /** The server config file named by the flag or env var, else server.json in `configDir`. */
@@ -363,6 +725,7 @@ export interface CliAuthLocationFlags extends CliServerLocationFlags {
 
 export const serverLocationFlags = {
   baseDir: baseDirFlag,
+  storageLayout: storageLayoutFlag,
   serverConfigDir: serverConfigDirFlag,
   serverDataDir: serverDataDirFlag,
   serverCacheDir: serverCacheDirFlag,
@@ -381,10 +744,11 @@ export const authLocationFlags = {
 
 /**
  * Commands that manage the install (service, update, uninstall) record only
- * the base dir, so they take no server location overrides.
+ * the storage layout's directories, so they take no server location overrides.
  */
 export const installLocationFlags = {
   baseDir: baseDirFlag,
+  storageLayout: storageLayoutFlag,
 } as const;
 
 export const sharedServerCommandFlags = {
@@ -454,6 +818,7 @@ export const resolveServerConfig = (
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
+    readonly storageHost?: StorageHost;
   },
 ) =>
   Effect.gen(function* () {
@@ -466,6 +831,7 @@ export const resolveServerConfig = (
       port: flags.port ?? Option.none(),
       host: flags.host ?? Option.none(),
       baseDir: flags.baseDir ?? Option.none(),
+      storageLayout: flags.storageLayout ?? Option.none(),
       serverConfigDir: flags.serverConfigDir ?? Option.none(),
       serverDataDir: flags.serverDataDir ?? Option.none(),
       serverCacheDir: flags.serverCacheDir ?? Option.none(),
@@ -490,9 +856,11 @@ export const resolveServerConfig = (
       resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
       () => undefined,
     );
-    const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
+    const storageHost = options?.storageHost ?? (yield* currentStorageHost);
+    const { baseDir, derivedPaths, storage } = yield* resolveServerLocations(normalizedFlags, {
       devUrl,
-      fallbackBaseDir: bootstrap?.t3Home,
+      bootstrap,
+      host: storageHost,
     });
     const serverConfigFile = yield* loadServerConfigFile(normalizedFlags, derivedPaths.configDir);
     const file = serverConfigFile.options;
@@ -539,6 +907,15 @@ export const resolveServerConfig = (
       }
     }
     yield* fs.makeDirectory(cwd, { recursive: true });
+    if (
+      storageHost.platform !== "win32" &&
+      derivedPaths.layout === "split" &&
+      // A data dir override is the user's own directory, not a runtime dir to lock down.
+      derivedPaths.runtimeDir === storage.roots.runtimeDir &&
+      storageHost.userId !== undefined
+    ) {
+      yield* prepareSplitRuntimeDirectory(derivedPaths.runtimeDir, storageHost.userId);
+    }
     yield* ServerConfig.ensureServerDirectories(derivedPaths);
     const rawSharedSettingsFile = Option.getOrUndefined(
       resolveOptionPrecedence(
@@ -708,6 +1085,9 @@ export const resolveServerConfig = (
       tailscaleServeEnabled,
       tailscaleServePort,
       serverConfigFile: { path: serverConfigFile.path, unknownKeys: serverConfigFile.unknownKeys },
+      ...(storage.shadowedLegacyStateDir === undefined
+        ? {}
+        : { shadowedLegacyStateDir: storage.shadowedLegacyStateDir }),
       ...(sharedSettingsPath === undefined ? {} : { sharedSettingsPath }),
     };
 
@@ -724,6 +1104,7 @@ export const resolveCliAuthConfig = (
       port: Option.none(),
       host: Option.none(),
       baseDir: flags.baseDir,
+      storageLayout: flags.storageLayout ?? Option.none(),
       serverConfigDir: flags.serverConfigDir ?? Option.none(),
       serverDataDir: flags.serverDataDir ?? Option.none(),
       serverCacheDir: flags.serverCacheDir ?? Option.none(),
@@ -743,18 +1124,19 @@ export const resolveCliAuthConfig = (
 
 /**
  * Paths for the install commands (service, update, uninstall). They come from
- * the base dir alone so they agree with the service they manage, which runs
- * without the location overrides whatever the invoking shell sets. Creates
- * nothing on disk.
+ * the storage layout alone so they agree with the service they manage, which
+ * runs without the location overrides whatever the invoking shell sets.
+ * Creates nothing on disk.
  */
 export const resolveInstallLocations = Effect.fn(function* (flags: {
   readonly baseDir: Option.Option<string>;
+  readonly storageLayout?: Option.Option<CliStorageLayout>;
 }) {
-  const { baseDir, derivedPaths } = yield* resolveServerLocations(flags, {
+  const { baseDir, derivedPaths, storage } = yield* resolveServerLocations(flags, {
     devUrl: undefined,
     ignoreLocationOverrides: true,
   });
-  return { ...derivedPaths, baseDir };
+  return { ...derivedPaths, baseDir, storage };
 });
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
