@@ -63,7 +63,6 @@ export function ConnectionEnvironmentRow(props: {
     props.environment.environmentId,
     presentation,
   );
-  const editable = !props.environment.isRelayManaged && !props.environment.isManaged;
   const enabled = props.environment.isEnabled && !unsupported;
   const statusLabel = connectionStatusLabel(props.environment);
   const statusTraceId = enabled ? props.environment.connectionErrorTraceId : null;
@@ -213,11 +212,6 @@ export function ConnectionEnvironmentRow(props: {
             <Text className="text-sm text-foreground-muted">
               Managed by T3 Connect. Tunnel details update automatically.
             </Text>
-          ) : props.environment.isManaged ? (
-            <Text className="text-sm text-foreground-muted">
-              Managed by system configuration. Connection details update automatically. To take this
-              fleet off the device, remove the machine you paired with.
-            </Text>
           ) : (
             <>
               <ConnectionFormField
@@ -243,7 +237,7 @@ export function ConnectionEnvironmentRow(props: {
 
           {Platform.OS === "android" ? (
             <View className="flex-row items-center justify-end gap-2">
-              {editable ? (
+              {props.environment.isRelayManaged ? null : (
                 <View className="flex-1">
                   <Button
                     label="Save"
@@ -254,7 +248,7 @@ export function ConnectionEnvironmentRow(props: {
                     }}
                   />
                 </View>
-              ) : null}
+              )}
               <IconButton
                 accessibilityLabel="Reconnect environment"
                 icon="arrow.clockwise"
@@ -262,18 +256,16 @@ export function ConnectionEnvironmentRow(props: {
                 disabled={!enabled}
                 onPress={() => props.onReconnect(props.environment.environmentId)}
               />
-              {props.environment.isManaged ? null : (
-                <IconButton
-                  accessibilityLabel="Remove environment"
-                  icon="trash"
-                  variant="danger"
-                  onPress={() => props.onRemove(props.environment.environmentId)}
-                />
-              )}
+              <IconButton
+                accessibilityLabel="Remove environment"
+                icon="trash"
+                variant="danger"
+                onPress={() => props.onRemove(props.environment.environmentId)}
+              />
             </View>
           ) : (
             <View className="flex-row justify-end gap-2">
-              {editable ? (
+              {props.environment.isRelayManaged ? null : (
                 <Pressable
                   className="min-h-[42px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[14px] bg-primary px-3.5 py-2.5 active:opacity-70"
                   onPress={handleSave}
@@ -288,7 +280,7 @@ export function ConnectionEnvironmentRow(props: {
                     Save
                   </Text>
                 </Pressable>
-              ) : null}
+              )}
 
               <Pressable
                 className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-input-border bg-input active:opacity-70 disabled:opacity-40"
@@ -303,19 +295,17 @@ export function ConnectionEnvironmentRow(props: {
                 />
               </Pressable>
 
-              {props.environment.isManaged ? null : (
-                <Pressable
-                  className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger active:opacity-70"
-                  onPress={() => props.onRemove(props.environment.environmentId)}
-                >
-                  <SymbolView
-                    name="trash"
-                    size={14}
-                    tintColorClassName="accent-danger-foreground"
-                    type="monochrome"
-                  />
-                </Pressable>
-              )}
+              <Pressable
+                className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger active:opacity-70"
+                onPress={() => props.onRemove(props.environment.environmentId)}
+              >
+                <SymbolView
+                  name="trash"
+                  size={14}
+                  tintColorClassName="accent-danger-foreground"
+                  type="monochrome"
+                />
+              </Pressable>
             </View>
           )}
         </Animated.View>
