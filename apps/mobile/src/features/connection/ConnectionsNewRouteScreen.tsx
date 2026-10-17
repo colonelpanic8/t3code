@@ -12,9 +12,10 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import type { EnvironmentId, ServerFleetEnvironment } from "@t3tools/contracts";
+import * as Result from "effect/Result";
 import { useAtomValue } from "@effect/atom-react";
-import { useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Linking, Pressable, type ScrollViewInstance, StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
@@ -32,7 +33,8 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
 import { autoConnectReport, devAutoConnectAttemptAtom } from "./devAutoConnect";
-import { FleetImportSection } from "./FleetImportSection";
+import { type FleetFileRequest, FleetImportSection } from "./FleetImportSection";
+import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import { splitEnvironmentSections } from "./environmentSections";
 import { leaveSettingsPage } from "../settings/settings-navigation";
 import { workspaceHasColumns } from "../workspace/workspace-selection-store";
@@ -42,7 +44,11 @@ type ConnectionsNewRouteParams = {
   readonly pairingUrl?: string;
   readonly autoConnect?: string;
   readonly routeFor?: EnvironmentId;
+  readonly fleetEnrollment?: string;
 };
+
+const fleetRequestFromParam = (value: string | undefined): FleetFileRequest | null =>
+  value === undefined ? null : { link: parseFleetEnrollmentUrl(value) };
 
 export function ConnectionsNewRouteScreen({
   route,
@@ -50,12 +56,27 @@ export function ConnectionsNewRouteScreen({
   const params = route.params ?? {};
   // Dev-only prefill prevents production links from supplying an attacker-chosen host and token.
   const routePairingUrl = __DEV__ ? (params.pairingUrl?.trim() ?? "") : "";
+  // Unlike pairing prefill, an enrollment link needs no __DEV__ gate: it only
+  // opens the file, and joining still takes this device's own key and the
+  // user's confirmation of the anchor.
+  const [fleetRequest, setFleetRequest] = useState(() =>
+    fleetRequestFromParam(params.fleetEnrollment),
+  );
+  // A link that arrives while this screen is open updates its params in place.
+  const [fleetRequestParams, setFleetRequestParams] = useState(route.params);
+  if (route.params !== fleetRequestParams) {
+    setFleetRequestParams(route.params);
+    const next = fleetRequestFromParam(route.params?.fleetEnrollment);
+    if (next !== null) setFleetRequest(next);
+  }
   // A new prefill link replaces whatever the form held.
   return (
     <PairingForm
       key={routePairingUrl}
       routePairingUrl={routePairingUrl}
       routeFor={params.routeFor}
+      fleetRequest={fleetRequest}
+      onFleetRequest={setFleetRequest}
     />
   );
 }
@@ -63,14 +84,21 @@ export function ConnectionsNewRouteScreen({
 function PairingForm({
   routePairingUrl,
   routeFor,
+  fleetRequest,
+  onFleetRequest,
 }: {
   readonly routePairingUrl: string;
   readonly routeFor: EnvironmentId | undefined;
+  readonly fleetRequest: FleetFileRequest | null;
+  readonly onFleetRequest: (request: FleetFileRequest) => void;
 }) {
   const { connectionPairingUrl, onChangeConnectionPairingUrl, onConnectPress } =
     useRemoteConnections();
   const navigation = useNavigation();
   const routeName = useRoute().name;
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const fleetSectionY = useRef<number | null>(null);
+  const fleetScrollPending = useRef(false);
   const insets = useSafeAreaInsets();
   const [initialPairing] = useState(() => parsePairingUrl(routePairingUrl || connectionPairingUrl));
   const [hostInput, setHostInput] = useState(initialPairing.host);
@@ -105,6 +133,13 @@ function PairingForm({
     setSubmitError(null);
     setOwnAttempt(true);
   };
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the native scroll view: the sheet opens short enough to hide the import section below the scanner
+  useEffect(() => {
+    if (fleetRequest === null) return;
+    if (fleetSectionY.current === null) fleetScrollPending.current = true;
+    else scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+  }, [fleetRequest]);
 
   const handleHostChange = (value: string) => {
     setHostInput(value);
@@ -170,6 +205,26 @@ function PairingForm({
 
     setScannerLocked(true);
 
+    const rejectScan = (message: string) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Dialog.alert("Invalid QR code", message);
+      setTimeout(() => {
+        setScannerLocked(false);
+      }, 600);
+    };
+
+    const fleetLink = parseFleetEnrollmentLink(data);
+    if (fleetLink !== null) {
+      if (Result.isFailure(fleetLink)) return rejectScan(fleetLink.failure);
+      if (routeFor !== undefined) {
+        return rejectScan("A fleet enrollment link can't add a route to a saved machine.");
+      }
+      onFleetRequest({ link: fleetLink });
+      setScanComplete(true);
+      setScannerLocked(false);
+      return;
+    }
+
     try {
       const pairingUrl = extractPairingUrlFromQrPayload(data);
       const { host, code } = parsePairingUrl(pairingUrl);
@@ -180,14 +235,7 @@ function PairingForm({
       setScanComplete(true);
       setScannerLocked(false);
     } catch (error) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Dialog.alert(
-        "Invalid QR code",
-        error instanceof Error ? error.message : "Scanned QR code was not recognized.",
-      );
-      setTimeout(() => {
-        setScannerLocked(false);
-      }, 600);
+      rejectScan(error instanceof Error ? error.message : "Scanned QR code was not recognized.");
     }
   };
 
@@ -238,6 +286,7 @@ function PairingForm({
       ]}
     >
       <ScrollView
+        ref={scrollRef}
         nestedScrollEnabled
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -259,14 +308,25 @@ function PairingForm({
           />
 
           {routeFor === undefined ? (
-            <FleetImportSection
-              savedEnvironmentIds={savedEnvironmentIds}
-              selectedEnvironmentId={importedEnvironmentId}
-              onSelect={handleImportedSelect}
-              onClearSelection={handleImportedClear}
-              onOpenSaved={openSavedEnvironment}
-              onEnrolled={handleEnrolled}
-            />
+            <View
+              collapsable={false}
+              onLayout={(event) => {
+                fleetSectionY.current = event.nativeEvent.layout.y;
+                if (!fleetScrollPending.current) return;
+                fleetScrollPending.current = false;
+                scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+              }}
+            >
+              <FleetImportSection
+                savedEnvironmentIds={savedEnvironmentIds}
+                selectedEnvironmentId={importedEnvironmentId}
+                onSelect={handleImportedSelect}
+                onClearSelection={handleImportedClear}
+                onOpenSaved={openSavedEnvironment}
+                onEnrolled={handleEnrolled}
+                request={fleetRequest}
+              />
+            </View>
           ) : null}
 
           <View collapsable={false} className="gap-2">
