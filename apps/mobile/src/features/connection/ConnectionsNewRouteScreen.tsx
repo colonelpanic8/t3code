@@ -11,9 +11,10 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import type { EnvironmentId } from "@t3tools/contracts";
+import * as Result from "effect/Result";
 import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, type ScrollViewInstance, StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
@@ -30,6 +31,8 @@ import {
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
+import { type FleetFileRequest, FleetEnrollmentSection } from "./FleetEnrollmentSection";
+import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import { splitEnvironmentSections } from "./environmentSections";
 
 type ConnectionsNewRouteParams = {
@@ -37,7 +40,11 @@ type ConnectionsNewRouteParams = {
   readonly pairingUrl?: string;
   readonly autoConnect?: string;
   readonly routeFor?: EnvironmentId;
+  readonly fleetEnrollment?: string;
 };
+
+const fleetRequestFromParam = (value: string | undefined): FleetFileRequest | null =>
+  value === undefined ? null : { link: parseFleetEnrollmentUrl(value) };
 
 export function ConnectionsNewRouteScreen({
   route,
@@ -58,6 +65,22 @@ export function ConnectionsNewRouteScreen({
     __DEV__ &&
     routePairingUrl.length > 0 &&
     (params.autoConnect === "1" || params.autoConnect === "true");
+  // Unlike pairing prefill, an enrollment link needs no __DEV__ gate: it only
+  // opens the file, and joining still takes this device's own key and the
+  // user's confirmation of its machines.
+  const [fleetRequest, setFleetRequest] = useState(() =>
+    fleetRequestFromParam(params.fleetEnrollment),
+  );
+  // A link that arrives while this screen is open updates its params in place.
+  const [fleetRequestParams, setFleetRequestParams] = useState(route.params);
+  if (route.params !== fleetRequestParams) {
+    setFleetRequestParams(route.params);
+    const next = fleetRequestFromParam(route.params?.fleetEnrollment);
+    if (next !== null) setFleetRequest(next);
+  }
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const fleetSectionY = useRef<number | null>(null);
+  const fleetScrollPending = useRef(false);
   const insets = useSafeAreaInsets();
   const [hostInput, setHostInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
@@ -89,6 +112,13 @@ export function ConnectionsNewRouteScreen({
     setCodeInput(code);
   }, [routePairingUrl]);
 
+  // The sheet opens short enough to hide the import section below the scanner.
+  useEffect(() => {
+    if (fleetRequest === null) return;
+    if (fleetSectionY.current === null) fleetScrollPending.current = true;
+    else scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+  }, [fleetRequest]);
+
   useEffect(() => {
     if (pairingConnectionError) {
       setIsSubmitting(false);
@@ -99,6 +129,11 @@ export function ConnectionsNewRouteScreen({
     setHostInput(value);
     setPendingConnectionError(null);
   }, []);
+
+  const handleFleetDone = useCallback(() => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.dispatch(StackActions.replace("Home"));
+  }, [navigation]);
 
   const handleCodeChange = useCallback((value: string) => {
     setCodeInput(value);
@@ -132,6 +167,26 @@ export function ConnectionsNewRouteScreen({
 
       setScannerLocked(true);
 
+      const rejectScan = (message: string) => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Dialog.alert("Invalid QR code", message);
+        setTimeout(() => {
+          setScannerLocked(false);
+        }, 600);
+      };
+
+      const fleetLink = parseFleetEnrollmentLink(data);
+      if (fleetLink !== null) {
+        if (Result.isFailure(fleetLink)) return rejectScan(fleetLink.failure);
+        if (params.routeFor !== undefined) {
+          return rejectScan("A fleet enrollment link can't add a route to a saved machine.");
+        }
+        setFleetRequest({ link: fleetLink });
+        setScanComplete(true);
+        setScannerLocked(false);
+        return;
+      }
+
       try {
         const pairingUrl = extractPairingUrlFromQrPayload(data);
         const { host, code } = parsePairingUrl(pairingUrl);
@@ -141,17 +196,10 @@ export function ConnectionsNewRouteScreen({
         setScanComplete(true);
         setScannerLocked(false);
       } catch (error) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Dialog.alert(
-          "Invalid QR code",
-          error instanceof Error ? error.message : "Scanned QR code was not recognized.",
-        );
-        setTimeout(() => {
-          setScannerLocked(false);
-        }, 600);
+        rejectScan(error instanceof Error ? error.message : "Scanned QR code was not recognized.");
       }
     },
-    [onChangeConnectionPairingUrl, scannerLocked],
+    [onChangeConnectionPairingUrl, params.routeFor, scannerLocked],
   );
 
   const connectAndClose = useCallback(
@@ -210,6 +258,7 @@ export function ConnectionsNewRouteScreen({
       ]}
     >
       <ScrollView
+        ref={scrollRef}
         nestedScrollEnabled
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -229,6 +278,20 @@ export function ConnectionsNewRouteScreen({
               void handleScanPress();
             }}
           />
+
+          {params.routeFor === undefined ? (
+            <View
+              collapsable={false}
+              onLayout={(event) => {
+                fleetSectionY.current = event.nativeEvent.layout.y;
+                if (!fleetScrollPending.current) return;
+                fleetScrollPending.current = false;
+                scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+              }}
+            >
+              <FleetEnrollmentSection onDone={handleFleetDone} request={fleetRequest} />
+            </View>
+          ) : null}
 
           <View collapsable={false} className="gap-2">
             <Text className="px-4 text-sm font-t3-medium text-foreground-muted">Or enter it</Text>
