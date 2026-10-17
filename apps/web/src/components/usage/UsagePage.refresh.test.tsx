@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   presentations: new Map(),
   refreshProviders: vi.fn(async () => undefined),
   metric: "limits",
+  windows: [] as Array<{ readonly untilDay: string }>,
 }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: unknown) =>
@@ -29,31 +30,34 @@ vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.ref
 vi.mock("../../env", () => ({ isElectron: false }));
 vi.mock("../../hooks/useSettings", () => ({ usePrimarySettings: () => "24h" }));
 vi.mock("../../state/usage", () => ({
-  useUsage: () => ({
-    merged: mergeUsage([], USAGE_CONTRACT_VERSION),
-    environments: [
-      {
-        environmentId: EnvironmentId.make("test"),
-        label: "Test",
-        isPending: false,
-        error: null,
-        summary: null,
-      },
-    ],
-    selectedEnvironments: [
-      {
-        environmentId: EnvironmentId.make("test"),
-        label: "Test",
-        isPending: false,
-        error: null,
-        summary: null,
-      },
-    ],
-    isPending: false,
-    shown: null,
-    isPartial: false,
-    refresh: async () => undefined,
-  }),
+  useUsage: (input: { readonly untilDay: string }) => {
+    state.windows.push(input);
+    return {
+      merged: mergeUsage([], USAGE_CONTRACT_VERSION),
+      environments: [
+        {
+          environmentId: EnvironmentId.make("test"),
+          label: "Test",
+          isPending: false,
+          error: null,
+          summary: null,
+        },
+      ],
+      selectedEnvironments: [
+        {
+          environmentId: EnvironmentId.make("test"),
+          label: "Test",
+          isPending: false,
+          error: null,
+          summary: null,
+        },
+      ],
+      isPending: false,
+      shown: null,
+      isPartial: false,
+      refresh: async () => undefined,
+    };
+  },
 }));
 vi.mock("./usagePagePreferences", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./usagePagePreferences")>()),
@@ -103,6 +107,8 @@ let renderer: ReactTestRenderer;
 let environmentNumber = 0;
 beforeEach(() => {
   vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }));
+  state.windows = [];
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-11T12:00:00Z"));
   environmentNumber += 1;
@@ -286,4 +292,23 @@ it("keeps manual refresh busy until the already-running automatic check settles"
     });
   }
   expect(button().props["aria-busy"]).toBe(false);
+});
+
+it("asks for the new day's window when a page left open overnight comes back", async () => {
+  vi.stubEnv("TZ", "UTC");
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-09-11T22:00:00Z") });
+  try {
+    state.metric = "tokens";
+    await act(() => {
+      renderer = create(<UsagePage />);
+    });
+    await act(() => window.dispatchEvent(new Event("focus")));
+    expect(state.windows.map(({ untilDay }) => untilDay).at(-1)).toBe("2026-09-11");
+    vi.setSystemTime(Date.parse("2026-09-12T07:00:00Z"));
+    await act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(state.windows.at(-1)).toMatchObject({ sinceDay: "2026-08-14", untilDay: "2026-09-12" });
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  }
 });
