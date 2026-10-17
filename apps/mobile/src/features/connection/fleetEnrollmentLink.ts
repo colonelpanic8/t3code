@@ -5,7 +5,7 @@ import * as Result from "effect/Result";
  * A fleet enrollment link names where to download a fleet file. It reaches
  * the app as the `fleetEnrollment` param of a deep link, or inside a scanned
  * page URL that forwards to that deep link. The link only starts an import:
- * the user still confirms the anchor before anything joins.
+ * the user still confirms its machines before anything joins.
  */
 export const FLEET_ENROLLMENT_LINK_PARAM = "fleetEnrollment";
 

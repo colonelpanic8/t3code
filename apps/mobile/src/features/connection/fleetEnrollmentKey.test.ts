@@ -30,7 +30,11 @@ describe("decrypting with WebCrypto", () => {
   it("yields a document the shared decoder accepts", async () => {
     const result = await run(decryptFleetEnrollmentFile(fixture("mixed.age")));
     const enrollment = Result.isSuccess(result) ? decodeFleetEnrollment(result.success) : null;
-    expect(enrollment !== null && Result.isSuccess(enrollment)).toBe(true);
+    expect(
+      enrollment !== null &&
+        Result.isSuccess(enrollment) &&
+        enrollment.success.environments.map((entry) => entry.environment.environmentId),
+    ).toEqual(["fixture-alpha", "fixture-beta"]);
   });
 
   it("imports a whole age-keygen file and reports its recipient", async () => {

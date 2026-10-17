@@ -1,3 +1,4 @@
+import { FLEET_ENROLLMENT_MAX_BYTES } from "@t3tools/shared/fleetEnrollment";
 import * as Result from "effect/Result";
 import { fetch } from "expo/fetch";
 
@@ -6,14 +7,15 @@ import { isAgeEncryptedFile } from "./fleetEnrollmentKey";
 import type { FleetEnrollmentUrl } from "./fleetEnrollmentLink";
 
 const DOWNLOAD_TIMEOUT_MS = 15_000;
-export const FLEET_ENROLLMENT_FILE_MAX_BYTES = 64 * 1024;
+// Armor grows the plaintext by about a third, plus one stanza per recipient.
+export const FLEET_ENROLLMENT_FILE_MAX_BYTES = 2 * FLEET_ENROLLMENT_MAX_BYTES;
 
 /**
  * Lets the user pick an encrypted fleet enrollment. Reads stop one byte past
  * the size limit, so an oversized pick is never loaded whole. Resolves null
  * when the user cancels.
  */
-export async function pickFleetImportFile(): Promise<Result.Result<Uint8Array, string> | null> {
+export async function pickFleetEnrollmentFile(): Promise<Result.Result<Uint8Array, string> | null> {
   const endHandoff = beginForegroundHandoff();
   let uri: string;
   try {
@@ -42,7 +44,7 @@ export async function pickFleetImportFile(): Promise<Result.Result<Uint8Array, s
  * Downloads a fleet file from an enrollment link. Content-Length is not
  * trusted: reading stops one byte past the size limit.
  */
-export async function downloadFleetFile(
+export async function downloadFleetEnrollmentFile(
   url: FleetEnrollmentUrl,
 ): Promise<Result.Result<Uint8Array, string>> {
   const controller = new AbortController();
