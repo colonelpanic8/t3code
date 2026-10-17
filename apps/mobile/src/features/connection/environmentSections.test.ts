@@ -15,7 +15,6 @@ function connectedEnvironment(
     environmentLabel: input.environmentLabel ?? input.environmentId,
     displayUrl: input.displayUrl ?? `https://${input.environmentId}.example.test/`,
     isRelayManaged: input.isRelayManaged,
-    isManaged: input.isManaged ?? false,
     isEnabled: input.isEnabled ?? true,
     connectionState: input.connectionState ?? "connected",
     connectionError: input.connectionError ?? null,
