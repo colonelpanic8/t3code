@@ -12,11 +12,7 @@ import {
   type ConnectionCatalogEntry,
   type ConnectionRoute,
 } from "./catalog.ts";
-import {
-  BearerConnectionTarget,
-  type ConnectionTarget,
-  isManagedConnectionTarget,
-} from "./model.ts";
+import { BearerConnectionTarget, type ConnectionTarget } from "./model.ts";
 
 export type ConnectionRouteKind =
   | "relay"
@@ -195,14 +191,6 @@ export function hasRelayRoute(
 ): boolean {
   return [entry.target, ...(entry.alternateRoutes ?? []).map((route) => route.target)].some(
     (target) => target._tag === "RelayConnectionTarget",
-  );
-}
-
-export function isManagedConnectionEntry(
-  entry: Pick<ConnectionCatalogEntry, "target" | "alternateRoutes">,
-): boolean {
-  return [entry.target, ...(entry.alternateRoutes ?? []).map((route) => route.target)].some(
-    isManagedConnectionTarget,
   );
 }
 

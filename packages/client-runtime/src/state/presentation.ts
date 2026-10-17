@@ -18,7 +18,7 @@ import {
   type EnvironmentServerConfig,
 } from "../connection/presentation.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
-import { hasRelayRoute, isManagedConnectionEntry } from "../connection/routes.ts";
+import { hasRelayRoute } from "../connection/routes.ts";
 
 function mapsEqual<K, V>(left: ReadonlyMap<K, V>, right: ReadonlyMap<K, V>): boolean {
   if (left.size !== right.size) {
@@ -188,8 +188,6 @@ export interface EnvironmentConnectionSummary {
   readonly environmentLabel: string;
   readonly displayUrl: string;
   readonly isRelayManaged: boolean;
-  /** System configuration owns its routes: a declared desktop connection or a fleet member. */
-  readonly isManaged: boolean;
   readonly isEnabled: boolean;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionError: string | null;
@@ -205,7 +203,6 @@ export function projectEnvironmentConnectionSummary(
     environmentLabel: environment.entry.target.label,
     displayUrl: connectionCatalogDisplayUrl(environment.entry) ?? "",
     isRelayManaged: hasRelayRoute(environment.entry),
-    isManaged: isManagedConnectionEntry(environment.entry),
     isEnabled: environment.entry.enabled,
     connectionState: environment.connection.phase,
     connectionError: environment.connection.error,
@@ -258,7 +255,6 @@ export function createEnvironmentSummaryAtoms(input: {
         previous.environmentLabel === next.environmentLabel &&
         previous.displayUrl === next.displayUrl &&
         previous.isRelayManaged === next.isRelayManaged &&
-        previous.isManaged === next.isManaged &&
         previous.isEnabled === next.isEnabled &&
         previous.connectionState === next.connectionState &&
         previous.connectionError === next.connectionError &&
