@@ -502,6 +502,15 @@ export class EnvironmentAuth extends Context.Service<
       readonly proofKeyThumbprint?: string;
       readonly purpose?: "startup";
     }) => Effect.Effect<IssuedPairingLink, ServerAuthInternalError>;
+    /**
+     * Mints a reusable enrollment grant. Each redemption issues its own
+     * session; revoking the grant (as a pairing link) only stops new ones.
+     */
+    readonly createFleetEnrollment: (input: {
+      readonly ttl: Duration.Duration;
+      readonly label: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+    }) => Effect.Effect<PairingGrantStore.IssuedFleetEnrollment, ServerAuthInternalError>;
     readonly issuePairingCredential: (
       input?: AuthCreatePairingCredentialInput,
     ) => Effect.Effect<AuthPairingCredentialResult, ServerAuthInternalError>;
@@ -1068,6 +1077,12 @@ export const make = Effect.gen(function* () {
     Effect.mapError((cause) => new ServerAuthPairingLinkCreationError({ cause })),
   );
 
+  const createFleetEnrollment: EnvironmentAuth["Service"]["createFleetEnrollment"] = (input) =>
+    bootstrapCredentials.issueFleetEnrollment(input).pipe(
+      Effect.mapError((cause) => new ServerAuthPairingLinkCreationError({ cause })),
+      Effect.withSpan("EnvironmentAuth.createFleetEnrollment"),
+    );
+
   const listPairingLinks: EnvironmentAuth["Service"]["listPairingLinks"] = (input) =>
     bootstrapCredentials.listActive().pipe(
       Effect.map((pairingLinks) => {
@@ -1342,6 +1357,7 @@ export const make = Effect.gen(function* () {
     createBrowserSession,
     exchangeBootstrapCredentialForAccessToken,
     createPairingLink,
+    createFleetEnrollment,
     issuePairingCredential,
     issueStartupPairingCredential,
     listPairingLinks,

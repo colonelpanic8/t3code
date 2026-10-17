@@ -5,6 +5,7 @@ import {
   AuthStandardClientScopes,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
@@ -701,5 +702,95 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       } as never);
       expect(verified.sessionId).toBe(bearer.sessionId);
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
+  );
+
+  it.effect("redeems one fleet enrollment into independent sessions for each device", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const enrollment = yield* serverAuth.createFleetEnrollment({
+        ttl: Duration.days(365),
+        label: "phones",
+      });
+      const credential = Redacted.value(enrollment.credential);
+
+      const pixel = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        credential,
+        undefined,
+        { deviceType: "mobile", label: "Pixel" },
+      );
+      const iphone = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        credential,
+        undefined,
+        { deviceType: "mobile", label: "iPhone" },
+      );
+      const pixelSession = yield* serverAuth.authenticateHttpRequest(
+        makeBearerRequest(pixel.access_token),
+      );
+      const iphoneSession = yield* serverAuth.authenticateHttpRequest(
+        makeBearerRequest(iphone.access_token),
+      );
+      const clients = yield* serverAuth.listClientSessions(pixelSession.sessionId);
+
+      expect(pixelSession.sessionId).not.toBe(iphoneSession.sessionId);
+      expect(pixelSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
+      expect(iphoneSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
+      expect(
+        clients
+          .map((client) => client.client.label)
+          .toSorted((left, right) => (left ?? "").localeCompare(right ?? "")),
+      ).toEqual(["iPhone", "Pixel"]);
+      expect((yield* serverAuth.listPairingLinks()).map((link) => link.id)).toContain(
+        enrollment.id,
+      );
+
+      // A pairing code field never accepts the reusable credential.
+      const approval = yield* Effect.flip(
+        serverAuth.consumeMcpApprovalCode(credential, "read-only"),
+      );
+      expect(approval).toMatchObject({ reason: "not_a_pairing_code" });
+
+      // Revoking the enrollment stops new devices but keeps enrolled ones.
+      expect(yield* serverAuth.revokePairingLink(enrollment.id)).toBe(true);
+      const late = yield* Effect.flip(
+        serverAuth.exchangeBootstrapCredentialForAccessToken(
+          credential,
+          undefined,
+          requestMetadata,
+        ),
+      );
+      expect(late._tag).toBe("ServerAuthInvalidCredentialError");
+      expect(
+        (yield* serverAuth.authenticateHttpRequest(makeBearerRequest(pixel.access_token)))
+          .sessionId,
+      ).toBe(pixelSession.sessionId);
+    }).pipe(Effect.provide(layerEnvironmentAuth())),
+  );
+
+  it.effect("rejects fleet enrollment scopes it does not grant without spending it", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const enrollment = yield* serverAuth.createFleetEnrollment({
+        ttl: Duration.days(1),
+        label: "readers",
+        scopes: ["orchestration:read"],
+      });
+      const credential = Redacted.value(enrollment.credential);
+
+      const denied = yield* Effect.flip(
+        serverAuth.exchangeBootstrapCredentialForAccessToken(
+          credential,
+          ["access:write"],
+          requestMetadata,
+        ),
+      );
+      const granted = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        credential,
+        ["orchestration:read", "access:write"],
+        requestMetadata,
+      );
+
+      expect(denied._tag).toBe("ServerAuthScopeNotGrantedError");
+      expect(granted.scope).toBe("orchestration:read");
+    }).pipe(Effect.provide(layerEnvironmentAuth())),
   );
 });
