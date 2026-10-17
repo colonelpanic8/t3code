@@ -1,6 +1,6 @@
 import { FLEET_IMPORT_MAX_BYTES } from "@t3tools/client-runtime/connection/fleet-import";
 import * as Result from "effect/Result";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   pick: vi.fn(),
@@ -8,10 +8,12 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   close: vi.fn(),
   remove: vi.fn(),
+  fetch: vi.fn(),
 }));
 
 vi.mock("expo-secure-store", () => import("./fleetEnrollmentKey.secure-store-mock"));
 vi.mock("expo-document-picker", () => ({ getDocumentAsync: mocks.pick }));
+vi.mock("expo/fetch", () => ({ fetch: mocks.fetch }));
 vi.mock("expo-file-system", () => ({
   FileMode: { ReadOnly: "read" },
   File: class {
@@ -20,7 +22,8 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 
-import { classifyFleetFile, pickFleetImportFile } from "./fleetImportFile";
+import { parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
+import { classifyFleetFile, downloadFleetFile, pickFleetImportFile } from "./fleetImportFile";
 
 function ageFile(byteLength: number): Uint8Array {
   const bytes = new Uint8Array(byteLength).fill(0x41);
@@ -95,5 +98,68 @@ describe("fleet file cache cleanup", () => {
     expect(await pickFleetImportFile()).toBeNull();
     expect(mocks.open).not.toHaveBeenCalled();
     expect(mocks.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("downloadFleetFile", () => {
+  const url = Result.getOrThrow(parseFleetEnrollmentUrl("https://example.test/fleet.age"));
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("hands a downloaded age file to enrollment", async () => {
+    const bytes = new TextEncoder().encode("age-encryption.org/v1\n-> X25519 fixture\n");
+    mocks.fetch.mockResolvedValueOnce(new Response(bytes));
+    expect(await downloadFleetFile(url)).toEqual(Result.succeed({ kind: "enrollment", bytes }));
+    expect(mocks.fetch.mock.calls[0]?.[0]).toBe("https://example.test/fleet.age");
+  });
+
+  it("lists the machines of a downloaded inventory", async () => {
+    const environment = {
+      environmentId: "env-alpha",
+      label: "Alpha",
+      httpBaseUrl: "https://alpha.example.test",
+      wsBaseUrl: "wss://alpha.example.test",
+    };
+    mocks.fetch.mockResolvedValueOnce(Response.json({ version: 1, environments: [environment] }));
+    expect(await downloadFleetFile(url)).toEqual(
+      Result.succeed({ kind: "inventory", environments: [environment] }),
+    );
+  });
+
+  it("reports the status of a failed download", async () => {
+    mocks.fetch.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+    expect(await downloadFleetFile(url)).toEqual(
+      Result.fail("Could not download the fleet file (HTTP 404)."),
+    );
+  });
+
+  it("stops reading an endless body one byte past the limit despite its Content-Length", async () => {
+    const chunk = ageFile(16 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(chunk),
+    });
+    mocks.fetch.mockResolvedValueOnce(new Response(body, { headers: { "Content-Length": "64" } }));
+    expect(await downloadFleetFile(url)).toEqual(
+      Result.fail("That fleet enrollment file is too large."),
+    );
+  });
+
+  it("gives up on a download that never answers", async () => {
+    vi.useFakeTimers();
+    mocks.fetch.mockImplementationOnce(
+      (_url: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    const result = downloadFleetFile(url);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await result).toEqual(Result.fail("Downloading the fleet file timed out."));
   });
 });
