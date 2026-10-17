@@ -10,10 +10,11 @@ import {
   useRoute,
   type StaticScreenProps,
 } from "@react-navigation/native";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ServerFleetEnvironment } from "@t3tools/contracts";
+import * as Result from "effect/Result";
 import { AsyncResult } from "effect/reactivity";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Linking, Pressable, type ScrollViewInstance, StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
@@ -26,10 +27,13 @@ import { buildPairingUrl, extractPairingUrlFromQrPayload, parsePairingUrl } from
 import {
   setPendingConnectionError,
   useRemoteConnections,
+  useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
+import { type FleetFileRequest, FleetImportSection } from "./FleetImportSection";
+import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import { splitEnvironmentSections } from "./environmentSections";
 
 type ConnectionsNewRouteParams = {
@@ -37,7 +41,11 @@ type ConnectionsNewRouteParams = {
   readonly pairingUrl?: string;
   readonly autoConnect?: string;
   readonly routeFor?: EnvironmentId;
+  readonly fleetEnrollment?: string;
 };
+
+const fleetRequestFromParam = (value: string | undefined): FleetFileRequest | null =>
+  value === undefined ? null : { link: parseFleetEnrollmentUrl(value) };
 
 export function ConnectionsNewRouteScreen({
   route,
@@ -58,6 +66,22 @@ export function ConnectionsNewRouteScreen({
     __DEV__ &&
     routePairingUrl.length > 0 &&
     (params.autoConnect === "1" || params.autoConnect === "true");
+  // Unlike pairing prefill, an enrollment link needs no __DEV__ gate: it only
+  // opens the file, and joining still takes this device's own key and the
+  // user's confirmation of the anchor.
+  const [fleetRequest, setFleetRequest] = useState(() =>
+    fleetRequestFromParam(params.fleetEnrollment),
+  );
+  // A link that arrives while this screen is open updates its params in place.
+  const [fleetRequestParams, setFleetRequestParams] = useState(route.params);
+  if (route.params !== fleetRequestParams) {
+    setFleetRequestParams(route.params);
+    const next = fleetRequestFromParam(route.params?.fleetEnrollment);
+    if (next !== null) setFleetRequest(next);
+  }
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const fleetSectionY = useRef<number | null>(null);
+  const fleetScrollPending = useRef(false);
   const insets = useSafeAreaInsets();
   const [hostInput, setHostInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
@@ -68,6 +92,14 @@ export function ConnectionsNewRouteScreen({
   // A good scan parks the camera so it can't re-read the code over later edits.
   const [scanComplete, setScanComplete] = useState(false);
   const attemptedAutoConnectRef = useRef<string | null>(null);
+  // An imported fleet machine the user chose. Pairing must then reach that
+  // machine, so any manual edit of the address or a scan drops the choice.
+  const [importedEnvironmentId, setImportedEnvironmentId] = useState<EnvironmentId | null>(null);
+  const { savedConnectionsById } = useSavedRemoteConnections();
+  const savedEnvironmentIds = useMemo(
+    () => new Set(Object.keys(savedConnectionsById) as EnvironmentId[]),
+    [savedConnectionsById],
+  );
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
 
@@ -89,6 +121,13 @@ export function ConnectionsNewRouteScreen({
     setCodeInput(code);
   }, [routePairingUrl]);
 
+  // The sheet opens short enough to hide the import section below the scanner.
+  useEffect(() => {
+    if (fleetRequest === null) return;
+    if (fleetSectionY.current === null) fleetScrollPending.current = true;
+    else scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+  }, [fleetRequest]);
+
   useEffect(() => {
     if (pairingConnectionError) {
       setIsSubmitting(false);
@@ -97,8 +136,44 @@ export function ConnectionsNewRouteScreen({
 
   const handleHostChange = useCallback((value: string) => {
     setHostInput(value);
+    setImportedEnvironmentId(null);
     setPendingConnectionError(null);
   }, []);
+
+  // The code is cleared so a code meant for another machine is never sent to
+  // the imported address.
+  const handleImportedSelect = useCallback((environment: ServerFleetEnvironment) => {
+    setImportedEnvironmentId(environment.environmentId);
+    setHostInput(environment.httpBaseUrl);
+    setCodeInput("");
+    setScanComplete(true);
+    setPendingConnectionError(null);
+  }, []);
+
+  const handleImportedClear = useCallback(() => {
+    if (importedEnvironmentId !== null) {
+      setHostInput("");
+      setCodeInput("");
+    }
+    setImportedEnvironmentId(null);
+    setPendingConnectionError(null);
+  }, [importedEnvironmentId]);
+
+  const openSavedEnvironment = useCallback(
+    (environmentId: EnvironmentId) => {
+      navigation.navigate("SettingsSheet", {
+        screen: "SettingsContent",
+        params: { screen: "SettingsEnvironmentDetail", params: { environmentId } },
+      });
+    },
+    [navigation],
+  );
+
+  const handleEnrolled = useCallback(() => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.dispatch(StackActions.replace("Home"));
+  }, [navigation]);
 
   const handleCodeChange = useCallback((value: string) => {
     setCodeInput(value);
@@ -132,34 +207,52 @@ export function ConnectionsNewRouteScreen({
 
       setScannerLocked(true);
 
+      const rejectScan = (message: string) => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Dialog.alert("Invalid QR code", message);
+        setTimeout(() => {
+          setScannerLocked(false);
+        }, 600);
+      };
+
+      const fleetLink = parseFleetEnrollmentLink(data);
+      if (fleetLink !== null) {
+        if (Result.isFailure(fleetLink)) return rejectScan(fleetLink.failure);
+        if (params.routeFor !== undefined) {
+          return rejectScan("A fleet enrollment link can't add a route to a saved machine.");
+        }
+        setFleetRequest({ link: fleetLink });
+        setScanComplete(true);
+        setScannerLocked(false);
+        return;
+      }
+
       try {
         const pairingUrl = extractPairingUrlFromQrPayload(data);
         const { host, code } = parsePairingUrl(pairingUrl);
         setHostInput(host);
         setCodeInput(code);
+        setImportedEnvironmentId(null);
         onChangeConnectionPairingUrl(pairingUrl);
         setScanComplete(true);
         setScannerLocked(false);
       } catch (error) {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Dialog.alert(
-          "Invalid QR code",
-          error instanceof Error ? error.message : "Scanned QR code was not recognized.",
-        );
-        setTimeout(() => {
-          setScannerLocked(false);
-        }, 600);
+        rejectScan(error instanceof Error ? error.message : "Scanned QR code was not recognized.");
       }
     },
-    [onChangeConnectionPairingUrl, scannerLocked],
+    [onChangeConnectionPairingUrl, params.routeFor, scannerLocked],
   );
 
   const connectAndClose = useCallback(
-    async (pairingUrl: string, replaceWithHome: boolean) => {
+    async (
+      pairingUrl: string,
+      expectedEnvironmentId: EnvironmentId | undefined,
+      replaceWithHome: boolean,
+    ) => {
       setIsSubmitting(true);
       onChangeConnectionPairingUrl(pairingUrl);
       try {
-        const result = await onConnectPress(pairingUrl, params.routeFor);
+        const result = await onConnectPress(pairingUrl, expectedEnvironmentId);
         void Haptics.notificationAsync(
           AsyncResult.isSuccess(result)
             ? Haptics.NotificationFeedbackType.Success
@@ -176,12 +269,27 @@ export function ConnectionsNewRouteScreen({
         setIsSubmitting(false);
       }
     },
-    [navigation, onChangeConnectionPairingUrl, onConnectPress, params.routeFor],
+    [navigation, onChangeConnectionPairingUrl, onConnectPress],
   );
 
   const handleSubmit = useCallback(async () => {
-    await connectAndClose(buildPairingUrl(hostInput, codeInput), false);
-  }, [codeInput, connectAndClose, hostInput]);
+    if (importedEnvironmentId !== null && savedEnvironmentIds.has(importedEnvironmentId)) {
+      setPendingConnectionError("That machine is already saved.");
+      return;
+    }
+    await connectAndClose(
+      buildPairingUrl(hostInput, codeInput),
+      params.routeFor ?? importedEnvironmentId ?? undefined,
+      false,
+    );
+  }, [
+    codeInput,
+    connectAndClose,
+    hostInput,
+    importedEnvironmentId,
+    params.routeFor,
+    savedEnvironmentIds,
+  ]);
 
   useEffect(() => {
     if (!shouldAutoConnect || attemptedAutoConnectRef.current === routePairingUrl) {
@@ -189,8 +297,8 @@ export function ConnectionsNewRouteScreen({
     }
 
     attemptedAutoConnectRef.current = routePairingUrl;
-    void connectAndClose(routePairingUrl, true);
-  }, [connectAndClose, routePairingUrl, shouldAutoConnect]);
+    void connectAndClose(routePairingUrl, params.routeFor, true);
+  }, [connectAndClose, params.routeFor, routePairingUrl, shouldAutoConnect]);
 
   return (
     <SettingsScreen
@@ -210,6 +318,7 @@ export function ConnectionsNewRouteScreen({
       ]}
     >
       <ScrollView
+        ref={scrollRef}
         nestedScrollEnabled
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -229,6 +338,28 @@ export function ConnectionsNewRouteScreen({
               void handleScanPress();
             }}
           />
+
+          {params.routeFor === undefined ? (
+            <View
+              collapsable={false}
+              onLayout={(event) => {
+                fleetSectionY.current = event.nativeEvent.layout.y;
+                if (!fleetScrollPending.current) return;
+                fleetScrollPending.current = false;
+                scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+              }}
+            >
+              <FleetImportSection
+                savedEnvironmentIds={savedEnvironmentIds}
+                selectedEnvironmentId={importedEnvironmentId}
+                onSelect={handleImportedSelect}
+                onClearSelection={handleImportedClear}
+                onOpenSaved={openSavedEnvironment}
+                onEnrolled={handleEnrolled}
+                request={fleetRequest}
+              />
+            </View>
+          ) : null}
 
           <View collapsable={false} className="gap-2">
             <Text className="px-4 text-sm font-t3-medium text-foreground-muted">Or enter it</Text>
