@@ -10,7 +10,14 @@ import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
 import { bucketTokens, type UsageEntry } from "./usageMerge.ts";
 
 /** Fixed order: row keys and joined labels always list dimensions this way. */
-export const USAGE_DIMENSIONS = ["environment", "provider", "model", "period"] as const;
+export const USAGE_DIMENSIONS = [
+  "host",
+  "environment",
+  "provider",
+  "account",
+  "model",
+  "period",
+] as const;
 export type UsageDimension = (typeof USAGE_DIMENSIONS)[number];
 
 export type UsageTimeGrouping = "hour" | "day" | "week" | "month";
@@ -37,6 +44,9 @@ export interface UsagePivotRow extends UsageTotals {
   /** The key without the period: rows of one series across periods share it. */
   readonly seriesKey: string;
   readonly environmentId?: EnvironmentId;
+  readonly host?: string;
+  readonly accountId?: string;
+  readonly accountLabel?: string;
   readonly provider?: UsageProviderKind;
   readonly model?: string;
   readonly period?: string;
@@ -44,12 +54,18 @@ export interface UsagePivotRow extends UsageTotals {
 
 interface UsageCoordinates {
   readonly environmentId: EnvironmentId;
+  readonly host: string;
+  readonly accountId: string;
+  readonly accountLabel: string;
   readonly provider: UsageProviderKind;
   readonly model: string;
   readonly period: string;
 }
 
-type RowFields = Pick<UsagePivotRow, "environmentId" | "provider" | "model" | "period">;
+type RowFields = Pick<
+  UsagePivotRow,
+  "environmentId" | "host" | "accountId" | "accountLabel" | "provider" | "model" | "period"
+>;
 
 const DIMENSIONS: {
   readonly [Dimension in UsageDimension]: {
@@ -57,6 +73,14 @@ const DIMENSIONS: {
     readonly fields: (coordinates: UsageCoordinates) => RowFields;
   };
 } = {
+  host: {
+    identity: (c) => c.host ?? "",
+    fields: (c) => ({ host: c.host }),
+  },
+  account: {
+    identity: (c) => c.accountId ?? "",
+    fields: (c) => ({ accountId: c.accountId, accountLabel: c.accountLabel, provider: c.provider }),
+  },
   environment: {
     identity: (c) => c.environmentId ?? "",
     fields: (c) => ({ environmentId: c.environmentId }),
@@ -105,6 +129,11 @@ function coordinatesOf(entry: UsageEntry, grouping: UsageTimeGrouping): UsageCoo
   const { bucket } = entry;
   return {
     environmentId: entry.environmentId,
+    host: entry.host ?? "Unknown host",
+    accountId: entry.accountId ?? JSON.stringify([entry.host, bucket.provider, "unknown"]),
+    accountLabel:
+      entry.accountLabel ??
+      (entry.host === undefined ? "Unknown account" : `Unknown account (${entry.host})`),
     provider: bucket.provider,
     model: bucket.model,
     period:
