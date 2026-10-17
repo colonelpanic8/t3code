@@ -5185,6 +5185,12 @@ export default function ChatView(props: ChatViewProps) {
     scheduleComposerFocus();
   };
   const handleInteractionModeChangeStable = useStableCallback(handleInteractionModeChange);
+  const blankSlate = activeThread?.blankSlate === true;
+  const toggleBlankSlate = () => {
+    setDraftThreadContext(composerDraftTarget, { blankSlate: !blankSlate });
+    scheduleComposerFocus();
+  };
+  const toggleBlankSlateStable = useStableCallback(toggleBlankSlate);
   const toggleInteractionMode = () => {
     if (!interactionModeEnabled) return;
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
@@ -9517,6 +9523,7 @@ export default function ChatView(props: ChatViewProps) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
+                      ...(activeThread.blankSlate === true ? { blankSlate: true } : {}),
                     },
                   }
                 : {}),
@@ -11366,6 +11373,10 @@ export default function ChatView(props: ChatViewProps) {
                               toggleInteractionMode={toggleInteractionModeStable}
                               handleRuntimeModeChange={handleRuntimeModeChangeStable}
                               handleInteractionModeChange={handleInteractionModeChangeStable}
+                              blankSlate={blankSlate}
+                              onToggleBlankSlate={
+                                isLocalDraftThread ? toggleBlankSlateStable : undefined
+                              }
                               focusComposer={focusComposerStable}
                               scheduleComposerFocus={scheduleComposerFocusStable}
                               setThreadError={setThreadError}
