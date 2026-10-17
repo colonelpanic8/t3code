@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-export class EnvironmentQueryStore extends Context.Reference<{
+export interface QueryStore {
   readonly load: (
     environmentId: EnvironmentId,
     key: string,
@@ -14,32 +14,50 @@ export class EnvironmentQueryStore extends Context.Reference<{
     key: string,
     payload: string,
   ) => Effect.Effect<void>;
-} | null>("@t3tools/client-runtime/EnvironmentQueryStore", {
-  defaultValue: () => null,
-}) {}
+  readonly remove: (environmentId: EnvironmentId, key: string) => Effect.Effect<void>;
+}
+
+/** Platforms opt in to storing selected query responses beside their other offline data. */
+export class EnvironmentQueryStore extends Context.Reference<QueryStore | null>(
+  "@t3tools/client-runtime/EnvironmentQueryStore",
+  { defaultValue: () => null },
+) {}
+
+/**
+ * Usage summaries opt in separately, so a platform can keep them across reloads
+ * without also caching every pull request query.
+ */
+export class UsageQueryStore extends Context.Reference<QueryStore | null>(
+  "@t3tools/client-runtime/UsageQueryStore",
+  { defaultValue: () => null },
+) {}
 
 export interface QueryPersistence<A> {
   readonly load: (environmentId: EnvironmentId, key: string) => Effect.Effect<Option.Option<A>>;
   readonly save: (environmentId: EnvironmentId, key: string, value: A) => Effect.Effect<void>;
 }
 
-export function persistQuery<A, I>(schema: Schema.Codec<A, I>): QueryPersistence<A> {
+export function persistQuery<A, I>(
+  schema: Schema.Codec<A, I>,
+  storeReference: Context.Reference<QueryStore | null> = EnvironmentQueryStore,
+): QueryPersistence<A> {
   const codec = Schema.fromJsonString(Schema.toCodecJson(schema));
   return {
     load: (environmentId, key) =>
       Effect.gen(function* () {
-        const store = yield* EnvironmentQueryStore;
+        const store = yield* storeReference;
         if (store === null) return Option.none<A>();
         const stored = yield* store.load(environmentId, key);
         if (Option.isNone(stored)) return Option.none<A>();
+        // A record an older or newer client wrote can never decode here.
         return yield* Schema.decodeUnknownEffect(codec)(stored.value).pipe(
           Effect.map(Option.some),
-          Effect.catch(() => Effect.succeedNone),
+          Effect.catch(() => store.remove(environmentId, key).pipe(Effect.as(Option.none<A>()))),
         );
       }),
     save: (environmentId, key, value) =>
       Effect.gen(function* () {
-        const store = yield* EnvironmentQueryStore;
+        const store = yield* storeReference;
         if (store === null) return;
         const payload = yield* Schema.encodeEffect(codec)(value);
         yield* store.save(environmentId, key, payload);
