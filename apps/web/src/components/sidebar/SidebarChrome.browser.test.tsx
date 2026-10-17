@@ -7,11 +7,13 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, type ReactNode } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-vi.mock("../../state/environments", () => ({
+vi.mock("../../state/environments", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../state/environments")>()),
   useEnvironments: () => ({ environments: [], isReady: true }),
+  usePullRequestsSupported: () => false,
 }));
 vi.mock("./SidebarUpdatePill", () => ({
   SidebarUpdatePill: () => null,
@@ -32,15 +34,18 @@ vi.mock("../ui/sidebar", async (importOriginal) => ({
 import { SidebarBackButton, SidebarUtilityMenu } from "./SidebarChrome";
 import { MainAppLocationTracker } from "./mainAppLocation";
 
-let renderer: ReactTestRenderer | undefined;
+let root: Root | undefined;
+let container: HTMLDivElement;
 
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.append(container);
 });
 
 afterEach(async () => {
-  await act(() => renderer?.unmount());
-  vi.unstubAllGlobals();
+  await act(async () => root?.unmount());
+  root = undefined;
+  container.remove();
 });
 
 // Mirrors the Settings sidebar: Back above the sections, the footer menu without it.
@@ -76,34 +81,29 @@ async function renderAt(path: string) {
     history: createMemoryHistory({ initialEntries: [path] }),
   });
   await router.load();
-  await act(() => {
-    renderer = create(<RouterProvider router={router} />);
-  });
+  root = createRoot(container);
+  await act(async () => root!.render(<RouterProvider router={router} />));
   return router;
 }
 
 const buttonsLabelled = (label: string) =>
-  renderer!.root.findAll(
-    (node) =>
-      node.type === "button" &&
-      node.findAll((child) => child.children.includes(label)).length > 0,
-  );
+  Array.from(container.querySelectorAll("button")).filter((button) => button.textContent === label);
 
 describe("settings sidebar Back", () => {
   it("shows a single Back above the sections and returns to the last main app page", async () => {
     // The tracker remembers the thread the user left to open Settings.
     await renderAt("/threads/abc");
-    await act(() => renderer?.unmount());
+    await act(async () => root?.unmount());
     const router = await renderAt("/settings/general");
 
     const backButtons = buttonsLabelled("Back");
     expect(backButtons).toHaveLength(1);
-    expect(renderer!.root.findByProps({ "data-testid": "top" }).findAllByType("button")).toEqual(
+    expect(Array.from(container.querySelectorAll('[data-testid="top"] button'))).toEqual(
       backButtons,
     );
 
     await act(async () => {
-      backButtons[0]!.props.onClick();
+      backButtons[0]!.click();
       await router.load();
     });
     expect(router.state.location.pathname).toBe("/threads/abc");
