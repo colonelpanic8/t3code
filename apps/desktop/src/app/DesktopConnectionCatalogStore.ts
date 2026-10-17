@@ -3,7 +3,6 @@ import {
   BearerConnectionProfile,
   BearerConnectionRegistration,
   BearerConnectionTarget,
-  fleetConnectionRoot,
   isManagedConnectionTarget,
   MANAGED_CONNECTION_ID_PREFIX,
   RelayConnectionTarget,
@@ -377,7 +376,6 @@ function registerManagedConnections(
 }
 
 // Declared entries are re-registered in place so a switched-off flag survives reloads.
-// Fleet members joined at runtime are not declared here and follow their fleet instead.
 function removeStaleManagedConnections(
   catalog: RuntimeConnectionCatalogDocumentType,
   connections: ReadonlyArray<ResolvedManagedConnection>,
@@ -387,9 +385,7 @@ function removeStaleManagedConnections(
   );
   return catalog.targets.reduce(
     (current, target) =>
-      isManagedConnectionTarget(target) &&
-      fleetConnectionRoot(target.connectionId) === null &&
-      !declared.has(target.connectionId)
+      isManagedConnectionTarget(target) && !declared.has(target.connectionId)
         ? removeConnectionFromCatalog(current, target.environmentId)
         : current,
     catalog,

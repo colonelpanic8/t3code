@@ -52,8 +52,7 @@ import {
   connectionRoutes,
   connectionStatusText,
   environmentMcpUrl,
-  fleetMembersJoinedThrough,
-  isManagedConnectionEntry,
+  isManagedConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import {
   isAtomCommandInterrupted,
@@ -1530,7 +1529,7 @@ function SavedBackendListRow({
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
-  const isManagedEnvironment = isManagedConnectionEntry(environment.entry);
+  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
   // Discovery empties its map on every refresh, so hold the last descriptor
   // seen or the glyph would blink back to the generic one each time.
@@ -2770,21 +2769,13 @@ export function ConnectionsSettings() {
         setPendingT3ConnectRemoval(environment);
         return;
       }
-      const fleetMembers = fleetMembersJoinedThrough(
-        new Map(savedEnvironments.map((saved) => [saved.environmentId, saved.entry])),
-        environment.environmentId,
-      ).length;
       const confirmed = await requestConfirmDialog(
-        `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here.${
-          fleetMembers === 0
-            ? ""
-            : ` ${fleetMembers === 1 ? "The fleet machine" : `The ${fleetMembers} fleet machines`} that joined through it will be removed too.`
-        } Switch it off instead to keep it saved.`,
+        `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved.`,
         { variant: "destructive" },
       );
       if (confirmed === true) await removeSavedBackend(environment);
     },
-    [removeSavedBackend, savedEnvironments],
+    [removeSavedBackend],
   );
 
   const visibleDesktopPairingLinks = desktopPairingLinks;
