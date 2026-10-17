@@ -219,8 +219,19 @@ describe("DesktopConnectionCatalogStore", () => {
       assert.isTrue(Option.isSome(reloaded));
       if (Option.isSome(reloaded)) {
         const catalog = yield* decodeConnectionCatalog(reloaded.value);
-        assert.deepEqual(catalog.disabledEnvironmentIds, [fleetId]);
+        assert.deepEqual(catalog.disabledEnvironmentIds, []);
         assert.equal(catalog.targets.length, 1);
+      }
+
+      yield* fileSystem.writeFileString(
+        managedConnectionsPath,
+        '{"version":1,"connections":[{"environmentId":"fleet:ryzen-shine","label":"ryzen-shine","httpBaseUrl":"https://ryzen-shine/","wsBaseUrl":"wss://ryzen-shine/","token":"fleet-secret","enabled":false}]}',
+      );
+      const declaredOff = yield* store.get;
+      assert.isTrue(Option.isSome(declaredOff));
+      if (Option.isSome(declaredOff)) {
+        const catalog = yield* decodeConnectionCatalog(declaredOff.value);
+        assert.deepEqual(catalog.disabledEnvironmentIds, [fleetId]);
       }
 
       yield* fileSystem.writeFileString(managedConnectionsPath, '{"version":1,"connections":[]}');
