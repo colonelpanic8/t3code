@@ -1,26 +1,32 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
 import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
-import { decodeFleetEnrollment, type FleetEnrollment } from "@t3tools/shared/fleetEnrollment";
+  decodeFleetEnrollment,
+  type FleetEnrollment,
+  type FleetEnrollmentEntry,
+} from "@t3tools/shared/fleetEnrollment";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { AsyncResult } from "effect/reactivity";
-import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
+import * as Haptics from "expo-haptics";
+import { Fragment, type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
-import { isFleetEnrollmentExpired } from "../../connection/fleet-enrollment";
+import {
+  failedFleetEntries,
+  type FleetJoinOutcome,
+  type FleetJoinOutcomes,
+  isFleetEnrollmentEntryExpired,
+} from "../../connection/fleet-enrollment";
 import { connectFleetEnrollment } from "../../connection/onboarding";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { RequestActionButton } from "../threads/RequestActionButton";
 import { FleetEnrollmentKeyField } from "./FleetEnrollmentKeyField";
 import { decryptFleetEnrollmentFile } from "./fleetEnrollmentKey";
 import type { FleetEnrollmentUrl } from "./fleetEnrollmentLink";
-import { downloadFleetFile, pickFleetImportFile } from "./fleetImportFile";
+import { downloadFleetEnrollmentFile, pickFleetEnrollmentFile } from "./fleetEnrollmentFile";
 
 /**
  * A scanned or deep-linked fleet file to open, or why its link was rejected.
@@ -34,33 +40,37 @@ type FleetFileState =
   | { readonly step: "download"; readonly host: string }
   /** An encrypted file waiting for the key that opens it. */
   | { readonly step: "key"; readonly bytes: Uint8Array }
-  | { readonly step: "confirm"; readonly enrollment: FleetEnrollment };
+  /** Outcomes stay empty until the user joins, then hold each machine's latest attempt. */
+  | {
+      readonly step: "confirm";
+      readonly enrollment: FleetEnrollment;
+      readonly outcomes: FleetJoinOutcomes;
+    };
 
 const expiryFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
-const formatExpiry = (enrollment: FleetEnrollment) =>
-  expiryFormatter.format(DateTime.toDateUtc(enrollment.expiresAt));
+const formatDate = (date: DateTime.Utc) => expiryFormatter.format(DateTime.toDateUtc(date));
 
-function enrollmentFailureMessage(error: unknown): string {
-  if (
-    error !== null &&
-    typeof error === "object" &&
-    "_tag" in error &&
-    error._tag === "ConnectionBlockedError" &&
-    "reason" in error &&
-    error.reason === "authentication"
-  ) {
-    return "This fleet enrollment was revoked or has expired. Export a new one.";
+const hostOf = (entry: FleetEnrollmentEntry) => new URL(entry.environment.httpBaseUrl).host;
+
+function outcomeLabel(outcome: FleetJoinOutcome): string {
+  switch (outcome.kind) {
+    case "joined":
+      return "Joined";
+    case "already-connected":
+      return "Already connected";
+    case "expired":
+      return "Expired";
+    case "failed":
+      return outcome.message;
   }
-  return error instanceof Error ? error.message : "Could not join the fleet.";
 }
 
 /**
  * Imports an encrypted fleet enrollment, opened with this device's fleet
- * enrollment key, and pairs its machine once the user confirms it.
+ * enrollment key, and pairs every machine in it once the user confirms.
  */
-export function FleetImportSection(props: {
-  readonly onOpenSaved: (environmentId: EnvironmentId) => void;
-  readonly onEnrolled: () => void;
+export function FleetEnrollmentSection(props: {
+  readonly onDone: () => void;
   readonly request: FleetFileRequest | null;
 }) {
   const [state, setState] = useState<FleetFileState>({ step: "pick" });
@@ -100,13 +110,20 @@ export function FleetImportSection(props: {
     const decoded = decodeFleetEnrollment(decrypted.success);
     if (Result.isFailure(decoded)) {
       show({ step: "pick" }, decoded.failure.message);
-    } else if (isFleetEnrollmentExpired(decoded.success, DateTime.nowUnsafe())) {
+      return;
+    }
+    const { environments } = decoded.success;
+    const now = DateTime.nowUnsafe();
+    if (environments.every((entry) => isFleetEnrollmentEntryExpired(entry, now))) {
+      const lastExpiry = environments
+        .map((entry) => entry.expiresAt)
+        .reduce((latest, next) => DateTime.max(latest, next));
       show(
         { step: "pick" },
-        `This fleet enrollment expired on ${formatExpiry(decoded.success)}. Export a new one.`,
+        `This fleet enrollment expired on ${formatDate(lastExpiry)}. Export a new one.`,
       );
     } else {
-      show({ step: "confirm", enrollment: decoded.success });
+      show({ step: "confirm", enrollment: decoded.success, outcomes: new Map() });
     }
   };
 
@@ -128,7 +145,7 @@ export function FleetImportSection(props: {
 
   const handleImport = () =>
     run(async () => {
-      const result = await pickFleetImportFile();
+      const result = await pickFleetEnrollmentFile();
       if (result !== null) await openFile(result);
     });
 
@@ -141,7 +158,7 @@ export function FleetImportSection(props: {
     void run(async () => {
       show({ step: "download", host: new URL(url).host });
       try {
-        await openFile(await downloadFleetFile(url));
+        await openFile(await downloadFleetEnrollmentFile(url));
       } catch (cause) {
         show({ step: "pick" });
         throw cause;
@@ -158,15 +175,24 @@ export function FleetImportSection(props: {
     openRequest(request);
   }, [busy, props.request]);
 
-  const handleJoin = (enrollment: FleetEnrollment) =>
+  const handleJoin = (
+    enrollment: FleetEnrollment,
+    outcomes: FleetJoinOutcomes,
+    entries: ReadonlyArray<FleetEnrollmentEntry>,
+  ) =>
     run(async () => {
-      const result = await enroll(enrollment);
+      const result = await enroll(entries);
       if (!mounted.current) return;
       if (AsyncResult.isSuccess(result)) {
-        if (result.value === "enrolled") props.onEnrolled();
-        else props.onOpenSaved(enrollment.anchor.environmentId);
+        const next = new Map([...outcomes, ...result.value]);
+        void Haptics.notificationAsync(
+          failedFleetEntries(enrollment.environments, next).length > 0
+            ? Haptics.NotificationFeedbackType.Error
+            : Haptics.NotificationFeedbackType.Success,
+        );
+        show({ step: "confirm", enrollment, outcomes: next });
       } else if (!isAtomCommandInterrupted(result)) {
-        setError(enrollmentFailureMessage(squashAtomCommandFailure(result)));
+        setError("Could not join the fleet. Try again.");
       }
     });
 
@@ -209,7 +235,7 @@ export function FleetImportSection(props: {
       );
     case "key":
       return (
-        <FleetFileCard title="Fleet enrollment key" onCancel={handleClear} busy={busy}>
+        <FleetFileCard title="Fleet enrollment key" onDismiss={handleClear} busy={busy}>
           <Text className="px-4 pt-4 text-sm leading-normal text-foreground-muted">
             This file is encrypted. Paste the fleet enrollment key from your backup to open it.
           </Text>
@@ -218,32 +244,82 @@ export function FleetImportSection(props: {
         </FleetFileCard>
       );
     case "confirm": {
-      const { anchor } = state.enrollment;
+      const { enrollment, outcomes } = state;
+      const attempted = outcomes.size > 0;
+      const failed = failedFleetEntries(enrollment.environments, outcomes);
+      const now = DateTime.nowUnsafe();
+      const pending = enrollment.environments.filter(
+        (entry) => !isFleetEnrollmentEntryExpired(entry, now),
+      );
+      const firstExpiry = (pending.length > 0 ? pending : enrollment.environments)
+        .map((entry) => entry.expiresAt)
+        .reduce((earliest, next) => DateTime.min(earliest, next));
+      const action = !attempted
+        ? {
+            label: pending.length <= 1 ? "Join" : `Join ${pending.length} machines`,
+            onPress: () => void handleJoin(enrollment, outcomes, enrollment.environments),
+          }
+        : failed.length > 0
+          ? {
+              label: failed.length === 1 ? "Retry failed machine" : `Retry ${failed.length} failed`,
+              onPress: () => void handleJoin(enrollment, outcomes, failed),
+            }
+          : { label: "Done", onPress: props.onDone };
       return (
         <View collapsable={false} className="gap-2">
-          <FleetFileCard title="Fleet enrollment" onCancel={handleClear} busy={busy}>
-            <View className="gap-1 p-4">
-              <Text className="text-base text-foreground">Join fleet via {anchor.label}</Text>
-              <Text className="text-sm text-foreground-muted" numberOfLines={1}>
-                {anchor.httpBaseUrl}
-              </Text>
+          <FleetFileCard
+            title="Fleet enrollment"
+            dismissLabel={attempted ? "Done" : "Cancel"}
+            onDismiss={attempted ? props.onDone : handleClear}
+            busy={busy}
+          >
+            {enrollment.environments.map((entry, index) => {
+              const outcome =
+                outcomes.get(entry.environment.environmentId) ??
+                (isFleetEnrollmentEntryExpired(entry, now) ? { kind: "expired" as const } : null);
+              return (
+                <Fragment key={entry.environment.environmentId}>
+                  {index > 0 ? <View className="ml-4 border-t border-border-subtle" /> : null}
+                  <View className="gap-0.5 px-4 py-3">
+                    <Text className="text-base text-foreground" numberOfLines={1}>
+                      {entry.environment.label}
+                    </Text>
+                    <Text className="text-sm text-foreground-muted" numberOfLines={1}>
+                      {hostOf(entry)}
+                    </Text>
+                    {outcome === null ? null : (
+                      <Text
+                        accessibilityLiveRegion="polite"
+                        className={
+                          outcome.kind === "failed" || outcome.kind === "expired"
+                            ? "text-sm text-danger-foreground"
+                            : "text-sm text-foreground-muted"
+                        }
+                      >
+                        {outcomeLabel(outcome)}
+                      </Text>
+                    )}
+                  </View>
+                </Fragment>
+              );
+            })}
+            <View className="gap-3 border-t border-border-subtle p-4">
               <Text className="text-sm text-foreground-muted">
-                Expires {formatExpiry(state.enrollment)}
+                Expires {formatDate(firstExpiry)}
               </Text>
-            </View>
-            <View className="px-4 pb-4">
               <RequestActionButton
-                label={busy ? "Joining…" : "Join fleet"}
+                label={busy ? "Joining…" : action.label}
                 disabled={busy}
-                onPress={() => void handleJoin(state.enrollment)}
+                onPress={action.onPress}
               />
             </View>
           </FleetFileCard>
-          {errorText ?? (
-            <Text className="px-4 text-sm leading-normal text-foreground-muted">
-              Only join if you expected this machine.
-            </Text>
-          )}
+          {errorText ??
+            (attempted ? null : (
+              <Text className="px-4 text-sm leading-normal text-foreground-muted">
+                Only join if you expected these machines.
+              </Text>
+            ))}
         </View>
       );
     }
@@ -252,7 +328,8 @@ export function FleetImportSection(props: {
 
 function FleetFileCard(props: {
   readonly title: string;
-  readonly onCancel: () => void;
+  readonly dismissLabel?: string;
+  readonly onDismiss: () => void;
   readonly busy: boolean;
   readonly children: ReactNode;
 }) {
@@ -262,11 +339,13 @@ function FleetFileCard(props: {
         <Text className="text-sm font-t3-medium text-foreground-muted">{props.title}</Text>
         <Pressable
           accessibilityRole="button"
-          onPress={props.onCancel}
+          onPress={props.onDismiss}
           disabled={props.busy}
           hitSlop={8}
         >
-          <Text className="text-sm font-t3-medium text-foreground-muted">Cancel</Text>
+          <Text className="text-sm font-t3-medium text-foreground-muted">
+            {props.dismissLabel ?? "Cancel"}
+          </Text>
         </Pressable>
       </View>
       <View

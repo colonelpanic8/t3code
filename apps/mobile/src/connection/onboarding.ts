@@ -4,10 +4,10 @@ import {
   createRuntimeCommand,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
-import type { FleetEnrollment } from "@t3tools/shared/fleetEnrollment";
+import type { FleetEnrollmentEntry } from "@t3tools/shared/fleetEnrollment";
 import * as Effect from "effect/Effect";
 
-import { enrollThroughFleetAnchor } from "./fleet-enrollment";
+import { joinFleetEnrollment } from "./fleet-enrollment";
 import { connectionAtomRuntime } from "./runtime";
 
 const onboardingScheduler = createAtomCommandScheduler();
@@ -36,9 +36,10 @@ export const connectFleetEnrollment = createRuntimeCommand(connectionAtomRuntime
   scheduler: onboardingScheduler,
   concurrency: {
     mode: "singleFlight",
-    key: (enrollment: FleetEnrollment) => enrollment.anchor.environmentId,
+    key: (entries: ReadonlyArray<FleetEnrollmentEntry>) =>
+      JSON.stringify(entries.map((entry) => entry.environment.environmentId).sort()),
   },
-  execute: enrollThroughFleetAnchor,
+  execute: joinFleetEnrollment,
 });
 
 export const updateBearerConnection = createRuntimeCommand(connectionAtomRuntime, {
