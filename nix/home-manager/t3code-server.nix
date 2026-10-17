@@ -284,6 +284,10 @@ in {
         Service = {
           Type = "simple";
           ExecStart = "${serverCommand}";
+          # ExecStart is a store path, so the default identifier changes with every build.
+          SyslogIdentifier = "t3code-headless";
+          # The server exits 130 when systemd interrupts it to stop.
+          SuccessExitStatus = 130;
           Restart = "always";
           RestartSec = 5;
           TimeoutStopSec = 15;
