@@ -286,7 +286,6 @@ import {
   DeviceSession,
   DeviceShutdownInput,
 } from "./device.ts";
-import {} from "./previewAutomation.ts";
 import {
   ServerConfigStreamEvent,
   DesktopUpdateCommitInput,
@@ -369,6 +368,17 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  VoiceLiveError,
+  VoiceLiveRouteRespondResult,
+  VoiceLiveRouteResponse,
+  VoiceLiveStartInput,
+  VoiceLiveStopInput,
+  VoiceLiveStopResult,
+  VoiceLiveStreamEvent,
+  VoiceLiveToolExecuteInput,
+  VoiceLiveToolExecuteResult,
+} from "./voice.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
@@ -556,6 +566,11 @@ export const WS_METHODS = {
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
   subscribeProjectClones: "subscribeProjectClones",
+
+  voiceLiveStart: "voice.live.start",
+  voiceLiveStop: "voice.live.stop",
+  voiceLiveRouteRespond: "voice.live.respond",
+  voiceLiveToolExecute: "voice.live.tool.execute",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeWorktreeSetup: "subscribeWorktreeSetup",
@@ -1844,6 +1859,31 @@ const WsSubscribeResourceTelemetryRpc = Rpc.make(WS_METHODS.subscribeResourceTel
   stream: true,
 });
 
+export const WsVoiceLiveStartRpc = Rpc.make(WS_METHODS.voiceLiveStart, {
+  payload: VoiceLiveStartInput,
+  success: VoiceLiveStreamEvent,
+  error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsVoiceLiveStopRpc = Rpc.make(WS_METHODS.voiceLiveStop, {
+  payload: VoiceLiveStopInput,
+  success: VoiceLiveStopResult,
+  error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
+});
+
+export const WsVoiceLiveRouteRespondRpc = Rpc.make(WS_METHODS.voiceLiveRouteRespond, {
+  payload: VoiceLiveRouteResponse,
+  success: VoiceLiveRouteRespondResult,
+  error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
+});
+
+export const WsVoiceLiveToolExecuteRpc = Rpc.make(WS_METHODS.voiceLiveToolExecute, {
+  payload: VoiceLiveToolExecuteInput,
+  success: VoiceLiveToolExecuteResult,
+  error: Schema.Union([VoiceLiveError, EnvironmentAuthorizationError]),
+});
+
 export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthorization>()(
   "t3/contracts/RpcScopeAuthorization",
   { error: EnvironmentAuthorizationError },
@@ -2029,6 +2069,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeAuthAccessRpc,
   WsSubscribeBackgroundPolicyRpc,
   WsSubscribeResourceTelemetryRpc,
+  WsVoiceLiveStartRpc,
+  WsVoiceLiveStopRpc,
+  WsVoiceLiveRouteRespondRpc,
+  WsVoiceLiveToolExecuteRpc,
   WsOrchestrationV2DispatchCommandRpc,
   WsOrchestrationV2GetWorkflowScriptRpc,
   WsOrchestrationV2StopWorkflowRpc,
