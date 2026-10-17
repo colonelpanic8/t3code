@@ -3,6 +3,7 @@ import { decodeFleetEnrollment } from "@t3tools/shared/fleetEnrollment";
 import * as NetService from "@t3tools/shared/Net";
 import { expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as Effect from "effect/Effect";
@@ -19,12 +20,12 @@ import { makeCli } from "../binCli.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveCliAuthConfig } from "./config.ts";
 
-const ENVIRONMENT_ID = "env-anchor";
-const ANCHOR = {
+const ENVIRONMENT_ID = "env-self";
+const SELF = {
   environmentId: ENVIRONMENT_ID,
-  label: "anchor",
-  httpBaseUrl: "https://anchor.example.ts.net/",
-  wsBaseUrl: "wss://anchor.example.ts.net/",
+  label: "self",
+  httpBaseUrl: "https://self.example.ts.net/",
+  wsBaseUrl: "wss://self.example.ts.net/",
 };
 
 // The agent running these tests may itself export T3CODE_* variables.
@@ -82,7 +83,7 @@ printf -- '-----BEGIN AGE ENCRYPTED FILE-----\\n' > "$out"
 
 const setUp = (options: {
   readonly writeEnvironmentId?: boolean;
-  readonly anchor?: typeof ANCHOR;
+  readonly entry?: typeof SELF;
   readonly age?: Parameters<typeof writeFakeAge>[1];
 }) =>
   Effect.gen(function* () {
@@ -100,7 +101,7 @@ const setUp = (options: {
       JSON.stringify({
         version: 1,
         environments: [
-          options.anchor ?? ANCHOR,
+          options.entry ?? SELF,
           {
             environmentId: "env-other",
             label: "other",
@@ -159,21 +160,29 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
         const printed = (yield* TestConsole.logLines).join("\n");
         const summary = JSON.parse(printed) as {
           readonly id: string;
-          readonly anchor: { readonly environmentId: string };
+          readonly environment: { readonly environmentId: string };
           readonly path: string;
         };
 
         expect(yield* fileSystem.readFileString(output)).toContain("BEGIN AGE ENCRYPTED FILE");
         expect(yield* fileSystem.readDirectory(outputDirectory)).toEqual(["fleet.age"]);
-        expect(summary.anchor.environmentId).toBe(ENVIRONMENT_ID);
+        expect(summary.environment.environmentId).toBe(ENVIRONMENT_ID);
         expect(summary.path).toBe(output);
 
-        const decoded = decodeFleetEnrollment(yield* fileSystem.readFile(age.capture));
+        const plaintext = yield* fileSystem.readFile(age.capture);
+        const decoded = decodeFleetEnrollment(plaintext);
         if (Result.isFailure(decoded)) {
           return yield* Effect.die(decoded.failure);
         }
-        const credential = Redacted.value(decoded.success.credential);
-        expect(decoded.success.anchor).toEqual(ANCHOR);
+        const [entry, ...others] = decoded.success.environments;
+        const credential = Redacted.value(entry.credential);
+        // Exactly one entry for this server, in the shape bundles concatenate.
+        expect(JSON.parse(new TextDecoder().decode(plaintext))).toEqual({
+          version: 2,
+          type: "t3code.fleet-enrollment",
+          environments: [{ ...SELF, credential, expiresAt: DateTime.formatIso(entry.expiresAt) }],
+        });
+        expect(others).toEqual([]);
         expect(printed).not.toContain(credential);
 
         const redeemed = yield* withAuth(config, (auth) =>
@@ -300,19 +309,19 @@ it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
       { name: "the server has no environment ID", setup: { writeEnvironmentId: false } },
       {
         name: "the manifest has no entry for this server",
-        setup: { anchor: { ...ANCHOR, environmentId: "env-elsewhere" } },
+        setup: { entry: { ...SELF, environmentId: "env-elsewhere" } },
       },
       {
-        name: "the anchor URLs carry credentials",
-        setup: { anchor: { ...ANCHOR, httpBaseUrl: "https://user@anchor.example.ts.net/" } },
+        name: "the entry URLs carry credentials",
+        setup: { entry: { ...SELF, httpBaseUrl: "https://user@self.example.ts.net/" } },
       },
       {
-        name: "the anchor HTTP URL has a base path",
-        setup: { anchor: { ...ANCHOR, httpBaseUrl: "https://anchor.example.ts.net/t3" } },
+        name: "the entry HTTP URL has a base path",
+        setup: { entry: { ...SELF, httpBaseUrl: "https://self.example.ts.net/t3" } },
       },
       {
-        name: "the anchor WebSocket URL has a base path",
-        setup: { anchor: { ...ANCHOR, wsBaseUrl: "wss://anchor.example.ts.net/t3" } },
+        name: "the entry WebSocket URL has a base path",
+        setup: { entry: { ...SELF, wsBaseUrl: "wss://self.example.ts.net/t3" } },
       },
     ])("mints and writes nothing when $name", ({ setup }) =>
       Effect.gen(function* () {
