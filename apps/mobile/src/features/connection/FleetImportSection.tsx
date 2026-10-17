@@ -8,7 +8,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { AsyncResult } from "effect/reactivity";
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -19,10 +19,19 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { RequestActionButton } from "../threads/RequestActionButton";
 import { FleetEnrollmentKeyField } from "./FleetEnrollmentKeyField";
 import { decryptFleetEnrollmentFile } from "./fleetEnrollmentKey";
-import { pickFleetImportFile } from "./fleetImportFile";
+import type { FleetEnrollmentUrl } from "./fleetEnrollmentLink";
+import { downloadFleetFile, type FleetFile, pickFleetImportFile } from "./fleetImportFile";
+
+/**
+ * A scanned or deep-linked fleet file to open, or why its link was rejected.
+ * Each arrival is a new object, so the same link opens again after the user
+ * cancels it.
+ */
+export type FleetFileRequest = { readonly link: Result.Result<FleetEnrollmentUrl, string> };
 
 type FleetFileState =
   | { readonly step: "pick" }
+  | { readonly step: "download"; readonly host: string }
   | { readonly step: "inventory"; readonly environments: ReadonlyArray<ServerFleetEnvironment> }
   /** An encrypted file waiting for the key that opens it. */
   | { readonly step: "key"; readonly bytes: Uint8Array }
@@ -60,6 +69,7 @@ export function FleetImportSection(props: {
   readonly onClearSelection: () => void;
   readonly onOpenSaved: (environmentId: EnvironmentId) => void;
   readonly onEnrolled: () => void;
+  readonly request: FleetFileRequest | null;
 }) {
   const [state, setState] = useState<FleetFileState>({ step: "pick" });
   const [error, setError] = useState<string | null>(null);
@@ -119,15 +129,45 @@ export function FleetImportSection(props: {
     }
   };
 
+  const openFile = async (result: Result.Result<FleetFile, string>) => {
+    if (Result.isFailure(result)) show({ step: "pick" }, result.failure);
+    else if (result.success.kind === "inventory") {
+      show({ step: "inventory", environments: result.success.environments });
+    } else await openEnrollment(result.success.bytes);
+  };
+
   const handleImport = () =>
     run(async () => {
       const result = await pickFleetImportFile();
-      if (result === null) return;
-      if (Result.isFailure(result)) show({ step: "pick" }, result.failure);
-      else if (result.success.kind === "inventory") {
-        show({ step: "inventory", environments: result.success.environments });
-      } else await openEnrollment(result.success.bytes);
+      if (result !== null) await openFile(result);
     });
+
+  const openRequest = useEffectEvent((request: FleetFileRequest) => {
+    props.onClearSelection();
+    if (Result.isFailure(request.link)) {
+      show({ step: "pick" }, request.link.failure);
+      return;
+    }
+    const url = request.link.success;
+    void run(async () => {
+      show({ step: "download", host: new URL(url).host });
+      try {
+        await openFile(await downloadFleetFile(url));
+      } catch (cause) {
+        show({ step: "pick" });
+        throw cause;
+      }
+    });
+  });
+  // A request that arrives mid-action waits for it, then replaces whatever
+  // file is open.
+  const handledRequest = useRef<FleetFileRequest | null>(null);
+  useEffect(() => {
+    const request = props.request;
+    if (request === null || request === handledRequest.current || busy) return;
+    handledRequest.current = request;
+    openRequest(request);
+  }, [busy, props.request]);
 
   const handleJoin = (enrollment: FleetEnrollment) =>
     run(async () => {
@@ -154,6 +194,7 @@ export function FleetImportSection(props: {
 
   switch (state.step) {
     case "pick":
+    case "download":
       return (
         <View collapsable={false} className="gap-2">
           <Pressable
@@ -171,7 +212,9 @@ export function FleetImportSection(props: {
             <View className="min-w-0 flex-1 py-3">
               <Text className="text-base text-foreground">Import fleet file</Text>
               <Text className="text-sm text-foreground-muted">
-                Choose a machine from your fleet, or join it with an enrollment file.
+                {state.step === "download"
+                  ? `Opening fleet file from ${state.host}…`
+                  : "Choose a machine from your fleet, or join it with an enrollment file."}
               </Text>
             </View>
           </Pressable>
