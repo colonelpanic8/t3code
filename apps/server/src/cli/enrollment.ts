@@ -1,4 +1,4 @@
-import type { ServerFleetEnvironment } from "@t3tools/contracts";
+import { ServerFleetEnvironment } from "@t3tools/contracts";
 import { encodeFleetEnrollment, isPlainFleetEndpointPair } from "@t3tools/shared/fleetEnrollment";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Console from "effect/Console";
@@ -22,7 +22,6 @@ import { Command, Flag, GlobalFlag } from "effect/cli";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import type * as PairingGrantStore from "../auth/PairingGrantStore.ts";
 import * as ServerConfig from "../config.ts";
-import * as FleetManifest from "../environment/FleetManifest.ts";
 import { authLocationFlags, DurationFromString, resolveCliAuthConfig } from "./config.ts";
 
 const DEFAULT_ENROLLMENT_TTL = Duration.days(365);
@@ -92,9 +91,12 @@ class FleetEnrollmentOutputError extends Schema.TaggedError<FleetEnrollmentOutpu
   }
 }
 
-const decodeFleetManifest = Schema.decodeEffect(
-  fromLenientJson(FleetManifest.FleetManifestDocument),
-);
+/** The operator's non-secret list of fleet environments; export reads only this server's entry. */
+const FleetManifestDocument = Schema.Struct({
+  version: Schema.Literal(1),
+  environments: Schema.Array(ServerFleetEnvironment),
+});
+const decodeFleetManifest = Schema.decodeEffect(fromLenientJson(FleetManifestDocument));
 
 // age exits before reading stdin when it rejects its arguments, so a failed
 // stdin write only matters when age otherwise reports success.

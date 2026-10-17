@@ -1,4 +1,4 @@
-import type { EnvironmentId, ServerFleetEnvironment } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -8,7 +8,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { AsyncResult } from "effect/reactivity";
-import { Fragment, type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -20,7 +20,7 @@ import { RequestActionButton } from "../threads/RequestActionButton";
 import { FleetEnrollmentKeyField } from "./FleetEnrollmentKeyField";
 import { decryptFleetEnrollmentFile } from "./fleetEnrollmentKey";
 import type { FleetEnrollmentUrl } from "./fleetEnrollmentLink";
-import { downloadFleetFile, type FleetFile, pickFleetImportFile } from "./fleetImportFile";
+import { downloadFleetFile, pickFleetImportFile } from "./fleetImportFile";
 
 /**
  * A scanned or deep-linked fleet file to open, or why its link was rejected.
@@ -32,7 +32,6 @@ export type FleetFileRequest = { readonly link: Result.Result<FleetEnrollmentUrl
 type FleetFileState =
   | { readonly step: "pick" }
   | { readonly step: "download"; readonly host: string }
-  | { readonly step: "inventory"; readonly environments: ReadonlyArray<ServerFleetEnvironment> }
   /** An encrypted file waiting for the key that opens it. */
   | { readonly step: "key"; readonly bytes: Uint8Array }
   | { readonly step: "confirm"; readonly enrollment: FleetEnrollment };
@@ -56,17 +55,10 @@ function enrollmentFailureMessage(error: unknown): string {
 }
 
 /**
- * Imports a fleet file. A plain file lists the machines of a fleet so the user
- * can pair one at its declared address; importing it saves and contacts
- * nothing, and a machine already saved links to its settings instead. An
- * encrypted enrollment is opened with this device's fleet enrollment key and,
- * once the user confirms its anchor, joins the fleet through that machine.
+ * Imports an encrypted fleet enrollment, opened with this device's fleet
+ * enrollment key, and pairs its machine once the user confirms it.
  */
 export function FleetImportSection(props: {
-  readonly savedEnvironmentIds: ReadonlySet<EnvironmentId>;
-  readonly selectedEnvironmentId: EnvironmentId | null;
-  readonly onSelect: (environment: ServerFleetEnvironment) => void;
-  readonly onClearSelection: () => void;
   readonly onOpenSaved: (environmentId: EnvironmentId) => void;
   readonly onEnrolled: () => void;
   readonly request: FleetFileRequest | null;
@@ -129,11 +121,9 @@ export function FleetImportSection(props: {
     }
   };
 
-  const openFile = async (result: Result.Result<FleetFile, string>) => {
+  const openFile = async (result: Result.Result<Uint8Array, string>) => {
     if (Result.isFailure(result)) show({ step: "pick" }, result.failure);
-    else if (result.success.kind === "inventory") {
-      show({ step: "inventory", environments: result.success.environments });
-    } else await openEnrollment(result.success.bytes);
+    else await openEnrollment(result.success);
   };
 
   const handleImport = () =>
@@ -143,7 +133,6 @@ export function FleetImportSection(props: {
     });
 
   const openRequest = useEffectEvent((request: FleetFileRequest) => {
-    props.onClearSelection();
     if (Result.isFailure(request.link)) {
       show({ step: "pick" }, request.link.failure);
       return;
@@ -181,10 +170,7 @@ export function FleetImportSection(props: {
       }
     });
 
-  const handleClear = () => {
-    show({ step: "pick" });
-    props.onClearSelection();
-  };
+  const handleClear = () => show({ step: "pick" });
 
   const errorText = error ? (
     <Text accessibilityLiveRegion="polite" className="px-4 text-sm text-danger-foreground">
@@ -214,7 +200,7 @@ export function FleetImportSection(props: {
               <Text className="text-sm text-foreground-muted">
                 {state.step === "download"
                   ? `Opening fleet file from ${state.host}…`
-                  : "Choose a machine from your fleet, or join it with an enrollment file."}
+                  : "Join your fleet with an encrypted enrollment file."}
               </Text>
             </View>
           </Pressable>
@@ -255,15 +241,12 @@ export function FleetImportSection(props: {
           </FleetFileCard>
           {errorText ?? (
             <Text className="px-4 text-sm leading-normal text-foreground-muted">
-              Only join if you expected this machine. The other machines in its fleet are added once
-              it connects.
+              Only join if you expected this machine.
             </Text>
           )}
         </View>
       );
     }
-    case "inventory":
-      return <InventoryList {...props} environments={state.environments} onClear={handleClear} />;
   }
 }
 
@@ -292,85 +275,6 @@ function FleetFileCard(props: {
       >
         {props.children}
       </View>
-    </View>
-  );
-}
-
-function InventoryList(props: {
-  readonly environments: ReadonlyArray<ServerFleetEnvironment>;
-  readonly savedEnvironmentIds: ReadonlySet<EnvironmentId>;
-  readonly selectedEnvironmentId: EnvironmentId | null;
-  readonly onSelect: (environment: ServerFleetEnvironment) => void;
-  readonly onClearSelection: () => void;
-  readonly onOpenSaved: (environmentId: EnvironmentId) => void;
-  readonly onClear: () => void;
-}) {
-  return (
-    <View collapsable={false} className="gap-2">
-      <View className="flex-row items-center justify-between px-4">
-        <Text className="text-sm font-t3-medium text-foreground-muted">From fleet file</Text>
-        <Pressable accessibilityRole="button" onPress={props.onClear} hitSlop={8}>
-          <Text className="text-sm font-t3-medium text-foreground-muted">Clear</Text>
-        </Pressable>
-      </View>
-      <View
-        collapsable={false}
-        className="overflow-hidden rounded-[26px] border-continuous bg-grouped-card"
-      >
-        {props.environments.map((environment, index) => {
-          const saved = props.savedEnvironmentIds.has(environment.environmentId);
-          const selected = !saved && props.selectedEnvironmentId === environment.environmentId;
-          return (
-            <Fragment key={environment.environmentId}>
-              {index > 0 ? <View className="ml-4 border-t border-border-subtle" /> : null}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  if (saved) props.onOpenSaved(environment.environmentId);
-                  else if (selected) props.onClearSelection();
-                  else props.onSelect(environment);
-                }}
-                className="min-h-13 flex-row items-center gap-3 px-4 active:opacity-70"
-              >
-                <View className="min-w-0 flex-1 py-3">
-                  <Text className="text-base text-foreground" numberOfLines={1}>
-                    {environment.label}
-                  </Text>
-                  <Text className="text-sm text-foreground-muted" numberOfLines={1}>
-                    {environment.httpBaseUrl}
-                  </Text>
-                </View>
-                {saved ? (
-                  <>
-                    <Text className="text-sm text-foreground-muted">Already saved</Text>
-                    <SymbolView
-                      name="chevron.right"
-                      size={14}
-                      tintColorClassName="accent-chevron"
-                      type="monochrome"
-                      weight="semibold"
-                    />
-                  </>
-                ) : selected ? (
-                  <SymbolView
-                    name="checkmark"
-                    size={14}
-                    tintColorClassName="accent-icon"
-                    type="monochrome"
-                    weight="semibold"
-                  />
-                ) : null}
-              </Pressable>
-            </Fragment>
-          );
-        })}
-      </View>
-      <Text className="px-4 text-sm leading-normal text-foreground-muted">
-        {props.selectedEnvironmentId === null
-          ? "Choose a machine to pair."
-          : "Enter the pairing code shown on that machine below."}
-      </Text>
     </View>
   );
 }

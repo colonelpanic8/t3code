@@ -607,13 +607,6 @@ export const ServerConfig = Schema.Struct({
    * before using it.
    */
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
-  /**
-   * The fleet this environment belongs to, itself included, as its operator
-   * declared it. A client paired here joins the others through
-   * `server.issueFleetHandoff` instead of pairing each one. Absent when no
-   * fleet is configured.
-   */
-  fleet: Schema.optionalKey(ForwardCompatibleArray(ServerFleetEnvironment)),
   observability: ServerObservability,
   settings: ServerSettings,
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),

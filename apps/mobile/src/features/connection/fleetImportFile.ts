@@ -1,8 +1,3 @@
-import {
-  decodeFleetImport,
-  FLEET_IMPORT_MAX_BYTES,
-} from "@t3tools/client-runtime/connection/fleet-import";
-import type { ServerFleetEnvironment } from "@t3tools/contracts";
 import * as Result from "effect/Result";
 import { fetch } from "expo/fetch";
 
@@ -11,18 +6,14 @@ import { isAgeEncryptedFile } from "./fleetEnrollmentKey";
 import type { FleetEnrollmentUrl } from "./fleetEnrollmentLink";
 
 const DOWNLOAD_TIMEOUT_MS = 15_000;
-
-export type FleetFile =
-  | { readonly kind: "inventory"; readonly environments: ReadonlyArray<ServerFleetEnvironment> }
-  /** An age-encrypted enrollment, still to be decrypted and confirmed. */
-  | { readonly kind: "enrollment"; readonly bytes: Uint8Array };
+export const FLEET_ENROLLMENT_FILE_MAX_BYTES = 64 * 1024;
 
 /**
- * Lets the user pick a fleet file, either a plain inventory or an encrypted
- * enrollment. Reads stop one byte past the size limit, so an oversized pick is
- * never loaded whole. Resolves null when the user cancels.
+ * Lets the user pick an encrypted fleet enrollment. Reads stop one byte past
+ * the size limit, so an oversized pick is never loaded whole. Resolves null
+ * when the user cancels.
  */
-export async function pickFleetImportFile(): Promise<Result.Result<FleetFile, string> | null> {
+export async function pickFleetImportFile(): Promise<Result.Result<Uint8Array, string> | null> {
   const endHandoff = beginForegroundHandoff();
   let uri: string;
   try {
@@ -40,11 +31,11 @@ export async function pickFleetImportFile(): Promise<Result.Result<FleetFile, st
 
   let bytes: Uint8Array;
   try {
-    bytes = await readAndDeleteCacheCopy(uri, FLEET_IMPORT_MAX_BYTES + 1);
+    bytes = await readAndDeleteCacheCopy(uri, FLEET_ENROLLMENT_FILE_MAX_BYTES + 1);
   } catch {
     return Result.fail("Could not read that file.");
   }
-  return classifyFleetFile(bytes);
+  return checkFleetEnrollmentFile(bytes);
 }
 
 /**
@@ -53,7 +44,7 @@ export async function pickFleetImportFile(): Promise<Result.Result<FleetFile, st
  */
 export async function downloadFleetFile(
   url: FleetEnrollmentUrl,
-): Promise<Result.Result<FleetFile, string>> {
+): Promise<Result.Result<Uint8Array, string>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
@@ -63,7 +54,9 @@ export async function downloadFleetFile(
       void response.body?.cancel().catch(() => undefined);
       return Result.fail(`Could not download the fleet file (HTTP ${response.status}).`);
     }
-    return classifyFleetFile(await readStream(response.body, FLEET_IMPORT_MAX_BYTES + 1));
+    return checkFleetEnrollmentFile(
+      await readStream(response.body, FLEET_ENROLLMENT_FILE_MAX_BYTES + 1),
+    );
   } catch {
     return Result.fail(
       controller.signal.aborted
@@ -76,19 +69,16 @@ export async function downloadFleetFile(
 }
 
 /**
- * Sorts a fleet file into an inventory or an encrypted enrollment. Sources
- * read at most one byte past `FLEET_IMPORT_MAX_BYTES`, which this rejects.
+ * Accepts an age file still to be decrypted. Sources read at most one byte
+ * past `FLEET_ENROLLMENT_FILE_MAX_BYTES`, which this rejects.
  */
-export function classifyFleetFile(bytes: Uint8Array): Result.Result<FleetFile, string> {
-  if (isAgeEncryptedFile(bytes)) {
-    return bytes.byteLength > FLEET_IMPORT_MAX_BYTES
-      ? Result.fail("That fleet enrollment file is too large.")
-      : Result.succeed({ kind: "enrollment", bytes });
+export function checkFleetEnrollmentFile(bytes: Uint8Array): Result.Result<Uint8Array, string> {
+  if (!isAgeEncryptedFile(bytes)) {
+    return Result.fail("That file is not an encrypted T3 Code fleet enrollment.");
   }
-  return Result.mapBoth(decodeFleetImport(bytes), {
-    onSuccess: (environments) => ({ kind: "inventory", environments }),
-    onFailure: (error) => error.message,
-  });
+  return bytes.byteLength > FLEET_ENROLLMENT_FILE_MAX_BYTES
+    ? Result.fail("That fleet enrollment file is too large.")
+    : Result.succeed(bytes);
 }
 
 async function readAndDeleteCacheCopy(uri: string, maxBytes: number): Promise<Uint8Array> {
