@@ -166,7 +166,7 @@ it.each(["direct", "gnome-extension", "kde"] as const)(
       return control.props;
     };
     if (backend !== "direct") {
-      expect(recorder(tree)["aria-label"]).toBe("Record snapshot shortcut, currently Ctrl+Shift+2");
+      expect(recorder(tree)["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⇧2");
       const keycaps = visitElements(tree, (element) => element.type === SnapShotShortcutKeys);
       expect(keycaps?.props.shortcut).toMatchObject({ key: "2", ctrlKey: true, shiftKey: true });
       expect(
@@ -188,7 +188,7 @@ it.each(["direct", "gnome-extension", "kde"] as const)(
     });
     await finish(bridge.checkSnapShotShortcut.mock.results[0]!.value);
     expect(recorder(render()).size).toBe("xs");
-    expect(recorder(render())["aria-label"]).toBe("Record snapshot shortcut, currently Ctrl+Alt+Y");
+    expect(recorder(render())["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⌥Y");
     button(render(), "Save").onClick();
     await finish(settingsStore.update.mock.results[0]!.value);
     expect(settingsStore.update).toHaveBeenCalledWith({
@@ -236,7 +236,7 @@ it("keeps the approved desktop shortcut when recording is cancelled in setup", a
     if (!input) throw new Error("Missing setup shortcut recorder");
     return input.props;
   };
-  expect(shortcut()["aria-label"]).toBe("Record snapshot shortcut, currently Ctrl+Alt+8");
+  expect(shortcut()["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⌥8");
   (shortcut().onClick as () => void)();
   await finish(bridge.setSnapShotShortcutSuppressed.mock.results.at(-1)!.value);
   expect(shortcut().children).toBe("Press shortcut…");
@@ -245,7 +245,7 @@ it("keeps the approved desktop shortcut when recording is cancelled in setup", a
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
   });
-  expect(shortcut()["aria-label"]).toBe("Record snapshot shortcut, currently Ctrl+Alt+8");
+  expect(shortcut()["aria-label"]).toBe("Record snapshot shortcut, currently ⌃⌥8");
   expect(settingsStore.update).not.toHaveBeenCalled();
   expect(bridge.checkSnapShotShortcut).not.toHaveBeenCalled();
 });
