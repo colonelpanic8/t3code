@@ -244,6 +244,15 @@ protects the file's contents but does not verify who published it. The phone kee
 identity in secure storage; Settings lets you import or remove it and copy its public
 recipient. Decrypted enrollment data is kept in memory.
 
+To skip choosing the file, publish `fleet.age` at an `https://` address and share it as a link.
+Opening `t3code://connections/new?fleetEnrollment=<file URL>`, with the file URL
+percent-encoded, downloads the file into **Add environment** (builds with their own app scheme
+use that scheme). The **Add environment** scanner also accepts any web page URL carrying the same
+`?fleetEnrollment=<file URL>` parameter, so one QR code can serve both the phone's camera, through
+a page that opens the app, and the in-app scanner. The phone opens the file with its stored age
+identity, or asks for it if none is stored. You still review and confirm the anchor before
+joining.
+
 If an existing anchor session has expired, let the connection show that sign-in is required,
 then import the enrollment file again. Importing while the saved connection is still trying
 to connect opens that connection instead of creating another session.
