@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 vi.mock("../../state/environments", () => ({
   useEnvironments: () => ({ environments: [], isReady: true }),
+  usePullRequestsSupported: () => false,
 }));
 vi.mock("./SidebarUpdatePill", () => ({
   SidebarUpdatePill: () => null,
@@ -85,8 +86,7 @@ async function renderAt(path: string) {
 const buttonsLabelled = (label: string) =>
   renderer!.root.findAll(
     (node) =>
-      node.type === "button" &&
-      node.findAll((child) => child.children.includes(label)).length > 0,
+      node.type === "button" && node.findAll((child) => child.children.includes(label)).length > 0,
   );
 
 describe("settings sidebar Back", () => {
