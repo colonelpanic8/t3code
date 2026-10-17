@@ -621,6 +621,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Rich text composer"]
         : []),
       ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut ? ["Send shortcut"] : []),
+      ...(settings.composerShortcutHints !== DEFAULT_UNIFIED_SETTINGS.composerShortcutHints
+        ? ["Shortcut hints"]
+        : []),
       ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
         ? ["Follow-up behavior"]
         : []),
@@ -691,6 +694,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.composerCollapseOnScroll,
       settings.composerRichTextEnabled,
       settings.sendShortcut,
+      settings.composerShortcutHints,
       settings.followUpBehavior,
       settings.addProjectBaseDirectory,
       settings.defaultThreadEnvMode,
@@ -810,6 +814,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
+      composerShortcutHints: DEFAULT_UNIFIED_SETTINGS.composerShortcutHints,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
@@ -2158,6 +2163,11 @@ export function GeneralSettingsPanel() {
     { value: "mod-enter-multiline", label: `${modifierLabel} + Enter for multiline prompts` },
     { value: "mod-enter", label: `${modifierLabel} + Enter always` },
   ] as const;
+  const shortcutHintsOptions = [
+    { value: "auto", label: "While holding a shortcut's modifiers" },
+    { value: "alt", label: `While holding ${isMacPlatform(navigator.platform) ? "⌥" : "Alt"}` },
+    { value: "off", label: "Off" },
+  ] as const;
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const navigate = useNavigate();
@@ -2866,6 +2876,59 @@ export function GeneralSettingsPanel() {
                     <span className="flex items-center justify-between gap-4">
                       {option.label}
                       {settings.sendShortcut === option.value && <CheckIcon aria-hidden="true" />}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          settingKeys={["composerShortcutHints"]}
+          {...searchableSetting("composer-shortcut-hints")}
+          description="When to show keyboard shortcut hints over the composer controls"
+          resetAction={
+            settings.composerShortcutHints !== DEFAULT_UNIFIED_SETTINGS.composerShortcutHints ? (
+              <SettingResetButton
+                label="shortcut hints"
+                onClick={() =>
+                  updateSettings({
+                    composerShortcutHints: DEFAULT_UNIFIED_SETTINGS.composerShortcutHints,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.composerShortcutHints}
+              onValueChange={(value) => {
+                const option = shortcutHintsOptions.find((option) => option.value === value);
+                if (option) updateSettings({ composerShortcutHints: option.value });
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-auto min-w-0 max-w-full"
+                aria-label="Shortcut hints"
+              >
+                <SelectValue>
+                  {
+                    shortcutHintsOptions.find(
+                      (option) => option.value === settings.composerShortcutHints,
+                    )?.label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {shortcutHintsOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    <span className="flex items-center justify-between gap-4">
+                      {option.label}
+                      {settings.composerShortcutHints === option.value && (
+                        <CheckIcon aria-hidden="true" />
+                      )}
                     </span>
                   </SelectItem>
                 ))}
