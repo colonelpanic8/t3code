@@ -23,7 +23,7 @@ const environmentFor = (
     isPackaged: input.isPackaged ?? true,
     homeDirectory: input.home,
     baseDir: input.baseDir,
-    stateDir: path.join(input.baseDir, "userdata"),
+    clientRoots: { stateDir: path.join(input.baseDir, "userdata") },
     storageRoots: resolveLegacyT3StorageRoots({
       baseDir: input.baseDir,
       stateDirectoryName: "userdata",
@@ -154,6 +154,52 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       yield* after.uninstall;
       expect(yield* fs.exists(path.join(home, ".local", "bin", "t3"))).toBe(false);
       expect(yield* fs.exists(path.join(home, "bin", "t3"))).toBe(false);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("follows this app's launcher when the command still runs a migrated home's", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped();
+      const legacy = path.join(home, ".t3");
+      const link = (yield* (yield* commandIn({ home, baseDir: legacy })).install).installedPath!;
+      const split = yield* commandIn({ home, baseDir: path.join(home, "split") });
+
+      // Another install's home that was never migrated keeps its command.
+      yield* split.followLauncher;
+      expect(yield* fs.readLink(link)).toBe(path.join(legacy, "bin", "t3"));
+
+      yield* fs.writeFileString(path.join(legacy, "userdata", "storage-migration.json"), "{}");
+      yield* split.followLauncher;
+      expect(yield* fs.readLink(link)).toBe(path.join(home, "split", "bin", "t3"));
+      expect(yield* fs.exists(path.join(home, "split", "bin", "t3"))).toBe(true);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("moves a Windows PATH entry off a migrated home's launcher", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped();
+      const legacyBin = path.join(home, ".t3", "bin");
+      const splitBin = path.join(home, "split", "bin");
+      const { registry, spawner } = fakePowerShell(`C:\\Tools;${legacyBin}`);
+      const split = yield* commandIn(
+        { home, baseDir: path.join(home, "split"), platform: "win32" },
+        spawner,
+      );
+      yield* fs.writeFileString(
+        path.join(home, "split", "userdata", "cli-command-path-entry"),
+        `${legacyBin}\n`,
+      );
+      yield* fs.makeDirectory(path.join(home, ".t3", "userdata"), { recursive: true });
+      yield* fs.writeFileString(path.join(home, ".t3", "userdata", "storage-migration.json"), "{}");
+
+      yield* split.followLauncher;
+
+      expect(registry.path).toBe(`C:\\Tools;${splitBin}`);
+      expect((yield* split.state).installedPath).toBe(path.join(splitBin, "t3.cmd"));
     }).pipe(Effect.scoped),
   );
 
