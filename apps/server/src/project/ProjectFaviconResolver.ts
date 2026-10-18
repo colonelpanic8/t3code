@@ -110,6 +110,7 @@ export class ProjectFaviconResolver extends Context.Service<
     readonly resolvePath: (
       cwd: string,
       faviconPath?: string,
+      options?: { readonly revalidate?: boolean },
     ) => Effect.Effect<string | null, ProjectFaviconResolutionError>;
   }
 >()("t3/project/ProjectFaviconResolver") {}
@@ -315,8 +316,9 @@ export const make = Effect.gen(function* () {
 
   const resolvePath: ProjectFaviconResolver["Service"]["resolvePath"] = Effect.fn(
     "ProjectFaviconResolver.resolvePath",
-  )(function* (cwd, faviconPath) {
+  )(function* (cwd, faviconPath, options) {
     const key = faviconCacheKey(cwd, faviconPath);
+    if (options?.revalidate) yield* Cache.invalidate(faviconCache, key);
     const cached = yield* Cache.get(faviconCache, key);
     if (cached === null) {
       return null;
