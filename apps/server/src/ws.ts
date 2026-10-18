@@ -2730,6 +2730,7 @@ const layerWsRpc = (
                   clone !== null &&
                   clone.phase !== "done" &&
                   clone.destinationPath === project.value.workspaceRoot,
+                revalidate: input.revalidate === true,
               });
             }
             const thread = yield* threadManagement
