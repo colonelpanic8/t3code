@@ -133,9 +133,8 @@ export function FleetEnrollmentSection(props: {
       await task();
     } catch {
       if (mounted.current) setError("Could not finish that action. Try again.");
-    } finally {
-      if (mounted.current) setBusy(false);
     }
+    if (mounted.current) setBusy(false);
   };
 
   const openFile = async (result: Result.Result<Uint8Array, string>) => {
