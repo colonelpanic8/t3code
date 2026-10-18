@@ -184,6 +184,40 @@ describe("mergeUsage", () => {
     ).toEqual({ claude: 1, codex: 1 });
   });
 
+  it("attributes each counted bucket to the environment that owns its source", () => {
+    const sharedClaude = { provider: "claude" as const, hostId: "mac", homePath: "/h/.claude" };
+    const merged = mergeUsage(
+      [
+        environment("env-a", summary([bucket({ costUsd: 10 })], [sharedClaude])),
+        environment(
+          "env-b",
+          summary(
+            [bucket({ costUsd: 10 }), bucket({ provider: "codex", model: "gpt-5", costUsd: 4 })],
+            [sharedClaude, { provider: "codex", hostId: "mac", homePath: "/h/.codex" }],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    expect(
+      merged.entries.map(({ environmentId, bucket }) => [
+        environmentId,
+        bucket.provider,
+        bucket.costUsd,
+      ]),
+    ).toEqual([
+      ["env-a", "claude", 10],
+      ["env-b", "codex", 4],
+    ]);
+    expect(merged.entries.reduce((sum, entry) => sum + entry.bucket.costUsd, 0)).toBe(
+      merged.costUsd,
+    );
+    expect(merged.entries.reduce((sum, entry) => sum + entry.bucket.records, 0)).toBe(
+      merged.records,
+    );
+  });
+
   it("counts overlapping provider roots once while keeping each environment's unique root", () => {
     const source = (homePath: string) => ({
       provider: "opencode" as const,
