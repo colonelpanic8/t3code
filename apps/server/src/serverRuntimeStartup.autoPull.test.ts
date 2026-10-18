@@ -102,6 +102,7 @@ it.effect("parks automatic pull until activation without delaying command readin
           noBrowser: true,
           startupPresentation: "browser",
           autoBootstrapProjectFromCwd: false,
+          serverConfigFile: undefined,
         }),
         Layer.mock(Keybindings.Keybindings)({ start: Effect.void }),
         Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
