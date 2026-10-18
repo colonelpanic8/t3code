@@ -2223,6 +2223,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      ...(command.blankSlate === true ? { blankSlate: true } : {}),
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
