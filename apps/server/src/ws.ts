@@ -2759,6 +2759,7 @@ export const layerWsRpc = (
                 ...(clone !== null && clone.destinationPath === project.value.workspaceRoot
                   ? { projectCheckout: clone.phase === "done" ? "cloned" : "pending" }
                   : {}),
+                revalidate: input.revalidate === true,
               });
             }
             const thread = yield* threadManagement
