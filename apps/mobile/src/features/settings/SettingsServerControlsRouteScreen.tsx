@@ -12,6 +12,7 @@ import {
   type WorktreeSubmodules,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   type ProjectScopedServerSettingKey,
+  isSettingPathManaged,
 } from "@t3tools/contracts";
 import { useRef, useState } from "react";
 import { View } from "react-native";
@@ -235,6 +236,11 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     (projectSelected &&
       !PROJECT_SCOPED_SERVER_SETTING_KEYS.includes(
         key as (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number],
+      )) ||
+    // Values fixed by an environment's system configuration; project overrides stay editable.
+    (!projectSelected &&
+      targets.some((target) =>
+        isSettingPathManaged(target.environment.serverConfig.managedSettingPaths, [key]),
       ));
 
   return (
