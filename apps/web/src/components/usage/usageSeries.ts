@@ -27,6 +27,8 @@ export interface UsageLabelContext {
 }
 
 export const DIMENSION_NAMES: { readonly [Dimension in UsageDimension]: string } = {
+  host: "Host",
+  account: "Account",
   environment: "Environment",
   provider: "Provider",
   model: "Model",
@@ -78,6 +80,8 @@ const DIMENSION_LABEL: {
     context: UsageLabelContext,
   ) => string | undefined;
 } = {
+  host: (row) => row.host,
+  account: (row) => row.accountLabel,
   environment: (row, context) =>
     row.environmentId === undefined
       ? undefined
@@ -118,7 +122,11 @@ export function usageSeriesLabels(
         ? "Total"
         : usageRowLabel(row, dimensions, context),
   );
-  if (!dimensions.includes("model") || dimensions.includes("provider")) return labels;
+  if (
+    (!dimensions.includes("model") && !dimensions.includes("account")) ||
+    dimensions.includes("provider")
+  )
+    return labels;
   const counts = new Map<string, number>();
   for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
   return series.map(({ row }, index) => {
@@ -183,6 +191,8 @@ export function buildUsageChartSeries(
 const ROW_VALUE: {
   readonly [Dimension in UsageChartDimension]: (row: UsagePivotRow) => string | undefined;
 } = {
+  host: (row) => row.host,
+  account: (row) => row.accountId,
   environment: (row) => row.environmentId,
   provider: (row) => row.provider,
   model: (row) => row.model,
