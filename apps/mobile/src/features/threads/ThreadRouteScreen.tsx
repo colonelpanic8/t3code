@@ -227,16 +227,18 @@ function LiveThreadRouteController(props: ThreadRouteScreenProps) {
   const navigation = useNavigation();
   const routeConnectionState =
     routeEnvironmentRuntime?.connectionState ?? (environmentId ? "available" : connectionState);
-  const routeThreadKey =
+  const routeThread =
     environmentId !== null && threadIdRaw !== null
-      ? scopedThreadKey(environmentId, ThreadId.make(threadIdRaw))
+      ? { environmentId, threadId: ThreadId.make(threadIdRaw) }
       : null;
+  const routeThreadKey =
+    routeThread === null ? null : scopedThreadKey(routeThread.environmentId, routeThread.threadId);
   const selectedThreadKey =
     selectedThread === null
       ? null
       : scopedThreadKey(selectedThread.environmentId, selectedThread.id);
   const selectedThreadDetailState = useSelectedThreadDetailState();
-  useThreadPromptLink(params, routeThreadKey);
+  useThreadPromptLink(params, routeThread, routeThreadKey);
   const withInspectorHeader = (content: ReactNode) => (
     <>
       {props.inspectorPresentation ? (
