@@ -15,9 +15,22 @@
   # standalone upstream app would silently ignore.
   clientModeSupported =
     builtins.pathExists ../apps/desktop/src/app/DesktopBackendMode.ts;
+  # A fork-assembler build records the upstream release its base descends
+  # from. Build metadata keeps the version off the nightly channel pattern.
+  buildInfoPath = ../stack-build-info.json;
+  upstream =
+    if builtins.pathExists buildInfoPath
+    then (builtins.fromJSON (builtins.readFile buildInfoPath)).upstream
+    else {};
+  shortCommit = builtins.substring 0 8;
   version =
-    "${desktopPackage.version}-source"
-    + lib.optionalString (buildCommit != "") "-${builtins.substring 0 8 buildCommit}";
+    if upstream ? tag
+    then
+      "${lib.removePrefix "v" upstream.tag}+${toString upstream.distance}.g${shortCommit upstream.commit}"
+      + lib.optionalString (buildCommit != "") ".assembly.${shortCommit buildCommit}"
+    else
+      "${desktopPackage.version}-source"
+      + lib.optionalString (buildCommit != "") "-${shortCommit buildCommit}";
   # The web build renders generated license notices from SPDX texts that it
   # otherwise downloads on first use. Seed that cache so the sandbox stays offline.
   licenseScript = builtins.readFile ../scripts/lib/third-party-licenses.ts;
