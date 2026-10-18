@@ -1,4 +1,5 @@
 import { installPermissionUpdateNotice } from "./features/connection/permissionUpdateNotice";
+import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -62,7 +63,15 @@ void SplashScreen.preventAutoHideAsync().catch(() => {});
 void hydrateWorkspaceSelections();
 
 const appLinking = {
-  prefixes: [Linking.createURL("/"), "t3code://", "t3code-dev://", "t3code-preview://"],
+  prefixes: Array.from(
+    new Set([
+      Linking.createURL("/"),
+      ...[Constants.expoConfig?.scheme ?? []].flat().map((scheme) => `${scheme}://`),
+      "t3code://",
+      "t3code-dev://",
+      "t3code-preview://",
+    ]),
+  ),
   config: { initialRouteName: "Home" },
   filter: (url: string) => shouldHandleAppLink(url, hasCloudPublicConfig()),
   getInitialURL: async () => (await Linking.getInitialURL()) ?? (await launchWorkspaceURL()),
