@@ -1,5 +1,8 @@
 import * as NodeNet from "node:net";
 
+// @effect-diagnostics-next-line nodeBuiltinImport:off - a stand-in for a running remote server.
+import * as NodeHttp from "node:http";
+
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
@@ -154,7 +157,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(launch, "T3_RELEASE_BASE_URL='https://mirror.example/t3'");
     assert.include(launch, '"$RUNNER_FILE" __ssh-helper pick-port "$PORT_FILE"');
     assert.include(launch, '"$RUNNER_FILE" __ssh-helper wait-ready "$REMOTE_PORT"');
-    assert.include(launch, '"$RUNNER_FILE" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE"');
+    assert.include(launch, '"$RUNNER_FILE" __ssh-helper runtime-port "$1"');
     assert.include(SshTunnel.buildRemoteLaunchScript(NODE_SCRIPT), "T3_ARCHIVE_MODE=0");
   });
 
@@ -264,11 +267,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(launch, "T3_ARCHIVE_VERSION='1.2.3-preview.20260911.4'");
     assert.include(
       SshTunnel.buildRemotePairingScript(stateKey, ARCHIVE),
-      '"$RUNNER_FILE" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json',
-    );
-    assert.include(
-      SshTunnel.buildRemotePairingScript(stateKey, ARCHIVE),
-      'PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"',
+      '"$RUNNER_FILE" auth pairing create --base-dir "$DEFAULT_SERVER_HOME" --json',
     );
     assert.notInclude(SshTunnel.buildRemotePairingScript(stateKey, ARCHIVE), "server-home");
     assert.include(
@@ -1272,6 +1271,7 @@ fs.appendFileSync(
     args,
     dataDir: process.env.T3CODE_SERVER_DATA_DIR ?? null,
     configFile: process.env.T3CODE_SERVER_CONFIG_FILE ?? null,
+    selectors: ["T3CODE_HOME", "T3CODE_CONFIG_DIR", "T3CODE_DATA_DIR", "T3CODE_STATE_DIR", "T3CODE_CACHE_DIR", "T3CODE_RUNTIME_DIR"].filter((name) => process.env[name] !== undefined),
   }) + "\\n",
 );
 if (args[0] === "serve") {
@@ -1283,27 +1283,33 @@ if (args[0] === "serve") {
 }
 `;
 
-  const runScript = (script: string, args: ReadonlyArray<string>, env: Record<string, string>) =>
+  const runScript = (
+    script: string,
+    args: ReadonlyArray<string>,
+    env: Record<string, string>,
+    options: { readonly login?: boolean } = {},
+  ) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const child = yield* spawner.spawn(
-        ChildProcess.make("sh", ["-c", script, "sh", ...args], { env, extendEnv: false }),
+        ChildProcess.make("sh", [...(options.login ? ["-l"] : []), "-c", script, "sh", ...args], {
+          env,
+          extendEnv: false,
+        }),
       );
-      const [stderr, exitCode] = yield* Effect.all(
-        [
-          child.stderr.pipe(
-            Stream.decodeText(),
-            Stream.runFold(
-              () => "",
-              (acc, chunk) => acc + chunk,
-            ),
+      const collect = (stream: typeof child.stderr) =>
+        stream.pipe(
+          Stream.decodeText(),
+          Stream.runFold(
+            () => "",
+            (acc, chunk) => acc + chunk,
           ),
-          child.exitCode.pipe(Effect.map(Number)),
-          child.stdout.pipe(Stream.runDrain),
-        ],
+        );
+      const [stderr, exitCode, stdout] = yield* Effect.all(
+        [collect(child.stderr), child.exitCode.pipe(Effect.map(Number)), collect(child.stdout)],
         { concurrency: "unbounded" },
       );
-      return { stderr, exitCode };
+      return { stderr, exitCode, stdout };
     });
 
   it.effect.skipIf(windowsHost)(
@@ -1325,6 +1331,11 @@ if (args[0] === "serve") {
           T3_FAKE_RECORD: record,
           T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
           T3CODE_SERVER_CONFIG_FILE: `${root}/elsewhere/server.json`,
+          T3CODE_CONFIG_DIR: `${root}/xdg/config`,
+          T3CODE_DATA_DIR: `${root}/xdg/data`,
+          T3CODE_STATE_DIR: `${root}/xdg/state`,
+          T3CODE_CACHE_DIR: `${root}/xdg/cache`,
+          T3CODE_RUNTIME_DIR: `${root}/xdg/runtime`,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
@@ -1351,6 +1362,7 @@ if (args[0] === "serve") {
                 args: Array<string>;
                 dataDir: string | null;
                 configFile: string | null;
+                selectors: Array<string>;
               },
           );
         const serve = invocations.find((entry) => entry.args[0] === "serve");
@@ -1358,12 +1370,269 @@ if (args[0] === "serve") {
         assert.deepEqual(serve?.args.slice(-2), ["--base-dir", `${home}/.t3`]);
         assert.isNull(serve?.dataDir);
         assert.isNull(serve?.configFile);
+        assert.deepEqual(serve?.selectors, []);
         assert.deepEqual(pair, {
           args: ["auth", "pairing", "create", "--base-dir", `${home}/.t3`, "--json"],
           dataDir: null,
           configFile: null,
+          selectors: [],
         });
       }).pipe(Effect.provide(NodeServices.layer)),
     30_000,
+  );
+
+  const readInvocations = (fs: FileSystem.FileSystem, record: string) =>
+    fs.readFileString(record).pipe(
+      Effect.orElseSucceed(() => ""),
+      Effect.map((contents) =>
+        contents
+          .trim()
+          .split("\n")
+          .filter((line) => line.length > 0)
+          .map((line) => JSON.parse(line) as { args: Array<string>; selectors: Array<string> }),
+      ),
+    );
+
+  it.effect.skipIf(windowsHost)(
+    "serves an initialized split install in place instead of pinning ~/.t3",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-launch-split-" });
+        const home = `${root}/home`;
+        const record = `${root}/record.ndjson`;
+        const fakeT3 = `${root}/fake-t3.cjs`;
+        yield* fs.makeDirectory(`${home}/.local/state/t3code`, { recursive: true });
+        yield* fs.writeFileString(`${home}/.local/state/t3code/statev2.sqlite`, "");
+        yield* fs.writeFileString(fakeT3, FAKE_T3);
+        const runner = { nodeScriptPath: fakeT3 };
+        const stateKey = "split-test";
+        const env = { PATH: process.env.PATH ?? "", HOME: home, T3_FAKE_RECORD: record };
+        yield* Effect.addFinalizer(() =>
+          fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
+            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.ignore,
+          ),
+        );
+
+        const launch = yield* runScript(SshTunnel.buildRemoteLaunchScript(runner), [stateKey], env);
+        assert.equal(launch.exitCode, 0, launch.stderr);
+        const pairing = yield* runScript(
+          SshTunnel.buildRemotePairingScript(stateKey, runner),
+          [],
+          env,
+        );
+        assert.equal(pairing.exitCode, 0, pairing.stderr);
+
+        const invocations = yield* readInvocations(fs, record);
+        const serve = invocations.find((entry) => entry.args[0] === "serve");
+        assert.notInclude(serve?.args ?? [], "--base-dir");
+        assert.deepEqual(invocations.find((entry) => entry.args[0] === "auth")?.args, [
+          "auth",
+          "pairing",
+          "create",
+          "--json",
+        ]);
+        assert.isFalse(yield* fs.exists(`${home}/.t3/userdata`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+    30_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "reuses a split install's running service",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-launch-split-reuse-" });
+        const home = `${root}/home`;
+        const record = `${root}/record.ndjson`;
+        const fakeT3 = `${root}/fake-t3.cjs`;
+        const runtimeDir = `${root}/run/t3code`;
+        yield* fs.makeDirectory(`${home}/.local/state/t3code`, { recursive: true });
+        yield* fs.writeFileString(`${home}/.local/state/t3code/environment-id`, "env");
+        yield* fs.makeDirectory(runtimeDir, { recursive: true });
+        yield* fs.writeFileString(fakeT3, FAKE_T3);
+        const service = yield* Effect.acquireRelease(
+          Effect.callback<NodeHttp.Server>((resume) => {
+            const server = NodeHttp.createServer((_request, response) => response.end("ok"));
+            server.listen(0, "127.0.0.1", () => resume(Effect.succeed(server)));
+          }),
+          (server) => Effect.sync(() => server.close()),
+        );
+        const address = service.address();
+        const port = typeof address === "object" && address !== null ? address.port : 0;
+        yield* fs.writeFileString(
+          `${runtimeDir}/server-runtime.json`,
+          JSON.stringify({ pid: process.pid, port, origin: `http://127.0.0.1:${port}` }),
+        );
+
+        const launch = yield* runScript(
+          SshTunnel.buildRemoteLaunchScript({ nodeScriptPath: fakeT3 }),
+          ["split-reuse"],
+          {
+            PATH: process.env.PATH ?? "",
+            HOME: home,
+            T3_FAKE_RECORD: record,
+            XDG_RUNTIME_DIR: `${root}/run`,
+          },
+        );
+
+        assert.equal(launch.exitCode, 0, launch.stderr);
+        assert.deepEqual(JSON.parse(launch.stdout.trim()), {
+          remotePort: port,
+          serverKind: "external",
+        });
+        assert.isFalse(
+          (yield* readInvocations(fs, record)).some((entry) => entry.args[0] === "serve"),
+        );
+      }).pipe(Effect.provide(NodeServices.layer)),
+    30_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "pairs into the storage the launch chose, even when only ~/.profile names it",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-launch-profile-" });
+        const home = `${root}/home`;
+        const record = `${root}/record.ndjson`;
+        const fakeT3 = `${root}/fake-t3.cjs`;
+        const stateDir = `${root}/custom-state`;
+        yield* fs.makeDirectory(stateDir, { recursive: true });
+        yield* fs.writeFileString(`${stateDir}/statev2.sqlite`, "");
+        yield* fs.makeDirectory(home, { recursive: true });
+        // The launch runs as a login shell; the pairing script did not, and so missed this.
+        yield* fs.writeFileString(`${home}/.profile`, `export T3CODE_STATE_DIR='${stateDir}'\n`);
+        yield* fs.writeFileString(fakeT3, FAKE_T3);
+        const runner = { nodeScriptPath: fakeT3 };
+        const stateKey = "profile-test";
+        // An inherited home must not reach a server the launch serves in the split layout.
+        const env = {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          T3_FAKE_RECORD: record,
+          T3CODE_HOME: `${root}/inherited-home`,
+        };
+        yield* Effect.addFinalizer(() =>
+          fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
+            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.ignore,
+          ),
+        );
+
+        const launch = yield* runScript(
+          SshTunnel.buildRemoteLaunchScript(runner),
+          [stateKey],
+          env,
+          {
+            login: true,
+          },
+        );
+        assert.equal(launch.exitCode, 0, launch.stderr);
+        const pairing = yield* runScript(
+          SshTunnel.buildRemotePairingScript(stateKey, runner),
+          [],
+          env,
+        );
+        assert.equal(pairing.exitCode, 0, pairing.stderr);
+
+        const invocations = yield* readInvocations(fs, record);
+        const serve = invocations.find((entry) => entry.args[0] === "serve");
+        const pair = invocations.find((entry) => entry.args[0] === "auth");
+        assert.notInclude(serve?.args ?? [], "--base-dir");
+        assert.deepEqual(serve?.selectors, ["T3CODE_STATE_DIR"]);
+        assert.deepEqual(pair?.args, ["auth", "pairing", "create", "--json"]);
+        assert.deepEqual(pair?.selectors, ["T3CODE_STATE_DIR"]);
+        assert.isFalse(yield* fs.exists(`${home}/.t3/userdata`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+    30_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "searches every place a split runtime file can be, ~/.t3 last",
+    () =>
+      Effect.gen(function* () {
+        const launch = SshTunnel.buildRemoteLaunchScript({ nodeScriptPath: "/t3.cjs" });
+        const candidates = /\nruntime_file_candidates\(\) \{\n[\s\S]*?\n\}\n/.exec(launch)?.[0];
+        assert.isDefined(candidates);
+        const result = yield* runScript(
+          `${candidates}T3_STORAGE=split\nDEFAULT_RUNTIME_FILE=/h/.t3/userdata/server-runtime.json\nruntime_file_candidates >&2`,
+          [],
+          { PATH: process.env.PATH ?? "", HOME: "/h", XDG_RUNTIME_DIR: "/run/x", TMPDIR: "/t" },
+        );
+        const uid = String(process.getuid?.() ?? 0);
+        assert.deepEqual(result.stderr.trim().split("\n"), [
+          "/run/x/t3code/server-runtime.json",
+          "/h/Library/Application Support/t3code/runtime/server-runtime.json",
+          `/run/user/${uid}/t3code/server-runtime.json`,
+          `/t/t3code-${uid}/server-runtime.json`,
+          "/h/.t3/userdata/server-runtime.json",
+        ]);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  const pairWithRecordedStorage = (storage: string, extraEnv: Record<string, string> = {}) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-pair-storage-" });
+      const home = `${root}/home`;
+      const record = `${root}/record.ndjson`;
+      const fakeT3 = `${root}/fake-t3.cjs`;
+      const stateKey = "recorded";
+      yield* fs.makeDirectory(`${home}/.t3/ssh-launch/${stateKey}`, { recursive: true });
+      yield* fs.writeFileString(`${home}/.t3/ssh-launch/${stateKey}/storage`, storage);
+      yield* fs.writeFileString(fakeT3, FAKE_T3);
+      const pairing = yield* runScript(
+        SshTunnel.buildRemotePairingScript(stateKey, { nodeScriptPath: fakeT3 }),
+        [],
+        { PATH: process.env.PATH ?? "", HOME: home, T3_FAKE_RECORD: record, ...extraEnv },
+      );
+      assert.equal(pairing.exitCode, 0, pairing.stderr);
+      const pair = (yield* readInvocations(fs, record)).find((entry) => entry.args[0] === "auth");
+      return { pair, home };
+    });
+
+  it.effect.skipIf(windowsHost)("decides afresh when the recorded storage is empty", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ssh-pair-state-" });
+      yield* fs.writeFileString(`${stateDir}/statev2.sqlite`, "");
+
+      const { pair } = yield* pairWithRecordedStorage("", { T3CODE_STATE_DIR: stateDir });
+
+      assert.deepEqual(pair?.args, ["auth", "pairing", "create", "--json"]);
+      assert.deepEqual(pair?.selectors, ["T3CODE_STATE_DIR"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.skipIf(windowsHost)("keeps a recorded selector on a last line with no newline", () =>
+    Effect.gen(function* () {
+      const { pair } = yield* pairWithRecordedStorage(
+        "T3_STORAGE=split\nT3CODE_STATE_DIR=/srv/t3-state",
+      );
+
+      assert.deepEqual(pair?.args, ["auth", "pairing", "create", "--json"]);
+      assert.deepEqual(pair?.selectors, ["T3CODE_STATE_DIR"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.skipIf(windowsHost)("drops an inherited T3CODE_HOME when restoring ~/.t3", () =>
+    Effect.gen(function* () {
+      const { pair, home } = yield* pairWithRecordedStorage("T3_STORAGE=legacy\n", {
+        T3CODE_HOME: "/elsewhere",
+        T3CODE_STATE_DIR: "/inherited-state",
+      });
+
+      assert.deepEqual(pair?.args, [
+        "auth",
+        "pairing",
+        "create",
+        "--base-dir",
+        `${home}/.t3`,
+        "--json",
+      ]);
+      assert.deepEqual(pair?.selectors, []);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
