@@ -352,6 +352,39 @@ export function getReasoningTraitStep(input: {
   return null;
 }
 
+/**
+ * Sets the model's primary select trait (its reasoning effort) exactly as
+ * choosing it in the traits picker would. Null when the picker would not offer
+ * that effort or the choice would change nothing.
+ */
+export function getReasoningTraitSelection(input: {
+  provider: ProviderDriverKind;
+  models: ReadonlyArray<ServerProviderModel>;
+  model: string;
+  modelOptions: ProviderOptions | undefined;
+  prompt: string;
+  planModeEnabled: boolean;
+  effort: string;
+}) {
+  const selected = getSelectedTraits(
+    input.provider,
+    input.models,
+    input.model,
+    input.prompt,
+    input.modelOptions,
+    true,
+    input.planModeEnabled,
+  );
+  const descriptor = selected.primarySelectDescriptor;
+  if (
+    selected.modelIsUnavailable ||
+    !descriptor?.options.some((option) => option.id === input.effort)
+  ) {
+    return null;
+  }
+  return getTraitSelectChange(selected, descriptor, input.prompt, input.effort);
+}
+
 export function shouldRenderTraitsControls(input: {
   provider: ProviderDriverKind;
   models: ReadonlyArray<ServerProviderModel>;
