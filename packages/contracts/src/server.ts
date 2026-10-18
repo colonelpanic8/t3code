@@ -8,6 +8,7 @@ import {
 } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
+  EnvironmentId,
   ForwardCompatibleArray,
   IsoDateTime,
   NonNegativeInt,
@@ -597,6 +598,15 @@ export const ServerStorageLayout = Schema.Struct({
   legacyBaseDirectoryPath: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type ServerStorageLayout = typeof ServerStorageLayout.Type;
+
+/** One environment of a declared fleet and the addresses clients reach it at. */
+export const ServerFleetEnvironment = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: TrimmedNonEmptyString,
+  httpBaseUrl: TrimmedNonEmptyString,
+  wsBaseUrl: TrimmedNonEmptyString,
+});
+export type ServerFleetEnvironment = typeof ServerFleetEnvironment.Type;
 
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
