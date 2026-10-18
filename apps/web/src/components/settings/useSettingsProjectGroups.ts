@@ -1,6 +1,10 @@
 import { useClientSettings } from "../../hooks/useSettings";
 import { buildSidebarProjectSnapshots } from "../../sidebarProjectGrouping";
-import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
+import {
+  appOwnsLocalEnvironment,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../../state/environments";
 import { useProjects } from "../../state/entities";
 
 export function useSettingsProjectGroups() {
@@ -21,6 +25,7 @@ export function useSettingsProjectGroups() {
     projects,
     settings: { sidebarProjectGroupingMode, sidebarProjectGroupingOverrides },
     primaryEnvironmentId,
+    ownsLocalEnvironment: appOwnsLocalEnvironment(),
     resolveEnvironmentLabel: (id) => labels.get(id) ?? null,
   }).sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
