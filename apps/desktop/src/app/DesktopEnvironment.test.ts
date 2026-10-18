@@ -75,8 +75,15 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
       assert.equal(environment.baseDir, "/tmp/t3");
       assert.equal(environment.stateDir, "/tmp/t3/userdata");
+      assert.equal(environment.clientConfigDir, "/tmp/t3/userdata");
+      assert.equal(environment.clientStateDir, "/tmp/t3/userdata");
       assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
+      assert.equal(
+        environment.desktopWindowStatePath,
+        "/tmp/t3/userdata/desktop-window-state.json",
+      );
       assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
+      assert.equal(environment.connectionCatalogPath, "/tmp/t3/userdata/connection-catalog.json");
       assert.equal(
         environment.savedEnvironmentRegistryPath,
         "/tmp/t3/userdata/saved-environments.json",
@@ -129,6 +136,66 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
       assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
       assert.equal(environment.otlpProtocol, "http/json");
+    }),
+  );
+
+  it.effect("keeps desktop client files in T3CODE_CLIENT_DIR, apart from server state", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {},
+        { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: " /tmp/t3-client " },
+      );
+
+      assert.equal(environment.stateDir, "/tmp/t3-server/userdata");
+      assert.equal(environment.serverSettingsPath, "/tmp/t3-server/userdata/settings.json");
+      assert.equal(environment.logDir, "/tmp/t3-server/userdata/logs");
+      assert.equal(environment.browserArtifactsDir, "/tmp/t3-server/userdata/browser-artifacts");
+      assert.equal(environment.clientConfigDir, "/tmp/t3-client");
+      assert.equal(environment.clientStateDir, "/tmp/t3-client");
+      assert.equal(environment.desktopSettingsPath, "/tmp/t3-client/desktop-settings.json");
+      assert.equal(environment.clientSettingsPath, "/tmp/t3-client/client-settings.json");
+      assert.equal(environment.desktopWindowStatePath, "/tmp/t3-client/desktop-window-state.json");
+      assert.equal(environment.connectionCatalogPath, "/tmp/t3-client/connection-catalog.json");
+      assert.equal(
+        environment.savedEnvironmentRegistryPath,
+        "/tmp/t3-client/saved-environments.json",
+      );
+    }),
+  );
+
+  it.effect("prefers --client-dir over T3CODE_CLIENT_DIR", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        { clientDirSwitch: "/tmp/t3-client-flag" },
+        { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: "/tmp/t3-client-env" },
+      );
+
+      assert.equal(environment.stateDir, "/tmp/t3-server/userdata");
+      assert.equal(environment.desktopSettingsPath, "/tmp/t3-client-flag/desktop-settings.json");
+      assert.equal(
+        environment.connectionCatalogPath,
+        "/tmp/t3-client-flag/connection-catalog.json",
+      );
+    }),
+  );
+
+  it.effect("expands ~ in --client-dir against the home directory", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({ clientDirSwitch: "~/c" });
+
+      assert.equal(environment.clientConfigDir, "/Users/alice/c");
+      assert.equal(environment.desktopSettingsPath, "/Users/alice/c/desktop-settings.json");
+    }),
+  );
+
+  it.effect("resolves a relative T3CODE_CLIENT_DIR against the working directory", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({}, { T3CODE_CLIENT_DIR: "t3-client" });
+
+      assert.equal(
+        environment.desktopSettingsPath,
+        `${process.cwd()}/t3-client/desktop-settings.json`,
+      );
     }),
   );
 
