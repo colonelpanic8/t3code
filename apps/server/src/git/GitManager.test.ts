@@ -48,6 +48,7 @@ import * as DateTime from "effect/DateTime";
 import { decodeGitHubPullRequestListJson } from "@t3tools/source-control-github/server/gitHubPullRequests";
 import * as GitHubChangeRequestTemplate from "@t3tools/source-control-github/server/gitHubChangeRequestTemplate";
 import * as GitLabCli from "@t3tools/source-control-gitlab/server/GitLabCli";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import type * as SourceControlHost from "@t3tools/source-control-core/server/SourceControlHost";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -3479,6 +3480,51 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
 
       const second = yield* manager.status({ cwd: repoDir });
       expect(second.pr?.number).toBe(217);
+    }),
+  );
+
+  it.effect("creates worktrees at the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: { worktreePathTemplate: "{repoRoot}/.worktrees/{branch}" },
+      });
+
+      const created = yield* manager.createWorktree({
+        cwd: repoDir,
+        refName: "main",
+        newRefName: "feature/templated",
+        path: null,
+      });
+
+      expect(created.worktree.path).toBe(
+        NodePath.join(NodeFS.realpathSync(repoDir), ".worktrees", "feature-templated"),
+      );
+    }),
+  );
+
+  it.effect("expands ~ in the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const home = NodeFS.realpathSync(yield* makeTempDir("t3code-git-manager-home-"));
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: { worktreePathTemplate: "~/worktrees/{repoName}/{branch}" },
+      });
+
+      const created = yield* manager
+        .createWorktree({
+          cwd: repoDir,
+          refName: "main",
+          newRefName: "feature/home",
+          path: null,
+        })
+        .pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+
+      expect(created.worktree.path).toBe(
+        NodePath.join(home, "worktrees", NodePath.basename(repoDir), "feature-home"),
+      );
     }),
   );
 
