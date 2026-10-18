@@ -42,7 +42,9 @@ export interface ModelTotals {
  * A model whose every record lacked rates has an unknown cost, not a zero one.
  * Clients must not present its `costUsd` as a real dollar figure.
  */
-export function isModelCostUnknown(model: ModelTotals): boolean {
+export function isModelCostUnknown(
+  model: Pick<ModelTotals, "records" | "unpricedRecords">,
+): boolean {
   return model.records > 0 && model.unpricedRecords >= model.records;
 }
 
@@ -89,6 +91,12 @@ export interface UsageContractMismatch {
   readonly contractVersion: number;
 }
 
+/** One bucket an environment contributes to the merge after de-duplication. */
+export interface UsageEntry {
+  readonly environmentId: EnvironmentId;
+  readonly bucket: UsageBucket;
+}
+
 export interface MergedUsage {
   readonly costUsd: number;
   readonly uncachedInputTokens: number;
@@ -103,6 +111,8 @@ export interface MergedUsage {
   readonly models: readonly ModelTotals[];
   readonly daily: readonly DailyTotals[];
   readonly hourly: readonly HourlyTotals[];
+  /** Every counted bucket with its environment. Summing them reproduces the totals. */
+  readonly entries: readonly UsageEntry[];
   readonly costQuality: CostQuality;
   readonly categoryCost: CategoryCost;
   readonly speedCost: SpeedCost;
@@ -264,7 +274,7 @@ function ownedContribution(
   };
 }
 
-function bucketTokens(bucket: UsageBucket): number {
+export function bucketTokens(bucket: UsageBucket): number {
   // reasoningTokens is a subset of outputTokens and must not be added again.
   return (
     bucket.totals.uncachedInputTokens +
@@ -292,6 +302,7 @@ const EMPTY_MERGED: MergedUsage = {
   models: [],
   daily: [],
   hourly: [],
+  entries: [],
   costQuality: {
     providerReportedShare: 0,
     modelPricedShare: 0,
@@ -386,6 +397,7 @@ export function mergeUsage(
     }
   >();
   const contributingEnvironments: EnvironmentId[] = [];
+  const entries: UsageEntry[] = [];
 
   for (const environment of current) {
     const { buckets, sessionsByProvider } = ownedContribution(
@@ -410,6 +422,7 @@ export function mergeUsage(
     }
 
     for (const bucket of buckets) {
+      entries.push({ environmentId: environment.environmentId, bucket });
       const tokens = bucketTokens(bucket);
 
       costUsd += bucket.costUsd;
@@ -566,6 +579,7 @@ export function mergeUsage(
     models,
     daily,
     hourly,
+    entries,
     costQuality: {
       providerReportedShare: records === 0 ? 0 : providerReportedRecords / records,
       unpricedShare: records === 0 ? 0 : unpricedRecords / records,
