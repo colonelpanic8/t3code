@@ -1572,6 +1572,7 @@ type SidebarThreadRowProps = {
 };
 
 const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
+  const largeIcons = useClientSettings((s) => s.sidebarV2LargeIcons);
   const {
     isRenaming,
     onCancelRename,
@@ -2121,7 +2122,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   "opacity-40 grayscale group-focus-within/sidebar-row:opacity-100 group-focus-within/sidebar-row:grayscale-0 group-hover/sidebar-row:opacity-100 group-hover/sidebar-row:grayscale-0",
               )}
             >
-              {props.project ? <ProjectFavicon project={props.project} className="size-4" /> : null}
+              {props.project ? (
+                <ProjectFavicon
+                  project={props.project}
+                  className={largeIcons ? "size-6" : "size-4"}
+                />
+              ) : null}
             </span>
             {draftIndicator}
             {title}
@@ -2277,7 +2283,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
               {props.project ? (
-                <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+                <ProjectFavicon
+                  project={props.project}
+                  className={largeIcons ? "size-6 shrink-0" : "size-4 shrink-0"}
+                />
               ) : null}
               {props.projectDisplayName ? (
                 <span
