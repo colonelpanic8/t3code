@@ -47,6 +47,7 @@ export function SettingsThreadsRouteScreen() {
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
         >
           <AutoSettleSettingsRows />
+          <LinkSettingsSection />
           <BetaSettingsSection />
           <LegacySettingsSection />
         </ScrollView>
@@ -253,6 +254,30 @@ function AutoSettleSettingsRows() {
           </View>
         </SettingsSection>
       ) : null}
+    </View>
+  );
+}
+
+function LinkSettingsSection() {
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const linkPromptSendEnabled =
+    AsyncResult.isSuccess(preferences) && preferences.value.linkPromptSendEnabled === true;
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Links">
+        <SettingsSwitchRow
+          icon="link"
+          label="Send prompts from links"
+          value={linkPromptSendEnabled}
+          onValueChange={(value) => savePreferences({ linkPromptSendEnabled: value })}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        A thread link with send=1 sends its prompt right away instead of leaving it as a draft. Any
+        app on this device can open such a link.
+      </Text>
     </View>
   );
 }
