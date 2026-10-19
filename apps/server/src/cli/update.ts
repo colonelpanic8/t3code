@@ -29,7 +29,7 @@ import {
 import { compareExactServiceVersions, isExactServiceVersion } from "../cloud/serviceProtocol.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { installLocationFlags, resolveInstallLocations } from "./config.ts";
+import { installLocationFlags, resolveInstallLocations, type ServerStorage } from "./config.ts";
 import { createUpdateProgress } from "./updateProgress.ts";
 import * as CliService from "./service.ts";
 
@@ -238,6 +238,7 @@ export const updateCommand = Command.make("update", {
       return yield* runUpdate({
         baseDir: config.baseDir,
         logsDir: config.logsDir,
+        storage: config.storage,
         serverRuntimeStatePath: config.serverRuntimeStatePath,
         channel: Option.getOrUndefined(flags.channel),
         requestedVersion: Option.getOrUndefined(flags.version),
@@ -295,9 +296,26 @@ const belongsToBootService = Effect.fn("cli.update.belongs_to_boot_service")(fun
   return false;
 });
 
+/**
+ * The background service as `targetVersion` installs it. It keeps this
+ * install's storage roots, or a split install's unit would come back pointing
+ * at a legacy T3 home.
+ */
+export const targetServiceLayer = (
+  input: { readonly baseDir: string; readonly logsDir: string; readonly storage: ServerStorage },
+  targetVersion: string,
+) =>
+  BootService.layer({
+    baseDir: input.baseDir,
+    storageRoots: input.storage.roots,
+    logsDir: input.logsDir,
+    cliVersion: targetVersion,
+  });
+
 const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   readonly baseDir: string;
   readonly logsDir: string;
+  readonly storage: ServerStorage;
   readonly serverRuntimeStatePath: string;
   readonly channel: CliReleaseChannel | undefined;
   readonly requestedVersion: string | undefined;
@@ -504,13 +522,7 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
       Effect.flatMap((target) =>
         target.install({ allowDowngrade: input.allowDowngrade, start: restartService }),
       ),
-      Effect.provide(
-        BootService.layer({
-          baseDir: input.baseDir,
-          logsDir: input.logsDir,
-          cliVersion: targetVersion,
-        }),
-      ),
+      Effect.provide(targetServiceLayer(input, targetVersion)),
       Effect.mapError(
         (error) =>
           new CliUpdateError({

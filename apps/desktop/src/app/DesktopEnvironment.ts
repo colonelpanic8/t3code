@@ -4,21 +4,27 @@ import type {
   DesktopRuntimeArch,
   DesktopRuntimeInfo,
 } from "@t3tools/contracts";
+import {
+  expandT3HomePath,
+  selectT3Storage,
+  type T3StorageConfigurationError,
+  type T3StorageLayout,
+  t3StoragePathExists,
+  type T3StorageProbeError,
+  type T3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as NodeOS from "node:os";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import { resolveLinuxDesktopEntryName } from "./DesktopEarlyElectronStartup.ts";
-import {
-  resolveDesktopBaseDir,
-  resolveDesktopClientPaths,
-  resolveDesktopStateDir,
-} from "./DesktopStatePaths.ts";
+import { resolveDesktopClientPaths } from "./DesktopStatePaths.ts";
 import { isNightlyDesktopVersion } from "../updates/updateChannels.ts";
 import type { OtlpProtocol } from "@t3tools/shared/observability";
 
@@ -33,6 +39,8 @@ export interface MakeDesktopEnvironmentInput {
   readonly resourcesPath: string;
   readonly runningUnderArm64Translation: boolean;
   readonly clientDirSwitch?: string | null;
+  readonly temporaryDirectory?: string;
+  readonly userId?: number;
 }
 
 export class DesktopEnvironment extends Context.Service<
@@ -49,10 +57,16 @@ export class DesktopEnvironment extends Context.Service<
     readonly resourcesPath: string;
     readonly homeDirectory: string;
     readonly appDataDirectory: string;
+    readonly storageLayout: T3StorageLayout;
+    readonly storageRoots: T3StorageRoots;
+    readonly configDir: string;
+    readonly dataDir: string;
     readonly baseDir: string;
     readonly stateDir: string;
     readonly clientConfigDir: string;
     readonly clientStateDir: string;
+    readonly cacheDir: string;
+    readonly runtimeDir: string;
     readonly desktopSettingsPath: string;
     readonly desktopWindowStatePath: string;
     readonly clientSettingsPath: string;
@@ -61,6 +75,7 @@ export class DesktopEnvironment extends Context.Service<
     readonly serverSettingsPath: string;
     readonly logDir: string;
     readonly browserArtifactsDir: string;
+    readonly electronUserDataPath: string;
     readonly rootDir: string;
     readonly appRoot: string;
     readonly serverRoot: string;
@@ -151,7 +166,11 @@ function resolveDesktopRuntimeInfo(input: {
 
 const make = Effect.fn("desktop.environment.make")(function* (
   input: MakeDesktopEnvironmentInput,
-): Effect.fn.Return<DesktopEnvironment["Service"], Config.ConfigError, Path.Path> {
+): Effect.fn.Return<
+  DesktopEnvironment["Service"],
+  Config.ConfigError | T3StorageConfigurationError | T3StorageProbeError,
+  Path.Path
+> {
   const path = yield* Path.Path;
   const config = yield* DesktopConfig.DesktopConfig;
   const homeDirectory = input.homeDirectory;
@@ -165,11 +184,26 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const baseDir = resolveDesktopBaseDir({
+  const pathOperations = {
+    join: (...paths: ReadonlyArray<string>) => path.join(...paths),
+    resolve: (...paths: ReadonlyArray<string>) => path.resolve(...paths),
+    isAbsolute: (candidate: string) => path.isAbsolute(candidate),
+  };
+  // Synchronous probes: this runs before Electron is ready (see main.ts).
+  const selection = selectT3Storage({
+    platform: input.platform,
     homeDirectory,
-    joinPath: path.join,
-    t3Home: config.t3Home,
+    temporaryDirectory: input.temporaryDirectory ?? NodeOS.tmpdir(),
+    ...(input.userId === undefined ? {} : { userId: input.userId }),
+    isDevelopment,
+    environment: config.storageEnvironment,
+    path: pathOperations,
+    exists: t3StoragePathExists,
   });
+  if (selection._tag !== "Selected") return yield* selection.error;
+  const storageRoots = selection.roots;
+  const { cacheDir, configDir, dataDir, runtimeDir, stateDir } = storageRoots;
+  const baseDir = dataDir;
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const serverRoot =
@@ -181,19 +215,13 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;
-  const stateDir = resolveDesktopStateDir({
-    baseDir,
-    isDevelopment,
-    joinPath: path.join,
-    t3Home: config.t3Home,
-  });
   const clientPaths = resolveDesktopClientPaths({
+    configDir,
     stateDir,
     homeDirectory,
     clientDirSwitch: Option.fromNullishOr(input.clientDirSwitch),
     clientDirEnv: config.clientDir,
-    joinPath: path.join,
-    resolvePath: path.resolve,
+    path,
   });
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
@@ -202,15 +230,16 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const resourcesPath = input.resourcesPath;
   const backendCwd = input.isPackaged ? homeDirectory : appRoot;
   // The local backend inherits this env and resolves the override against its cwd.
+  const resolveServerOverride = (dir: string) =>
+    path.resolve(backendCwd, expandT3HomePath(dir, homeDirectory, path));
   const serverConfigDir = Option.match(config.serverConfigDir, {
-    onNone: () => stateDir,
-    onSome: (dir) =>
-      path.resolve(
-        backendCwd,
-        dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")
-          ? path.join(homeDirectory, dir.slice(1))
-          : dir,
-      ),
+    onNone: () => configDir,
+    onSome: resolveServerOverride,
+  });
+  // The backend prunes screenshots in its data dir, so the desktop's go there too.
+  const serverDataDir = Option.match(config.serverDataDir, {
+    onNone: () => (storageRoots.layout === "legacy" ? stateDir : dataDir),
+    onSome: resolveServerOverride,
   });
 
   return DesktopEnvironment.of({
@@ -225,12 +254,19 @@ const make = Effect.fn("desktop.environment.make")(function* (
     resourcesPath,
     homeDirectory,
     appDataDirectory,
+    storageLayout: storageRoots.layout,
+    storageRoots,
+    configDir,
+    dataDir,
     baseDir,
     stateDir,
+    cacheDir,
+    runtimeDir,
     ...clientPaths,
     serverSettingsPath: path.join(serverConfigDir, "settings.json"),
     logDir: path.join(stateDir, "logs"),
-    browserArtifactsDir: path.join(stateDir, "browser-artifacts"),
+    browserArtifactsDir: path.join(serverDataDir, "browser-artifacts"),
+    electronUserDataPath: path.join(stateDir, "electron"),
     rootDir,
     appRoot,
     serverRoot,
