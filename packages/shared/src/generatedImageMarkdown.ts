@@ -61,7 +61,8 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
     }
     node.children?.forEach(visit);
   };
-  parser.parse(text).children.forEach(visit);
+  const nodes = parser.parse(text).children;
+  nodes.forEach(visit);
   const edits = new Map<number, { readonly end: number; readonly text: string }>();
   for (const image of images) {
     const target = image.type === "image" ? image : definitions.get(image.identifier ?? "");
@@ -105,6 +106,28 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
   let result = text;
   for (const [start, edit] of Array.from(edits).sort(([left], [right]) => right - left)) {
     result = result.slice(0, start) + edit.text + result.slice(edit.end);
+  }
+  if (missing.size > 0) {
+    // Only a root-level fence can swallow appended blocks; nested fences end with their container.
+    const last = nodes.at(-1);
+    const start = last?.position?.start.offset;
+    const source =
+      last?.type === "code" && start !== undefined
+        ? text.slice(start, last.position?.end.offset)
+        : "";
+    const fence = /^(`{3,}|~{3,})/.exec(source)?.[0];
+    if (fence !== undefined) {
+      const lines = source.split(/\r\n|\r|\n/);
+      const closing = /^ {0,3}(`{3,}|~{3,})[\t ]*$/.exec(lines.at(-1) ?? "")?.[1];
+      if (
+        lines.length === 1 ||
+        closing === undefined ||
+        closing[0] !== fence[0] ||
+        closing.length < fence.length
+      ) {
+        result += `${/[\r\n]$/.test(result) ? "" : "\n"}${fence}`;
+      }
+    }
   }
   for (const path of missing.values()) {
     result += `${result.length > 0 ? "\n\n" : ""}![](${angleDestination(imageDestination(path))})`;
