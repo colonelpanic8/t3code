@@ -424,6 +424,73 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("reads the managed access token from its file on each resolution", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-managed-token-" });
+      const tokenPath = path.join(baseDir, "managed-access-token");
+      const resolve = resolveServerConfig(minimalDesktopFlags(baseDir), Option.none()).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_MANAGED_ACCESS_TOKEN: " ",
+                  T3CODE_MANAGED_ACCESS_TOKEN_FILE: tokenPath,
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      yield* fs.writeFileString(tokenPath, "  first-fleet-secret\n");
+      expect((yield* resolve).managedAccessToken).toBe("first-fleet-secret");
+      yield* fs.writeFileString(tokenPath, "rotated-fleet-secret\n");
+      expect((yield* resolve).managedAccessToken).toBe("rotated-fleet-secret");
+    }),
+  );
+
+  it.effect("rejects an ambiguous, empty, or unreadable managed access token source", () =>
+    Effect.gen(function* () {
+      const secret = "sentinel-fleet-secret";
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-managed-token-bad-" });
+      const tokenPath = path.join(baseDir, "managed-access-token");
+      const emptyPath = path.join(baseDir, "empty-token");
+      yield* fs.writeFileString(tokenPath, secret);
+      yield* fs.writeFileString(emptyPath, " \n");
+
+      for (const [env, expected] of [
+        [
+          { T3CODE_MANAGED_ACCESS_TOKEN: secret, T3CODE_MANAGED_ACCESS_TOKEN_FILE: tokenPath },
+          "Set only one of T3CODE_MANAGED_ACCESS_TOKEN and T3CODE_MANAGED_ACCESS_TOKEN_FILE, not both.",
+        ],
+        [
+          { T3CODE_MANAGED_ACCESS_TOKEN_FILE: emptyPath },
+          `T3CODE_MANAGED_ACCESS_TOKEN_FILE is empty: ${emptyPath}`,
+        ],
+        [
+          { T3CODE_MANAGED_ACCESS_TOKEN_FILE: path.join(baseDir, "missing") },
+          `T3CODE_MANAGED_ACCESS_TOKEN_FILE could not be read (NotFound): ${path.join(baseDir, "missing")}`,
+        ],
+      ] as const) {
+        const error = yield* resolveServerConfig(minimalDesktopFlags(baseDir), Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+          Effect.flip,
+        );
+        expect(error.message).toBe(expected);
+        expect(String(error)).not.toContain(secret);
+        expect(yield* encodeUnknownJson(error)).not.toContain(secret);
+      }
+    }),
+  );
+
   it.effect("falls back to effect/config values when flags are omitted", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
@@ -460,6 +527,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_PORT: "4001",
                   T3CODE_HOST: "0.0.0.0",
                   T3CODE_HOME: baseDir,
+                  T3CODE_MANAGED_ACCESS_TOKEN: " managed-fleet-secret ",
+                  T3CODE_ENVIRONMENT_ID: " fleet:ryzen-shine ",
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
                   T3CODE_DEV_ALLOWED_ORIGINS:
                     "https://host.example.ts.net, https://phone.example.ts.net ",
@@ -489,6 +558,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: true,
         startupPresentation: "browser",
         desktopBootstrapToken: undefined,
+        managedAccessToken: "managed-fleet-secret",
+        environmentIdOverride: "fleet:ryzen-shine",
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
@@ -561,6 +632,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: true,
         startupPresentation: "browser",
         desktopBootstrapToken: undefined,
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         autoBootstrapProjectFromCwd: true,
         logWebSocketEvents: true,
         tailscaleServeEnabled: true,
@@ -636,6 +709,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: false,
         startupPresentation: "browser",
         desktopBootstrapToken: "desktop-bootstrap-token",
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
@@ -718,6 +793,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: true,
         startupPresentation: "browser",
         desktopBootstrapToken: "desktop-token",
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         desktopTelemetryFd: 4,
         desktopTelemetryControlFd: 5,
         resourceMonitorPath: undefined,
@@ -972,6 +1049,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: true,
         startupPresentation: "browser",
         desktopBootstrapToken: "desktop-token",
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         autoBootstrapProjectFromCwd: true,
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
@@ -1045,6 +1124,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: true,
         startupPresentation: "browser",
         desktopBootstrapToken: undefined,
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
@@ -1215,6 +1296,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         noBrowser: true,
         startupPresentation: "headless",
         desktopBootstrapToken: undefined,
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         autoBootstrapProjectFromCwd: false,
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
