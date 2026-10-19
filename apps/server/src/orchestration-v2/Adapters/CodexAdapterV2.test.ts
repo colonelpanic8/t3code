@@ -4526,45 +4526,46 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  const slowImageSavedPath = "/tmp/slow image.png";
+  const slowImageEvent = (phase: "started" | "completed") => ({
+    type: "emit_inbound" as const,
+    label: `item/${phase}/image`,
+    ...(phase === "completed" ? { afterMs: 10_000 } : {}),
+    frame: {
+      method: `item/${phase}`,
+      params: {
+        item: {
+          type: "imageGeneration",
+          id: "slow-image",
+          status: phase === "started" ? "inProgress" : "completed",
+          result: "",
+          ...(phase === "completed" ? { savedPath: slowImageSavedPath } : {}),
+        },
+        threadId: BG_NATIVE_THREAD,
+        turnId: BG_NATIVE_TURN,
+        [`${phase}AtMs`]: 1782622440500,
+      },
+    },
+  });
+  // The root turn settles while its image is still generating.
+  const slowImageEntries = [
+    ...codexReplayPreamble({
+      nativeThreadId: BG_NATIVE_THREAD,
+      nativeTurnId: BG_NATIVE_TURN,
+      prompt: BG_PROMPT,
+    }),
+    slowImageEvent("started"),
+    // The root answer and turn/completed from the background exec transcript.
+    ...backgroundExecTranscript.entries.slice(-3, -1),
+  ];
+
   it.effect("keeps a turn whose image is still generating and attaches it when done", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const savedPath = "/tmp/slow image.png";
-        const imageEvent = (phase: "started" | "completed") => ({
-          type: "emit_inbound" as const,
-          label: `item/${phase}/image`,
-          ...(phase === "completed" ? { afterMs: 10_000 } : {}),
-          frame: {
-            method: `item/${phase}`,
-            params: {
-              item: {
-                type: "imageGeneration",
-                id: "slow-image",
-                status: phase === "started" ? "inProgress" : "completed",
-                result: "",
-                ...(phase === "completed" ? { savedPath } : {}),
-              },
-              threadId: BG_NATIVE_THREAD,
-              turnId: BG_NATIVE_TURN,
-              [`${phase}AtMs`]: 1782622440500,
-            },
-          },
-        });
-        // The root answer and turn/completed from the background exec transcript.
-        const settle = backgroundExecTranscript.entries.slice(-3, -1);
         const harness = yield* makeCodexReplayHarness(
           makeCodexReplayTranscript({
             scenario: `${BG_SCENARIO}-slow-image`,
-            entries: [
-              ...codexReplayPreamble({
-                nativeThreadId: BG_NATIVE_THREAD,
-                nativeTurnId: BG_NATIVE_TURN,
-                prompt: BG_PROMPT,
-              }),
-              imageEvent("started"),
-              ...settle,
-              imageEvent("completed"),
-            ],
+            entries: [...slowImageEntries, slowImageEvent("completed")],
           }),
         );
         yield* harness.runtime.startTurn(
@@ -4579,11 +4580,49 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
 
         yield* TestClock.adjust("10 seconds");
-        const expected = `STARTED\n\n![](<${savedPath}>)`;
+        const expected = `STARTED\n\n![](<${slowImageSavedPath}>)`;
         yield* awaitUntil(
           () => assistantMessages(harness.events).at(-1)?.message.text === expected,
           "slow image projection",
         );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("releases a settled turn when Stop interrupts its unfinished image", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({
+            scenario: `${BG_SCENARIO}-stopped-image`,
+            entries: slowImageEntries,
+          }),
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-codex-stopped-image"),
+            text: BG_PROMPT,
+          }),
+        );
+        yield* harness.firstTerminal;
+        const imagePending = harness.runtime.hasPendingBackgroundWorkForThread!(
+          harness.providerThread,
+        );
+        assert.isTrue(yield* imagePending);
+
+        yield* harness.runtime.interruptTurn({
+          providerThread: harness.providerThread,
+          providerTurnId: harness.terminalEvents()[0]!.providerTurnId,
+          requestRuntimeRestart: true,
+        });
+        assert.isFalse(yield* imagePending);
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

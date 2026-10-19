@@ -7260,6 +7260,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                         updated.delete(context.nativeTurnId);
                         return updated;
                       });
+                      yield* Ref.update(runningImagesByTurn, (current) => {
+                        const updated = new Map(current);
+                        updated.delete(context.nativeTurnId);
+                        return updated;
+                      });
                       yield* releaseSettledTurnIfIdle(context.nativeTurnId);
                     }
                   }),
