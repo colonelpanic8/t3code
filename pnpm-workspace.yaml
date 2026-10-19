@@ -226,6 +226,9 @@ overrides:
   # Move this with @react-navigation/native: an older core than it requires crashes
   # every native stack at launch.
   "@react-navigation/core": 7.24.0
+  # 2.4 falls back to unblinded constant-time X25519 when there is no global RNG,
+  # as on Hermes; 2.3 throws, so typage could not open fleet enrollment files there.
+  "age-encryption>@noble/curves": 2.4.0
   # The dbus-next patch drops usocket from the package, but pnpm resolves from the
   # registry manifest, so the edge has to be cut here as well.
   "dbus-next>usocket": "-"
@@ -317,6 +320,9 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
+  # Typage falls back to noble only on a ReferenceError; React Native has crypto
+  # without subtle and no DOMException, so route both to the pure-JS fallback.
+  age-encryption@0.3.1: patches/age-encryption@0.3.1.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
   expo-audio@58.0.9: patches/expo-audio@58.0.9.patch
   "@clerk/expo-native-components@0.2.0": patches/@clerk__expo-native-components@0.2.0.patch
