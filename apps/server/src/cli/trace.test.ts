@@ -1,6 +1,13 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as Console from "effect/Console";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { Command } from "effect/cli";
 
-import { makeTraceSpanSummary } from "./trace.ts";
+import { makeTraceSpanSummary, traceCommand } from "./trace.ts";
 
 const MINUTE_MS = 60_000;
 
@@ -101,3 +108,42 @@ it("reads failures and interrupts of browser spans from their OTLP status", () =
   const [render] = summarizer.finish().spans;
   assert.deepStrictEqual([render?.count, render?.interrupted, render?.failures], [4, 2, 1]);
 });
+
+it.effect("summary reads the trace file and its rotation count from server.json", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-trace-summary-" });
+    const traceDir = path.join(baseDir, "userdata", "traces");
+    yield* fs.makeDirectory(traceDir, { recursive: true });
+    yield* fs.writeFileString(
+      path.join(baseDir, "userdata", "server.json"),
+      JSON.stringify({ traceFile: "traces/server.ndjson", traceMaxFiles: 1 }),
+    );
+    const tracePath = path.join(traceDir, "server.ndjson");
+    yield* fs.writeFileString(tracePath, span("current", 1, 0));
+    yield* fs.writeFileString(`${tracePath}.1`, span("rotated", 1, 0));
+    yield* fs.writeFileString(`${tracePath}.2`, span("beyond-max-files", 1, 0));
+
+    const output: Array<unknown> = [];
+    yield* Command.runWith(traceCommand, { version: "0.0.0" })([
+      "summary",
+      "--base-dir",
+      baseDir,
+    ]).pipe(
+      Effect.provideService(Console.Console, {
+        ...globalThis.console,
+        log: (...args: ReadonlyArray<unknown>) => {
+          output.push(...args);
+        },
+      }),
+      Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
+    );
+
+    const summary = String(output.join("\n"));
+    assert.match(summary, /^2 spans ended/);
+    assert.include(summary, "current");
+    assert.include(summary, "rotated");
+    assert.notInclude(summary, "beyond-max-files");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
