@@ -16,6 +16,8 @@ import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { planAutoSettleSettingsSync, type AutoSettleSettings } from "./autoSettleSettingsSync";
@@ -174,6 +176,7 @@ export function WorkingSectionSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
   const workingShelfEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
+  const managed = useManagedPreferenceKeys().has("workingShelfEnabled");
 
   return (
     <View className="gap-3">
@@ -182,9 +185,11 @@ export function WorkingSectionSettings() {
           icon="bolt.circle"
           label="Working section"
           value={workingShelfEnabled}
+          disabled={managed}
           onValueChange={(value) => savePreferences({ workingShelfEnabled: value })}
         />
       </SettingsSection>
+      {managed ? <ManagedBySettingsFeedNote /> : null}
       <Text className="px-2 text-sm text-foreground-muted">
         Fold working and monitoring threads into a Working section. They return to the top of the
         list when they need you. While this is on, active threads are ordered by time and cannot be
@@ -259,6 +264,7 @@ function LegacySettingsSection() {
   const preferences = useAtomValue(mobilePreferencesAtom);
   const planModeEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.planModeEnabled === true;
+  const managed = useManagedPreferenceKeys().has("planModeEnabled");
 
   return (
     <View className="gap-3">
@@ -267,9 +273,11 @@ function LegacySettingsSection() {
           icon="hammer"
           label="Plan Mode"
           value={planModeEnabled}
+          disabled={managed}
           onValueChange={(value) => savePreferences({ planModeEnabled: value })}
         />
       </SettingsSection>
+      {managed ? <ManagedBySettingsFeedNote /> : null}
       <Text className="px-2 text-sm text-foreground-muted">
         Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan
         control; otherwise every task runs in Build mode.
