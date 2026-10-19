@@ -1691,7 +1691,7 @@ it.effect("ends a nested native subagent and its thread when the root run is int
 );
 
 it.effect(
-  "ingests every late generated-image update across separate chunks after root terminal",
+  "ingests every queued generated-image update when pending work clears during root finalization",
   () =>
     Effect.gen(function* () {
       const key = "late-generated-image-chunks";
@@ -1786,9 +1786,9 @@ it.effect(
         key,
         () =>
           Stream.fromIterable([nodeEvent, messageEvent, itemEvent, terminal]).pipe(
-            // Both image completions are queued for the same message before consumption resumes.
-            // Pending stays false; separate chunks expose a stop check between every queued event.
-            Stream.concat(Stream.fromEffect(Ref.set(pending, false).pipe(Effect.as(nodeEvent)))),
+            // Both completions are queued when pending clears during root finalization.
+            // Separate chunks expose stop checks before the first node and between completions.
+            Stream.concat(Stream.succeed(nodeEvent)),
             Stream.concat(Stream.succeed(lateMessage)),
             Stream.concat(Stream.succeed(lateItem)),
             Stream.concat(Stream.succeed(nodeEvent)),
@@ -1801,7 +1801,7 @@ it.effect(
             assert.equal(providerThread.id, ids.providerThreadId);
             return Ref.get(pending);
           },
-          onFinalized: () => Ref.get(pending).pipe(Effect.map((value) => assert.isTrue(value))),
+          onFinalized: () => Ref.set(pending, false),
           onIngest: (event) => Ref.update(ingested, (current) => [...current, event]),
         },
       );
