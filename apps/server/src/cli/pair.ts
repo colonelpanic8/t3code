@@ -5,6 +5,7 @@ import {
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
@@ -13,13 +14,13 @@ import {
   ensureTailscaleServe,
   readTailscaleStatus,
 } from "@t3tools/tailscale";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag } from "effect/cli";
@@ -27,7 +28,6 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
-import { resolveBaseDir } from "../os-jank.ts";
 import {
   type PersistedServerRuntimeState,
   isProcessAlive,
@@ -44,9 +44,13 @@ import {
 import { authScopesFlag } from "./authScopes.ts";
 import {
   type CliServerLocationFlags,
+  currentStorageHost,
+  deriveServerStoragePaths,
   DurationFromString,
   resolveServerLocationOverrides,
+  resolveServerStorage,
   serverLocationFlags,
+  type ServerStorage,
 } from "./config.ts";
 
 const WELL_KNOWN_ENVIRONMENT_PATH = "/.well-known/t3/environment";
@@ -209,70 +213,96 @@ const probeEnvironmentDescriptor = (
     return { _tag: "descriptor", descriptor } as const;
   }).pipe(Effect.catch((outcome) => Effect.succeed(outcome)));
 
-interface DiscoveredPairTarget {
-  readonly baseDir: string;
-  readonly overrides: ServerConfig.ServerLocationOverrides;
+interface PairCandidate {
+  readonly storage: ServerStorage;
   readonly variant: PairStateVariant;
+}
+
+interface DiscoveredPairTarget extends PairCandidate {
+  readonly overrides: ServerConfig.ServerLocationOverrides;
   readonly state: PersistedServerRuntimeState;
   readonly descriptor: ExecutionEnvironmentDescriptor;
 }
 
+const legacyCandidates = (baseDir: string, path: Path.Path): ReadonlyArray<PairCandidate> =>
+  (["userdata", "dev"] as const).map((variant) => ({
+    storage: {
+      roots: resolveLegacyT3StorageRoots({ baseDir, stateDirectoryName: variant, path }),
+      baseDirIsExplicit: false,
+    },
+    variant,
+  }));
+
+const candidatePaths = (
+  candidate: PairCandidate,
+  overrides: ServerConfig.ServerLocationOverrides,
+) =>
+  deriveServerStoragePaths(
+    candidate.storage,
+    candidate.variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
+    overrides,
+  );
+
 const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   flags: CliServerLocationFlags,
 ) {
-  const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
+  const path = yield* Path.Path;
   const overrides = yield* resolveServerLocationOverrides(flags);
-  const bases: Array<string> = [];
-  if (explicitBaseDir !== undefined && explicitBaseDir.trim().length > 0) {
-    bases.push(yield* resolveBaseDir(explicitBaseDir));
-  } else {
+  const candidates: Array<PairCandidate> = [];
+  if (Option.isNone(Option.filter(flags.baseDir, (value) => value.trim().length > 0))) {
     // Same precedence as dev-runner: inside a linked worktree its own `.t3`
     // outranks the shared home, so `t3 pair` in a worktree pairs with the dev
     // server under test rather than the daily-driver install.
     const worktreeHome = yield* resolveWorktreeT3Home(process.cwd());
     if (worktreeHome !== undefined) {
-      bases.push(worktreeHome);
+      candidates.push(...legacyCandidates(worktreeHome, path));
     }
-    const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-    bases.push(yield* resolveBaseDir(Option.getOrUndefined(envHome)));
+  }
+  const host = yield* currentStorageHost;
+  for (const variant of ["userdata", "dev"] as const) {
+    const storage = yield* resolveServerStorage({
+      baseDir: flags.baseDir,
+      storageLayout: flags.storageLayout ?? Option.none(),
+      isDevelopment: variant === "dev",
+      host,
+    });
+    // A legacy home holds both variants whichever one this pass asked for.
+    candidates.push(
+      ...(storage.roots.layout === "legacy"
+        ? legacyCandidates(storage.roots.legacyBaseDir, path)
+        : [{ storage, variant }]),
+    );
   }
 
   const checkedStatePaths: Array<string> = [];
-  for (const baseDir of new Set(bases)) {
-    for (const variant of ["userdata", "dev"] as const) {
-      const derivedPaths = yield* ServerConfig.deriveServerPaths(
-        baseDir,
-        variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-        overrides,
-      );
-      const statePath = derivedPaths.serverRuntimeStatePath;
-      // A data dir override pins the state file, so every candidate shares it.
-      if (checkedStatePaths.includes(statePath)) {
-        continue;
-      }
-      checkedStatePaths.push(statePath);
-      const state = yield* readPersistedServerRuntimeState(statePath);
-      if (Option.isNone(state)) {
-        continue;
-      }
-      // The pid check guards against a dead server's state file whose port
-      // was since reused by a different server: pairing would then mint a
-      // token in the old database while the QR code points at the new server.
-      if (!isProcessAlive(state.value.pid)) {
-        continue;
-      }
-      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
-      if (probed._tag !== "descriptor") {
-        continue;
-      }
-      return {
-        baseDir,
-        overrides,
-        variant,
-        state: state.value,
-        descriptor: probed.descriptor,
-      } satisfies DiscoveredPairTarget;
+  for (const candidate of candidates) {
+    const statePath = (yield* candidatePaths(candidate, overrides)).derivedPaths
+      .serverRuntimeStatePath;
+    // Candidates can name the same state file, as when a data dir override pins it.
+    if (checkedStatePaths.includes(statePath)) {
+      continue;
     }
+    checkedStatePaths.push(statePath);
+    const state = yield* readPersistedServerRuntimeState(statePath);
+    if (Option.isNone(state)) {
+      continue;
+    }
+    // The pid check guards against a dead server's state file whose port
+    // was since reused by a different server: pairing would then mint a
+    // token in the old database while the QR code points at the new server.
+    if (!isProcessAlive(state.value.pid)) {
+      continue;
+    }
+    const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+    if (probed._tag !== "descriptor") {
+      continue;
+    }
+    return {
+      ...candidate,
+      overrides,
+      state: state.value,
+      descriptor: probed.descriptor,
+    } satisfies DiscoveredPairTarget;
   }
   return yield* new NoRunningServerError({ checkedStatePaths });
 });
@@ -286,16 +316,12 @@ const makePairServerConfig = Effect.fn(function* (input: {
   readonly target: DiscoveredPairTarget;
   readonly logLevel: ServerConfig.ServerConfig["Service"]["logLevel"];
 }) {
-  const { baseDir, overrides, variant, state } = input.target;
+  const { overrides, state } = input.target;
   // The state-dir variant does not imply dev-ness: a worktree dev server uses
   // an explicit home and therefore lands in `userdata`. The recorded devUrl is
   // what actually marks a dev server.
   const devUrl = state.devUrl !== undefined ? new URL(state.devUrl) : undefined;
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(
-    baseDir,
-    variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-    overrides,
-  );
+  const { baseDir, derivedPaths } = yield* candidatePaths(input.target, overrides);
   return ServerConfig.make({
     logLevel: input.logLevel,
     traceMinLevel: "Info",
