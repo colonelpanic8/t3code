@@ -6370,7 +6370,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               detail: "ACP turn requires non-empty text or attachments",
             });
           }
-          if (!isNativeSlashCommand) {
+          if (!isNativeSlashCommand && turnInput.runtimePolicy.blankSlate !== true) {
             prompt.push({
               type: "text",
               text: buildRuntimeInstructions({
