@@ -63,6 +63,10 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.baseDir, "/tmp/t3");
       assert.equal(environment.stateDir, "/tmp/t3/userdata");
       assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
+      assert.equal(
+        environment.desktopWindowStatePath,
+        "/tmp/t3/userdata/desktop-window-state.json",
+      );
       assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
       assert.equal(
         environment.savedEnvironmentRegistryPath,
