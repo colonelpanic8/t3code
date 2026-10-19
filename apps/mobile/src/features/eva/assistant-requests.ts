@@ -8,23 +8,29 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   type ModelSelection,
-  type ServerProvider,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { assistantThreadRow, type AssistantThreadRow } from "./assistant-catalog";
+import { assistantRequestIds } from "./assistant-ids";
+import {
+  findProviderModel,
+  ModelSelectionPlan,
+  parseModelOptions,
+  resolveModelSelection,
+} from "./assistant-models";
+import { clip, Outcome, stop, type AssistantRequestState } from "./assistant-outcome";
+import {
+  isThreadActionOperation,
+  planThreadAction,
+  ThreadActionPlan,
+  type ThreadActionEnvironment,
+  type ThreadActionOperation,
+} from "./assistant-thread-actions";
 
-// States the native journal stores. See ReceiptState in the native module.
-export type AssistantRequestState =
-  | "accepted"
-  | "waiting_for_host"
-  | "submitted"
-  | "completed"
-  | "failed"
-  | "uncertain"
-  | "rejected"
-  | "needs_configuration"
-  | "needs_host_update";
+export { assistantRequestIds } from "./assistant-ids";
+export { resolveModelSelection } from "./assistant-models";
+export type { AssistantRequestState } from "./assistant-outcome";
 
 export interface AssistantRequestUpdate {
   readonly state?: AssistantRequestState;
@@ -34,10 +40,10 @@ export interface AssistantRequestUpdate {
   readonly threadId?: string;
   /** Catalog row for a thread a request created, served until the published catalog lists it. */
   readonly catalog?: { readonly thread: AssistantThreadRow };
+  /** Read out instead of the operation's default sentence once the request completes. */
+  readonly summary?: string;
   readonly error?: { readonly code: string; readonly message: string };
 }
-
-const MAX_ERROR_MESSAGE = 500;
 
 const StartThreadArguments = Schema.Struct({
   environmentId: Schema.String,
@@ -46,10 +52,13 @@ const StartThreadArguments = Schema.Struct({
   title: Schema.optional(Schema.String),
   provider: Schema.optional(Schema.String),
   model: Schema.optional(Schema.String),
+  modelOptions: Schema.optional(Schema.String),
   runtimeMode: Schema.optional(RuntimeMode),
   interactionMode: Schema.optional(ProviderInteractionMode),
-  workspace: Schema.optional(Schema.Literals(["local", "worktree"])),
+  workspace: Schema.optional(Schema.Literals(["local", "worktree", "branch", "pull_request"])),
   baseBranch: Schema.optional(Schema.String),
+  branch: Schema.optional(Schema.String),
+  pullRequest: Schema.optional(Schema.String),
 });
 type StartThreadArguments = typeof StartThreadArguments.Type;
 
@@ -60,8 +69,6 @@ const SendMessageArguments = Schema.Struct({
   activeTurnBehavior: Schema.optional(Schema.Literals(["steer", "queue", "restart"])),
 });
 type SendMessageArguments = typeof SendMessageArguments.Type;
-
-const ModelSelectionPlan = Schema.Struct({ instanceId: Schema.String, model: Schema.String });
 
 const StartThreadPlan = Schema.Struct({
   kind: Schema.Literal("start_thread"),
@@ -77,7 +84,12 @@ const StartThreadPlan = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   workspace: Schema.Union([
-    Schema.Struct({ mode: Schema.Literal("local"), branch: Schema.NullOr(Schema.String) }),
+    Schema.Struct({
+      mode: Schema.Literal("local"),
+      branch: Schema.NullOr(Schema.String),
+      /** An existing checkout outside the project directory, such as a pull request worktree. */
+      worktreePath: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
     Schema.Struct({
       mode: Schema.Literal("worktree"),
       projectCwd: Schema.String,
@@ -99,7 +111,7 @@ const SendMessagePlan = Schema.Struct({
   dispatchMode: Schema.Literals(["auto", "steer", "queue", "restart"]),
 });
 
-const AssistantRequestPlan = Schema.Union([StartThreadPlan, SendMessagePlan]);
+const AssistantRequestPlan = Schema.Union([StartThreadPlan, SendMessagePlan, ThreadActionPlan]);
 export type AssistantRequestPlan = typeof AssistantRequestPlan.Type;
 export type StartThreadPlan = typeof StartThreadPlan.Type;
 export type SendMessagePlan = typeof SendMessagePlan.Type;
@@ -110,9 +122,11 @@ const decodeSendMessageArguments = Schema.decodeUnknownOption(SendMessageArgumen
 
 const PENDING_STATES = new Set(["accepted", "waiting_for_host", "submitted"]);
 
+export type AssistantOperationName = "start_thread" | "send_message" | ThreadActionOperation;
+
 export interface AssistantRequestJob {
   readonly key: string;
-  readonly operation: "start_thread" | "send_message";
+  readonly operation: AssistantOperationName;
   readonly arguments: unknown;
   readonly plan: AssistantRequestPlan | null;
   readonly dispatchStarted: boolean;
@@ -123,7 +137,14 @@ export function parseAssistantRequestJob(raw: unknown): AssistantRequestJob | nu
   if (typeof raw !== "object" || raw === null) return null;
   const data = raw as Record<string, unknown>;
   if (typeof data.key !== "string" || data.key.length === 0) return null;
-  if (data.operation !== "start_thread" && data.operation !== "send_message") return null;
+  const operation = data.operation;
+  if (
+    operation !== "start_thread" &&
+    operation !== "send_message" &&
+    !isThreadActionOperation(operation)
+  ) {
+    return null;
+  }
   if (typeof data.arguments !== "string" || typeof data.plan !== "string") return null;
   if (data.dispatchStarted !== "true" && data.dispatchStarted !== "false") return null;
   try {
@@ -135,7 +156,7 @@ export function parseAssistantRequestJob(raw: unknown): AssistantRequestJob | nu
     }
     return {
       key: data.key,
-      operation: data.operation,
+      operation,
       arguments: JSON.parse(data.arguments),
       plan,
       dispatchStarted: data.dispatchStarted === "true",
@@ -145,33 +166,26 @@ export function parseAssistantRequestJob(raw: unknown): AssistantRequestJob | nu
   }
 }
 
-function uuidShaped(hex: string): string {
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
+/** A checkout made ready before the thread starts in it. */
+export type PreparedWorkspace =
+  | { readonly kind: "ready"; readonly branch: string; readonly worktreePath: string | null }
+  | { readonly kind: "definite"; readonly message: string }
+  | { readonly kind: "transient"; readonly message: string };
 
-/**
- * Server identities derived from the journal key (a SHA-256 of caller and
- * invocation ID). The server keeps a receipt per command ID, so replaying a
- * plan after a lost reply or process death returns the first outcome.
- */
-export function assistantRequestIds(key: string) {
-  return {
-    commandId: `eva:${key}`,
-    threadId: uuidShaped(key.slice(0, 32)),
-    messageId: uuidShaped(key.slice(32, 64)),
-  };
-}
+export type WorkspaceRequest =
+  | { readonly kind: "branch"; readonly cwd: string; readonly branch: string }
+  | { readonly kind: "pull_request"; readonly cwd: string; readonly reference: string };
 
 /** What the executor needs from one connected environment. */
-export interface AssistantEnvironmentClient {
-  readonly environmentName: string;
+export interface AssistantEnvironmentClient extends ThreadActionEnvironment {
   project(projectId: string): EnvironmentProject | null;
-  thread(threadId: string): EnvironmentThreadShell | null;
-  providers(): ReadonlyArray<ServerProvider>;
   currentBranch(cwd: string): Promise<string | null>;
   newWorktreeBranchName(): string;
+  /** Not deduplicated by the server: repeating it must reuse what an earlier run made. */
+  prepareWorkspace(request: WorkspaceRequest): Promise<PreparedWorkspace>;
   startThread(plan: StartThreadPlan): Promise<DispatchOutcome>;
   sendMessage(plan: SendMessagePlan): Promise<DispatchOutcome>;
+  dispatchThreadAction(plan: ThreadActionPlan): Promise<DispatchOutcome>;
 }
 
 /**
@@ -195,21 +209,6 @@ export interface AssistantRequestDeps {
   /** Resolves with the stored request once the native journal has committed the update. */
   report(update: AssistantRequestUpdate): Promise<unknown>;
   now(): Date;
-}
-
-class Outcome extends Error {
-  constructor(readonly update: AssistantRequestUpdate) {
-    super(update.error?.message ?? update.state ?? "outcome");
-  }
-}
-
-function clip(message: string): string {
-  const chars = Array.from(message);
-  return chars.length > MAX_ERROR_MESSAGE ? chars.slice(0, MAX_ERROR_MESSAGE).join("") : message;
-}
-
-function stop(state: AssistantRequestState, code: string, message: string): Outcome {
-  return new Outcome({ state, error: { code, message: clip(message) } });
 }
 
 async function connected(deps: AssistantRequestDeps, environmentId: string) {
@@ -237,62 +236,6 @@ async function connected(deps: AssistantRequestDeps, environmentId: string) {
   }
 }
 
-function defaultModel(provider: ServerProvider): string | null {
-  return (provider.models.find((model) => model.isDefault) ?? provider.models[0])?.slug ?? null;
-}
-
-/** The request's provider and model, else the project's default, else the first ready provider's. */
-export function resolveModelSelection(input: {
-  readonly provider?: string | undefined;
-  readonly model?: string | undefined;
-  readonly projectDefault: ModelSelection | null;
-  readonly providers: ReadonlyArray<ServerProvider>;
-}): { readonly instanceId: string; readonly model: string } {
-  const usable = (provider: ServerProvider) => provider.enabled && provider.status !== "disabled";
-  if (input.provider !== undefined) {
-    const provider = input.providers.find((candidate) => candidate.instanceId === input.provider);
-    if (!provider || !usable(provider)) {
-      throw stop(
-        "rejected",
-        "unknown_provider",
-        `Provider ${input.provider} is not enabled on this environment.`,
-      );
-    }
-    if (provider.status === "error") {
-      throw stop(
-        "rejected",
-        "provider_unavailable",
-        `Provider ${input.provider} reports an error.`,
-      );
-    }
-    const model = input.model ?? defaultModel(provider);
-    if (
-      model === null ||
-      (input.model !== undefined && !provider.models.some((m) => m.slug === model))
-    ) {
-      throw stop(
-        "rejected",
-        "unknown_model",
-        `Model ${input.model} is not offered by ${input.provider}.`,
-      );
-    }
-    return { instanceId: provider.instanceId, model };
-  }
-  if (input.projectDefault) {
-    return { instanceId: input.projectDefault.instanceId, model: input.projectDefault.model };
-  }
-  const ready = input.providers.find((provider) => usable(provider) && provider.status === "ready");
-  const model = ready ? defaultModel(ready) : null;
-  if (!ready || model === null) {
-    throw stop(
-      "needs_configuration",
-      "provider_required",
-      "No provider is ready on this environment.",
-    );
-  }
-  return { instanceId: ready.instanceId, model };
-}
-
 export function threadTitleFromPrompt(prompt: string): string {
   const compact = prompt.trim().replace(/\s+/g, " ");
   return compact.length <= 72 ? compact : `${compact.slice(0, 69).trimEnd()}...`;
@@ -313,14 +256,34 @@ export async function planStartThread(input: {
   if (!project) {
     throw stop("rejected", "unknown_project", "That project is not in this environment.");
   }
-  const modelSelection = resolveModelSelection({
+  const providers = environment.providers();
+  const resolved = resolveModelSelection({
     provider: args.provider,
     model: args.model,
     projectDefault: project.defaultModelSelection ?? null,
-    providers: environment.providers(),
+    providers,
   });
+  const modelSelection: ModelSelectionPlan =
+    args.modelOptions === undefined
+      ? resolved
+      : {
+          ...resolved,
+          options: parseModelOptions(args.modelOptions, findProviderModel(providers, resolved)),
+        };
   let workspace: StartThreadPlan["workspace"] = { mode: "local", branch: null };
-  if (args.workspace === "worktree") {
+  if (args.workspace === "branch" || args.workspace === "pull_request") {
+    const prepared = await environment.prepareWorkspace(
+      args.workspace === "branch"
+        ? { kind: "branch", cwd: project.workspaceRoot, branch: args.branch ?? "" }
+        : { kind: "pull_request", cwd: project.workspaceRoot, reference: args.pullRequest ?? "" },
+    );
+    if (prepared.kind === "definite") {
+      throw stop("rejected", "workspace_unavailable", prepared.message);
+    }
+    // Left pending: a status poll prepares it again, reusing what this run made.
+    if (prepared.kind === "transient") throw new Error(prepared.message);
+    workspace = { mode: "local", branch: prepared.branch, worktreePath: prepared.worktreePath };
+  } else if (args.workspace === "worktree") {
     const baseBranch = args.baseBranch ?? (await environment.currentBranch(project.workspaceRoot));
     if (!baseBranch) {
       throw stop(
@@ -409,6 +372,45 @@ function createdThreadUpdate(
   return { state: "completed", threadId: plan.threadId, catalog: { thread: row } };
 }
 
+function forkedThreadUpdate(
+  plan: Extract<ThreadActionPlan, { readonly kind: "fork_thread" }>,
+  environment: AssistantEnvironmentClient,
+): AssistantRequestUpdate {
+  const source = environment.thread(plan.threadId);
+  const created = environment.thread(plan.targetThreadId);
+  const update: AssistantRequestUpdate = { state: "completed", summary: plan.summary };
+  const thread =
+    created ?? (source ? { ...source, id: plan.targetThreadId, title: plan.title } : null);
+  if (thread === null) return update;
+  const project = environment.project(thread.projectId);
+  return {
+    ...update,
+    catalog: {
+      thread: assistantThreadRow({
+        thread: thread as EnvironmentThreadShell,
+        environmentName: environment.environmentName,
+        projectName: project?.title ?? "",
+      }),
+    },
+  };
+}
+
+function completedUpdate(
+  plan: AssistantRequestPlan,
+  environment: AssistantEnvironmentClient,
+): AssistantRequestUpdate {
+  switch (plan.kind) {
+    case "start_thread":
+      return createdThreadUpdate(plan, environment);
+    case "send_message":
+      return { state: "completed", threadId: plan.threadId };
+    case "fork_thread":
+      return forkedThreadUpdate(plan, environment);
+    default:
+      return { state: "completed", summary: plan.summary };
+  }
+}
+
 /**
  * Runs one journaled request to the furthest state it can reach now. The plan
  * is committed with dispatchStarted before the first send, and every later run
@@ -454,7 +456,7 @@ export async function runAssistantRequest(
             environment,
             now: deps.now(),
           });
-        } else {
+        } else if (job.operation === "send_message") {
           const args = decodeSendMessageArguments(job.arguments);
           if (args._tag === "None") {
             throw stop(
@@ -464,6 +466,12 @@ export async function runAssistantRequest(
             );
           }
           plan = planSendMessage({ key: job.key, args: args.value, environment });
+        } else {
+          plan = await planThreadAction(job.operation, job.arguments, {
+            key: job.key,
+            environment,
+            now: deps.now(),
+          });
         }
       }
       // Another run may have committed first; dispatch whatever the journal holds.
@@ -486,14 +494,12 @@ export async function runAssistantRequest(
     const outcome =
       plan.kind === "start_thread"
         ? await environment.startThread(plan)
-        : await environment.sendMessage(plan);
+        : plan.kind === "send_message"
+          ? await environment.sendMessage(plan)
+          : await environment.dispatchThreadAction(plan);
     switch (outcome.kind) {
       case "accepted":
-        await report(
-          plan.kind === "start_thread"
-            ? createdThreadUpdate(plan, environment)
-            : { state: "completed", threadId: plan.threadId },
-        );
+        await report(completedUpdate(plan, environment));
         break;
       case "definite":
         await report({

@@ -58,6 +58,7 @@ function fakeClient(outcome: DispatchOutcome = { kind: "accepted" }) {
         ? makeThreadShellFixture({
             environmentId,
             id: ThreadId.make("thread-1"),
+            title: "Fix login",
             runtimeMode: "approval-required",
             interactionMode: "plan",
           })
@@ -70,6 +71,12 @@ function fakeClient(outcome: DispatchOutcome = { kind: "accepted" }) {
       return outcome;
     },
     sendMessage: async (plan) => {
+      dispatched.push(plan);
+      return outcome;
+    },
+    threadProjection: async () => null,
+    prepareWorkspace: async () => ({ kind: "definite", message: "unused" }),
+    dispatchThreadAction: async (plan) => {
       dispatched.push(plan);
       return outcome;
     },
@@ -273,6 +280,23 @@ describe("runAssistantRequest", () => {
       dispatchMode: "steer",
     });
     expect(updates[1]).toEqual({ state: "completed", threadId: "thread-1" });
+  });
+
+  it("journals and dispatches thread actions, completing with their summary", async () => {
+    const { environment, dispatched } = fakeClient();
+    const updates = await run(
+      job({
+        operation: "rename_thread",
+        arguments: { environmentId, threadId: "thread-1", title: "Login fix" },
+      }),
+      { kind: "connected", environment },
+    );
+    expect(dispatched).toEqual([
+      expect.objectContaining({ kind: "rename_thread", title: "Login fix" }),
+    ]);
+    expect(updates[0]).toMatchObject({ dispatchStarted: true, state: "accepted" });
+    expect(updates[1]?.state).toBe("completed");
+    expect(updates[1]?.summary).toMatch(/^Renamed .* to “Login fix” on ryzen-shine\.$/);
   });
 });
 
