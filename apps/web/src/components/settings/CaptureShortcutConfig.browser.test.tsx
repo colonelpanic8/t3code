@@ -103,15 +103,11 @@ it.each(["niri", "hyprland"] as const)(
   "shows the fallback before review and requires separate read and write approval on %s",
   async (desktop) => {
     await render(desktop);
-    expect(recorder().getAttribute("aria-label")).toBe(
-      "Record snapshot shortcut, currently Ctrl+Shift+2",
-    );
+    expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⇧2");
     expect(advanced().textContent).toContain("manual binding");
     expect(bridge.previewSnapShotConfig).not.toHaveBeenCalled();
     await click("Review changes");
-    expect(recorder().getAttribute("aria-label")).toBe(
-      "Record snapshot shortcut, currently Ctrl+Shift+2",
-    );
+    expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⇧2");
     expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
     expect(diff()).not.toBeNull();
     await click("Save shortcut");
@@ -202,9 +198,7 @@ it("cancelling a reviewed diff does not write or finish setup", async () => {
   await render();
   await click("Review changes");
   await click("Cancel");
-  expect(recorder().getAttribute("aria-label")).toBe(
-    "Record snapshot shortcut, currently Ctrl+Shift+2",
-  );
+  expect(recorder().getAttribute("aria-label")).toBe("Record snapshot shortcut, currently ⌃⇧2");
   expect(button("Review changes")).toBeDefined();
   expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
   expect(complete).not.toHaveBeenCalled();
