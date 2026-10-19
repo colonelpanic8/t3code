@@ -639,6 +639,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
       ? ["New worktrees start from origin"]
       : []),
+    ...(settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate
+      ? ["Worktree path"]
+      : []),
     ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
       ? ["Add project base directory"]
       : []),
@@ -756,6 +759,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
       defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
       newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+      worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
       addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
       confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
       confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
@@ -2125,6 +2129,7 @@ export function GeneralSettingsPanel() {
   const backgroundActivityProfileOption = resolveBackgroundActivityProfileOption(settings);
   const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
+  const mixedWorktreePathTemplate = useScopedSettingsMixed(["worktreePathTemplate"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
   const backgroundActivityDescription =
     backgroundActivityProfileOption === "advanced"
@@ -2991,6 +2996,40 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        <SettingsRow
+          serverScoped
+          settingKeys={["worktreePathTemplate"]}
+          {...searchableSetting("worktree-path")}
+          description="Template for new worktrees. Relative paths start at the repository root. Variables: {repoRoot}, {repoName}, {branch}, and {worktreesDir} (the worktree location under Storage)."
+          resetAction={
+            settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate ? (
+              <SettingResetButton
+                label="worktree path"
+                onClick={() =>
+                  updateSettings({
+                    worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-96"
+              value={mixedWorktreePathTemplate ? "" : settings.worktreePathTemplate}
+              onCommit={(next) => {
+                const trimmed = next.trim();
+                if (trimmed.length > 0) {
+                  updateSettings({ worktreePathTemplate: trimmed });
+                }
+              }}
+              placeholder={mixedWorktreePathTemplate ? "Mixed" : "{repoRoot}/.worktrees/{branch}"}
+              spellCheck={false}
+              aria-label="Worktree path template"
+            />
+          }
+        />
+
         <SettingsRow
           serverScoped
           settingKeys={["addProjectBaseDirectory"]}
