@@ -1329,6 +1329,10 @@ export function resolveComposerDraftKey(
     if (state.draftsByThreadKey[scopedKey]) {
       return scopedKey;
     }
+    const legacyKey = `${normalizedTarget.environmentId}:${normalizedTarget.threadId}`;
+    if (state.draftsByThreadKey[legacyKey]) {
+      return legacyKey;
+    }
     for (const [draftId, draftSession] of Object.entries(state.draftThreadsByThreadKey)) {
       if (
         draftSession.environmentId === normalizedTarget.environmentId &&

@@ -2,11 +2,18 @@ import {
   EnvironmentId,
   ProjectId,
   ThreadId,
+  TrimmedNonEmptyString,
   type EnvironmentId as EnvironmentIdType,
   type ProjectId as ProjectIdType,
   type ScopedProjectRef,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+
+const decodeScopedRefKey = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Tuple([EnvironmentId, TrimmedNonEmptyString])),
+);
 
 export function scopeProjectRef(
   environmentId: EnvironmentIdType,
@@ -24,6 +31,10 @@ export function scopeThreadRef(
 
 function scopedRefKey(ref: ScopedProjectRef | ScopedThreadRef): string {
   const localId = "projectId" in ref ? ref.projectId : ref.threadId;
+  // Keep existing storage keys unless their environment would make the delimiter ambiguous.
+  if (ref.environmentId.includes(":") || ref.environmentId.startsWith("[")) {
+    return JSON.stringify([ref.environmentId, localId]);
+  }
   return `${ref.environmentId}:${localId}`;
 }
 
@@ -36,6 +47,12 @@ export function scopedThreadKey(ref: ScopedThreadRef): string {
 }
 
 function parseScopedKey(key: string): { environmentId: EnvironmentIdType; localId: string } | null {
+  if (key.startsWith("[")) {
+    const parsed = decodeScopedRefKey(key);
+    return Option.isSome(parsed)
+      ? { environmentId: parsed.value[0], localId: parsed.value[1] }
+      : null;
+  }
   const separatorIndex = key.indexOf(":");
   if (separatorIndex <= 0 || separatorIndex >= key.length - 1) {
     return null;
