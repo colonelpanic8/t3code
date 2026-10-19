@@ -94,6 +94,7 @@ import {
   composerFileNeedsReattach,
   hydrateImagesFromPersisted,
   partializeComposerDraftStoreState,
+  resolveComposerDraftKey,
   useComposerDraftStore,
   DraftId,
 } from "./composerDraftStore";
@@ -112,6 +113,21 @@ import {
 import { formatTerminalContextReference, type TerminalContextDraft } from "./lib/terminalContext";
 import { createDeferredStorage } from "./lib/storage";
 import { applyPreviewServerSnapshot, resetPreviewStateForTests } from "./previewStateStore";
+
+it("retains an existing draft stored under an ambiguous environment key", () => {
+  const ref = scopeThreadRef(EnvironmentId.make("fleet:jimi-hendnix"), ThreadId.make("thread-1"));
+  const legacyKey = "fleet:jimi-hendnix:thread-1";
+  const state = useComposerDraftStore.getState();
+  state.setPrompt(ref, "Keep this draft");
+  const draft = useComposerDraftStore.getState().draftsByThreadKey[scopedThreadKey(ref)];
+  if (!draft) throw new Error("Expected the saved composer draft");
+  expect(
+    resolveComposerDraftKey(
+      { draftsByThreadKey: { [legacyKey]: draft }, draftThreadsByThreadKey: {} },
+      ref,
+    ),
+  ).toBe(legacyKey);
+});
 
 function makeImage(input: {
   id: string;
