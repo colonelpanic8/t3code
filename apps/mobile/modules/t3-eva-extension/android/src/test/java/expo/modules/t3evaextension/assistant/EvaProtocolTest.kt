@@ -44,14 +44,58 @@ class EvaProtocolTest {
     ).forEach { args ->
       assertThrows(IllegalArgumentException::class.java) { start.validate(args) }
     }
-    listOf(base + ("baseBranch" to "main"), base + ("model" to "gpt")).forEach { args ->
-      assertThrows(IllegalArgumentException::class.java) {
-        AssistantCapabilities.checkCombination(args)
-      }
+    listOf(
+      base + ("baseBranch" to "main"),
+      base + ("model" to "gpt"),
+      base + ("workspace" to "branch"),
+      base + ("workspace" to "pull_request") + ("branch" to "main"),
+    ).forEach { args ->
+      assertThrows(IllegalArgumentException::class.java) { start.validate(args) }
     }
-    AssistantCapabilities.checkCombination(
-      base + ("workspace" to "worktree") + ("baseBranch" to "main")
-    )
+    start.validate(base + ("workspace" to "worktree") + ("baseBranch" to "main"))
+    start.validate(base + ("workspace" to "pull_request") + ("pullRequest" to "42"))
+  }
+
+  @Test
+  fun threadActionsCheckWhatTheFlatSchemaCannot() {
+    val target = mapOf<String, Any?>("environmentId" to "e", "threadId" to "t")
+    val organize = AssistantCapabilities.organizeThread
+    organize.validate(target + ("action" to "snooze") + ("snoozeMinutes" to 30L))
+    listOf(
+      target + ("action" to "snooze"),
+      target + ("action" to "snooze") + ("snoozeMinutes" to 30L) + ("snoozeUntil" to "x"),
+      target + ("action" to "pin") + ("snoozeMinutes" to 30L),
+      target + ("action" to "snooze") + ("snoozeMinutes" to 0L),
+    ).forEach { args ->
+      assertThrows(IllegalArgumentException::class.java) { organize.validate(args) }
+    }
+    val answer = AssistantCapabilities.answerQuestion
+    val request = target + ("requestId" to "r")
+    assertThrows(IllegalArgumentException::class.java) { answer.validate(request) }
+    answer.validate(request + ("answer" to "yes"))
+    assertThrows(IllegalArgumentException::class.java) {
+      AssistantCapabilities.configureThread.validate(target)
+    }
+  }
+
+  @Test
+  fun completedReceiptsReadTheExecutorsSummary() {
+    val receipt =
+      mapOf(
+        "invocationId" to "i",
+        "operation" to "organize_thread",
+        "state" to "completed",
+        "environmentName" to "ryzen-shine",
+      )
+
+    @Suppress("UNCHECKED_CAST")
+    fun text(receipt: Map<String, Any?>) = (
+      StrictJson.parseObject(
+        EvaProtocol.executeReply(receipt)
+      )["content"] as List<Map<String, Any?>>
+      )[0]["text"]
+    assertEquals("T3 Code updated the thread on ryzen-shine.", text(receipt))
+    assertEquals("Archived “Fix”.", text(receipt + ("summary" to "Archived “Fix”.")))
   }
 
   @Test
@@ -95,6 +139,7 @@ class EvaProtocolTest {
         catalog = mapOf(
           "thread" to mapOf("id" to "th-1", "title" to "Fix the login", "branch" to "t3code/fix")
         ),
+        summary = null,
         errorCode = null,
         errorMessage = null,
       )

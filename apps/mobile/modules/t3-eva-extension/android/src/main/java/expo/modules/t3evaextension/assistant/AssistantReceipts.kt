@@ -65,6 +65,8 @@ data class AssistantRequestEntry(
   val threadId: String?,
   /** Catalog row ("thread") for a thread a request created, in the provider's column shape. */
   val catalog: Map<String, Any?>?,
+  /** The executor's own account of a completed request, read out instead of the default. */
+  val summary: String?,
   val errorCode: String?,
   val errorMessage: String?
 ) {
@@ -85,6 +87,7 @@ data class AssistantRequestEntry(
       if (!environmentName.isNullOrEmpty()) put("environmentName", environmentName)
       if (threadId != null) put("threadId", threadId)
       val thread = createdRow("thread")
+      (thread?.get("id") as? String)?.takeIf { it != threadId }?.let { put("newThreadId", it) }
       (thread?.get("title") as? String)?.takeIf { it.isNotEmpty() }?.let { put("threadTitle", it) }
       (thread?.get("branch") as? String)?.takeIf { it.isNotEmpty() }?.let { put("branch", it) }
       if (errorCode != null || errorMessage != null) {
@@ -93,6 +96,7 @@ data class AssistantRequestEntry(
           linkedMapOf("code" to (errorCode ?: "error"), "message" to (errorMessage ?: ""))
         )
       }
+      if (!summary.isNullOrEmpty()) put("summary", summary)
       put("updatedAt", isoTimestamp(updatedAtMs))
       put("pollable", isPending)
     }
@@ -116,6 +120,7 @@ data class AssistantRequestEntry(
       "environmentName" to environmentName,
       "threadId" to threadId,
       "catalog" to catalog,
+      "summary" to summary,
       "errorCode" to errorCode,
       "errorMessage" to errorMessage,
     )
@@ -143,6 +148,7 @@ data class AssistantRequestEntry(
         environmentName = json["environmentName"] as String?,
         threadId = json["threadId"] as String?,
         catalog = json["catalog"] as Map<String, Any?>?,
+        summary = json["summary"] as String?,
         errorCode = json["errorCode"] as String?,
         errorMessage = json["errorMessage"] as String?,
       )
@@ -173,6 +179,7 @@ data class ReceiptUpdate(
   val environmentName: String? = null,
   val threadId: String? = null,
   val catalog: Map<String, Any?>? = null,
+  val summary: String? = null,
   val errorCode: String? = null,
   val errorMessage: String? = null
 ) {
@@ -187,6 +194,7 @@ data class ReceiptUpdate(
         environmentName = json["environmentName"] as String?,
         threadId = json["threadId"] as String?,
         catalog = json["catalog"] as Map<String, Any?>?,
+        summary = json["summary"] as String?,
         errorCode = error?.get("code") as String?,
         errorMessage = error?.get("message") as String?,
       )
@@ -244,6 +252,7 @@ object ReceiptRules {
       } else {
         (entry.catalog ?: emptyMap()) + update.catalog
       },
+      summary = update.summary ?: entry.summary,
       errorCode = errorCode,
       errorMessage = errorMessage,
       updatedAtMs = nowMs,

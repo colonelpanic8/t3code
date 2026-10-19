@@ -77,6 +77,7 @@ class AssistantJournal(
           environmentName = null,
           threadId = arguments["threadId"] as String?,
           catalog = null,
+          summary = null,
           errorCode = null,
           errorMessage = null,
         )

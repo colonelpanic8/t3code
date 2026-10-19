@@ -103,7 +103,7 @@ object EvaProtocol {
   fun describeFailure(status: String, reasonCode: String?, message: String): String =
     envelope(status, reasonCode, message, null, describe = true)
 
-  /** Maps a request's receipt onto EVA's outcome envelope for start_thread and send_message. */
+  /** Maps a request's receipt onto EVA's outcome envelope for every journaled operation. */
   fun executeReply(receipt: Map<String, Any?>): String {
     val state = receipt["state"] as String
     val (status, reason) = statusFor(state)
@@ -131,16 +131,14 @@ object EvaProtocol {
 
   @Suppress("CyclomaticComplexMethod")
   private fun messageFor(receipt: Map<String, Any?>): String {
-    val startingThread = receipt["operation"] == AssistantOperation.START_THREAD.wire
+    val operation = (receipt["operation"] as? String)?.let(AssistantOperation::fromWire)
     val environment = (receipt["environmentName"] as? String)?.let { " on $it" } ?: ""
     val summary =
       when (receipt["state"]) {
         ReceiptState.COMPLETED ->
-          if (startingThread) {
-            "The new thread$environment received the prompt in T3 Code."
-          } else {
-            "The thread$environment received the message in T3 Code."
-          }
+          (receipt["summary"] as? String)?.takeIf { it.isNotBlank() }
+            ?: operation?.completed?.replace("{env}", environment)
+            ?: "T3 Code finished the request."
         ReceiptState.ACCEPTED ->
           "T3 Code saved the request and is sending it to the environment. Check its status " +
             "shortly."
@@ -150,12 +148,8 @@ object EvaProtocol {
         ReceiptState.SUBMITTED ->
           "The environment accepted the request and is still handling it. Check its status shortly."
         ReceiptState.UNCERTAIN ->
-          if (startingThread) {
-            "T3 Code cannot tell whether the thread started. Check in T3 Code before trying again."
-          } else {
-            "T3 Code cannot tell whether the thread received the message. Check in T3 Code " +
-              "before trying again."
-          }
+          operation?.uncertain
+            ?: "T3 Code cannot tell whether the request ran. Check in T3 Code before trying again."
         ReceiptState.FAILED -> "The environment could not finish the request."
         ReceiptState.EXPIRED ->
           "T3 Code never sent the request because the environment stayed unreachable."
