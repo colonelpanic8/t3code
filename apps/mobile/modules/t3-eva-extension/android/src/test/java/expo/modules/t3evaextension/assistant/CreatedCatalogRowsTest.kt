@@ -34,6 +34,7 @@ class CreatedCatalogRowsTest {
             "environmentName" to "ryzen-shine"
           )
       ),
+      summary = null,
       errorCode = null,
       errorMessage = null,
     )

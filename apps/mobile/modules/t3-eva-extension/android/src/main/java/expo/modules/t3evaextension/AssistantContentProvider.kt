@@ -29,6 +29,8 @@ private const val MESSAGE_UNAVAILABLE_NOTICE =
   "T3 Code could not read the thread in time; ask again in a moment."
 private const val MODEL_UNAVAILABLE_NOTICE =
   "T3 Code could not read that environment's models in time; ask again in a moment."
+private const val LIVE_UNAVAILABLE_NOTICE =
+  "T3 Code could not reach its environments in time; ask again in a moment."
 
 private val ENVIRONMENT_COLUMNS = listOf("id", "name", "connected", "status")
 private val PROJECT_COLUMNS =
@@ -66,9 +68,141 @@ private val MODEL_COLUMNS =
     "model",
     "modelLabel",
     "isDefault",
+    "options",
     "note",
   )
-private val INT_COLUMNS = setOf("connected", "isDefault")
+private val REQUEST_COLUMNS =
+  listOf(
+    "requestId",
+    "environmentId",
+    "environmentName",
+    "threadId",
+    "threadTitle",
+    "kind",
+    "requestKind",
+    "createdAt",
+    "detail",
+    "decisions",
+    "questions",
+    "answerable",
+    "dismissible",
+  )
+private val STATUS_COLUMNS =
+  listOf(
+    "id",
+    "environmentId",
+    "environmentName",
+    "projectId",
+    "projectName",
+    "title",
+    "status",
+    "activeRunStatus",
+    "queuedCount",
+    "pendingApprovals",
+    "pendingQuestions",
+    "branch",
+    "worktreePath",
+    "provider",
+    "model",
+    "modelOptions",
+    "runtimeMode",
+    "interactionMode",
+    "pinned",
+    "archived",
+    "settled",
+    "snoozedUntil",
+    "lastActivityAt",
+    "lastAssistantMessage",
+    "note",
+  )
+private val QUEUE_COLUMNS =
+  listOf(
+    "runId",
+    "environmentId",
+    "environmentName",
+    "threadId",
+    "threadTitle",
+    "position",
+    "text",
+    "held",
+    "canSteer",
+  )
+private val INT_COLUMNS =
+  setOf(
+    "connected",
+    "isDefault",
+    "answerable",
+    "dismissible",
+    "queuedCount",
+    "pendingApprovals",
+    "pendingQuestions",
+    "pinned",
+    "archived",
+    "settled",
+    "position",
+    "held",
+    "canSteer",
+  )
+
+/** Live tables answered by JavaScript: query parameters each takes and the one it needs. */
+private class LiveTable(
+  val columns: List<String>,
+  val params: Set<String>,
+  val required: String?,
+  val defaultLimit: Int,
+  val maxLimit: Int,
+  val notice: (Map<String, Any?>) -> Map<String, Any?>
+)
+
+private val LIVE_TABLES =
+  mapOf(
+    "requests" to
+      LiveTable(
+        REQUEST_COLUMNS,
+        setOf("environmentId", "threadId", "limit"),
+        required = null,
+        defaultLimit = DEFAULT_LIMIT,
+        maxLimit = MAX_LIMIT,
+      ) { params ->
+        mapOf(
+          "requestId" to "notice",
+          "environmentId" to (params["environmentId"] ?: ""),
+          "threadId" to (params["threadId"] ?: ""),
+          "kind" to "notice",
+          "detail" to LIVE_UNAVAILABLE_NOTICE,
+        )
+      },
+    "thread_status" to
+      LiveTable(
+        STATUS_COLUMNS,
+        setOf("environmentId", "threadId"),
+        required = "threadId",
+        defaultLimit = 1,
+        maxLimit = 1,
+      ) { params ->
+        mapOf(
+          "id" to params["threadId"],
+          "environmentId" to (params["environmentId"] ?: ""),
+          "status" to "notice",
+          "note" to LIVE_UNAVAILABLE_NOTICE,
+        )
+      },
+    "queue" to
+      LiveTable(
+        QUEUE_COLUMNS,
+        setOf("environmentId", "threadId", "limit"),
+        required = "threadId",
+        defaultLimit = DEFAULT_LIMIT,
+        maxLimit = MAX_LIMIT,
+      ) { params ->
+        mapOf(
+          "runId" to "notice",
+          "environmentId" to (params["environmentId"] ?: ""),
+          "threadId" to params["threadId"],
+          "text" to LIVE_UNAVAILABLE_NOTICE,
+        )
+      },
+  )
 
 // Which query parameters filter which catalog table.
 private val CATALOG_FILTERS =
@@ -86,7 +220,10 @@ private val CATALOG_FILTERS =
  * [AssistantCatalogStore] holds, so they answer without starting React Native.
  * `/messages?threadId=&environmentId=&limit=` needs a live transcript, and
  * `/models?environmentId=&provider=&q=&limit=` the environment's live provider
- * list; both go through [AssistantQueryBridge], which starts the JavaScript
+ * list, `/requests?environmentId=&threadId=&limit=` the pending approvals and
+ * questions, `/thread_status?threadId=&environmentId=` one thread's live state,
+ * and `/queue?threadId=&environmentId=&limit=` its queued messages; all go
+ * through [AssistantQueryBridge], which starts the JavaScript
  * runtime headless when the app is not running. Only query parameters filter:
  * a SQL selection is refused rather than ignored.
  */
@@ -107,6 +244,9 @@ class AssistantContentProvider : ContentProvider() {
       "threads" -> "vnd.android.cursor.dir/vnd.$authority.thread"
       "messages" -> "vnd.android.cursor.dir/vnd.$authority.message"
       "models" -> "vnd.android.cursor.dir/vnd.$authority.model"
+      "requests" -> "vnd.android.cursor.dir/vnd.$authority.request"
+      "thread_status" -> "vnd.android.cursor.dir/vnd.$authority.thread_status"
+      "queue" -> "vnd.android.cursor.dir/vnd.$authority.queued_message"
       else -> null
     }
 
@@ -134,13 +274,19 @@ class AssistantContentProvider : ContentProvider() {
       "Filter with query parameters; selections are not supported"
     }
     require(sortOrder.isNullOrEmpty()) { "Sorting is fixed to most recent activity" }
-    return when (uri.pathSegments.singleOrNull()) {
+    val table =
+      uri.pathSegments.singleOrNull()
+        ?: throw IllegalArgumentException("Unknown table ${uri.path}")
+    return when (table) {
       "environments" -> queryCatalog("environments", ENVIRONMENT_COLUMNS, uri, projection)
       "projects" -> queryCatalog("projects", PROJECT_COLUMNS, uri, projection)
       "threads" -> queryCatalog("threads", THREAD_COLUMNS, uri, projection)
       "messages" -> queryMessages(uri, projection)
       "models" -> queryModels(uri, projection)
-      else -> throw IllegalArgumentException("Unknown table ${uri.path}")
+      else -> {
+        val live = LIVE_TABLES[table] ?: throw IllegalArgumentException("Unknown table ${uri.path}")
+        queryLive(table, live, uri, projection)
+      }
     }
   }
 
@@ -234,6 +380,29 @@ class AssistantContentProvider : ContentProvider() {
             )
           )
         )
+    return cursorOf(requested, rows, limit)
+  }
+
+  /** A live table through JavaScript; anything that keeps it from answering is one notice row. */
+  private fun queryLive(
+    table: String,
+    live: LiveTable,
+    uri: Uri,
+    projection: Array<String>?
+  ): Cursor {
+    val requested = requestedColumns(projection, live.columns)
+    val stray = uri.queryParameterNames.firstOrNull { it !in live.params }
+    require(stray == null) { "$stray does not filter $table" }
+    live.required?.let { name -> requireNotNull(param(uri, name)) { "Pass $name" } }
+    val limit = parseLimit(uri.getQueryParameter("limit"), live.defaultLimit, live.maxLimit)
+    val params = HashMap<String, Any?>()
+    for (name in live.params - "limit") params[name] = param(uri, name)
+    params["limit"] = limit
+    val rows =
+      context?.let {
+        AssistantQueryBridge.request(it, table, params, LIVE_TIMEOUT_MS)
+      }?.let(::parseRows)
+        ?: listOf(JSONObject(live.notice(params)))
     return cursorOf(requested, rows, limit)
   }
 
