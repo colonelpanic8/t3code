@@ -39,7 +39,7 @@ function imageDestination(path: string): string {
 }
 
 function angleDestination(path: string): string {
-  return `<${path.replace(/[%?#]/g, encodeURIComponent).replace(/[<>]/g, "\\$&")}>`;
+  return `<${path.replace(/[%?#&]/g, encodeURIComponent).replace(/[<>]/g, "\\$&")}>`;
 }
 
 export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<string>): string {
