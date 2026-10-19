@@ -238,13 +238,7 @@ class EvaExtensionService : Service() {
     if (StrictJson.utf8Size(argumentsJson) > MAX_ARGUMENT_BYTES) {
       throw InvalidArgumentsException("Arguments are too large")
     }
-    val arguments = capability.validate(StrictJson.parseObject(argumentsJson))
-    if (capability ===
-      AssistantCapabilities.startThread
-    ) {
-      AssistantCapabilities.checkCombination(arguments)
-    }
-    return arguments
+    return capability.validate(StrictJson.parseObject(argumentsJson))
   }
 
   private fun rejected(invocationId: String, message: String): String {

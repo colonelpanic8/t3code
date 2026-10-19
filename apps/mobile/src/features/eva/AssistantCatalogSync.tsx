@@ -10,7 +10,7 @@ import { assistantCatalogEnvironments } from "./assistant-runtime";
 
 const PUBLISH_DEBOUNCE_MS = 1500;
 
-function catalogJson(): string {
+export function assistantCatalogJson(): string {
   return JSON.stringify(
     buildAssistantCatalog({
       now: new Date(),
@@ -35,7 +35,7 @@ export function AssistantCatalogSync() {
     let lastPublished: string | null = null;
     const publish = () => {
       timer = null;
-      const json = catalogJson();
+      const json = assistantCatalogJson();
       // The capture time alone is not a change worth a write.
       const content = json.replace(/"capturedAt":"[^"]*"/, "");
       if (content === lastPublished) return;
