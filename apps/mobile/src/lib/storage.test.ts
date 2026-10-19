@@ -170,6 +170,34 @@ describe("mobile connection storage", () => {
     warn.mockRestore();
   });
 
+  it("lets a settings feed override preferences until tracking stops", async () => {
+    mocks.setPreferencesJson(
+      JSON.stringify({
+        followUpBehavior: "queue",
+        settingsFeed: {
+          url: "https://example.com/settings.age",
+          managed: { followUpBehavior: "steer", microphones: [{ kind: "default" }] },
+          fetchedAt: 5,
+        },
+      }),
+      10,
+    );
+
+    await expect(loadPreferences()).resolves.toMatchObject({ followUpBehavior: "steer" });
+    await expect(loadPreferences()).resolves.not.toHaveProperty("microphones");
+
+    await savePreferencesPatch({ followUpBehavior: "queue", baseFontSize: 18 });
+    await expect(loadPreferences()).resolves.toMatchObject({
+      followUpBehavior: "steer",
+      baseFontSize: 18,
+    });
+
+    await savePreferencesPatch({ settingsFeed: undefined });
+    const restored = await loadPreferences();
+    expect(restored).toMatchObject({ followUpBehavior: "queue", baseFontSize: 18 });
+    expect(restored).not.toHaveProperty("settingsFeed");
+  });
+
   it("loads legacy preferences when SQLite is unavailable", async () => {
     mocks.setDatabaseFailures(true, true);
     await mocks.setItemAsync("t3code.preferences", JSON.stringify({ baseFontSize: 17 }));
