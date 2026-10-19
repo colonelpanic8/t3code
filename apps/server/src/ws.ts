@@ -245,6 +245,8 @@ import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
+import * as VoiceLiveService from "./voice/VoiceLiveService.ts";
+import * as VoiceLiveToolExecutor from "./voice/VoiceLiveToolExecutor.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import {
@@ -1265,6 +1267,12 @@ const layerWsRpc = (
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
+      const voiceLive = yield* VoiceLiveService.VoiceLiveService;
+      const voiceLiveTools = yield* VoiceLiveToolExecutor.VoiceLiveToolExecutor;
+      const voiceLiveOwner = (clientId: number): VoiceLiveService.VoiceLiveOwner => ({
+        sessionId: currentSessionId,
+        rpcClientId: RpcClientId.make(clientId),
+      });
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
@@ -3086,6 +3094,14 @@ const layerWsRpc = (
               Stream.concat(Stream.make(latest), changes),
             ),
           ),
+        [WS_METHODS.voiceLiveStart]: (input, metadata) =>
+          Stream.unwrap(voiceLive.start(input, voiceLiveOwner(metadata.client.id))),
+        [WS_METHODS.voiceLiveStop]: (input, metadata) =>
+          voiceLive.stop(input.liveSessionId, voiceLiveOwner(metadata.client.id)),
+        [WS_METHODS.voiceLiveRouteRespond]: (input, metadata) =>
+          voiceLive.respond(input, voiceLiveOwner(metadata.client.id)),
+        [WS_METHODS.voiceLiveToolExecute]: (input) =>
+          voiceLiveTools.execute(input.toolName, input.arguments),
       });
       return handlers;
     }),
@@ -3106,6 +3122,8 @@ export const layer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const sql = yield* SqlClient.SqlClient;
+    const voiceLive = yield* VoiceLiveService.VoiceLiveService;
+    const voiceLiveTools = yield* VoiceLiveToolExecutor.VoiceLiveToolExecutor;
     return HttpRouter.add(
       "GET",
       "/ws",
@@ -3194,6 +3212,12 @@ export const layer = Layer.unwrap(
                   PullRequestReviewGuideService.PullRequestReviewGuideService,
                   reviewGuides,
                 ),
+              ),
+              // The voice broker must be the same instance the /mcp/voice
+              // transport resolves credentials against.
+              Layer.provide(Layer.succeed(VoiceLiveService.VoiceLiveService, voiceLive)),
+              Layer.provide(
+                Layer.succeed(VoiceLiveToolExecutor.VoiceLiveToolExecutor, voiceLiveTools),
               ),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(

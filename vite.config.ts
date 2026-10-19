@@ -227,6 +227,12 @@ export default defineConfig({
         rules: { "t3code/no-raw-mcp-registration": "off" },
       },
       {
+        // Live Voice's separate /mcp/voice transport: its only toolkit is the
+        // voice routing tools, gated by the per-call bearer credential.
+        files: ["apps/server/src/mcp/VoiceMcpServer.ts"],
+        rules: { "t3code/no-raw-mcp-registration": "off" },
+      },
+      {
         files: ["apps/web/src/**"],
         excludeFiles: ["apps/web/src/components/ui/**"],
         rules: {
