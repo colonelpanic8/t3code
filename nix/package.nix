@@ -76,6 +76,8 @@
     then ../assets/prod/black-macos-1024.png
     else ../assets/prod/black-universal-1024.png;
   iconSizes = [16 24 32 48 64 128 256 512];
+  # The desktop app sets this as its Wayland app id and X11 WM_CLASS.
+  linuxAppId = "com.t3tools.T3Code";
 
   unwrapped = pkgs.stdenv.mkDerivation (finalAttrs: {
     pname = "t3code-unwrapped";
@@ -242,10 +244,15 @@
       ''
       + ''
         install -Dm444 ${desktopIcon} "$out"/share/icons/t3code.png
+        # Bars that resolve a window by its Wayland app id look that up in the
+        # icon theme too; upstream installs these itself only when packaged.
         for size in ${toString iconSizes}; do
-          mkdir -p "$out/share/icons/hicolor/''${size}x''${size}/apps"
-          magick ${desktopIcon} -resize "''${size}x''${size}" \
-            "$out/share/icons/hicolor/''${size}x''${size}/apps/t3code.png"
+          dir="$out/share/icons/hicolor/''${size}x''${size}/apps"
+          mkdir -p "$dir"
+          magick ${desktopIcon} -resize "''${size}x''${size}" "$dir/t3code.png"
+          for name in ${linuxAppId} ${lib.toLower linuxAppId}; do
+            ln -s t3code.png "$dir/$name.png"
+          done
         done
       ''
       + lib.optionalString (brand == "production") ''
@@ -273,7 +280,7 @@
         exec = "t3code-desktop %U";
         terminal = false;
         icon = "t3code";
-        startupWMClass = "t3code";
+        startupWMClass = linuxAppId;
         categories = ["Development"];
       })
     ];
