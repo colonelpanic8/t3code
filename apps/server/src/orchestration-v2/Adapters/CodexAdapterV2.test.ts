@@ -4085,15 +4085,21 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     },
     {
       name: "a link or quoted Markdown still needs a preview",
-      reply: "Saved /tmp/a.png: [open](/tmp/a.png)\n`![](/tmp/a.png)`",
+      reply:
+        "Saved /tmp/a.png: [open](/tmp/a.png)\n`![](/tmp/a.png)`\n\n    ![](/tmp/a.png)\n\n```md\n![](/tmp/a.png)\n```\n\\![](/tmp/a.png)",
       images: [{ savedPath: "/tmp/a.png" }],
-      expected: "Saved /tmp/a.png: [open](/tmp/a.png)\n`![](/tmp/a.png)`\n\n![](</tmp/a.png>)",
+      expected:
+        "Saved /tmp/a.png: [open](/tmp/a.png)\n`![](/tmp/a.png)`\n\n    ![](/tmp/a.png)\n\n```md\n![](/tmp/a.png)\n```\n\\![](/tmp/a.png)\n\n![](</tmp/a.png>)",
     },
     {
       name: "existing images are not duplicated",
-      reply: "![A](</tmp/a b.png>) ![B](/tmp/b.png)",
-      images: [{ savedPath: "/tmp/a b.png" }, { savedPath: "/tmp/b.png" }],
-      expected: "![A](</tmp/a b.png>) ![B](/tmp/b.png)",
+      reply: "![A](</tmp/a b.png>) ![B](/tmp/b.png) ![C][generated]\n\n[generated]: /tmp/c.png",
+      images: [
+        { savedPath: "/tmp/a b.png" },
+        { savedPath: "/tmp/b.png" },
+        { savedPath: "/tmp/c.png" },
+      ],
+      expected: "![A](</tmp/a b.png>) ![B](/tmp/b.png) ![C][generated]\n\n[generated]: /tmp/c.png",
     },
     {
       name: "Windows drive paths survive mobile Markdown parsing",
