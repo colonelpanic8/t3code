@@ -1297,6 +1297,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "write-secret",
   "write-file",
   "prepare-directory",
+  "read-managed-file",
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 
@@ -1319,6 +1320,31 @@ export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>
         : ` and environment variable ${this.environmentVariable}`;
     return `Server settings ${this.operation} failed${provider}${variable} at ${this.settingsPath}.`;
   }
+}
+
+export class ManagedSettingWriteError extends Schema.TaggedError<ManagedSettingWriteError>()(
+  "ManagedSettingWriteError",
+  {
+    setting: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${this.setting} is managed by system configuration.`;
+  }
+}
+
+export const ManagedSettingPaths = Schema.Array(Schema.Array(Schema.String));
+export type ManagedSettingPaths = typeof ManagedSettingPaths.Type;
+
+export function isSettingPathManaged(
+  managedPaths: ManagedSettingPaths | undefined,
+  path: ReadonlyArray<string>,
+): boolean {
+  return (
+    managedPaths?.some((managed) =>
+      managed.slice(0, path.length).every((segment, index) => segment === path[index]),
+    ) ?? false
+  );
 }
 
 export type UnifiedSettings = Omit<ServerSettings, keyof ModelPreferences> & ClientSettings;
