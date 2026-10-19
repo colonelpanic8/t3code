@@ -2,12 +2,15 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_ENVIRONMENT_NAMES,
+  t3StorageEnvironment,
+} from "@t3tools/shared/storagePaths";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
 
-// An AppImage mounts somewhere new each run, so its launcher mounts the
-// AppImage itself instead of pointing into it.
 const { logInfo, logWarning } = makeComponentLogger("desktop-cli-shim");
 
 export const MARKER = "Written by T3 Code: runs the desktop app's bundled t3 CLI.";
@@ -27,21 +30,29 @@ export type CliShimTarget =
   | { readonly kind: "windows"; readonly executable: string; readonly entry: string };
 
 /**
- * Electron runs the server as plain Node with `ELECTRON_RUN_AS_NODE`, which
- * reads the entry from inside the asar archive. The launcher's own path and the
- * app's T3 home are written in, so the command the server shows is absolute and
- * `sudo`, which clears the environment, still runs against this install's home.
  */
 export const renderCliShim = (input: {
   readonly target: CliShimTarget;
   readonly shimPath: string;
-  readonly t3Home: string;
+  readonly storageEnvironment: Readonly<Record<string, string>>;
 }) => {
   const { target } = input;
+  const storageEntries = Object.entries(input.storageEnvironment);
+  // Pinned split roots cannot be combined with a caller's own server location
+  // overrides, so any of those also means the caller chose its storage.
+  const callerStorageNames = [
+    ...T3_STORAGE_ENVIRONMENT_NAMES,
+    ...(Object.hasOwn(input.storageEnvironment, "T3CODE_HOME")
+      ? []
+      : T3_SERVER_LOCATION_ENVIRONMENT_NAMES),
+  ];
   if (target.kind === "windows") {
-    const utf8 = [target.executable, target.entry, input.shimPath, input.t3Home].some((value) =>
-      [...value].some((character) => character.codePointAt(0)! > 0x7f),
-    );
+    const utf8 = [
+      target.executable,
+      target.entry,
+      input.shimPath,
+      ...storageEntries.map(([, value]) => value),
+    ].some((value) => [...value].some((character) => character.codePointAt(0)! > 0x7f));
     const restore = utf8 ? ["chcp %t3_codepage% >nul"] : [];
     return [
       "@echo off",
@@ -58,7 +69,11 @@ export const renderCliShim = (input: {
           ]
         : []),
       `set "T3CODE_CLI_PATH=${cmdText(input.shimPath)}"`,
-      `if not defined T3CODE_HOME set "T3CODE_HOME=${cmdText(input.t3Home)}"`,
+      'set "t3_storage=1"',
+      ...callerStorageNames.map((name) => `if defined ${name} set "t3_storage="`),
+      ...storageEntries.map(
+        ([name, value]) => `if defined t3_storage set "${name}=${cmdText(value)}"`,
+      ),
       'set "ELECTRON_RUN_AS_NODE=1"',
       // Electron's Windows executable starts without stdin; this tells the CLI to reopen the console.
       'set "T3CODE_DESKTOP_CLI_LAUNCHER=1"',
@@ -79,8 +94,9 @@ export const renderCliShim = (input: {
     "#!/bin/sh",
     `# ${MARKER}`,
     `export T3CODE_CLI_PATH=${shellWord(input.shimPath)}`,
-    `home=${shellWord(input.t3Home)}`,
-    'export T3CODE_HOME="${T3CODE_HOME:-$home}"',
+    `if [ -z "${callerStorageNames.map((name) => `\${${name}:-}`).join("")}" ]; then`,
+    ...storageEntries.map(([name, value]) => `  export ${name}=${shellWord(value)}`),
+    "fi",
     "export ELECTRON_RUN_AS_NODE=1",
     `app=${shellWord(target.kind === "appimage" ? target.appImage : target.executable)}`,
     'if [ ! -x "$app" ]; then',
@@ -146,7 +162,11 @@ export const install = Effect.gen(function* () {
         }),
         onNone: () => ({ kind: "direct" as const, executable: process.execPath, entry }),
       });
-  const content = renderCliShim({ target, shimPath, t3Home: environment.baseDir });
+  const content = renderCliShim({
+    target,
+    shimPath,
+    storageEnvironment: t3StorageEnvironment(environment.storageRoots),
+  });
 
   return yield* Effect.gen(function* () {
     const existing = yield* fs.readFileString(shimPath).pipe(Effect.option);
