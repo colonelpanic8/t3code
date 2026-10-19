@@ -1,5 +1,3 @@
-import type { AssistantRequestUpdate } from "./assistant-requests";
-
 // States the native journal stores. See ReceiptState in the native module.
 export type AssistantRequestState =
   | "accepted"
@@ -14,10 +12,18 @@ export type AssistantRequestState =
 
 const MAX_ERROR_MESSAGE = 500;
 
+/** The part of a journal update that ends a request without dispatching it. */
+export interface OutcomeUpdate {
+  readonly state: AssistantRequestState;
+  readonly environmentName?: string;
+  readonly summary?: string;
+  readonly error?: { readonly code: string; readonly message: string };
+}
+
 /** Ends a request at the state it carries; thrown by planning, caught by the runner. */
 export class Outcome extends Error {
-  constructor(readonly update: AssistantRequestUpdate) {
-    super(update.error?.message ?? update.state ?? "outcome");
+  constructor(readonly update: OutcomeUpdate) {
+    super(update.error?.message ?? update.state);
   }
 }
 
