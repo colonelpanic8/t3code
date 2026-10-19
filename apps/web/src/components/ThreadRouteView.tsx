@@ -4,7 +4,11 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
-import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
+import {
+  draftServerThreadHasStarted,
+  resolveDraftPromotionNavigationTarget,
+  threadHasStarted,
+} from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
 import { SidebarInset } from "./ui/sidebar";
 import {
@@ -14,11 +18,17 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
-import { useEnvironmentThreadRefs, useThreadRefs, useQuietThreadShell } from "../state/entities";
+import {
+  resolveThreadDetailRef,
+  useEnvironmentThreadRefs,
+  useQuietThreadShell,
+  useThreadProjection,
+} from "../state/entities";
 import { useEnvironmentShellStatus } from "../state/shell";
 import {
   buildThreadRouteParams,
   isThreadRouteSnapshotAuthoritative,
+  resolveDraftThreadSubscriptionRef,
   resolveThreadRouteRenderState,
   type ThreadRouteTarget,
 } from "../threadRoutes";
@@ -34,17 +44,34 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
   );
-  const threadRefs = useThreadRefs();
-  const inferredThreadRef = draftSession
-    ? (threadRefs.find(
-        (ref) =>
-          ref.environmentId === draftSession.environmentId &&
-          ref.threadId === draftSession.threadId,
-      ) ?? null)
-    : null;
+  const promotedTo = draftSession?.promotedTo ?? null;
+  const draftEnvironmentId = draftSession?.environmentId ?? null;
+  const draftThreadId = draftSession?.threadId ?? null;
+  const draftServerThreadRef =
+    draftEnvironmentId === null || draftThreadId === null
+      ? null
+      : resolveDraftThreadSubscriptionRef({
+          environmentId: draftEnvironmentId,
+          threadId: draftThreadId,
+          promotedTo,
+        });
   const serverThreadRef: ScopedThreadRef | null =
-    target.kind === "server" ? target.threadRef : (draftSession?.promotedTo ?? inferredThreadRef);
+    target.kind === "server" ? target.threadRef : draftServerThreadRef;
   const serverThread = useQuietThreadShell(serverThreadRef);
+  // Once the bootstrap launch has been accepted (`promotedTo` recorded) the
+  // reserved detail stream is an independent promotion signal, so it must not
+  // stay gated behind the shell upsert the way an unsent draft's is.
+  const draftServerThreadDetail = useThreadProjection(
+    target.kind === "draft"
+      ? resolveThreadDetailRef(serverThreadRef, {
+          shellExists: serverThread !== null,
+          waitForShell: promotedTo === null,
+        })
+      : null,
+  );
+  const draftServerThreadStarted =
+    target.kind === "draft" &&
+    draftServerThreadHasStarted({ shell: serverThread, projection: draftServerThreadDetail });
   const backgroundSubmissionPending = useBackgroundDraftSubmissionPending(
     target.kind === "draft" ? serverThreadRef : null,
   );
@@ -53,6 +80,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       ? resolveDraftPromotionNavigationTarget({
           serverThreadRef,
           serverThread,
+          serverThreadProjection: draftServerThreadDetail,
           backgroundSubmissionPending,
         })
       : null;
@@ -96,11 +124,11 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
   useEffect(() => {
-    if (!inferredThreadRef || draftSession?.promotedTo) {
+    if (target.kind !== "draft" || !serverThreadRef || !draftServerThreadStarted || promotedTo) {
       return;
     }
-    markPromotedDraftThreadByRef(inferredThreadRef);
-  }, [draftSession?.promotedTo, inferredThreadRef]);
+    markPromotedDraftThreadByRef(serverThreadRef);
+  }, [draftServerThreadStarted, promotedTo, serverThreadRef, target.kind]);
 
   useEffect(() => {
     if (!canonicalThreadRef) {
