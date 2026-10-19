@@ -488,6 +488,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   readonly workspaceRoot?: string;
   readonly projectFaviconPath?: string;
   readonly projectCheckoutPending?: boolean;
+  readonly revalidate?: boolean;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -642,7 +643,9 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       const faviconPath = input.projectCheckoutPending
         ? null
         : yield* faviconResolver
-            .resolvePath(workspaceRoot, input.projectFaviconPath ?? undefined)
+            .resolvePath(workspaceRoot, input.projectFaviconPath ?? undefined, {
+              revalidate: input.revalidate === true,
+            })
             .pipe(
               Effect.mapError(
                 (cause) =>
