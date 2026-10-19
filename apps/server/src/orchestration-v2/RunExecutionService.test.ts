@@ -1781,11 +1781,24 @@ it.effect(
         turnItem: { ...itemEvent.turnItem, text: bothImagesText },
       };
       const terminal = rootTerminalEvent(ids, "completed");
+      const backgroundStarted = {
+        type: "background_work.updated",
+        driver,
+        providerTurnId: ids.rootProviderTurnId,
+        pending: true,
+      } satisfies ProviderAdapter.ProviderAdapterV2Event;
+      const backgroundCompleted = { ...backgroundStarted, pending: false };
 
       const observed = yield* runBackgroundItemScenario(
         key,
         () =>
-          Stream.fromIterable([nodeEvent, messageEvent, itemEvent, terminal]).pipe(
+          Stream.fromIterable([
+            backgroundStarted,
+            nodeEvent,
+            messageEvent,
+            itemEvent,
+            terminal,
+          ]).pipe(
             // Both completions are queued when pending clears during root finalization.
             // Separate chunks expose stop checks before the first node and between completions.
             Stream.concat(Stream.succeed(nodeEvent)),
@@ -1794,6 +1807,7 @@ it.effect(
             Stream.concat(Stream.succeed(nodeEvent)),
             Stream.concat(Stream.succeed(secondLateMessage)),
             Stream.concat(Stream.succeed(secondLateItem)),
+            Stream.concat(Stream.succeed(backgroundCompleted)),
           ),
         {
           keepEventStreamOpen: true,
@@ -1807,6 +1821,7 @@ it.effect(
       );
 
       assert.deepEqual(yield* Ref.get(ingested), [
+        backgroundStarted,
         nodeEvent,
         messageEvent,
         itemEvent,
@@ -1817,6 +1832,7 @@ it.effect(
         nodeEvent,
         secondLateMessage,
         secondLateItem,
+        backgroundCompleted,
       ]);
       assert.deepEqual(observed, [
         "turn_item:completed",

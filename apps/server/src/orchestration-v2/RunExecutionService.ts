@@ -481,6 +481,8 @@ export function routeProviderEvent(
             state.ownedProviderTurnIds.has(event.runtimeRequest.providerTurnId)),
         state,
       ];
+    case "background_work.updated":
+      return [state.ownedProviderTurnIds.has(event.providerTurnId), state];
     case "command_output.delta":
       // The session manager hands live output to the command output hub; runs never see it.
       return [false, state];
@@ -973,7 +975,7 @@ export const layer: Layer.Layer<
           const rootTerminalSeen = yield* Ref.make(false);
           const rootRunFinalized = yield* Ref.make(false);
           const providerThreadOwnerLost = yield* Ref.make(false);
-          const pendingAssistantMessageNodes = new Set<NodeId>();
+          const pendingBackgroundProviderTurns = new Set<ProviderTurnId>();
           const activeChildProviderTurns = yield* Ref.make<ReadonlySet<ProviderTurnId>>(new Set());
           const activeChildSubagents = yield* Ref.make<ReadonlySet<NodeId>>(new Set());
           const activeBackgroundTurnItems = yield* Ref.make<
@@ -1178,7 +1180,7 @@ export const layer: Layer.Layer<
             ) {
               return true;
             }
-            if (pendingAssistantMessageNodes.size > 0) {
+            if (pendingBackgroundProviderTurns.size > 0) {
               return false;
             }
             const childProviderTurns = yield* Ref.get(activeChildProviderTurns);
@@ -1306,21 +1308,12 @@ export const layer: Layer.Layer<
                   yield* Ref.set(rootTerminalSeen, true);
                   yield* finalizeRootRun(event);
                 }
-                // Assistant artifacts arrive as node, message, then turn item. The adapter can
-                // clear its pending-work probe before these queued writes are ingested.
-                if (
-                  event.type === "node.updated" &&
-                  event.node.kind === "assistant_message" &&
-                  event.node.status === "completed"
-                ) {
-                  pendingAssistantMessageNodes.add(event.node.id);
-                } else if (
-                  event.type === "turn_item.updated" &&
-                  event.turnItem.type === "assistant_message" &&
-                  !event.turnItem.streaming &&
-                  event.turnItem.nodeId !== null
-                ) {
-                  pendingAssistantMessageNodes.delete(event.turnItem.nodeId);
+                if (event.type === "background_work.updated") {
+                  if (event.pending) {
+                    pendingBackgroundProviderTurns.add(event.providerTurnId);
+                  } else {
+                    pendingBackgroundProviderTurns.delete(event.providerTurnId);
+                  }
                 }
                 yield* trackChildLifecycle(event, deliveredEvent !== null);
               }),

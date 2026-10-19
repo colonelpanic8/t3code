@@ -4223,11 +4223,13 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         const scenario = "codex-retained-image";
         const base = finalAnswerTranscript(scenario, [{ id: "answer", text: "Done." }]);
         const completion = yield* Deferred.make<void>();
+        const secondCompletion = yield* Deferred.make<void>();
         const projected = yield* Deferred.make<void>();
+        const drained = yield* Deferred.make<void>();
         const expected = "Done.\n\n![](</tmp/late image.png>)";
-        const imageEvent = (phase: "started" | "completed") => ({
+        const imageEvent = (phase: "started" | "completed", second = false) => ({
           type: "emit_inbound" as const,
-          label: `image-${phase}`,
+          label: `image-${phase}${second ? "-second" : ""}`,
           frame: {
             method: `item/${phase}`,
             params: {
@@ -4235,10 +4237,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               turnId: `native-${scenario}-turn`,
               item: {
                 type: "imageGeneration",
-                id: "late-image",
+                id: second ? "second-image" : "late-image",
                 status: phase === "started" ? "inProgress" : "completed",
                 result: "",
-                ...(phase === "completed" ? { savedPath: "/tmp/late image.png" } : {}),
+                ...(phase === "completed"
+                  ? { savedPath: second ? "/tmp/second.png" : "/tmp/late image.png" }
+                  : {}),
               },
             },
           },
@@ -4249,17 +4253,26 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             entries: [
               ...base.entries.slice(0, -2),
               imageEvent("started"),
+              imageEvent("started", true),
               ...base.entries.slice(-2),
               imageEvent("completed"),
+              imageEvent("completed", true),
             ],
           }),
           (event) =>
             event.type === "message.updated" && event.message.text === expected
               ? Deferred.succeed(projected, undefined)
-              : Effect.void,
+              : event.type === "background_work.updated" && !event.pending
+                ? Deferred.succeed(drained, undefined)
+                : Effect.void,
           undefined,
           undefined,
-          (entry) => (entry.label === "image-completed" ? Deferred.await(completion) : Effect.void),
+          (entry) =>
+            entry.label === "image-completed"
+              ? Deferred.await(completion)
+              : entry.label === "image-completed-second"
+                ? Deferred.await(secondCompletion)
+                : Effect.void,
         );
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
@@ -4280,6 +4293,21 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         if (outcome === "complete") {
           yield* Deferred.succeed(completion, undefined);
           yield* Deferred.await(projected);
+          assert.deepEqual(
+            [yield* threadPending, yield* harness.hasPendingBackgroundWork],
+            [true, true],
+          );
+          assert.isFalse(
+            harness.events.some(
+              (event) => event.type === "background_work.updated" && !event.pending,
+            ),
+          );
+          yield* Deferred.succeed(secondCompletion, undefined);
+          yield* Deferred.await(drained);
+          assert.strictEqual(
+            assistantMessages(harness.events).at(-1)?.message.text,
+            `${expected}\n\n![](</tmp/second.png>)`,
+          );
           const messages = assistantMessages(harness.events);
           assert.strictEqual(messages.at(-1)?.message.id, messages[0]?.message.id);
           assert.strictEqual(messages.at(-1)?.message.streaming, false);
@@ -4290,10 +4318,30 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             requestRuntimeRestart: true,
           });
         }
+        yield* Deferred.await(drained);
         assert.deepEqual(
           [yield* threadPending, yield* harness.hasPendingBackgroundWork],
           [false, false],
         );
+        const started = harness.events.findIndex(
+          (event) => event.type === "background_work.updated" && event.pending,
+        );
+        const terminal = harness.events.findIndex((event) => event.type === "turn.terminal");
+        const finished = harness.events.findIndex(
+          (event) => event.type === "background_work.updated" && !event.pending,
+        );
+        assert.isAtLeast(started, 0);
+        assert.isAbove(terminal, started);
+        assert.isAbove(finished, terminal);
+        if (outcome === "complete") {
+          assert.isAbove(
+            finished,
+            harness.events.findLastIndex(
+              (event) =>
+                event.type === "turn_item.updated" && event.turnItem.type === "assistant_message",
+            ),
+          );
+        }
         assert.lengthOf(harness.terminalEvents(), 1);
         assert.deepEqual(pendingBefore, [true, true]);
       }).pipe(

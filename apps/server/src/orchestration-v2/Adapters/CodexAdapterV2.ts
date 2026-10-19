@@ -1902,13 +1902,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           {
             readonly running: Set<string>;
             readonly saved: Map<string, string>;
+            pending: boolean;
             answer?: { readonly id: string; readonly text: string };
           }
         >();
         const imageTurn = (nativeTurnId: string) => {
           let state = imageTurns.get(nativeTurnId);
           if (state === undefined) {
-            state = { running: new Set(), saved: new Map() };
+            state = { running: new Set(), saved: new Map(), pending: false };
             imageTurns.set(nativeTurnId, state);
           }
           return state;
@@ -1929,6 +1930,26 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
           Queue.offer(events, event).pipe(Effect.asVoid);
+
+        const emitImageWorkState = Effect.fnUntraced(function* (
+          context: ActiveCodexTurnContext,
+          pending: boolean,
+        ) {
+          const state = imageTurns.get(context.nativeTurnId);
+          if (state === undefined || state.pending === pending) return;
+          state.pending = pending;
+          yield* emitProviderEvent({
+            type: "background_work.updated",
+            driver: CODEX_PROVIDER,
+            providerTurnId: context.providerTurnId,
+            pending,
+          });
+        });
+
+        const clearImageWork = Effect.fnUntraced(function* (context: ActiveCodexTurnContext) {
+          yield* emitImageWorkState(context, false);
+          imageTurns.delete(context.nativeTurnId);
+        });
 
         const emitGoalUpdate = Effect.fnUntraced(function* (nativeThreadId: string) {
           const providerThread = rootProviderThreads.get(nativeThreadId);
@@ -4693,6 +4714,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             if (payload.item.type === "imageGeneration") {
               if (!(yield* Ref.get(interruptingNativeTurns)).has(payload.turnId)) {
                 imageTurn(payload.turnId).running.add(payload.item.id);
+                yield* emitImageWorkState(context, true);
               }
               return;
             }
@@ -4978,6 +5000,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 yield* projectGeneratedImages(context, payload.turnId);
               }
               state.running.delete(id);
+              yield* emitImageWorkState(context, state.running.size > 0 || state.saved.size > 0);
               if (settled) {
                 yield* releaseSettledTurnIfIdle(payload.turnId);
               }
@@ -5875,6 +5898,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 if (part.turnId === input.nativeTurnId) reasoningParts.delete(key);
               }
               yield* projectGeneratedImages(input.context, input.nativeTurnId);
+              if (input.status !== "completed") {
+                yield* clearImageWork(input.context);
+              } else {
+                const images = imageTurns.get(input.nativeTurnId);
+                if (images !== undefined) {
+                  yield* emitImageWorkState(input.context, images.running.size > 0);
+                }
+              }
               const nativeThreadId = input.context.providerThread.nativeThreadRef?.nativeId;
               const activation =
                 nativeThreadId == null ? undefined : goalActivations.get(nativeThreadId);
@@ -7145,7 +7176,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                         updated.delete(context.nativeTurnId);
                         return updated;
                       });
-                      imageTurns.delete(context.nativeTurnId);
+                      yield* clearImageWork(context);
                       yield* releaseSettledTurnIfIdle(context.nativeTurnId);
                     }
                   }),
