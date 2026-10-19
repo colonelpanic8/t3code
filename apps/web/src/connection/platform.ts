@@ -23,6 +23,7 @@ import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorizat
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
 import { managedRelayAccountChanges, managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
 import { EnvironmentRpcRequestObserver } from "@t3tools/client-runtime/rpc";
+import { UsageQueryStore } from "@t3tools/client-runtime/state/query-persistence";
 import {
   AuthStandardClientScopes,
   type DesktopBridge,
@@ -53,6 +54,7 @@ import { isHostedStaticApp } from "../hostedPairing";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { acknowledgeRpcRequest, trackRpcRequestSent } from "../rpc/requestLatencyState";
+import { clearUsageSummaries, usageSummaryStore } from "../state/usageSummaryCache";
 import {
   desktopLocalConnectionId,
   readDesktopSecondaryBootstrapsResult,
@@ -765,9 +767,11 @@ const layerEnvironmentOwnedDataCleanup = Layer.succeed(
     clear: (environmentId) =>
       Effect.sync(() => {
         clearComposerDraftsEnvironment(environmentId);
-      }),
+      }).pipe(Effect.andThen(clearUsageSummaries(environmentId))),
   }),
 );
+
+const layerUsageQueryStore = Layer.succeed(UsageQueryStore, usageSummaryStore);
 
 const layerRpcRequestObserver = Layer.succeed(
   EnvironmentRpcRequestObserver,
@@ -791,6 +795,7 @@ type ConnectionPlatformLayerSource =
   | typeof layerCapabilities
   | typeof layerPlatformConnectionSource
   | typeof layerEnvironmentOwnedDataCleanup
+  | typeof layerUsageQueryStore
   | typeof layerRpcRequestObserver;
 
 export const layer: Layer.Layer<
@@ -804,5 +809,6 @@ export const layer: Layer.Layer<
   layerCapabilities,
   layerPlatformConnectionSource,
   layerEnvironmentOwnedDataCleanup,
+  layerUsageQueryStore,
   layerRpcRequestObserver,
 );
