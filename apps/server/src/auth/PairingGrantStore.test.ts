@@ -4,6 +4,8 @@ import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Redacted from "effect/Redacted";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
@@ -46,6 +48,11 @@ const layerPairingGrantStore = (
     Layer.provide(layerServerConfig(overrides)),
   );
 
+const layerPairingGrantStoreWithSql = PairingGrantStore.layer.pipe(
+  Layer.provideMerge(SqlitePersistence.layerMemory),
+  Layer.provide(layerServerConfig()),
+);
+
 const layerPairingGrantStoreTest = (
   overrides: Partial<AuthPairingLinks.AuthPairingLinkRepository["Service"]>,
 ) =>
@@ -56,6 +63,7 @@ const layerPairingGrantStoreTest = (
         AuthPairingLinks.AuthPairingLinkRepository.of({
           create: () => Effect.void,
           consumeAvailable: () => Effect.succeedNone,
+          findRedeemableFleetEnrollment: () => Effect.succeedNone,
           listActive: () => Effect.succeed([]),
           revoke: () => Effect.succeed(false),
           getByCredential: () => Effect.succeedNone,
@@ -285,6 +293,87 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
       expect(revokedConsume.message).toContain("no longer available");
       expect(revokedConsume._tag).toBe("UnavailableBootstrapCredentialError");
     }).pipe(Effect.provide(layerPairingGrantStore())),
+  );
+
+  it.effect("redeems fleet enrollments repeatedly while storing only their digest", () =>
+    Effect.gen(function* () {
+      const grants = yield* PairingGrantStore.PairingGrantStore;
+      const sql = yield* SqlClient.SqlClient;
+      const changes = yield* Queue.unbounded<PairingGrantStore.BootstrapCredentialChange>();
+      yield* grants.streamChanges.pipe(
+        Stream.runForEach((change) => Queue.offer(changes, change)),
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      const issued = yield* grants.issueFleetEnrollment({
+        ttl: Duration.days(365),
+        label: "phones",
+      });
+      const credential = Redacted.value(issued.credential);
+      const rows = yield* sql<{ readonly credential: string; readonly method: string }>`
+        SELECT credential, method FROM auth_pairing_links WHERE id = ${issued.id}
+      `;
+
+      expect(credential).toMatch(/^t3enroll1\.[A-Za-z0-9_-]{43}$/);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.method).toBe("fleet-enrollment");
+      expect(rows[0]?.credential).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(rows[0]?.credential).not.toContain(credential.slice("t3enroll1.".length));
+
+      const first = yield* grants.consume(credential);
+      const second = yield* grants.consume(credential, {
+        requestedScopes: ["orchestration:read"],
+      });
+      for (const grant of [first, second]) {
+        expect(grant).toMatchObject({
+          method: "fleet-enrollment",
+          scopes: AuthStandardClientScopes,
+          subject: `fleet-enrollment:${issued.id}`,
+        });
+        expect(grant).not.toHaveProperty("label");
+      }
+
+      const digest = yield* Effect.flip(grants.consume(rows[0]!.credential));
+      const malformed = yield* Effect.flip(grants.consume(`${credential}x`));
+      expect(digest._tag).toBe("UnknownBootstrapCredentialError");
+      expect(malformed._tag).toBe("UnknownBootstrapCredentialError");
+
+      const listed = (yield* grants.listActive()).find((link) => link.id === issued.id);
+      expect(listed).toMatchObject({ label: "phones", subject: `fleet-enrollment:${issued.id}` });
+      expect(listed).not.toHaveProperty("credential");
+      expect(yield* Queue.take(changes)).toMatchObject({
+        type: "pairingLinkUpserted",
+        pairingLink: { id: issued.id },
+      });
+      expect(yield* Queue.size(changes)).toBe(0);
+    }).pipe(Effect.scoped, Effect.provide(layerPairingGrantStoreWithSql)),
+  );
+
+  it.effect("stops redeeming fleet enrollments that are revoked, expired, or out of scope", () =>
+    Effect.gen(function* () {
+      const grants = yield* PairingGrantStore.PairingGrantStore;
+      const readOnly = yield* grants.issueFleetEnrollment({
+        ttl: Duration.hours(1),
+        label: "read-only",
+        scopes: ["orchestration:read"],
+      });
+      const revoked = yield* grants.issueFleetEnrollment({
+        ttl: Duration.hours(1),
+        label: "revoked",
+      });
+
+      const outOfScope = yield* Effect.flip(
+        grants.consume(Redacted.value(readOnly.credential), { requestedScopes: ["access:write"] }),
+      );
+      expect(outOfScope._tag).toBe("BootstrapCredentialScopeNotGrantedError");
+
+      expect(yield* grants.revoke(revoked.id)).toBe(true);
+      const afterRevoke = yield* Effect.flip(grants.consume(Redacted.value(revoked.credential)));
+      expect(afterRevoke._tag).toBe("UnavailableBootstrapCredentialError");
+
+      yield* TestClock.adjust(Duration.hours(2));
+      const expired = yield* Effect.flip(grants.consume(Redacted.value(readOnly.credential)));
+      expect(expired._tag).toBe("ExpiredBootstrapCredentialError");
+    }).pipe(Effect.provide(Layer.merge(layerPairingGrantStore(), TestClock.layer()))),
   );
 
   it.effect("identifies consume-available failures and preserves their cause", () => {
