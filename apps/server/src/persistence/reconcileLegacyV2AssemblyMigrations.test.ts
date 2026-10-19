@@ -124,6 +124,7 @@ describe("pre-merge V2 assembly upgrade", () => {
         [61, "PullRequestReviewGuides"],
         [62, "ThreadFailureLookupIndex"],
         [63, "DropUnusedV1Projections"],
+        [64, "CanonicalizeThreadPullRequestLinks"],
       ]);
       yield* assertCanonicalUpgrade;
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
