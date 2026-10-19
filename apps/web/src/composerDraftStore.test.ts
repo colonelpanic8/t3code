@@ -74,9 +74,25 @@ import {
   type ComposerImageAttachment,
   composerFileNeedsReattach,
   partializeComposerDraftStoreState,
+  resolveComposerDraftKey,
   useComposerDraftStore,
   DraftId,
 } from "./composerDraftStore";
+
+it("retains an existing draft stored under an ambiguous environment key", () => {
+  const ref = scopeThreadRef(EnvironmentId.make("fleet:jimi-hendnix"), ThreadId.make("thread-1"));
+  const legacyKey = "fleet:jimi-hendnix:thread-1";
+  const state = useComposerDraftStore.getState();
+  state.setPrompt(ref, "Keep this draft");
+  const draft = useComposerDraftStore.getState().draftsByThreadKey[scopedThreadKey(ref)];
+  if (!draft) throw new Error("Expected the saved composer draft");
+  expect(
+    resolveComposerDraftKey(
+      { draftsByThreadKey: { [legacyKey]: draft }, draftThreadsByThreadKey: {} },
+      ref,
+    ),
+  ).toBe(legacyKey);
+});
 import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 import { insertInlineContextReference } from "./lib/composerContextReferences";
 import { terminalContextReference, threadContextRecord } from "./lib/composerContextRecords";
