@@ -1,4 +1,5 @@
 import * as NodeOS from "node:os";
+import * as NodeModule from "node:module";
 
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import {
@@ -29,7 +30,7 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
-import { assert, describe, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as CodexClient from "effect-codex-app-server/client";
@@ -4092,6 +4093,14 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         "Saved /tmp/a.png: [open](/tmp/a.png)\n`![](/tmp/a.png)`\n\n    ![](/tmp/a.png)\n\n```md\n![](/tmp/a.png)\n```\n\\![](/tmp/a.png)\n\n![](</tmp/a.png>)",
     },
     {
+      name: "an unclosed trailing fence leaves the generated image visible",
+      reply: 'Created the image.\n\n~~~js\nconsole.log("done");',
+      images: [{ savedPath: "/tmp/generated.png" }],
+      expected:
+        'Created the image.\n\n~~~js\nconsole.log("done");\n~~~\n\n![](</tmp/generated.png>)',
+      expectedImage: "/tmp/generated.png",
+    },
+    {
       name: "existing images are not duplicated",
       reply: "![A](</tmp/a b.png>) ![B](/tmp/b.png) ![C][generated]\n\n[generated]: /tmp/c.png",
       images: [
@@ -4158,7 +4167,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ],
       expected: "No image.",
     },
-  ])("projects generated images: $name", ({ reply, images, expected }) =>
+  ])("projects generated images: $name", ({ reply, images, expected, expectedImage }) =>
     Effect.gen(function* () {
       const scenario = "codex-generated-images";
       const result = "aW1hZ2UtYnl0ZXMtbXVzdC1uZXZlci1yZWFjaC1jbGllbnRz";
@@ -4205,6 +4214,22 @@ describe("CodexAdapterV2 post-settle continuation", () => {
 
       const messages = assistantMessages(harness.events);
       const final = messages.at(-1)?.message;
+      if (expectedImage !== undefined) {
+        // Resolve the shared package's real parser without adding server runtime dependencies.
+        const requireMarkdown = NodeModule.createRequire(
+          import.meta.resolve("@t3tools/shared/generatedImageMarkdown"),
+        );
+        const parser: { parse(text: string): unknown } = requireMarkdown("unified")
+          .unified()
+          .use(requireMarkdown("remark-parse").default);
+        expect(parser.parse(final?.text ?? "")).toMatchObject({
+          children: [
+            { type: "paragraph" },
+            { type: "code", value: 'console.log("done");' },
+            { type: "paragraph", children: [{ type: "image", url: expectedImage }] },
+          ],
+        });
+      }
       assert.strictEqual(final?.text, expected);
       assert.strictEqual(final?.streaming, false);
       assert.strictEqual(new Set(messages.map(({ message }) => message.id)).size, 1);
