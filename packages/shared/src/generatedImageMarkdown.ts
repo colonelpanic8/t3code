@@ -4,7 +4,12 @@ import { unified } from "unified";
 import { remarkKeepWindowsPaths } from "./markdownPipeline.ts";
 import { parseFileUrlHref } from "./fileLinks.ts";
 import { safeDecodeURIComponent } from "./markdownLinks.ts";
-import { isUncPath, isWindowsDrivePath, stripSlashPrefixedWindowsDrive } from "./path.ts";
+import {
+  isUncPath,
+  isWindowsDrivePath,
+  normalizeProjectPathForComparison,
+  stripSlashPrefixedWindowsDrive,
+} from "./path.ts";
 
 const parser = unified().use(remarkParse).use(remarkKeepWindowsPaths);
 interface MarkdownNode {
@@ -34,12 +39,14 @@ function imageDestination(path: string): string {
 }
 
 function angleDestination(path: string): string {
-  return `<${path.replace(/[<>]/g, "\\$&")}>`;
+  return `<${path.replace(/[%?#]/g, encodeURIComponent).replace(/[<>]/g, "\\$&")}>`;
 }
 
 export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<string>): string {
-  const destinations = new Set(Array.from(savedPaths, imageDestination));
-  const missing = new Set(destinations);
+  const destinations = new Map(
+    Array.from(savedPaths, (path) => [normalizeProjectPathForComparison(path), path]),
+  );
+  const missing = new Map(destinations);
   const definitions = new Map<string, MarkdownNode>();
   const images: Array<MarkdownNode> = [];
   const visit = (node: MarkdownNode) => {
@@ -59,16 +66,29 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
   for (const image of images) {
     const target = image.type === "image" ? image : definitions.get(image.identifier ?? "");
     if (target?.url === undefined) continue;
-    const file = /^file:/i.test(target.url) ? parseFileUrlHref(target.url) : null;
-    const path = imageDestination(
-      stripSlashPrefixedWindowsDrive(safeDecodeURIComponent(file?.path ?? target.url)),
+    // Literal percent sequences may be file names, so raw paths take precedence over decoding.
+    // Protect file URL delimiters so parsing does not discard literal query/hash characters.
+    const file = /^file:/i.test(target.url)
+      ? parseFileUrlHref(target.url.replace(/[%?#]/g, encodeURIComponent))
+      : null;
+    const rawPath = stripSlashPrefixedWindowsDrive(
+      file === null ? target.url : safeDecodeURIComponent(file.path),
     );
-    if (!destinations.has(path)) continue;
-    missing.delete(path);
-    // Keep checking repeated embeds so every raw Windows destination is normalized.
+    const path = [rawPath, safeDecodeURIComponent(rawPath)].find((candidate) =>
+      destinations.has(normalizeProjectPathForComparison(candidate)),
+    );
+    if (path === undefined) continue;
+    missing.delete(normalizeProjectPathForComparison(path));
+    const destination = angleDestination(imageDestination(path));
     const start = target.position?.start.offset;
     const end = target.position?.end.offset;
-    if (imageDestination(target.url) !== target.url && start !== undefined && end !== undefined) {
+    if (
+      (imageDestination(target.url) !== target.url ||
+        /[?#]/.test(target.url) ||
+        (path === rawPath && path.includes("%"))) &&
+      start !== undefined &&
+      end !== undefined
+    ) {
       const label =
         target.type === "image" ? (target.alt ?? "") : (target.label ?? target.identifier ?? "");
       const escapedLabel = label.replace(/[\\[\]]/g, "\\$&");
@@ -77,8 +97,8 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
         end,
         text:
           target.type === "image"
-            ? `![${escapedLabel}](${angleDestination(path)}${title})`
-            : `[${escapedLabel}]: ${angleDestination(path)}${title}`,
+            ? `![${escapedLabel}](${destination}${title})`
+            : `[${escapedLabel}]: ${destination}${title}`,
       });
     }
   }
@@ -86,8 +106,8 @@ export function appendGeneratedImageEmbeds(text: string, savedPaths: Iterable<st
   for (const [start, edit] of Array.from(edits).sort(([left], [right]) => right - left)) {
     result = result.slice(0, start) + edit.text + result.slice(edit.end);
   }
-  for (const path of missing) {
-    result += `${result.length > 0 ? "\n\n" : ""}![](${angleDestination(path)})`;
+  for (const path of missing.values()) {
+    result += `${result.length > 0 ? "\n\n" : ""}![](${angleDestination(imageDestination(path))})`;
   }
   return result;
 }

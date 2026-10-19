@@ -4098,8 +4098,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         { savedPath: "/tmp/a b.png" },
         { savedPath: "/tmp/b.png" },
         { savedPath: "/tmp/c.png" },
+        { savedPath: "/tmp/B.png" },
       ],
-      expected: "![A](</tmp/a b.png>) ![B](/tmp/b.png) ![C][generated]\n\n[generated]: /tmp/c.png",
+      expected:
+        "![A](</tmp/a b.png>) ![B](/tmp/b.png) ![C][generated]\n\n[generated]: /tmp/c.png\n\n![](</tmp/B.png>)",
     },
     {
       name: "Windows drive paths survive mobile Markdown parsing",
@@ -4109,9 +4111,31 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     },
     {
       name: "existing Windows embeds are normalized without adding duplicates",
-      reply: "![A](C:\\me\\.codex\\a.png) ![B](C:/me/.codex/b.png)",
-      images: [{ savedPath: "C:\\me\\.codex\\a.png" }, { savedPath: "C:\\me\\.codex\\b.png" }],
-      expected: "![A](<C:/me/.codex/a.png>) ![B](C:/me/.codex/b.png)",
+      reply:
+        "![A](c:\\Users\\me\\.codex\\a.png) ![B](c:/users/me/.codex/b.png) ![C][unc]\n\n[unc]: <\\\\HOST\\Share\\.codex\\c.png>\n\n![D](file://host/share/.codex/d.png)",
+      images: [
+        { savedPath: "C:\\Users\\Me\\.codex\\a.png" },
+        { savedPath: "C:\\Users\\Me\\.codex\\b.png" },
+        { savedPath: "\\\\host\\share\\.codex\\c.png" },
+        { savedPath: "\\\\HOST\\Share\\.codex\\d.png" },
+      ],
+      expected:
+        "![A](<c:/Users/me/.codex/a.png>) ![B](c:/users/me/.codex/b.png) ![C][unc]\n\n[unc]: <file://HOST/Share/.codex/c.png>\n\n![D](file://host/share/.codex/d.png)",
+    },
+    {
+      name: "reserved path characters are encoded once in new and existing embeds",
+      reply:
+        "![raw](</tmp/a#b.png>) ![encoded](/tmp/a%23b.png) ![percent](</tmp/100%25.png>) ![percent encoded](/tmp/100%2525.png) ![query][generated]\n\n[generated]: /tmp/q?x.png\n\n![unc](file://host/share/a#b%25.png) ![unc encoded](file://HOST/SHARE/a%23b%2525.png)",
+      images: [
+        { savedPath: "/tmp/a#b.png" },
+        { savedPath: "/tmp/100%25.png" },
+        { savedPath: "/tmp/q?x.png" },
+        { savedPath: "\\\\host\\share\\a#b%25.png" },
+        { savedPath: "/tmp/new#image?100%25.png" },
+        { savedPath: "C:\\Users\\Me#100%25\\new.png" },
+      ],
+      expected:
+        "![raw](</tmp/a%23b.png>) ![encoded](/tmp/a%23b.png) ![percent](</tmp/100%2525.png>) ![percent encoded](/tmp/100%2525.png) ![query][generated]\n\n[generated]: </tmp/q%3Fx.png>\n\n![unc](<file://host/share/a%23b%2525.png>) ![unc encoded](file://HOST/SHARE/a%23b%2525.png)\n\n![](</tmp/new%23image%3F100%2525.png>)\n\n![](<C:/Users/Me%23100%2525/new.png>)",
     },
     {
       name: "an image-only UNC result produces a filesystem media message",
