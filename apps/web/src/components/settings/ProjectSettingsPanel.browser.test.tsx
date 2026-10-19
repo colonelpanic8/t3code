@@ -69,6 +69,7 @@ vi.mock(import("~/state/environments"), async (original) => ({
   ...(await original()),
   useEnvironments: (() => ({ environments })) as never,
   usePrimaryEnvironmentId: () => primaryId,
+  appOwnsLocalEnvironment: () => true,
 }));
 vi.mock(import("~/state/entities"), async (original) => ({
   ...(await original()),
@@ -206,6 +207,7 @@ function projectKey() {
     projects: state.projects,
     settings: DEFAULT_CLIENT_SETTINGS,
     primaryEnvironmentId: primaryId,
+    ownsLocalEnvironment: true,
     resolveEnvironmentLabel: (id) => id,
   })[0]!.projectKey;
 }
