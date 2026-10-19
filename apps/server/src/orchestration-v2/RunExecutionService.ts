@@ -973,6 +973,7 @@ export const layer: Layer.Layer<
           const rootTerminalSeen = yield* Ref.make(false);
           const rootRunFinalized = yield* Ref.make(false);
           const providerThreadOwnerLost = yield* Ref.make(false);
+          const pendingAssistantMessageNodes = new Set<NodeId>();
           const activeChildProviderTurns = yield* Ref.make<ReadonlySet<ProviderTurnId>>(new Set());
           const activeChildSubagents = yield* Ref.make<ReadonlySet<NodeId>>(new Set());
           const activeBackgroundTurnItems = yield* Ref.make<
@@ -1177,6 +1178,9 @@ export const layer: Layer.Layer<
             ) {
               return true;
             }
+            if (pendingAssistantMessageNodes.size > 0) {
+              return false;
+            }
             const childProviderTurns = yield* Ref.get(activeChildProviderTurns);
             if (childProviderTurns.size > 0) {
               return false;
@@ -1301,6 +1305,22 @@ export const layer: Layer.Layer<
                   yield* Ref.set(terminalEvent, event);
                   yield* Ref.set(rootTerminalSeen, true);
                   yield* finalizeRootRun(event);
+                }
+                // Assistant artifacts arrive as node, message, then turn item. The adapter can
+                // clear its pending-work probe before these queued writes are ingested.
+                if (
+                  event.type === "node.updated" &&
+                  event.node.kind === "assistant_message" &&
+                  event.node.status === "completed"
+                ) {
+                  pendingAssistantMessageNodes.add(event.node.id);
+                } else if (
+                  event.type === "turn_item.updated" &&
+                  event.turnItem.type === "assistant_message" &&
+                  !event.turnItem.streaming &&
+                  event.turnItem.nodeId !== null
+                ) {
+                  pendingAssistantMessageNodes.delete(event.turnItem.nodeId);
                 }
                 yield* trackChildLifecycle(event, deliveredEvent !== null);
               }),
