@@ -1,4 +1,14 @@
-import type { ServerProvider } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import { derivePendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
+import {
+  deriveThreadQueueWorkflowState,
+  resolveActiveThreadRun,
+} from "@t3tools/client-runtime/state/thread-workflows";
+import type { OrchestrationV2ThreadProjection, ServerProvider } from "@t3tools/contracts";
+
+import { threadLastActivityAt, threadStatus } from "./assistant-catalog";
+import { describeModelOptions } from "./assistant-models";
+import { approvalChoices, describeQuestion } from "./assistant-thread-actions";
 
 const MAX_TEXT_LENGTH = 1000;
 const ELLIPSIS = "…";
@@ -23,6 +33,7 @@ export interface AssistantModelRow {
   readonly model: string;
   readonly modelLabel: string;
   readonly isDefault: number;
+  readonly options: string;
   readonly note: string;
 }
 
@@ -33,12 +44,12 @@ interface ThreadMessage {
   readonly createdAt: string;
 }
 
-function clipText(text: string): string {
+function clipText(text: string, max = MAX_TEXT_LENGTH): string {
   const trimmed = text.trim();
   const chars = Array.from(trimmed);
-  return chars.length <= MAX_TEXT_LENGTH
+  return chars.length <= max
     ? trimmed
-    : `${chars.slice(0, MAX_TEXT_LENGTH - ELLIPSIS.length).join("")}${ELLIPSIS}`;
+    : `${chars.slice(0, max - ELLIPSIS.length).join("")}${ELLIPSIS}`;
 }
 
 /** The newest user and assistant messages of one thread, most recent first. */
@@ -114,6 +125,7 @@ export function assistantModelRows(input: {
         model: "",
         modelLabel: "",
         isDefault: 0,
+        options: "",
         note: provider.enabled ? "This provider offers no models." : "This provider is turned off.",
       });
       continue;
@@ -124,6 +136,7 @@ export function assistantModelRows(input: {
         model: model.slug,
         modelLabel: model.name,
         isDefault: model.isDefault ? 1 : 0,
+        options: describeModelOptions(model),
         note: provider.message ?? "",
       });
     }
@@ -146,6 +159,194 @@ export function assistantModelNoticeRow(environmentId: string, note: string): As
     model: "",
     modelLabel: "",
     isDefault: 0,
+    options: "",
     note,
   };
+}
+
+interface ThreadContext {
+  readonly environmentId: string;
+  readonly environmentName: string;
+  readonly thread: Pick<EnvironmentThreadShell, "id" | "title">;
+}
+
+export interface AssistantRequestRow {
+  readonly requestId: string;
+  readonly environmentId: string;
+  readonly environmentName: string;
+  readonly threadId: string;
+  readonly threadTitle: string;
+  /** approval, question, or notice. */
+  readonly kind: string;
+  readonly requestKind: string;
+  readonly createdAt: string;
+  readonly detail: string;
+  readonly decisions: string;
+  readonly questions: string;
+  readonly answerable: number;
+  readonly dismissible: number;
+}
+
+/** A thread's pending approvals and questions, oldest first, as EVA reads and answers them. */
+export function assistantRequestRows(
+  context: ThreadContext,
+  projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests" | "turnItems">,
+): ReadonlyArray<AssistantRequestRow> {
+  const pending = derivePendingThreadRequests(projection);
+  const base = {
+    environmentId: context.environmentId,
+    environmentName: context.environmentName,
+    threadId: context.thread.id,
+    threadTitle: context.thread.title,
+  };
+  const approvals = pending.approvals.map((approval): AssistantRequestRow => ({
+    ...base,
+    requestId: approval.requestId,
+    kind: "approval",
+    requestKind: approval.requestKind,
+    createdAt: approval.createdAt,
+    detail: clipText(
+      [approval.appName, approval.detail].filter((part) => part !== undefined).join(": "),
+    ),
+    decisions: approvalChoices(approval.options)
+      .map((choice) => `${choice.choice} (${choice.label})`)
+      .join(", "),
+    questions: "",
+    answerable: approval.responseCapability === "live" ? 1 : 0,
+    dismissible: 0,
+  }));
+  const questions = pending.userInputs.map((request): AssistantRequestRow => ({
+    ...base,
+    requestId: request.requestId,
+    kind: "question",
+    requestKind: "user_input",
+    createdAt: request.createdAt,
+    detail: clipText(request.questions.map((question) => question.question).join(" ")),
+    decisions: "",
+    questions: clipText(request.questions.map(describeQuestion).join(". "), 2 * MAX_TEXT_LENGTH),
+    answerable: request.responseCapability === "not_resumable" ? 0 : 1,
+    dismissible: request.dismissible ? 1 : 0,
+  }));
+  return [...approvals, ...questions].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+}
+
+export function assistantRequestNoticeRow(input: {
+  readonly environmentId: string;
+  readonly environmentName: string;
+  readonly threadId?: string;
+  readonly detail: string;
+}): AssistantRequestRow {
+  return {
+    requestId: "notice",
+    environmentId: input.environmentId,
+    environmentName: input.environmentName,
+    threadId: input.threadId ?? "",
+    threadTitle: "",
+    kind: "notice",
+    requestKind: "",
+    createdAt: "",
+    detail: input.detail,
+    decisions: "",
+    questions: "",
+    answerable: 0,
+    dismissible: 0,
+  };
+}
+
+type StatusThread = Pick<
+  EnvironmentThreadShell,
+  | "environmentId"
+  | "id"
+  | "projectId"
+  | "title"
+  | "branch"
+  | "worktreePath"
+  | "modelSelection"
+  | "runtimeMode"
+  | "interactionMode"
+  | "runtime"
+  | "latestRun"
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "latestUserMessageAt"
+  | "updatedAt"
+  | "pinnedAt"
+  | "archivedAt"
+  | "deletedAt"
+  | "settledOverride"
+  | "snoozedUntil"
+>;
+
+/** One thread's live state: what it is doing, what waits on the user, and what it said last. */
+export function assistantThreadStatusRow(input: {
+  readonly environmentId: string;
+  readonly environmentName: string;
+  readonly projectName: string;
+  readonly thread: StatusThread;
+  readonly projection: OrchestrationV2ThreadProjection;
+  readonly now: Date;
+}) {
+  const { thread, projection } = input;
+  const pending = derivePendingThreadRequests(projection);
+  const queue = deriveThreadQueueWorkflowState(projection);
+  const lastAssistant = projection.messages.findLast(
+    (message) => message.role === "assistant" && message.text.trim() !== "",
+  );
+  const snoozed =
+    thread.snoozedUntil !== null && Date.parse(thread.snoozedUntil) > input.now.getTime()
+      ? thread.snoozedUntil
+      : "";
+  return {
+    id: thread.id,
+    environmentId: input.environmentId,
+    environmentName: input.environmentName,
+    projectId: thread.projectId,
+    projectName: input.projectName,
+    title: thread.title,
+    status:
+      pending.approvals.length > 0 || pending.userInputs.length > 0
+        ? "needs_input"
+        : threadStatus(thread),
+    activeRunStatus: resolveActiveThreadRun(projection)?.status ?? "",
+    queuedCount: queue.queuedRuns.length,
+    pendingApprovals: pending.approvals.length,
+    pendingQuestions: pending.userInputs.length,
+    branch: thread.branch ?? "",
+    worktreePath: thread.worktreePath ?? "",
+    provider: thread.modelSelection.instanceId,
+    model: thread.modelSelection.model,
+    modelOptions: (thread.modelSelection.options ?? [])
+      .map((option) => `${option.id}=${String(option.value)}`)
+      .join(","),
+    runtimeMode: thread.runtimeMode,
+    interactionMode: thread.interactionMode,
+    pinned: thread.pinnedAt === null ? 0 : 1,
+    archived: thread.archivedAt === null ? 0 : 1,
+    settled: thread.settledOverride === "settled" ? 1 : 0,
+    snoozedUntil: snoozed,
+    lastActivityAt: threadLastActivityAt(thread),
+    lastAssistantMessage: lastAssistant ? clipText(lastAssistant.text) : "",
+    note: queue.isHeld ? "The queue is held until the user resumes it in T3 Code." : "",
+  };
+}
+
+/** A thread's queued messages in the order they will send. */
+export function assistantQueueRows(
+  context: ThreadContext,
+  projection: OrchestrationV2ThreadProjection,
+) {
+  const workflow = deriveThreadQueueWorkflowState(projection);
+  return workflow.queuedRuns.map((queued, index) => ({
+    runId: queued.run.id,
+    environmentId: context.environmentId,
+    environmentName: context.environmentName,
+    threadId: context.thread.id,
+    threadTitle: context.thread.title,
+    position: index + 1,
+    text: clipText(queued.text),
+    held: queued.run.queueHeld === true ? 1 : 0,
+    canSteer: workflow.activeRun !== null && workflow.canPromoteToSteer ? 1 : 0,
+  }));
 }
