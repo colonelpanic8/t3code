@@ -2516,6 +2516,7 @@ it.layer(
         start: Effect.void,
         ready: Effect.void,
         getSettings: Effect.fail(settingsError),
+        managedSettingPaths: Effect.succeed([]),
         updateSettings: () => Effect.fail(settingsError),
         updateProviderInstance: () => Effect.fail(settingsError),
         withSettingsSnapshot: () => Effect.fail(settingsError),
