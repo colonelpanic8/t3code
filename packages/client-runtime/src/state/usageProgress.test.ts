@@ -35,6 +35,7 @@ function environment(
   label: string,
   overrides: Partial<{
     isConnected: boolean;
+    isConnecting: boolean;
     isPending: boolean;
     error: string | null;
     summary: UsageSummary | null;
@@ -43,6 +44,7 @@ function environment(
   return {
     label,
     isConnected: true,
+    isConnecting: false,
     isPending: false,
     error: null as string | null,
     summary: summary(),
@@ -113,6 +115,18 @@ describe("usageProgress", () => {
       ),
     ).toEqual({ dimmed: false, label: "Updating slow…" });
     expect(usageEnvironmentProgress(ignored[0]!)).toEqual({ phase: "inactive" });
+  });
+
+  it("dims last reported usage while its environment first connects", () => {
+    const connecting = environment("a", { isConnected: false, isConnecting: true });
+    expect(usageEnvironmentProgress(connecting)).toEqual({ phase: "stale" });
+    expect(usageProgress([connecting], options)).toEqual({ dimmed: true, label: "Updating…" });
+    expect(
+      usageEnvironmentProgress({ ...connecting, isConnecting: false, isPending: true }),
+    ).toEqual({ phase: "inactive" });
+    expect(usageEnvironmentProgress({ ...connecting, summary: null })).toEqual({
+      phase: "inactive",
+    });
   });
 
   it("dims every answered environment while a manual refresh runs", () => {
