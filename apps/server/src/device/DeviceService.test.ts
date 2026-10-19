@@ -162,6 +162,7 @@ const fixture = Effect.fn("fixture")(function* (
         start: Effect.void,
         ready: Effect.void,
         getSettings: Ref.get(settings),
+        managedSettingPaths: Effect.succeed([]),
         updateSettings: (patch) =>
           Ref.updateAndGet(settings, (current) => ({
             ...current,

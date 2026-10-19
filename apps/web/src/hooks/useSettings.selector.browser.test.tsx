@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 vi.mock("~/localApi", () => ({
   ensureLocalApi: () => ({
-    persistence: { getClientSettings: async () => null, setClientSettings: async () => {} },
+    persistence: {
+      getClientSettings: async () => null,
+      getManagedClientSettings: async () => null,
+      setClientSettings: async () => {},
+    },
   }),
 }));
 
