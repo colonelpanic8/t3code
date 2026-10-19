@@ -1771,17 +1771,29 @@ it.effect(
         message: { ...messageEvent.message, text: imageText },
       };
       const lateItem = { ...itemEvent, turnItem: { ...itemEvent.turnItem, text: imageText } };
+      const bothImagesText = `${imageText}\n\n![Generated image](file:///tmp/codex-08/second.png)`;
+      const secondLateMessage = {
+        ...messageEvent,
+        message: { ...messageEvent.message, text: bothImagesText },
+      };
+      const secondLateItem = {
+        ...itemEvent,
+        turnItem: { ...itemEvent.turnItem, text: bothImagesText },
+      };
       const terminal = rootTerminalEvent(ids, "completed");
 
       const observed = yield* runBackgroundItemScenario(
         key,
         () =>
           Stream.fromIterable([nodeEvent, messageEvent, itemEvent, terminal]).pipe(
-            // The adapter clears pending work before the run fiber consumes the queued image.
-            // Separate chunks prevent Stream.tap from ingesting all three before the stop check.
+            // Both image completions are queued for the same message before consumption resumes.
+            // Pending stays false; separate chunks expose a stop check between every queued event.
             Stream.concat(Stream.fromEffect(Ref.set(pending, false).pipe(Effect.as(nodeEvent)))),
             Stream.concat(Stream.succeed(lateMessage)),
             Stream.concat(Stream.succeed(lateItem)),
+            Stream.concat(Stream.succeed(nodeEvent)),
+            Stream.concat(Stream.succeed(secondLateMessage)),
+            Stream.concat(Stream.succeed(secondLateItem)),
           ),
         {
           keepEventStreamOpen: true,
@@ -1802,8 +1814,17 @@ it.effect(
         nodeEvent,
         lateMessage,
         lateItem,
+        nodeEvent,
+        secondLateMessage,
+        secondLateItem,
       ]);
-      assert.deepEqual(observed, ["turn_item:completed", "root-finalized", "turn_item:completed"]);
+      assert.deepEqual(observed, [
+        "turn_item:completed",
+        "root-finalized",
+        "turn_item:completed",
+        "turn_item:completed",
+      ]);
+      assert.isFalse(yield* Ref.get(pending));
     }),
 );
 
