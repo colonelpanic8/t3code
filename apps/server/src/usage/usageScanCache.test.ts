@@ -253,15 +253,35 @@ describe("pruneScanCache", () => {
 });
 
 describe("dedupeWithinFile", () => {
-  it("keeps the first record per dedupe key", () => {
+  const block = (dedupeKey: string, outputTokens: number, timestampMs: number) =>
+    record({ dedupeKey, timestampMs, totals: { ...record().totals, outputTokens } });
+
+  it("keeps the first of a main-session message's identical blocks", () => {
     const kept = dedupeWithinFile([
-      record({ totals: { ...record().totals, outputTokens: 1 } }),
-      record({ totals: { ...record().totals, outputTokens: 999 } }),
-      record({ dedupeKey: "msg_2:" }),
+      block("msg_1:req_1", 50, 1),
+      block("msg_1:req_1", 50, 2),
+      block("msg_2:req_2", 7, 3),
     ]);
 
-    expect(kept).toHaveLength(2);
-    expect(kept[0]?.totals.outputTokens).toBe(1);
+    expect(kept.map((r) => [r.dedupeKey, r.totals.outputTokens, r.timestampMs])).toEqual([
+      ["msg_1:req_1", 50, 1],
+      ["msg_2:req_2", 7, 3],
+    ]);
+  });
+
+  it("keeps the full output of a subagent message's last block", () => {
+    const kept = dedupeWithinFile([
+      block("msg_1:req_1", 2, 1),
+      block("msg_1:req_1", 2, 2),
+      block("msg_1:req_1", 1411, 3),
+      block("msg_2:req_2", 1, 4),
+      block("msg_2:req_2", 96, 5),
+    ]);
+
+    expect(kept.map((r) => [r.dedupeKey, r.totals.outputTokens])).toEqual([
+      ["msg_1:req_1", 1411],
+      ["msg_2:req_2", 96],
+    ]);
   });
 
   it("keeps every record that has no dedupe key", () => {
