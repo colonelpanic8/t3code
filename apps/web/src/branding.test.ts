@@ -81,6 +81,15 @@ describe("branding logic", () => {
     ).toBe("Nightly");
   });
 
+  it("returns Nightly for nightly primary server versions with build metadata", () => {
+    expect(
+      resolveServerBackedAppStageLabel({
+        primaryServerVersion: "0.1.1-nightly.20261019.3348+17.g1451e7cb",
+        fallbackStageLabel: "Beta",
+      }),
+    ).toBe("Nightly");
+  });
+
   it("updates the display name for nightly primary server versions", () => {
     expect(
       resolveServerBackedAppDisplayName({

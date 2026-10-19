@@ -44,6 +44,22 @@ describe("semver helpers", () => {
     expect(compareSemverVersions("2.1.111-beta.1", "2.1.111")).toBeLessThan(0);
   });
 
+  it("ignores build metadata when comparing", () => {
+    expect(
+      compareSemverVersions(
+        "0.1.1-nightly.20261018.3315+4.g3ff5b3c8.assembly.cbbd765c",
+        "0.1.1-nightly.20261018.3315+4.g3ff5b3c8.assembly.0a1b2c3d",
+      ),
+    ).toBe(0);
+    expect(
+      compareSemverVersions(
+        "0.1.1-nightly.20261018.3302+9.gd0918f16",
+        "0.1.1-nightly.20261018.3315",
+      ),
+    ).toBeLessThan(0);
+    expect(parseSemver("1.2.3+build.7")?.prerelease).toEqual([]);
+  });
+
   it("falls back to lexical comparison for malformed numeric segments", () => {
     expect(compareSemverVersions("1.2.3abc", "1.2.10")).toBeGreaterThan(0);
   });
