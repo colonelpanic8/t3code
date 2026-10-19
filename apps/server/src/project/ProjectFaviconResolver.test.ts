@@ -106,6 +106,30 @@ it.layer(layerTest)("ProjectFaviconResolverLive", (it) => {
       }).pipe(Effect.provide(TestClock.layer())),
     );
 
+    it.effect(
+      "revalidating skips a cached lookup so a newly added or preferred favicon is found",
+      () =>
+        Effect.gen(function* () {
+          const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+
+          expect(yield* resolver.resolvePath(cwd)).toBeNull();
+
+          yield* writeTextFile(cwd, "public/favicon.svg", "<svg>public</svg>");
+          expect(yield* resolver.resolvePath(cwd)).toBeNull();
+          expect(yield* resolver.resolvePath(cwd, undefined, { revalidate: true })).toBe(
+            path.join(cwd, "public", "favicon.svg"),
+          );
+
+          yield* writeTextFile(cwd, "favicon.svg", "<svg>root</svg>");
+          expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, "public", "favicon.svg"));
+          expect(yield* resolver.resolvePath(cwd, undefined, { revalidate: true })).toBe(
+            path.join(cwd, "favicon.svg"),
+          );
+        }).pipe(Effect.provide(TestClock.layer())),
+    );
+
     it.effect("prefers well-known favicon files", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
