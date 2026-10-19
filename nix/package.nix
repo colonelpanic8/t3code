@@ -16,7 +16,7 @@
   clientModeSupported =
     builtins.pathExists ../apps/desktop/src/app/DesktopBackendMode.ts;
   # A fork-assembler build records the upstream release its base descends
-  # from. Build metadata keeps the version off the nightly channel pattern.
+  # from, and takes that release's nightly branding.
   buildInfoPath = ../stack-build-info.json;
   upstream =
     if builtins.pathExists buildInfoPath
@@ -58,10 +58,24 @@
     })
     spdxLicenseHashes
   );
+  brand =
+    if lib.hasInfix "-nightly." version
+    then "nightly"
+    else "production";
+  displayName =
+    if brand == "nightly"
+    then "T3 Code (Nightly)"
+    else appName;
   desktopIcon =
-    if pkgs.stdenv.hostPlatform.isDarwin
+    if brand == "nightly"
+    then
+      if pkgs.stdenv.hostPlatform.isDarwin
+      then ../assets/nightly/nightly-macos-1024.png
+      else ../assets/nightly/nightly-universal-1024.png
+    else if pkgs.stdenv.hostPlatform.isDarwin
     then ../assets/prod/black-macos-1024.png
     else ../assets/prod/black-universal-1024.png;
+  iconSizes = [16 24 32 48 64 128 256 512];
 
   unwrapped = pkgs.stdenv.mkDerivation (finalAttrs: {
     pname = "t3code-unwrapped";
@@ -81,6 +95,7 @@
         pkgs.pnpmConfigHook
         pnpm
         pkgs.cacert
+        pkgs.imagemagick
       ]
       ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
         pkgs.copyDesktopItems
@@ -152,6 +167,7 @@
       popd
 
       node apps/server/scripts/cli.ts build --verbose
+      node scripts/apply-web-brand-assets.ts ${brand} apps/server/dist/client
       node apps/desktop/scripts/build-preview-annotation-css.mjs
 
       pushd apps/desktop
@@ -219,17 +235,24 @@
           -path '*/node-pty/prebuilds/darwin-*/spawn-helper' \
           -exec chmod 755 {} +
 
-        mkdir -p "$out/Applications/${appName}.app/Contents/"{MacOS,Resources}
+        mkdir -p "$out/Applications/${displayName}.app/Contents/"{MacOS,Resources}
         png2icns \
-          "$out/Applications/${appName}.app/Contents/Resources/t3code.icns" \
+          "$out/Applications/${displayName}.app/Contents/Resources/t3code.icns" \
           ${desktopIcon}
       ''
       + ''
-        mkdir -p "$out"/share/icons/hicolor/scalable/apps
-        install -m444 ${desktopIcon} "$out"/share/icons/t3code.png
-        install -m444 assets/prod/logo.svg \
+        install -Dm444 ${desktopIcon} "$out"/share/icons/t3code.png
+        for size in ${toString iconSizes}; do
+          mkdir -p "$out/share/icons/hicolor/''${size}x''${size}/apps"
+          magick ${desktopIcon} -resize "''${size}x''${size}" \
+            "$out/share/icons/hicolor/''${size}x''${size}/apps/t3code.png"
+        done
+      ''
+      + lib.optionalString (brand == "production") ''
+        install -Dm444 assets/prod/logo.svg \
           "$out"/share/icons/hicolor/scalable/apps/t3code.svg
-
+      ''
+      + ''
         runHook postInstall
       '';
 
@@ -245,7 +268,7 @@
     desktopItems = [
       (pkgs.makeDesktopItem {
         name = "t3code";
-        desktopName = appName;
+        desktopName = displayName;
         comment = "Minimal web GUI for coding agents";
         exec = "t3code-desktop %U";
         terminal = false;
@@ -285,9 +308,9 @@
       + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
         # Build the application launcher after wrapping so Finder follows the
         # same PATH and client-mode wrappers as direct command-line launches.
-        mkdir -p "$out/Applications/${appName}.app/Contents/MacOS"
+        mkdir -p "$out/Applications/${displayName}.app/Contents/MacOS"
         ${pkgs.stdenv.shell} ${lib.getExe pkgs.writeDarwinBundle} \
-          "$out" "${appName}" t3code-desktop t3code
+          "$out" "${displayName}" t3code-desktop t3code
       '';
     passthru = {inherit unwrapped;};
     inherit (unwrapped) meta;
