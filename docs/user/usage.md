@@ -12,7 +12,12 @@ cost, split by token type and by speed. These estimates are not your subscriptio
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
 split, such as a provider-reported cost for a model without public rates, shows as **Other**.
 The chart and the **Breakdown** table can each split usage by environment, provider, and model in
-any combination, and the table can also split and sort by period. **Day**, **Week**, and **Month**
+any combination, and the table can also split and sort by period. **Host** groups history by machine,
+while **Environment** identifies the reporting T3 connection. **Provider** groups runtime families
+such as Codex and Claude; **Account** separates configured instances with distinct history directories.
+Account names are scoped to their host; matching names on different hosts do not prove the same login.
+Shared directories and older servers show **Unknown account**. Cursor's account-wide history shows
+**Account-wide** as its host because its API does not identify the originating machine. **Day**, **Week**, and **Month**
 set the period length for both; **Past 24 hours** is always hourly. With the model split on,
 select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 

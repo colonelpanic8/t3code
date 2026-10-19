@@ -1176,6 +1176,7 @@ describe("UsageService", () => {
                 [ProviderInstanceId.make("claude-work")]: {
                   driver: ProviderDriverKind.make("claudeAgent"),
                   enabled: false,
+                  displayName: "Work Claude",
                   environment: [{ name: "CLAUDE_CONFIG_DIR", value: claudeHome, sensitive: false }],
                 },
                 [ProviderInstanceId.make("codex-work")]: {
@@ -1205,6 +1206,22 @@ describe("UsageService", () => {
       );
       const summary = yield* service.readSummary(WINDOW);
       assert.strictEqual(totalOutputTokens(summary), 59);
+      assert.deepStrictEqual(
+        summary.sources.find(
+          (source) => source.fingerprint.resolvedHomePath === NodePath.join(claudeHome, "projects"),
+        )?.accounts,
+        [{ id: ProviderInstanceId.make("claude-work"), label: "Work Claude" }],
+      );
+      assert.deepStrictEqual(
+        summary.sources
+          .find(
+            (source) =>
+              source.fingerprint.resolvedHomePath === NodePath.join(codexHome, "sessions"),
+          )
+          ?.accounts?.map(({ id }) => id),
+        ["codex-work", "codex-alias", "codex-shadow"],
+      );
+
       yield* Effect.promise(() =>
         NodeFSP.rename(
           NodePath.join(codexHome, "sessions", "rollout.jsonl"),
