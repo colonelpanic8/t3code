@@ -363,6 +363,10 @@
       "types": "./src/usageMerge.ts",
       "import": "./src/usageMerge.ts"
     },
+    "./usagePivot": {
+      "types": "./src/usagePivot.ts",
+      "import": "./src/usagePivot.ts"
+    },
     "./usageFormat": {
       "types": "./src/usageFormat.ts",
       "import": "./src/usageFormat.ts"
