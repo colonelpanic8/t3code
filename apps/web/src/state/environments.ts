@@ -9,6 +9,9 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 import { environmentCatalog } from "../connection/catalog";
+import type { EnvironmentPresenceScope } from "../environmentPresence";
+import { isHostedStaticApp } from "../hostedPairing";
+import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import {
   environmentPresentations,
   environmentSummaries,
@@ -62,6 +65,20 @@ export function useEnvironmentProviders() {
 
 export function usePrimaryEnvironmentId(): EnvironmentId | null {
   return useAtomValue(primaryEnvironmentIdAtom);
+}
+
+let cachedAppOwnsLocalEnvironment: boolean | undefined;
+
+// Fixed for the life of the page: the hosting mode and the desktop launch mode
+// never change without a reload, so the desktop bridge is asked only once.
+export function appOwnsLocalEnvironment(): boolean {
+  cachedAppOwnsLocalEnvironment ??= !isHostedStaticApp() && !isLocalEnvironmentDisabled();
+  return cachedAppOwnsLocalEnvironment;
+}
+
+export function useEnvironmentPresenceScope(): EnvironmentPresenceScope {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  return { primaryEnvironmentId, ownsLocalEnvironment: appOwnsLocalEnvironment() };
 }
 
 export function useEnvironment(
