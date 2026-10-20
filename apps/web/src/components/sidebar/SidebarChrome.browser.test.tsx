@@ -6,9 +6,9 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { type ReactNode } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { act, render } from "../../../test/render";
 
 vi.mock("../../state/environments", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../state/environments")>()),
@@ -33,20 +33,6 @@ vi.mock("../ui/sidebar", async (importOriginal) => ({
 
 import { SidebarBackButton, SidebarUtilityMenu } from "./SidebarChrome";
 import { MainAppLocationTracker } from "./mainAppLocation";
-
-let root: Root | undefined;
-let container: HTMLDivElement;
-
-beforeEach(() => {
-  container = document.createElement("div");
-  document.body.append(container);
-});
-
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  root = undefined;
-  container.remove();
-});
 
 // Mirrors the Settings sidebar: Back above the sections, the footer menu without it.
 function SettingsSidebar() {
@@ -81,22 +67,23 @@ async function renderAt(path: string) {
     history: createMemoryHistory({ initialEntries: [path] }),
   });
   await router.load();
-  root = createRoot(container);
-  await act(async () => root!.render(<RouterProvider router={router} />));
-  return router;
+  const screen = await render(<RouterProvider router={router} />, { router: false });
+  return Object.assign(screen, { testRouter: router });
 }
-
-const buttonsLabelled = (label: string) =>
-  Array.from(container.querySelectorAll("button")).filter((button) => button.textContent === label);
 
 describe("settings sidebar Back", () => {
   it("shows a single Back above the sections and returns to the last main app page", async () => {
     // The tracker remembers the thread the user left to open Settings.
-    await renderAt("/threads/abc");
-    await act(async () => root?.unmount());
-    const router = await renderAt("/settings/general");
+    {
+      await using _thread = await renderAt("/threads/abc");
+    }
+    await using screen = await renderAt("/settings/general");
+    const router = screen.testRouter;
+    const container = screen.container;
 
-    const backButtons = buttonsLabelled("Back");
+    const backButtons = Array.from(container.querySelectorAll("button")).filter(
+      (button) => button.textContent === "Back",
+    );
     expect(backButtons).toHaveLength(1);
     expect(Array.from(container.querySelectorAll('[data-testid="top"] button'))).toEqual(
       backButtons,
