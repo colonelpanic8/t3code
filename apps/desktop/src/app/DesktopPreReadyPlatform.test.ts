@@ -47,6 +47,9 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("node:fs", () => ({
+  statSync: () => {
+    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  },
   readFileSync: readFileSyncMock,
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
