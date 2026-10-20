@@ -366,19 +366,21 @@ const serviceBlocker = Effect.fn("storageMigration.serviceBlocker")(function* (
   return `The background service at ${input.serviceUnitPath} serves ${retiring}. Run \`t3 service uninstall\`, ${then}, then \`t3 service install\` so it serves the right storage.`;
 });
 
-const readRecord = <A, E>(recordPath: string, decode: (raw: string) => Effect.Effect<A, E>) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const raw = yield* fs.readFileString(recordPath).pipe(Effect.option);
-    if (Option.isNone(raw)) return Option.none<A>();
-    return Option.some(
-      yield* decode(raw.value).pipe(
-        Effect.mapError(
-          (cause) => new StorageMigrationMarkerError({ markerPath: recordPath, cause }),
-        ),
+const readRecord = Effect.fn("storageMigration.readRecord")(function* <A, E>(
+  recordPath: string,
+  decode: (raw: string) => Effect.Effect<A, E>,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const raw = yield* fs.readFileString(recordPath).pipe(Effect.option);
+  if (Option.isNone(raw)) return Option.none<A>();
+  return Option.some(
+    yield* decode(raw.value).pipe(
+      Effect.mapError(
+        (cause) => new StorageMigrationMarkerError({ markerPath: recordPath, cause }),
       ),
-    );
-  });
+    ),
+  );
+});
 
 const writeRecord = (recordPath: string, contents: string) =>
   writeFileStringAtomically({ filePath: recordPath, contents: `${contents}\n` }).pipe(
@@ -707,50 +709,52 @@ const undoInterruptedRun = Effect.fn("storageMigration.undoInterruptedRun")(func
  * second migration or rollback cannot undo the first one's journal. A lock
  * whose process is gone is taken over.
  */
-const withMigrationLock = <A, E, R>(input: StorageMigrationInput, effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const stateDir = input.legacyRoots.stateDir;
-    // Without userdata there is no journal to protect, and a mistyped --base-dir stays untouched.
-    if (!(yield* fs.exists(stateDir).pipe(Effect.orElseSucceed(() => false)))) {
-      return yield* effect;
-    }
-    const lockPath = path.join(stateDir, MIGRATION_LOCK);
-    const acquire = Effect.gen(function* () {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const created = yield* fs
-          .writeFileString(lockPath, `${String(process.pid)}\n`, { flag: "wx" })
-          .pipe(
-            Effect.as(true),
-            Effect.catchIf(
-              (error) => error.reason._tag === "AlreadyExists",
-              () => Effect.succeed(false),
-            ),
-          );
-        if (created) return;
-        const owner = Number(
-          (yield* fs.readFileString(lockPath).pipe(Effect.orElseSucceed(() => ""))).trim(),
+const withMigrationLock = Effect.fn("storageMigration.withMigrationLock")(function* <A, E, R>(
+  input: StorageMigrationInput,
+  effect: Effect.Effect<A, E, R>,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const stateDir = input.legacyRoots.stateDir;
+  // Without userdata there is no journal to protect, and a mistyped --base-dir stays untouched.
+  if (!(yield* fs.exists(stateDir).pipe(Effect.orElseSucceed(() => false)))) {
+    return yield* effect;
+  }
+  const lockPath = path.join(stateDir, MIGRATION_LOCK);
+  const acquire = Effect.gen(function* () {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const created = yield* fs
+        .writeFileString(lockPath, `${String(process.pid)}\n`, { flag: "wx" })
+        .pipe(
+          Effect.as(true),
+          Effect.catchIf(
+            (error) => error.reason._tag === "AlreadyExists",
+            () => Effect.succeed(false),
+          ),
         );
-        if (Number.isInteger(owner) && owner > 0 && isProcessAlive(owner)) {
-          return yield* new StorageMigrationBlockedError({
-            blockers: [
-              `Another \`t3 storage migrate\` is running (pid ${String(owner)}). Wait for it to finish; if no such process exists, remove ${lockPath}.`,
-            ],
-          });
-        }
-        yield* fs.remove(lockPath, { force: true });
+      if (created) return;
+      const owner = Number(
+        (yield* fs.readFileString(lockPath).pipe(Effect.orElseSucceed(() => ""))).trim(),
+      );
+      if (Number.isInteger(owner) && owner > 0 && isProcessAlive(owner)) {
+        return yield* new StorageMigrationBlockedError({
+          blockers: [
+            `Another \`t3 storage migrate\` is running (pid ${String(owner)}). Wait for it to finish; if no such process exists, remove ${lockPath}.`,
+          ],
+        });
       }
-      return yield* new StorageMigrationBlockedError({
-        blockers: [`Could not take the migration lock at ${lockPath}.`],
-      });
+      yield* fs.remove(lockPath, { force: true });
+    }
+    return yield* new StorageMigrationBlockedError({
+      blockers: [`Could not take the migration lock at ${lockPath}.`],
     });
-    return yield* Effect.acquireUseRelease(
-      acquire,
-      () => effect,
-      () => fs.remove(lockPath, { force: true }).pipe(Effect.ignore),
-    );
   });
+  return yield* Effect.acquireUseRelease(
+    acquire,
+    () => effect,
+    () => fs.remove(lockPath, { force: true }).pipe(Effect.ignore),
+  );
+});
 
 /** Staging directories that a killed record write left in the legacy tree. */
 const removeRecordLeftovers = Effect.fn("storageMigration.removeRecordLeftovers")(function* (

@@ -98,8 +98,8 @@ export const walk = Effect.fn("storageMigration.walk")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const files: Array<WalkedFile> = [];
-  const visit = (relativeDirectory: string): Effect.Effect<void, StorageMigrationReadError> =>
-    Effect.gen(function* () {
+  const visit: (relativeDirectory: string) => Effect.Effect<void, StorageMigrationReadError> =
+    Effect.fn("storageMigration.visit")(function* (relativeDirectory: string) {
       const directory = path.join(root, relativeDirectory);
       const names = yield* fs
         .readDirectory(directory)
