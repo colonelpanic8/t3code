@@ -186,8 +186,10 @@ inline, but set only one of the two. Then start the desktop app with
 `token` is either `{ "$file": "/absolute/path" }` or the token itself. With `$file` the connections
 file holds no secret and can be generated and shared freely; the desktop reads the token file on
 every load, so a rotated token takes effect without editing the connections file. If any token
-file is missing, unreadable, or empty, the desktop reports the error instead of loading the
-catalog. An inline token makes the connections file a secret: keep it mode `0600`.
+file is missing, unreadable, empty, or uses a relative path, the desktop logs a warning and
+skips that connection while loading the others. It removes that connection’s stale credentials
+and retries the file on the next load. An inline token makes the connections file a secret:
+keep it mode `0600`.
 
 Each connection is on unless it sets `"enabled": false`. The file owns that state: the settings
 switch is locked for managed connections, and every load re-applies the declared value.
