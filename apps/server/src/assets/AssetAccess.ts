@@ -656,9 +656,9 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         input.projectCheckout === "pending"
           ? null
           : yield* faviconResolver
-            .resolvePath(workspaceRoot, input.projectFaviconPath ?? undefined, {
-              revalidate: input.revalidate === true,
-            })
+              .resolvePath(workspaceRoot, input.projectFaviconPath ?? undefined, {
+                revalidate: input.revalidate === true,
+              })
               .pipe(
                 Effect.mapError(
                   (cause) =>
