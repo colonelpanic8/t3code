@@ -43,24 +43,25 @@ export function persistQuery<A, I>(
 ): QueryPersistence<A> {
   const codec = Schema.fromJsonString(Schema.toCodecJson(schema));
   return {
-    load: (environmentId, key) =>
-      Effect.gen(function* () {
-        const store = yield* storeReference;
-        if (store === null) return Option.none<A>();
-        const stored = yield* store.load(environmentId, key);
-        if (Option.isNone(stored)) return Option.none<A>();
-        // A record an older or newer client wrote can never decode here.
-        return yield* Schema.decodeUnknownEffect(codec)(stored.value).pipe(
-          Effect.map(Option.some),
-          Effect.catch(() => store.remove(environmentId, key).pipe(Effect.as(Option.none<A>()))),
-        );
-      }),
-    save: (environmentId, key, value) =>
-      Effect.gen(function* () {
+    load: Effect.fn("queryPersistence.load")(function* (environmentId, key) {
+      const store = yield* storeReference;
+      if (store === null) return Option.none<A>();
+      const stored = yield* store.load(environmentId, key);
+      if (Option.isNone(stored)) return Option.none<A>();
+      // A record an older or newer client wrote can never decode here.
+      return yield* Schema.decodeUnknownEffect(codec)(stored.value).pipe(
+        Effect.map(Option.some),
+        Effect.catch(() => store.remove(environmentId, key).pipe(Effect.as(Option.none<A>()))),
+      );
+    }),
+    save: Effect.fn("queryPersistence.save")(
+      function* (environmentId, key, value) {
         const store = yield* storeReference;
         if (store === null) return;
         const payload = yield* Schema.encodeEffect(codec)(value);
         yield* store.save(environmentId, key, payload);
-      }).pipe(Effect.catch(() => Effect.logWarning("Offline query cache save failed"))),
+      },
+      Effect.catch(() => Effect.logWarning("Offline query cache save failed")),
+    ),
   };
 }
