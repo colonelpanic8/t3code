@@ -186,11 +186,9 @@ export function restoreEarlyLinuxDeviceScaleFactor(
 ): void {
   // Keep this separate from desktop-settings.json: the settings service rewrites
   // that document, and Chromium needs the value before that service is available.
-  const path = input.joinPath(
-    resolveEarlyDesktopSettingsPath(input),
-    "..",
-    "linux-device-scale-factor",
-  );
+  const settingsPath = resolveEarlyDesktopSettingsPath(input);
+  if (settingsPath === undefined) return;
+  const path = input.joinPath(settingsPath, "..", "linux-device-scale-factor");
   const switchName = "force-device-scale-factor";
   const isValid = (value: string) =>
     value.trim().length > 0 && Number.isFinite(Number(value)) && Number(value) > 0;
