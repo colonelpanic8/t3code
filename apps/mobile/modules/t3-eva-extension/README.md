@@ -31,7 +31,23 @@ each one it could not reach.
 
 ## Extension service
 
-EVA's installed-extension protocol v1 (AIDL), offering `start_thread`,
+EVA's installed-extension protocol v1 (AIDL) exposes the tables above directly as
+`list_environments`, `list_projects`, `list_threads`, `read_messages`, `list_models`,
+`list_requests`, `get_thread_status`, and `list_queued_messages`. These reads do
+not require permission to run threads. Results include rows as both text and
+structured data; oversized replies set `truncated`. Narrow the query when that
+happens. Environment, project, and thread listings use the app's cached catalog;
+open T3 Code to refresh missing entries.
+
+For parallel independent tasks, call `start_thread` once per task with a
+self-contained prompt and `workspace=worktree` for concurrent edits. Keep each
+invocation ID and environment/thread pair. `request_status` tracks whether the
+action reached T3 Code; `get_thread_status` and `read_messages` track the work.
+For coordinated child agents and result collection, start one coordinator
+thread and ask it to delegate. Separate extension invocations create independent
+conversations.
+
+Write tools include `start_thread`,
 `send_message`, `interrupt_thread`, `organize_thread`, `respond_to_approval`,
 `answer_question`, `dismiss_question`, `rename_thread`, `configure_thread`,
 `fork_thread`, `manage_queued_message`, and `request_status`. Each request is journaled under the
