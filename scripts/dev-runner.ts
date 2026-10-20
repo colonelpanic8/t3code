@@ -92,10 +92,6 @@ type PortAvailabilityCheck<R = never> = (
 
 const DEV_RUNNER_MODES = Object.keys(MODE_ARGS) as Array<DevMode>;
 
-export function getDevRunnerModeArgs(mode: DevMode): ReadonlyArray<string> {
-  return MODE_ARGS[mode];
-}
-
 export function isBrowserAllowedPort(port: number): boolean {
   return !FETCH_BAD_PORTS.has(port);
 }
@@ -255,8 +251,9 @@ export function resolveOffset(config: {
   return Effect.succeed({ offset: 0, source: "default ports" });
 }
 
-function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, never, Path.Path> {
-  return Effect.gen(function* () {
+const resolveBaseDir = Effect.fn("dev-runner.resolveBaseDir")(function* (
+  baseDir: string | undefined,
+): Effect.fn.Return<string, never, Path.Path> {
     const path = yield* Path.Path;
     const configured = baseDir?.trim();
 
@@ -265,8 +262,7 @@ function resolveBaseDir(baseDir: string | undefined): Effect.Effect<string, neve
     }
 
     return yield* DEFAULT_T3_HOME;
-  });
-}
+});
 
 interface CreateDevRunnerEnvInput {
   readonly mode: DevMode;
@@ -282,7 +278,7 @@ interface CreateDevRunnerEnvInput {
   readonly devUrl: URL | undefined;
 }
 
-export function createDevRunnerEnv({
+export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(function* ({
   mode,
   baseEnv,
   serverOffset,
@@ -294,8 +290,7 @@ export function createDevRunnerEnv({
   host,
   port,
   devUrl,
-}: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
-  return Effect.gen(function* () {
+}: CreateDevRunnerEnvInput): Effect.fn.Return<NodeJS.ProcessEnv, never, Path.Path> {
     const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
     const webPort = BASE_WEB_PORT + webOffset;
     const configuredBaseDir = t3Home?.trim() || undefined;
@@ -404,8 +399,7 @@ export function createDevRunnerEnv({
     }
 
     return output;
-  });
-}
+});
 
 function portPairForOffset(offset: number): {
   readonly serverPort: number;
@@ -417,12 +411,12 @@ function portPairForOffset(offset: number): {
   };
 }
 
-export function checkPortAvailabilityOnHosts<R>(
+export const checkPortAvailabilityOnHosts = Effect.fn("dev-runner.checkPortAvailabilityOnHosts")(
+  function* <R>(
   port: number,
   hosts: ReadonlyArray<string>,
   canListenOnHost: (port: number, host: string) => Effect.Effect<boolean, never, R>,
-): Effect.Effect<boolean, never, R> {
-  return Effect.gen(function* () {
+  ): Effect.fn.Return<boolean, never, R> {
     for (const host of hosts) {
       if (!(yield* canListenOnHost(port, host))) {
         return false;
@@ -430,8 +424,8 @@ export function checkPortAvailabilityOnHosts<R>(
     }
 
     return true;
-  });
-}
+  },
+);
 
 export function devPortProbeHosts(configuredHost: string | undefined): ReadonlyArray<string> {
   const host = configuredHost?.trim();
@@ -461,13 +455,14 @@ interface FindFirstAvailableOffsetInput<R = NetService.NetService> {
   readonly checkPortAvailability?: PortAvailabilityCheck<R>;
 }
 
-export function findFirstAvailableOffset<R = NetService.NetService>({
+export const findFirstAvailableOffset = Effect.fn("dev-runner.findFirstAvailableOffset")(function* <
+  R = NetService.NetService,
+>({
   startOffset,
   requireServerPort,
   requireWebPort,
   checkPortAvailability,
-}: FindFirstAvailableOffsetInput<R>): Effect.Effect<number, DevRunnerPortExhaustedError, R> {
-  return Effect.gen(function* () {
+}: FindFirstAvailableOffsetInput<R>): Effect.fn.Return<number, DevRunnerPortExhaustedError, R> {
     const checkPort = (checkPortAvailability ??
       defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
 
@@ -514,8 +509,7 @@ export function findFirstAvailableOffset<R = NetService.NetService>({
       baseWebPort: BASE_WEB_PORT,
       maximumPort: MAX_PORT,
     });
-  });
-}
+});
 
 interface ResolveModePortOffsetsInput<R = NetService.NetService> {
   readonly mode: DevMode;
@@ -525,18 +519,19 @@ interface ResolveModePortOffsetsInput<R = NetService.NetService> {
   readonly checkPortAvailability?: PortAvailabilityCheck<R>;
 }
 
-export function resolveModePortOffsets<R = NetService.NetService>({
+export const resolveModePortOffsets = Effect.fn("dev-runner.resolveModePortOffsets")(function* <
+  R = NetService.NetService,
+>({
   mode,
   startOffset,
   hasExplicitServerPort,
   hasExplicitDevUrl,
   checkPortAvailability,
-}: ResolveModePortOffsetsInput<R>): Effect.Effect<
+}: ResolveModePortOffsetsInput<R>): Effect.fn.Return<
   { readonly serverOffset: number; readonly webOffset: number },
   DevRunnerPortExhaustedError,
   R
 > {
-  return Effect.gen(function* () {
     const checkPort = (checkPortAvailability ??
       defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
 
@@ -576,8 +571,7 @@ export function resolveModePortOffsets<R = NetService.NetService>({
     });
 
     return { serverOffset: sharedOffset, webOffset: sharedOffset };
-  });
-}
+});
 
 interface DevRunnerCliInput {
   readonly mode: DevMode;
@@ -593,8 +587,9 @@ interface DevRunnerCliInput {
   readonly runArgs: ReadonlyArray<string>;
 }
 
-export function runDevRunnerWithInput(input: DevRunnerCliInput) {
-  return Effect.gen(function* () {
+export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput")(function* (
+  input: DevRunnerCliInput,
+) {
     const { portOffset, devInstance } = yield* OffsetConfig.pipe(
       Effect.mapError(
         (cause) =>
@@ -685,9 +680,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         // process (and reboots), so the cleanup has to be registered atomically
         // with creating it. An interrupt landing in between would otherwise
         // leave a mapping pointing at a port nothing is listening on.
-        const shared = yield* Effect.acquireRelease(
-          shareDevServer({ webPort: sharedWebPort }),
-          () =>
+      const shared = yield* Effect.acquireRelease(shareDevServer({ webPort: sharedWebPort }), () =>
             unshareDevServer(sharedWebPort).pipe(
               Effect.flatMap((result) =>
                 result.cleared
@@ -783,8 +776,7 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
         exitCode,
       });
     }
-  });
-}
+});
 
 const devRunnerCli = Command.make("dev-runner", {
   mode: Argument.Literals("mode", DEV_RUNNER_MODES).pipe(

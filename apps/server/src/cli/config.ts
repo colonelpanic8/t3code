@@ -406,7 +406,7 @@ const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: st
   return parsePersistedServerObservabilitySettings(raw);
 });
 
-export const resolveServerConfig = (
+export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(function* (
   flags: CliServerFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
   options?: {
@@ -414,8 +414,7 @@ export const resolveServerConfig = (
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
   },
-) =>
-  Effect.gen(function* () {
+) {
     const { findAvailablePort } = yield* NetService.NetService;
     const path = yield* Path.Path;
     const fs = yield* FileSystem.FileSystem;
@@ -664,7 +663,7 @@ export const resolveServerConfig = (
     };
 
     return config;
-  });
+});
 
 export const resolveCliAuthConfig = (
   flags: CliAuthLocationFlags,

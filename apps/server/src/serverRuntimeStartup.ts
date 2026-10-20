@@ -45,6 +45,7 @@ import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import { forkParked, forkParkedFiber } from "./serverActivation.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
+import { getServerOwners } from "./telemetry/Identify.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import {
@@ -109,19 +110,9 @@ export const makeCommandGate = Effect.gen(function* () {
   );
   yield* Effect.forkScoped(commandWorker);
 
-  return {
-    awaitCommandReady: Deferred.await(commandReady),
-    signalCommandReady: Effect.gen(function* () {
-      yield* Ref.set(commandReadinessState, "ready");
-      yield* Deferred.succeed(commandReady, undefined).pipe(Effect.orDie);
-    }),
-    failCommandReady: (error) =>
-      Effect.gen(function* () {
-        yield* Ref.set(commandReadinessState, error);
-        yield* Deferred.fail(commandReady, error).pipe(Effect.orDie);
-      }),
-    enqueueCommand: <A, E>(effect: Effect.Effect<A, E>) =>
-      Effect.gen(function* () {
+  const enqueueCommand = Effect.fn("serverRuntimeStartup.enqueueCommand")(function* <A, E>(
+    effect: Effect.Effect<A, E>,
+  ): Effect.fn.Return<A, E | ServerRuntimeStartupError> {
         const readinessState = yield* Ref.get(commandReadinessState);
         if (readinessState === "ready") {
           return yield* effect;
@@ -139,7 +130,19 @@ export const makeCommandGate = Effect.gen(function* () {
           ),
         });
         return yield* Deferred.await(result);
+  });
+
+  return {
+    awaitCommandReady: Deferred.await(commandReady),
+    signalCommandReady: Effect.gen(function* () {
+      yield* Ref.set(commandReadinessState, "ready");
+      yield* Deferred.succeed(commandReady, undefined).pipe(Effect.orDie);
       }),
+    failCommandReady: Effect.fn("serverRuntimeStartup.failCommandReady")(function* (error) {
+      yield* Ref.set(commandReadinessState, error);
+      yield* Deferred.fail(commandReady, error).pipe(Effect.orDie);
+    }),
+    enqueueCommand,
   } satisfies CommandGate;
 });
 
@@ -172,6 +175,7 @@ const recordStartupHeartbeat = Effect.gen(function* () {
     threadCount,
     projectCount,
   });
+  yield* analytics.recordOwners(yield* getServerOwners, "server");
 });
 
 export const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
@@ -358,8 +362,9 @@ export const logBrowserAutoOpenUnavailable = Effect.logInfo("browser auto-open u
   hint: "Open the pairing URL above in your browser.",
 });
 
-export const maybeOpenBrowser = (target: string) =>
-  Effect.gen(function* () {
+export const maybeOpenBrowser = Effect.fn("serverRuntimeStartup.maybeOpenBrowser")(function* (
+  target: string,
+) {
     const serverConfig = yield* ServerConfig.ServerConfig;
     if (serverConfig.noBrowser) {
       return;
@@ -372,7 +377,7 @@ export const maybeOpenBrowser = (target: string) =>
       Effect.withTracerEnabled(false),
       Effect.catch(() => logBrowserAutoOpenUnavailable),
     );
-  });
+});
 
 const runStartupPhase = <A, E, R>(phase: string, effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -413,7 +418,9 @@ export const startEffectWorkerWithRelay = Effect.fn(
   );
 });
 
-export function runOrderedV2StartupPhases<
+export const runOrderedV2StartupPhases = Effect.fn(
+  "serverRuntimeStartup.runOrderedV2StartupPhases",
+)(function* <
   Import,
   Recovery,
   Bootstrap,
@@ -434,18 +441,15 @@ export function runOrderedV2StartupPhases<
   readonly startEffectWorker: Effect.Effect<void, WorkerError, WorkerContext>;
   readonly autoBootstrap: Effect.Effect<Bootstrap, BootstrapError, BootstrapContext>;
 }) {
-  return Effect.gen(function* () {
     yield* input.importLegacyShells;
     const recovery = yield* input.recover;
     yield* input.recoverDelegatedTasks;
     yield* input.startEffectWorker;
     const bootstrap = yield* input.autoBootstrap;
     return { recovery, bootstrap } as const;
-  });
-}
+});
 
-const make = (options?: StartupOptions) =>
-  Effect.gen(function* () {
+const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: StartupOptions) {
     const serverConfig = yield* ServerConfig.ServerConfig;
     const keybindings = yield* Keybindings.Keybindings;
     const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
@@ -645,10 +649,7 @@ const make = (options?: StartupOptions) =>
 
       yield* Effect.logDebug("startup phase: waiting for http listener");
       yield* runStartupPhase("http.wait", Deferred.await(httpListening));
-      yield* runStartupPhase(
-        "auxiliary-roots.parked",
-        options?.awaitAuxiliaryParked ?? Effect.void,
-      );
+    yield* runStartupPhase("auxiliary-roots.parked", options?.awaitAuxiliaryParked ?? Effect.void);
 
       const updateOutcome = yield* launcher.prepareTrial;
 
@@ -727,7 +728,7 @@ const make = (options?: StartupOptions) =>
       markHttpListening: Deferred.succeed(httpListening, undefined),
       enqueueCommand: commandGate.enqueueCommand,
     } satisfies ServerRuntimeStartup["Service"];
-  });
+});
 
 export const layerWithOptions = (options?: StartupOptions) =>
   Layer.effect(ServerRuntimeStartup, make(options));
