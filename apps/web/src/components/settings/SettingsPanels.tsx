@@ -48,6 +48,7 @@ import {
   MIN_TERMINAL_FONT_SIZE,
   type QuitConfirmationMode,
   SidebarProjectSortOrder,
+  type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { createModelSelection } from "@t3tools/shared/model";
@@ -1140,6 +1141,7 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow
+          settingKeys={["appearanceContrast"]}
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
           resetAction={
@@ -1188,6 +1190,7 @@ export function AppearanceSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["glassOpacity"]}
           {...searchableSetting("setting-glass-opacity")}
           description="Higher values make menus, dialogs, and the composer more solid."
           resetAction={
@@ -1235,6 +1238,7 @@ export function AppearanceSettingsPanel() {
 
         {showEnvironmentIdentification ? (
           <SettingsRow
+            settingKeys={["environmentIdentificationMode"]}
             {...searchableSetting("environment-identification")}
             description="Choose how Dev and Nightly environments are identified."
             resetAction={
@@ -1280,6 +1284,7 @@ export function AppearanceSettingsPanel() {
         ) : null}
 
         <SettingsRow
+          settingKeys={["diffColorScheme"]}
           {...searchableSetting("diff-color-scheme")}
           description="Choose colors for additions and deletions, including change counts."
           resetAction={
@@ -1327,6 +1332,7 @@ export function AppearanceSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["persistComposerContextStrip"]}
           {...searchableSetting("composer-context")}
           description="Keep branch and worktree controls below the composer after a thread starts."
           resetAction={
@@ -1355,6 +1361,7 @@ export function AppearanceSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["chatWidth"]}
           {...searchableSetting("chat-width")}
           description="Set how wide messages and the composer can grow on large screens."
           resetAction={
@@ -1415,6 +1422,7 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow
+          settingKeys={["panelAnimationDurationMs"]}
           {...searchableSetting("panel-animations")}
           description="Set how fast panels open and close."
           control={
@@ -1491,6 +1499,7 @@ function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilySans", "fontSizeInterface"]}
       {...searchableSetting("interface-font")}
       description="Everything outside code blocks and the terminal."
       defaultFamily={defaults.sans}
@@ -1522,6 +1531,7 @@ function PromptFontRow() {
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyComposer", "fontSizePrompt"]}
       {...searchableSetting("prompt-font")}
       description="Only the box you write prompts in. Mono works well here."
       defaultFamily={defaults.interfaceFamily}
@@ -1561,6 +1571,7 @@ function CodeFontRow({
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyCode", "fontSizeCode"]}
       {...searchableSetting("code-font")}
       {...(title !== undefined ? { title } : {})}
       description={description}
@@ -1594,6 +1605,7 @@ function TerminalFontRow() {
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyTerminal", "fontSizeTerminal"]}
       {...searchableSetting("terminal-font")}
       description="Terminal output, independent from code blocks and diffs."
       defaultFamily={defaults.code}
@@ -1635,6 +1647,7 @@ function FontSmoothingRow() {
   if (!isMacPlatform(navigator.platform)) return null;
   return (
     <SettingsRow
+      settingKeys={["fontSmoothing"]}
       {...searchableSetting("font-smoothing")}
       description="Use thinner grayscale text smoothing instead of the macOS default."
       resetAction={
@@ -1663,6 +1676,7 @@ function WordWrapRow() {
   const updateSettings = useUpdateScopedSettings();
   return (
     <SettingsRow
+      settingKeys={["wordWrap"]}
       {...searchableSetting("word-wrap")}
       description="Wrap long lines in code blocks, tables, diffs, and file previews by default."
       resetAction={
@@ -1783,8 +1797,10 @@ function FontFamilySettingsRow({
   onReset,
   requireMonospace = false,
   size,
+  settingKeys,
 }: {
   id?: string;
+  settingKeys: readonly (keyof UnifiedSettings)[];
   title: string;
   description: string;
   defaultFamily: string;
@@ -1947,6 +1963,7 @@ function FontFamilySettingsRow({
       {...(id !== undefined ? { id } : {})}
       title={title}
       description={description}
+      settingKeys={settingKeys}
       resetAction={resetAction}
       control={control}
     >
@@ -2032,6 +2049,7 @@ function LegacyFeaturesSection() {
         <CollapsiblePanel>
           <SettingsGroup>
             <SettingsRow
+              settingKeys={["planModeEnabled"]}
               {...searchableSetting("legacy-plan-mode")}
               description="Restore Build/Plan, /plan, /default, and Shift+Tab. Off uses build mode."
               control={
@@ -2045,6 +2063,7 @@ function LegacyFeaturesSection() {
               }
             />
             <SettingsRow
+              settingKeys={["contextWindowMeterEnabled"]}
               {...searchableSetting("legacy-context-window-indicator")}
               description="Shows context window usage as a circular indicator in the composer."
               control={
@@ -2058,6 +2077,7 @@ function LegacyFeaturesSection() {
               }
             />
             <SettingsRow
+              settingKeys={["legacySidebarEnabled"]}
               {...searchableSetting("legacy-sidebar")}
               description="Restore per-project thread trees instead of the default flat sidebar."
               control={
@@ -2177,6 +2197,7 @@ export function GeneralSettingsPanel() {
       <ProjectDefaultsSettings category="general" />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow
+          settingKeys={["sidebarProjectGroupingMode"]}
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
           resetAction={
@@ -2212,6 +2233,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["sidebarProjectSortOrder"]}
           {...searchableSetting("project-order")}
           description="Order of projects in the sidebar project picker and command palette."
           resetAction={
@@ -2286,6 +2308,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["sidebarWorkingShelfEnabled"]}
           {...searchableSetting("working-shelf")}
           description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you."
           resetAction={
@@ -2466,6 +2489,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="behavior" title="Behavior">
         <NotificationSettings />
         <SettingsRow
+          settingKeys={["inAppNotificationsEnabled"]}
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
           control={
@@ -2477,6 +2501,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["timestampFormat"]}
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
           resetAction={
@@ -2566,6 +2591,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffIgnoreWhitespace"]}
           {...searchableSetting("hide-whitespace-changes")}
           description="Set whether the diff panel ignores whitespace-only edits by default."
           resetAction={
@@ -2591,6 +2617,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffFilesCollapsed"]}
           {...searchableSetting("default-diff-file-state")}
           description="Start with files expanded or collapsed when opening diffs or a pull request's Code tab."
           resetAction={
@@ -2633,6 +2660,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffLayout"]}
           {...searchableSetting("diff-layout")}
           description="Show diffs stacked or side by side. The toggle in the diff toolbar changes this too."
           resetAction={
@@ -2668,6 +2696,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["proactivePanelsEnabled"]}
           {...searchableSetting("proactive-panels")}
           description="Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines."
           resetAction={
@@ -2694,6 +2723,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["showSkillsInSlashMenu"]}
           {...searchableSetting("skills-in-slash-menu")}
           description="Also include skills in the / command menu. Skills always appear when you type $."
           resetAction={
@@ -2720,6 +2750,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["composerRichTextEnabled"]}
           {...searchableSetting("composer-rich-text")}
           description="Show formatted Markdown as you type."
           resetAction={
@@ -2747,6 +2778,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["composerCollapseOnScroll"]}
           {...searchableSetting("composer-collapse")}
           description="Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again."
           resetAction={
@@ -2774,6 +2806,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["sendShortcut"]}
           {...searchableSetting("send-shortcut")}
           description="Choose when Enter sends a prompt or inserts a new line"
           resetAction={
@@ -2821,6 +2854,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["followUpBehavior"]}
           {...searchableSetting("follow-up-behavior")}
           description={
             "Queue follow-ups while the agent runs or steer the current run. " +
@@ -3123,6 +3157,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="confirmations" title="Confirmations">
         <SettingsRow
+          settingKeys={["confirmThreadUnpin"]}
           {...searchableSetting("unpin-confirmation")}
           description="Ask before unpinning a thread from the pinned section."
           resetAction={
@@ -3149,6 +3184,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["confirmThreadArchive"]}
           {...searchableSetting("archive-confirmation")}
           description="Require a second click on the inline archive action before a thread is archived."
           resetAction={
@@ -3175,6 +3211,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["confirmThreadDelete"]}
           {...searchableSetting("delete-confirmation")}
           description="Ask before deleting a thread and its chat history."
           resetAction={
@@ -3202,6 +3239,7 @@ export function GeneralSettingsPanel() {
 
         {isElectron ? (
           <SettingsRow
+            settingKeys={["confirmQuit"]}
             {...searchableSetting("quit-confirmation")}
             description="Hold mode also quits on two quick presses."
             resetAction={
