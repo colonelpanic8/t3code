@@ -56,6 +56,9 @@ vi.mock("react/compiler-runtime", () => ({ c: hooks.useMemoCache }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: () => testState.faviconUrl,
 }));
+vi.mock("../assets/assetUrls", () => ({
+  useProjectFaviconRefresh: () => () => {},
+}));
 vi.mock("../state/assets", () => ({
   projectFaviconUrlAtom: (input: unknown) => {
     testState.lastTarget = input;
