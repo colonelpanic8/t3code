@@ -256,6 +256,34 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    it.effect("keeps inherited server location overrides off the chosen home", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: {
+            T3CODE_SERVER_CONFIG_DIR: "/real/config",
+            T3CODE_SERVER_DATA_DIR: "/real/data",
+            T3CODE_SERVER_CACHE_DIR: "/real/cache",
+          },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: "/tmp/worktree/.t3",
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.T3CODE_HOME, path.resolve("/tmp/worktree/.t3"));
+        assert.equal(env.T3CODE_SERVER_CONFIG_DIR, undefined);
+        assert.equal(env.T3CODE_SERVER_DATA_DIR, undefined);
+        assert.equal(env.T3CODE_SERVER_CACHE_DIR, undefined);
+      }),
+    );
+
     it.effect("does not force websocket logging on in dev mode when unset", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
