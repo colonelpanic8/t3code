@@ -266,6 +266,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             T3CODE_SERVER_DATA_DIR: "/real/data",
             T3CODE_SERVER_CACHE_DIR: "/real/cache",
             T3CODE_SERVER_CONFIG_FILE: "/real/config/server.json",
+            T3CODE_CONFIG_DIR: "/real/xdg/config",
+            T3CODE_DATA_DIR: "/real/xdg/data",
+            T3CODE_STATE_DIR: "/real/xdg/state",
+            T3CODE_CACHE_DIR: "/real/xdg/cache",
+            T3CODE_RUNTIME_DIR: "/real/xdg/runtime",
+            T3CODE_CLIENT_DIR: "/real/desktop-client",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -283,6 +289,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.T3CODE_SERVER_DATA_DIR, undefined);
         assert.equal(env.T3CODE_SERVER_CACHE_DIR, undefined);
         assert.equal(env.T3CODE_SERVER_CONFIG_FILE, undefined);
+        assert.equal(env.T3CODE_CONFIG_DIR, undefined);
+        assert.equal(env.T3CODE_DATA_DIR, undefined);
+        assert.equal(env.T3CODE_STATE_DIR, undefined);
+        assert.equal(env.T3CODE_CACHE_DIR, undefined);
+        assert.equal(env.T3CODE_RUNTIME_DIR, undefined);
+        assert.equal(env.T3CODE_CLIENT_DIR, undefined);
       }),
     );
 
