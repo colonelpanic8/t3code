@@ -716,6 +716,7 @@ export function BranchToolbarBranchSelector({
             }
             className="min-w-0 max-w-full active:scale-100"
             disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            data-composer-shortcut="composer.branch"
           >
             <GitBranchIcon
               className={cn(
