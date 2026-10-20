@@ -274,7 +274,13 @@ object AssistantCapabilities {
           "Use environmentId and projectId exactly as listed by the T3 Code projects catalog. " +
           "state=completed means the thread exists and received the prompt, not that its task " +
           "is done. " +
-          "The receipt names the environment as environmentName and the new thread as threadId.",
+          "The receipt names the environment as environmentName and the new thread as threadId. " +
+          "For fanout, call start_thread once per independent task with a self-contained prompt " +
+          "and workspace=worktree for concurrent edits. Keep each invocation ID and returned " +
+          "environmentId/threadId; check request_status for delivery, then get_thread_status " +
+          "and read_messages for task completion. These are independent conversations, not " +
+          "child agents; for coordinated delegation, start one coordinator thread and ask it " +
+          "to delegate and collect the results.",
       fields =
         listOf(
           environmentId,
@@ -607,7 +613,7 @@ object AssistantCapabilities {
     )
 
   val all =
-    listOf(
+    AssistantLookups.all.map { it.capability } + listOf(
       startThread,
       sendMessage,
       interruptThread,
