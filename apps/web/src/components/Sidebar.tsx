@@ -1,3 +1,4 @@
+import { environmentCatalog } from "../connection/catalog";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
@@ -1433,6 +1434,7 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   onNavigateToDraft: (draftId: DraftId) => void;
   onDraftContextMenu: (draftId: DraftId, position: { x: number; y: number }) => void;
 }) {
+  const groupVisibility = useAtomValue(environmentCatalog.groups.stateAtom);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftsByThreadKey = useComposerDraftStore((store) => store.draftsByThreadKey);
   const [frozenActive, setFrozenActive] = useState<{
@@ -1455,7 +1457,10 @@ const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   const drafts = (() => {
     const rows: SidebarDraftRowData[] = [];
     for (const [draftKey, session] of Object.entries(draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (
+        session.promotedTo != null ||
+        groupVisibility.hiddenEnvironmentIds.has(session.environmentId)
+      ) {
         continue;
       }
       if (
@@ -2710,6 +2715,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
+  const groupVisibility = useAtomValue(environmentCatalog.groups.stateAtom);
   const {
     projects,
     serverConfigs,
@@ -2870,6 +2876,10 @@ export default function Sidebar() {
   const routeThreadKeyRef = useRef(routeThreadKey);
 
   // A selection made under one scope can hold threads the next scope hides.
+  useEffect(() => {
+    if (groupVisibility.hiddenEnvironmentIds.size > 0) clearSelection();
+  }, [clearSelection, groupVisibility.hiddenEnvironmentIds]);
+
   const setProjectScopeKey = (key: string | null) => {
     clearSelection();
     setPersistedProjectScopeKey(key);
@@ -2919,7 +2929,10 @@ export default function Sidebar() {
       groups: projectGroups,
       key: persistedProjectScopeKey,
       settings: projectGroupingSettings,
-      canClearMissingScope: allProjectSnapshotsReady && allProjectConfigsReady,
+      canClearMissingScope:
+        allProjectSnapshotsReady &&
+        allProjectConfigsReady &&
+        groupVisibility.hiddenEnvironmentIds.size === 0,
     });
     if (nextKey !== persistedProjectScopeKey) {
       clearSelection();
@@ -2928,6 +2941,7 @@ export default function Sidebar() {
   }, [
     allProjectConfigsReady,
     allProjectSnapshotsReady,
+    groupVisibility.hiddenEnvironmentIds.size,
     clearSelection,
     persistedProjectScopeKey,
     projectGroups,
@@ -2938,7 +2952,10 @@ export default function Sidebar() {
   const visibleDraftSessionCount = useComposerDraftStore((store) => {
     let count = 0;
     for (const [draftKey, session] of Object.entries(store.draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (
+        session.promotedTo != null ||
+        groupVisibility.hiddenEnvironmentIds.has(session.environmentId)
+      ) {
         continue;
       }
       if (!composerDraftHasUserContent(store.draftsByThreadKey[draftKey])) {

@@ -1,4 +1,6 @@
 import * as Dialog from "../../components/ui/Dialog";
+import { useAtomValue } from "@effect/atom-react";
+import { environmentCatalog } from "../../connection/catalog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
@@ -188,6 +190,34 @@ function ThreadUnavailableScreen(props: {
 }
 
 export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
+  const groups = useAtomValue(environmentCatalog.groups.stateAtom);
+  const setVisible = useAtomCommand(environmentCatalog.groups.setVisible);
+  const environmentIdRaw = firstRouteParam(props.route.params.environmentId);
+  const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
+  const hiddenGroup =
+    environmentId !== null && groups.hiddenEnvironmentIds.has(environmentId)
+      ? Object.entries(groups.groups).find(([, group]) =>
+          group.environmentIds.includes(environmentId),
+        )
+      : undefined;
+  if (!groups.isReady) return <OpeningThreadLoadingScreen />;
+  if (hiddenGroup) {
+    const [groupId, group] = hiddenGroup;
+    return (
+      <ThreadRouteFallbackLayout>
+        <EmptyState
+          title="This environment is hidden"
+          detail={`Show ${group.label} to open this thread.`}
+          actionLabel={`Show ${group.label} for this session`}
+          onAction={() => void setVisible({ groupId, visible: true })}
+        />
+      </ThreadRouteFallbackLayout>
+    );
+  }
+  return <VisibleThreadRouteScreen {...props} />;
+}
+
+function VisibleThreadRouteScreen(props: ThreadRouteScreenProps) {
   useAndroidWorkspaceBack("threads");
   const connectionsReady = useConnectionsReady();
   const { connectionState } = useRemoteConnectionStatus();

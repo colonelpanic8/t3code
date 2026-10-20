@@ -2,6 +2,11 @@ import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { environmentCatalog } from "../connection/catalog";
+import { useAtomCommand } from "../state/use-atom-command";
+import { Button } from "./ui/button";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "./ui/empty";
 
 import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
@@ -30,6 +35,40 @@ import {
  * only survives a route swap when the same parent renders it.
  */
 export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
+  const groups = useAtomValue(environmentCatalog.groups.stateAtom);
+  const setVisible = useAtomCommand(environmentCatalog.groups.setVisible);
+  const draftEnvironmentId = useComposerDraftStore((store) =>
+    target.kind === "draft" ? store.getDraftSession(target.draftId)?.environmentId : undefined,
+  );
+  const environmentId =
+    target.kind === "server" ? target.threadRef.environmentId : draftEnvironmentId;
+  const hiddenGroup =
+    environmentId && groups.hiddenEnvironmentIds.has(environmentId)
+      ? Object.entries(groups.groups).find(([, group]) =>
+          group.environmentIds.includes(environmentId),
+        )
+      : undefined;
+  if (!groups.isReady) return null;
+  if (hiddenGroup) {
+    const [groupId, group] = hiddenGroup;
+    return (
+      <SidebarInset className="h-dvh">
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>This environment is hidden</EmptyTitle>
+            <EmptyDescription>Show {group.label} to open this thread.</EmptyDescription>
+          </EmptyHeader>
+          <Button onClick={() => void setVisible({ groupId, visible: true })}>
+            Show {group.label} for this session
+          </Button>
+        </Empty>
+      </SidebarInset>
+    );
+  }
+  return <VisibleThreadRouteView target={target} />;
+}
+
+function VisibleThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const navigate = useNavigate();
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>

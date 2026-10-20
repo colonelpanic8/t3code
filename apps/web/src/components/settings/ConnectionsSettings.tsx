@@ -88,6 +88,7 @@ import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import {
   ConnectionDiagnosisPanel,
   ConnectionDiagnosisSummary,
@@ -3918,6 +3919,7 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {primarySettings}
       <SettingsSection
         {...searchableSetting("remote-environments")}

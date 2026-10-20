@@ -345,3 +345,9 @@ history, and saved connections are kept, and you keep working through pairing, T
 
 Switch **Local environment** back on in the same place to restart with your previous local
 settings.
+
+## Group occasional machines
+
+Use [environment groups](environment-groups.md) to declare which machines appear
+by default and show or hide a group for the current client session. Hidden
+environments stay connected.
