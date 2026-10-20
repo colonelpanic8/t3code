@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
@@ -14,14 +15,17 @@ const readWslState: Effect.Effect<
   DesktopWslState,
   never,
   | DesktopAppSettings.DesktopAppSettings
+  | DesktopBackendMode.DesktopBackendMode
   | DesktopWslEnvironment.DesktopWslEnvironment
   | DesktopWslBackend.DesktopWslBackend
 > = Effect.gen(function* () {
   const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
   const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
   const settings = yield* appSettings.get;
-  const available = settings.localEnvironmentEnabled && (yield* wslEnvironment.isAvailable);
+  const available =
+    (yield* backendMode.localEnvironmentEnabled) && (yield* wslEnvironment.isAvailable);
   // Only enumerate distros when WSL is actually available — listDistros on a
   // non-WSL host would spawn wsl.exe and hit the timeout for nothing.
   const distros = available ? yield* wslEnvironment.listDistros : [];
