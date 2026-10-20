@@ -1307,112 +1307,111 @@ const make = Effect.gen(function* () {
     | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
   );
 
-  const persistSettingsSecrets = (
+  const persistSettingsSecrets = Effect.fn("serverSettings.persistSettingsSecrets")(function* (
     current: ServerSettings,
     next: ServerSettings,
     baseline: ServerSettings,
-  ) =>
-    Effect.gen(function* () {
-      const previous = new Map<string, SettingsSecret>();
-      mapSettingsSecrets(current, (secret) => {
-        previous.set(secret.secretName, secret);
-        return secret;
-      });
-      const inlineValueOf = (secretName: string) => {
-        const old = previous.get(secretName);
-        return old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
-      };
-      // What each redacted secret holds: its previous inline value, or the stored one where
-      // the shared file supplies that secret, so an entry reverted to shared matches it again.
-      const sharedSecretNames = new Set<string>();
-      mapSettingsSecrets(baseline, (secret) => {
-        if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
-          sharedSecretNames.add(secret.secretName);
-        }
-        return secret;
-      });
-      const resolvable: SettingsSecret[] = [];
-      mapSettingsSecrets(next, (secret) => {
-        if (secret.sensitive && secret.redacted) resolvable.push(secret);
-        return secret;
-      });
-      const resolvedValues = new Map<string, string>();
-      for (const secret of resolvable) {
-        const inline = inlineValueOf(secret.secretName);
-        if (inline !== undefined) {
-          resolvedValues.set(secret.secretName, inline);
-          continue;
-        }
-        if (!sharedSecretNames.has(secret.secretName)) continue;
-        const stored = yield* secretStore.get(secret.secretName).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ServerSettingsError({
-                settingsPath,
-                operation: "read-secret",
-                providerInstanceId: secret.providerInstanceId,
-                environmentVariable: secret.environmentVariable,
-                cause,
-              }),
-          ),
-        );
-        if (Option.isSome(stored)) {
-          resolvedValues.set(secret.secretName, textDecoder.decode(stored.value));
-        }
-      }
-      const inherited = inheritedSecretValues(next, baseline, resolvedValues);
-      const changes: SecretChange[] = [];
-      const nextSecretNames = new Set<string>();
-      const settings = mapSettingsSecrets(next, (secret) => {
-        const metadata = {
-          secretName: secret.secretName,
-          ...(secret.providerInstanceId !== undefined
-            ? { providerInstanceId: secret.providerInstanceId }
-            : {}),
-          ...(secret.environmentVariable !== undefined
-            ? { environmentVariable: secret.environmentVariable }
-            : {}),
-        };
-        if (!secret.sensitive) {
-          changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
-          return { value: secret.value, redacted: false };
-        }
-        const resolved = resolvedValues.get(secret.secretName);
-        const value = !secret.redacted
-          ? secret.value
-          : (inlineValueOf(secret.secretName) ??
-            (inherited.get(secret.secretName) === resolved ? resolved : undefined));
-        if (value === undefined) {
-          nextSecretNames.add(secret.secretName);
-          return { value: "", redacted: true };
-        }
-        // Left inline so the write sees it unchanged from the shared file and omits it.
-        if (inherited.get(secret.secretName) === value) return { value, redacted: false };
-        if (value.length === 0) {
-          changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
-          return { value: "", redacted: false };
-        }
-        nextSecretNames.add(secret.secretName);
-        changes.push({ ...metadata, kind: "write", value: textEncoder.encode(value) });
-        return { value: "", redacted: true };
-      });
-      for (const secret of previous.values()) {
-        if (!secret.sensitive || nextSecretNames.has(secret.secretName)) continue;
-        if (changes.some((change) => change.secretName === secret.secretName)) continue;
-        changes.push({
-          kind: "remove",
-          secretName: secret.secretName,
-          operation: "remove-stale-secret",
-          ...(secret.providerInstanceId !== undefined
-            ? { providerInstanceId: secret.providerInstanceId }
-            : {}),
-          ...(secret.environmentVariable !== undefined
-            ? { environmentVariable: secret.environmentVariable }
-            : {}),
-        });
-      }
-      return { settings, changes };
+  ) {
+    const previous = new Map<string, SettingsSecret>();
+    mapSettingsSecrets(current, (secret) => {
+      previous.set(secret.secretName, secret);
+      return secret;
     });
+    const inlineValueOf = (secretName: string) => {
+      const old = previous.get(secretName);
+      return old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
+    };
+    // What each redacted secret holds: its previous inline value, or the stored one where
+    // the shared file supplies that secret, so an entry reverted to shared matches it again.
+    const sharedSecretNames = new Set<string>();
+    mapSettingsSecrets(baseline, (secret) => {
+      if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
+        sharedSecretNames.add(secret.secretName);
+      }
+      return secret;
+    });
+    const resolvable: SettingsSecret[] = [];
+    mapSettingsSecrets(next, (secret) => {
+      if (secret.sensitive && secret.redacted) resolvable.push(secret);
+      return secret;
+    });
+    const resolvedValues = new Map<string, string>();
+    for (const secret of resolvable) {
+      const inline = inlineValueOf(secret.secretName);
+      if (inline !== undefined) {
+        resolvedValues.set(secret.secretName, inline);
+        continue;
+      }
+      if (!sharedSecretNames.has(secret.secretName)) continue;
+      const stored = yield* secretStore.get(secret.secretName).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ServerSettingsError({
+              settingsPath,
+              operation: "read-secret",
+              providerInstanceId: secret.providerInstanceId,
+              environmentVariable: secret.environmentVariable,
+              cause,
+            }),
+        ),
+      );
+      if (Option.isSome(stored)) {
+        resolvedValues.set(secret.secretName, textDecoder.decode(stored.value));
+      }
+    }
+    const inherited = inheritedSecretValues(next, baseline, resolvedValues);
+    const changes: SecretChange[] = [];
+    const nextSecretNames = new Set<string>();
+    const settings = mapSettingsSecrets(next, (secret) => {
+      const metadata = {
+        secretName: secret.secretName,
+        ...(secret.providerInstanceId !== undefined
+          ? { providerInstanceId: secret.providerInstanceId }
+          : {}),
+        ...(secret.environmentVariable !== undefined
+          ? { environmentVariable: secret.environmentVariable }
+          : {}),
+      };
+      if (!secret.sensitive) {
+        changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
+        return { value: secret.value, redacted: false };
+      }
+      const resolved = resolvedValues.get(secret.secretName);
+      const value = !secret.redacted
+        ? secret.value
+        : (inlineValueOf(secret.secretName) ??
+          (inherited.get(secret.secretName) === resolved ? resolved : undefined));
+      if (value === undefined) {
+        nextSecretNames.add(secret.secretName);
+        return { value: "", redacted: true };
+      }
+      // Left inline so the write sees it unchanged from the shared file and omits it.
+      if (inherited.get(secret.secretName) === value) return { value, redacted: false };
+      if (value.length === 0) {
+        changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
+        return { value: "", redacted: false };
+      }
+      nextSecretNames.add(secret.secretName);
+      changes.push({ ...metadata, kind: "write", value: textEncoder.encode(value) });
+      return { value: "", redacted: true };
+    });
+    for (const secret of previous.values()) {
+      if (!secret.sensitive || nextSecretNames.has(secret.secretName)) continue;
+      if (changes.some((change) => change.secretName === secret.secretName)) continue;
+      changes.push({
+        kind: "remove",
+        secretName: secret.secretName,
+        operation: "remove-stale-secret",
+        ...(secret.providerInstanceId !== undefined
+          ? { providerInstanceId: secret.providerInstanceId }
+          : {}),
+        ...(secret.environmentVariable !== undefined
+          ? { environmentVariable: secret.environmentVariable }
+          : {}),
+      });
+    }
+    return { settings, changes };
+  });
 
   const rollbackSettingsSecretWrites = (
     writes: ReadonlyArray<{
