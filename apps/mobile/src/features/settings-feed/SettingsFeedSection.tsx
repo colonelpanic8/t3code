@@ -9,7 +9,7 @@ import * as Dialog from "../../components/ui/Dialog";
 import type { ManageablePreferenceKey } from "../../persistence/mobile-preferences";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsSection } from "../settings/components/SettingsSection";
-import { RequestActionButton } from "../threads/RequestActionButton";
+import { Button } from "../../components/ui/Button";
 import { parseSettingsFeedUrl } from "./settingsFeed";
 import { useManagedPreferenceKeys, useRefreshSettingsFeed } from "./SettingsFeedSync";
 
@@ -107,11 +107,7 @@ export function SettingsFeedSection() {
                 {error}
               </Text>
             ) : null}
-            <RequestActionButton
-              label="Track settings"
-              disabled={draft.trim().length === 0}
-              onPress={track}
-            />
+            <Button label="Track settings" disabled={draft.trim().length === 0} onPress={track} />
           </View>
         ) : (
           <>
