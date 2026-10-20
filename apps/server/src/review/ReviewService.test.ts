@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as SqlClient from "effect/sql/SqlClient";
 import { ProjectId } from "@t3tools/contracts";
@@ -22,6 +23,7 @@ function layer(input: {
   readonly detectCalls?: Array<{ readonly cwd: string }>;
   readonly worktreesDirectory?: string;
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
+  readonly worktreePathTemplate?: string;
   readonly projectRoots?: ReadonlyArray<string> | "unavailable";
   readonly threadWorktrees?: ReadonlyArray<{ worktreePath: string; deleted?: boolean }>;
   /** What `git worktree list` reports for every project. */
@@ -90,6 +92,7 @@ function layer(input: {
       ServerSettings.ServerSettingsService.layerTest({
         worktreesDirectory: input.worktreesDirectory ?? "",
         previousWorktreesDirectories: [...(input.previousWorktreesDirectories ?? [])],
+        ...(input.worktreePathTemplate ? { worktreePathTemplate: input.worktreePathTemplate } : {}),
       }),
     ),
     Layer.provide(ServerConfig.layerTest(input.workspaceRoot, input.baseDir)),
@@ -221,6 +224,43 @@ describe("ReviewService", () => {
         const error = yield* review(cwd, projectRoots).pipe(Effect.flip);
         assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
       }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("allows a project's worktree placed outside it by the path template", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-repo-parent-" });
+      const projectRoot = path.join(parent, "physical-repo-name");
+      const projectRootAlias = path.join(parent, "lexical-repo-name");
+      const worktreeRoot = path.join(parent, "lexical-repo-name-worktrees", "feature-local");
+      const otherWorktreeRoot = path.join(parent, "other-repo-worktrees", "feature-local");
+      yield* fs.makeDirectory(projectRoot);
+      yield* fs.symlink(projectRoot, projectRootAlias);
+      yield* fs.makeDirectory(worktreeRoot, { recursive: true });
+      yield* fs.makeDirectory(otherWorktreeRoot, { recursive: true });
+
+      const review = (cwd: string) =>
+        Effect.gen(function* () {
+          const service = yield* ReviewService.ReviewService;
+          return yield* service.getDiffPreview({ cwd });
+        }).pipe(
+          Effect.provide(
+            layer({
+              workspaceRoot,
+              baseDir,
+              projectRoots: [projectRootAlias],
+              worktreePathTemplate: "{repoRoot}/../{repoName}-worktrees/{branch}",
+            }),
+          ),
+        );
+
+      assert.strictEqual((yield* review(worktreeRoot)).cwd, worktreeRoot);
+      const error = yield* review(otherWorktreeRoot).pipe(Effect.flip);
+      assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
