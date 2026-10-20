@@ -1,3 +1,4 @@
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
@@ -83,6 +84,11 @@ it.effect("reports pending onboarding until the handed-off service is ready", ()
     const plan = {
       program: ["/test/t3", "__service-launcher"],
       baseDir: "/test",
+      storageRoots: resolveLegacyT3StorageRoots({
+        baseDir: "/test",
+        stateDirectoryName: "userdata",
+        path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+      }),
       unitPath: "/test/t3code.service",
       logPath: "/test/boot-service.log",
       handedOff: true,

@@ -1,3 +1,4 @@
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -117,6 +118,11 @@ function makeTestService(
         return {
           program: ["/test/t3/runtime/versions/1.0.0/t3", "__service-launcher"],
           baseDir: "/test/t3",
+          storageRoots: resolveLegacyT3StorageRoots({
+            baseDir: "/test/t3",
+            stateDirectoryName: "userdata",
+            path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+          }),
           unitPath: serviceStatus.unitPath,
           logPath: serviceStatus.logPath,
         };
