@@ -99,6 +99,15 @@ export class MagicDnsNameMissingError extends Schema.TaggedError<MagicDnsNameMis
   }
 }
 
+export class TailscaleServeNotEnabledError extends Schema.TaggedError<TailscaleServeNotEnabledError>()(
+  "TailscaleServeNotEnabledError",
+  {},
+) {
+  override get message(): string {
+    return "Tailscale Serve is not enabled on your tailnet. Enable HTTPS certificates at https://login.tailscale.com/admin/dns, then run this command again.";
+  }
+}
+
 export class ServesOtherEnvironmentError extends Schema.TaggedError<ServesOtherEnvironmentError>()(
   "ServesOtherEnvironmentError",
   { servePort: Schema.Number },
@@ -158,7 +167,7 @@ export const resolveTailscaleLocalTarget = (
       ? { localPort }
       : { localPort, localHost: devUrl.hostname };
   }
-  if (state.host !== undefined && !isWildcardHost(state.host) && !isLoopbackHost(state.host)) {
+  if (state.host !== undefined && !isWildcardHost(state.host)) {
     return { localPort: state.port, localHost: formatHostForUrl(state.host) };
   }
   return { localPort: state.port };
@@ -189,10 +198,12 @@ type EnvironmentProbeResult =
   | { readonly _tag: "unreachable" }
   | { readonly _tag: "not-a-t3-server" };
 
-const probeEnvironmentDescriptor = (
+const probeEnvironmentDescriptor: (
   baseUrl: string,
-): Effect.Effect<EnvironmentProbeResult, never, HttpClient.HttpClient> =>
-  Effect.gen(function* () {
+) => Effect.Effect<EnvironmentProbeResult, never, HttpClient.HttpClient> = Effect.fn(
+  "pair.probeEnvironmentDescriptor",
+)(
+  function* (baseUrl: string) {
     const client = yield* HttpClient.HttpClient;
     const request = HttpClientRequest.get(new URL(WELL_KNOWN_ENVIRONMENT_PATH, baseUrl).toString());
     const response = yield* client.execute(request).pipe(
@@ -211,7 +222,9 @@ const probeEnvironmentDescriptor = (
       Effect.mapError(() => ({ _tag: "not-a-t3-server" }) as const),
     );
     return { _tag: "descriptor", descriptor } as const;
-  }).pipe(Effect.catch((outcome) => Effect.succeed(outcome)));
+  },
+  Effect.catch((outcome) => Effect.succeed(outcome)),
+);
 
 interface PairCandidate {
   readonly storage: ServerStorage;
@@ -380,6 +393,11 @@ const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase"
     );
     if (status.magicDnsName === null) {
       return yield* new MagicDnsNameMissingError();
+    }
+    // Without the capability `tailscale serve` blocks on an enablement URL
+    // until it times out, which names neither the setting nor where to change it.
+    if (status.httpsServeEnabled === false) {
+      return yield* new TailscaleServeNotEnabledError();
     }
     const baseUrl = buildTailscaleHttpsBaseUrl({
       magicDnsName: status.magicDnsName,
