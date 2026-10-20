@@ -212,7 +212,6 @@ export class DesktopConnectionCatalogStore extends Context.Service<
       | DesktopConnectionCatalogStoreDecodeError
       | DesktopConnectionCatalogStoreMigrationError
       | DesktopConnectionCatalogStoreProtectionError
-      | DesktopManagedConnectionCredentialError
     >;
     readonly set: (
       catalog: string,
@@ -563,7 +562,20 @@ export const make = Effect.gen(function* () {
             }),
         ),
       );
-      return yield* Effect.forEach(document.connections, resolveManagedConnection);
+      const connections = yield* Effect.forEach(document.connections, (connection) =>
+        resolveManagedConnection(connection).pipe(
+          Effect.map(Option.some),
+          Effect.catchTags({
+            DesktopManagedConnectionCredentialError: (error) =>
+              Effect.logWarning("Skipping managed connection with unusable credentials.", {
+                environmentId: error.environmentId,
+                credentialPath: error.credentialPath,
+                reason: error.reason,
+              }).pipe(Effect.as(Option.none())),
+          }),
+        ),
+      );
+      return connections.flatMap(Option.toArray);
     },
   );
 

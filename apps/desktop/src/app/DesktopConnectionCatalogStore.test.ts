@@ -286,66 +286,85 @@ describe("DesktopConnectionCatalogStore", () => {
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
-  it.effect("fails closed on an unusable managed token without revealing it", () =>
-    Effect.gen(function* () {
-      const secret = "sentinel-fleet-secret";
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-desktop-managed-token-invalid-test-",
-      });
-      const managedConnectionsPath = path.join(baseDir, "managed-connections.json");
-      const tokenPath = path.join(baseDir, "fleet-token");
-      const emptyPath = path.join(baseDir, "empty-token");
-      yield* fileSystem.writeFileString(tokenPath, secret);
-      yield* fileSystem.writeFileString(emptyPath, " \n");
-      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
-        Effect.provide(
-          layerFor(baseDir, true, null, NodeServices.layer, {
-            T3CODE_MANAGED_CONNECTIONS_FILE: managedConnectionsPath,
-          }),
-        ),
-      );
-      yield* fileSystem.writeFileString(
-        managedConnectionsPath,
-        JSON.stringify(managedConnectionsDocument({ $file: tokenPath })),
-      );
-      assert.isTrue(yield* store.set((yield* getManagedToken(store)).catalog));
+  it.effect(
+    "isolates unusable managed tokens, removes stale credentials, and recovers on repair",
+    () =>
+      Effect.gen(function* () {
+        const secret = "sentinel-fleet-secret";
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-desktop-managed-token-invalid-test-",
+        });
+        const managedConnectionsPath = path.join(baseDir, "managed-connections.json");
+        const tokenPath = path.join(baseDir, "fleet-token");
+        const emptyPath = path.join(baseDir, "empty-token");
+        yield* fileSystem.writeFileString(tokenPath, secret);
+        yield* fileSystem.writeFileString(emptyPath, " \n");
+        const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+          Effect.provide(
+            layerFor(baseDir, true, null, NodeServices.layer, {
+              T3CODE_MANAGED_CONNECTIONS_FILE: managedConnectionsPath,
+            }),
+          ),
+        );
+        yield* fileSystem.writeFileString(
+          managedConnectionsPath,
+          JSON.stringify(managedConnectionsDocument({ $file: tokenPath })),
+        );
+        assert.isTrue(yield* store.set((yield* getManagedToken(store)).catalog));
 
-      for (const [document, expected] of [
-        [
-          JSON.stringify(managedConnectionsDocument({ $file: "fleet-token" })),
-          "Managed connection fleet:build-host cannot use credential file fleet-token: relative-path.",
-        ],
-        [
-          JSON.stringify(managedConnectionsDocument({ $file: path.join(baseDir, "missing") })),
-          `Managed connection fleet:build-host cannot use credential file ${path.join(baseDir, "missing")}: unreadable.`,
-        ],
-        [
-          JSON.stringify(managedConnectionsDocument({ $file: emptyPath })),
-          `Managed connection fleet:build-host cannot use credential file ${emptyPath}: empty.`,
-        ],
-        [
-          JSON.stringify(managedConnectionsDocument({ $file: tokenPath, inline: secret })),
-          `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
-        ],
-        [
-          JSON.stringify({ ...managedConnectionsDocument(secret), version: secret }),
-          `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
-        ],
-        [
-          JSON.stringify(managedConnectionsDocument(secret)).slice(0, -3),
-          `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
-        ],
-      ] as const) {
-        yield* fileSystem.writeFileString(managedConnectionsPath, document);
-        const error = yield* store.get.pipe(Effect.flip);
-        assert.equal(error.message, expected);
-        assert.notInclude(String(error), secret);
-        assert.notInclude(JSON.stringify(error), secret);
-        assert.notInclude(NodeUtil.inspect(error, { depth: null }), secret);
-      }
-    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+        for (const invalidPath of ["fleet-token", path.join(baseDir, "missing"), emptyPath]) {
+          const valid = managedConnectionsDocument("healthy-secret").connections[0];
+          yield* fileSystem.writeFileString(
+            managedConnectionsPath,
+            JSON.stringify({
+              version: 1,
+              connections: [
+                ...managedConnectionsDocument({ $file: invalidPath }).connections,
+                { ...valid, environmentId: "fleet:healthy-host" },
+              ],
+            }),
+          );
+          const result = yield* store.get;
+          assert.isTrue(Option.isSome(result));
+          if (Option.isNone(result)) return;
+          const catalog = yield* decodeConnectionCatalog(result.value);
+          assert.deepEqual(
+            catalog.targets.map((target) => target.environmentId),
+            ["fleet:healthy-host"],
+          );
+          assert.notInclude(result.value, secret);
+          assert.include(result.value, "healthy-secret");
+        }
+        yield* fileSystem.writeFileString(
+          managedConnectionsPath,
+          JSON.stringify(managedConnectionsDocument({ $file: tokenPath })),
+        );
+        assert.equal((yield* getManagedToken(store)).token, secret);
+
+        for (const [document, expected] of [
+          [
+            JSON.stringify(managedConnectionsDocument({ $file: tokenPath, inline: secret })),
+            `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
+          ],
+          [
+            JSON.stringify({ ...managedConnectionsDocument(secret), version: secret }),
+            `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
+          ],
+          [
+            JSON.stringify(managedConnectionsDocument(secret)).slice(0, -3),
+            `Failed to decode the desktop connection catalog document at ${managedConnectionsPath}.`,
+          ],
+        ] as const) {
+          yield* fileSystem.writeFileString(managedConnectionsPath, document);
+          const error = yield* store.get.pipe(Effect.flip);
+          assert.equal(error.message, expected);
+          assert.notInclude(String(error), secret);
+          assert.notInclude(JSON.stringify(error), secret);
+          assert.notInclude(NodeUtil.inspect(error, { depth: null }), secret);
+        }
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
   it.effect("migrates legacy relay, SSH, bearer profile, and credential data", () =>
