@@ -472,6 +472,24 @@ export function compileResolvedKeybindingsConfig(
 
 export const DEFAULT_RESOLVED_KEYBINDINGS = compileResolvedKeybindingsConfig(DEFAULT_KEYBINDINGS);
 
+/**
+ * Layer a client's managed rules over an environment's resolved bindings. A
+ * managed rule replaces the environment's rules for its command and, being
+ * later, wins any shortcut it shares with them.
+ */
+export function applyManagedKeybindings(
+  resolved: ResolvedKeybindingsConfig,
+  managedRules: ReadonlyArray<KeybindingRule>,
+): ResolvedKeybindingsConfig {
+  const managed = compileResolvedKeybindingsConfig(managedRules);
+  if (managed.length === 0) return resolved;
+  const managedCommands = new Set(managed.map((binding) => binding.command));
+  return [
+    ...resolved.filter((binding) => !managedCommands.has(binding.command)),
+    ...managed.map((binding) => ({ ...binding, managed: true })),
+  ].slice(-MAX_KEYBINDINGS_COUNT);
+}
+
 export function mergeWithDefaultKeybindings(
   custom: ResolvedKeybindingsConfig,
 ): ResolvedKeybindingsConfig {
