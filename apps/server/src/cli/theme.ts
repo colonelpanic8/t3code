@@ -10,7 +10,6 @@ import {
 } from "@t3tools/contracts";
 import { fromJsonStringPretty, fromLenientJson } from "@t3tools/shared/schemaJson";
 import { BUILT_IN_THEME_IDS, UNPUBLISHABLE_THEME_IDS } from "@t3tools/shared/themePalettes";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -21,14 +20,17 @@ import * as Schema from "effect/Schema";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
-import * as ServerConfig from "../config.ts";
 import {
   MAX_THEME_FILE_BYTES,
   readPublishedThemes,
   readThemeFileGuarded,
 } from "../environmentTheme.ts";
-import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
-import { baseDirFlag } from "./config.ts";
+import { expandHomePath } from "../os-jank.ts";
+import {
+  type CliServerLocationFlags,
+  resolveServerLocations,
+  serverLocationFlags,
+} from "./config.ts";
 
 const SparseSettings = Schema.Record(Schema.String, Schema.Unknown);
 const decodeSettingsJson = Schema.decodeUnknownEffect(fromLenientJson(SparseSettings));
@@ -158,15 +160,8 @@ export class ThemeTargetMissingError extends Schema.TaggedError<ThemeTargetMissi
   }
 }
 
-const envT3Home = Config.String("T3CODE_HOME").pipe(Config.option);
-
-const resolveThemePaths = Effect.fn(function* (explicitBaseDir: Option.Option<string>) {
-  const envHome = Option.filter(yield* envT3Home, (value) => value.trim().length > 0);
-  const configuredBaseDir = Option.orElse(explicitBaseDir, () => envHome);
-  const baseDir = yield* resolveBaseDir(Option.getOrUndefined(configuredBaseDir));
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {
-    baseDirIsExplicit: Option.isSome(configuredBaseDir),
-  });
+const resolveThemePaths = Effect.fn(function* (flags: CliServerLocationFlags) {
+  const { derivedPaths } = yield* resolveServerLocations(flags, { devUrl: undefined });
   return {
     settingsPath: derivedPaths.settingsPath,
     themesDir: derivedPaths.environmentThemesDir,
@@ -401,7 +396,7 @@ const resolvableThemeIds = Effect.fn(function* (themesDir: string) {
 });
 
 const themeSetCommand = Command.make("set", {
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   id: Flag.String("id").pipe(
     Flag.withDescription("Theme id to publish a file under, instead of its filename."),
     Flag.optional,
@@ -420,7 +415,7 @@ const themeSetCommand = Command.make("set", {
       if (target.length === 0) {
         return yield* new ThemeTargetMissingError();
       }
-      const paths = yield* resolveThemePaths(flags.baseDir);
+      const paths = yield* resolveThemePaths(flags);
 
       // Path-shaped first, existence second. Deciding on existence alone would
       // make `t3 theme set ocean` publish ./ocean whenever the cwd happens to
@@ -470,22 +465,22 @@ const themeSetCommand = Command.make("set", {
   ),
 );
 
-const themeClearCommand = Command.make("clear", { baseDir: baseDirFlag }).pipe(
+const themeClearCommand = Command.make("clear", serverLocationFlags).pipe(
   Command.withDescription("Remove the environment's theme; clients keep what they have."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const paths = yield* resolveThemePaths(flags.baseDir);
+      const paths = yield* resolveThemePaths(flags);
       yield* writeDefaultTheme({ settingsPath: paths.settingsPath, themeId: "" });
       yield* Console.log(`Environment theme cleared in ${paths.settingsPath}.\n`);
     }),
   ),
 );
 
-const themeShowCommand = Command.make("show", { baseDir: baseDirFlag }).pipe(
+const themeShowCommand = Command.make("show", serverLocationFlags).pipe(
   Command.withDescription("Show the environment's theme and its published themes."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const paths = yield* resolveThemePaths(flags.baseDir);
+      const paths = yield* resolveThemePaths(flags);
       const { settings } = yield* readSettingsObject(paths.settingsPath);
       const defaultTheme =
         typeof settings.defaultTheme === "string" && settings.defaultTheme.length > 0
