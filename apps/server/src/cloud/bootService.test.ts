@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { resolveLegacyT3StorageRoots, type T3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -11,6 +12,7 @@ import { HttpClient } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
+import { serviceLauncherBaseDir } from "../serviceLauncher.ts";
 import * as BootService from "./bootService.ts";
 import { pinnedRuntimePaths } from "./pinnedRuntime.ts";
 import {
@@ -21,10 +23,18 @@ import {
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
 
+const legacyRoots = (baseDir: string) =>
+  resolveLegacyT3StorageRoots({
+    baseDir,
+    stateDirectoryName: "userdata",
+    path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+  });
+
 const linuxRuntime = "/home/theo/.t3/runtime/versions/1.2.3/t3";
 const linuxPlan = {
   program: [linuxRuntime, "__service-launcher"],
   baseDir: "/home/theo/.t3",
+  storageRoots: legacyRoots("/home/theo/.t3"),
   logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
   unitPath: "/home/theo/.config/systemd/user/t3code.service",
 };
@@ -41,6 +51,7 @@ it("reads the served T3 home back out of a rendered unit or plist", () => {
   const plan = (baseDir: string) => ({
     program: [`${baseDir}/runtime/versions/1.2.3/t3`, "__service-launcher"],
     baseDir,
+    storageRoots: legacyRoots(baseDir),
     logPath: `${baseDir}/userdata/logs/boot-service.log`,
     unitPath: "/home/theo/.config/systemd/user/t3code.service",
   });
@@ -64,6 +75,73 @@ it("reads the served T3 home back out of a rendered unit or plist", () => {
   expect(BootService.bootServiceBaseDirOf("[Service]\nExecStart=/x\n")).toBeUndefined();
 });
 
+const splitRoots = {
+  layout: "split" as const,
+  configDir: "/home/alice/.config/t3code",
+  dataDir: "/home/alice/.local/share/t3code",
+  stateDir: "/home/alice/.local/state/t3code",
+  cacheDir: "/home/alice/.cache/t3code",
+  runtimeDir: "/tmp/t3code-1000",
+};
+const splitPlan = {
+  program: ["/home/alice/.local/share/t3code/runtime/versions/1.2.3/t3", "__service-launcher"],
+  baseDir: splitRoots.dataDir,
+  storageRoots: splitRoots,
+  logPath: "/home/alice/.local/state/t3code/logs/boot-service.log",
+  unitPath: "/home/alice/.config/systemd/user/t3code.service",
+};
+
+it("pins the split roots in the unit and leaves the runtime dir to the user manager", () => {
+  const unit = BootService.renderBootServiceUnit(splitPlan);
+
+  expect(unit).toContain("Environment=T3CODE_CONFIG_DIR=/home/alice/.config/t3code");
+  expect(unit).toContain("Environment=T3CODE_DATA_DIR=/home/alice/.local/share/t3code");
+  expect(unit).toContain("Environment=T3CODE_STATE_DIR=/home/alice/.local/state/t3code");
+  expect(unit).toContain("Environment=T3CODE_CACHE_DIR=/home/alice/.cache/t3code");
+  // A shell without XDG_RUNTIME_DIR resolved the temporary fallback, which no shell looks in.
+  expect(unit).not.toContain("T3CODE_RUNTIME_DIR");
+  expect(unit).not.toContain("Environment=T3CODE_HOME=");
+  expect(unit).toContain("UnsetEnvironment=T3CODE_HOME\n");
+  expect(unit).toContain(
+    "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE\n",
+  );
+});
+
+it("clears the selectors from a legacy unit", () => {
+  expect(BootService.renderBootServiceUnit(linuxPlan)).toContain(
+    "UnsetEnvironment=T3CODE_CONFIG_DIR T3CODE_DATA_DIR T3CODE_STATE_DIR T3CODE_CACHE_DIR T3CODE_RUNTIME_DIR\n",
+  );
+});
+
+it("starts the launcher from a split unit's environment", () => {
+  const environment = Object.fromEntries(
+    BootService.renderBootServiceUnit(splitPlan)
+      .split("\n")
+      .flatMap((line) => {
+        const match = /^Environment=([^=]+)=(.*)$/.exec(line);
+        return match === null ? [] : [[match[1]!, match[2]!] as const];
+      }),
+  );
+
+  expect(serviceLauncherBaseDir(environment)).toBe(splitRoots.dataDir);
+});
+
+it("reads the served data dir back out of a split unit or plist", () => {
+  expect(BootService.bootServiceBaseDirOf(BootService.renderBootServiceUnit(splitPlan))).toBe(
+    splitRoots.dataDir,
+  );
+  const plist = BootService.renderBootServicePlist(splitPlan, {
+    homeDir: "/home/alice",
+    environmentPath: "/usr/bin",
+  });
+  expect(BootService.bootServiceBaseDirOf(plist)).toBe(splitRoots.dataDir);
+  // launchd has no unset and no XDG_RUNTIME_DIR, so the plist pins the runtime dir and blanks the home.
+  expect(plist).toContain(
+    "    <key>T3CODE_RUNTIME_DIR</key>\n    <string>/tmp/t3code-1000</string>",
+  );
+  expect(plist).toContain("    <key>T3CODE_HOME</key>\n    <string></string>");
+});
+
 it.each([
   ["a unit", '/home/theo/T3 "Data"/100%\\x', BootService.renderBootServiceUnit],
   [
@@ -76,7 +154,13 @@ it.each([
   const program = `${baseDir}/runtime/versions/1.2.3/t3`;
   expect(
     BootService.bootServiceProgramOf(
-      render({ program: [program, "__service-launcher"], baseDir, logPath: "/log", unitPath: "" }),
+      render({
+        program: [program, "__service-launcher"],
+        baseDir,
+        storageRoots: legacyRoots(baseDir),
+        logPath: "/log",
+        unitPath: "",
+      }),
     ),
   ).toBe(program);
 });
@@ -99,6 +183,7 @@ const macRuntime = "/Users/theo/.t3/runtime/versions/1.2.3/t3";
 const macPlan = {
   program: [macRuntime, "__service-launcher"],
   baseDir: "/Users/theo/.t3",
+  storageRoots: legacyRoots("/Users/theo/.t3"),
   logPath: "/Users/theo/.t3/userdata/logs/boot-service.log",
   unitPath: "/Users/theo/Library/LaunchAgents/com.t3tools.t3code.service.plist",
 };
@@ -119,6 +204,14 @@ it("preserves the installer's provider search path in the launch agent", () => {
   const plist = BootService.renderBootServicePlist(macPlan, macRenderOptions);
 
   expect(plist).toContain(`    <key>PATH</key>\n    <string>${macInstallerPath}</string>`);
+});
+
+it("blanks the split selectors from a legacy launch agent", () => {
+  const plist = BootService.renderBootServicePlist(macPlan, macRenderOptions);
+
+  for (const name of ["CONFIG", "DATA", "STATE", "CACHE", "RUNTIME"]) {
+    expect(plist).toContain(`    <key>T3CODE_${name}_DIR</key>\n    <string></string>`);
+  }
 });
 
 it("blanks server overrides from launchctl setenv in the launch agent", () => {
@@ -251,6 +344,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
     environmentPath: string | undefined = installerPath,
     cliVersion = "1.2.3",
     serviceBaseDir = baseDir,
+    storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
     insideService = false,
   ) =>
     Effect.gen(function* () {
@@ -260,6 +354,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
       yield* fs.writeFileString(paths.sentinelPath, `${cliVersion}\n`);
       return yield* BootService.make({
         baseDir: serviceBaseDir,
+        storageRoots,
         logsDir: path.join(serviceBaseDir, "userdata", "logs"),
         cliVersion,
         host: { execPath: "/usr/bin/t3" },
@@ -716,6 +811,60 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
     }),
   );
 
+  it.effect("recognizes an installed split-layout service as this install's", () =>
+    Effect.gen(function* () {
+      const { fs, commands, makeService } = yield* makeHarness();
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-split-service-" });
+      const roots = {
+        layout: "split" as const,
+        configDir: path.join(root, "config"),
+        dataDir: path.join(root, "data"),
+        stateDir: path.join(root, "state"),
+        cacheDir: path.join(root, "cache"),
+        runtimeDir: path.join(root, "runtime"),
+      };
+      const service = yield* makeService(undefined, "1.2.3", roots.dataDir, roots);
+      yield* service.install();
+
+      expect(yield* service.status).toMatchObject({
+        installed: true,
+        current: true,
+        installedBaseDir: roots.dataDir,
+      });
+      commands.length = 0;
+      expect(yield* service.restart).toBe("restarted");
+      expect(yield* service.uninstall).toBe(true);
+    }),
+  );
+
+  it.effect("keeps a split service on its split roots when a newer CLI rewrites it", () =>
+    Effect.gen(function* () {
+      const { fs, makeService } = yield* makeHarness();
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-split-update-" });
+      const roots = {
+        layout: "split" as const,
+        configDir: path.join(root, "config"),
+        dataDir: path.join(root, "data"),
+        stateDir: path.join(root, "state"),
+        cacheDir: path.join(root, "cache"),
+        runtimeDir: path.join(root, "runtime"),
+      };
+      yield* (yield* makeService(undefined, "1.2.3", roots.dataDir, roots)).install();
+
+      // What `t3 update` does: the target version's service rewrites the unit.
+      const updated = yield* makeService(undefined, "1.2.4", roots.dataDir, roots);
+      const plan = yield* updated.install({ start: false });
+      const unit = yield* fs.readFileString(plan.unitPath);
+
+      expect(unit).toContain(`Environment=T3CODE_DATA_DIR=${roots.dataDir}`);
+      expect(unit).toContain(`Environment=T3CODE_STATE_DIR=${roots.stateDir}`);
+      expect(unit).not.toContain("Environment=T3CODE_HOME=");
+      expect((yield* updated.status).installedBaseDir).toBe(roots.dataDir);
+    }),
+  );
+
   it.effect("restart leaves a service that serves another T3 home alone", () =>
     Effect.gen(function* () {
       const { service, fs, commands, makeService } = yield* makeHarness();
@@ -762,7 +911,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       const statePath = path.join(baseDir, "runtime", "service-state.json");
       const state = yield* fs.readFileString(statePath);
       const unit = yield* fs.readFileString(plan.unitPath);
-      const inside = yield* makeService(undefined, "1.2.4", baseDir, true);
+      const inside = yield* makeService(undefined, "1.2.4", baseDir, undefined, true);
       commands.length = 0;
       invocations.length = 0;
 
@@ -809,7 +958,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         const state = yield* fs.readFileString(statePath);
         const marker = `${plan.baseDir}/runtime/${SERVICE_RESTART_PENDING_FILE}`;
         yield* fs.writeFileString(marker, "1.2.3\n");
-        const inside = yield* makeService(undefined, "1.2.3", undefined, true);
+        const inside = yield* makeService(undefined, "1.2.3", undefined, undefined, true);
         commands.length = 0;
         control.failCommand = "systemctl --user daemon-reload";
 
