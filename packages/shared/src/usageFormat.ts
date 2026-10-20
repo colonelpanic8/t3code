@@ -51,24 +51,18 @@ export function formatUsageContractMismatch(
     : `This client is older than the server on ${environmentLabel}; its usage is excluded from totals.`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export function formatDayShort(day: string): string {
   const [year, month, dayOfMonth] = day.split("-").map((part) => Number(part));
   if (year === undefined || month === undefined || dayOfMonth === undefined) return day;
-  const MONTHS = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
   return `${MONTHS[month - 1] ?? ""} ${dayOfMonth}`;
+}
+
+export function formatMonthShort(day: string): string {
+  const [year, month] = day.split("-").map((part) => Number(part));
+  if (year === undefined || month === undefined) return day;
+  return `${MONTHS[month - 1] ?? ""} ${year}`;
 }
 
 export function enumerateDays(sinceDay: string, untilDay: string): readonly string[] {
