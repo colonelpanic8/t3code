@@ -198,6 +198,10 @@ export function createAssetEnvironmentAtoms<R, E>(
   };
 }
 
+export function projectFaviconResource(cwd: string, path: string | null | undefined) {
+  return { _tag: "project-favicon" as const, cwd, ...(path ? { path } : {}) };
+}
+
 export function createProjectFaviconUrlAtomFamily(input: {
   readonly imageCache?: ProjectFaviconCache;
   readonly createUrl: (target: {
@@ -217,8 +221,10 @@ export function createProjectFaviconUrlAtomFamily(input: {
   const projectClones = input.projectClones;
   const family = Atom.family((key: string) => {
     const [environmentId, cwd, path] = decodeKey(JSON.parse(key));
-    const resource = { _tag: "project-favicon" as const, cwd, ...(path ? { path } : {}) };
-    const query = input.createUrl({ environmentId, input: { resource } });
+    const query = input.createUrl({
+      environmentId,
+      input: { resource: projectFaviconResource(cwd, path) },
+    });
     // A cloned project exists before its files do, and the server reports its
     // icon missing until the clone lands. Ask again whenever the clone's phase
     // changes: the first list a client sees may already say done.
