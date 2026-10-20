@@ -10,6 +10,29 @@ import { SettingsRow } from "../settings/components/SettingsRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 
+async function importGroupsFromFile(
+  importDocument: (document: string) => Promise<void>,
+  setImporting: (importing: boolean) => void,
+) {
+  setImporting(true);
+  try {
+    const { getDocumentAsync } = await import("expo-document-picker");
+    const { File } = await import("expo-file-system");
+    const result = await getDocumentAsync({
+      type: "application/json",
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+    const file = result.assets[0];
+    if (!file) return;
+    await importDocument(await new File(file.uri).text());
+  } catch (error) {
+    Dialog.alert("Could not import groups", error instanceof Error ? error.message : String(error));
+  } finally {
+    setImporting(false);
+  }
+}
+
 export function EnvironmentGroupsSettings() {
   const state = useAtomValue(environmentCatalog.groups.stateAtom);
   const setVisible = useAtomCommand(environmentCatalog.groups.setVisible);
@@ -18,19 +41,9 @@ export function EnvironmentGroupsSettings() {
   const refresh = useAtomRefresh(environmentCatalog.groups.definitionsAtom);
   const [importing, setImporting] = useState(false);
 
-  const importGroups = async () => {
-    setImporting(true);
-    try {
-      const { getDocumentAsync } = await import("expo-document-picker");
-      const { File } = await import("expo-file-system");
-      const result = await getDocumentAsync({
-        type: "application/json",
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      const file = result.assets[0];
-      if (!file) return;
-      const imported = await importDocument(await new File(file.uri).text());
+  const importGroups = () =>
+    importGroupsFromFile(async (document) => {
+      const imported = await importDocument(document);
       if (imported._tag === "Failure") {
         const error = squashAtomCommandFailure(imported);
         Dialog.alert(
@@ -38,15 +51,7 @@ export function EnvironmentGroupsSettings() {
           error instanceof Error ? error.message : String(error),
         );
       }
-    } catch (error) {
-      Dialog.alert(
-        "Could not import groups",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      setImporting(false);
-    }
-  };
+    }, setImporting);
 
   return (
     <View className="mb-5">
