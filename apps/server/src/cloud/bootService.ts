@@ -875,7 +875,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
         .makeDirectory(path.dirname(unitPath), { recursive: true })
         .pipe(Effect.mapError((cause) => new BootServiceInstallError({ cause })));
       // Files can match the new version even when activation fails; keep that install retryable.
-        yield* fs.writeFileString(restartPendingPath, `${input.cliVersion}\n`, { mode: 0o600 });
+      yield* fs.writeFileString(restartPendingPath, `${input.cliVersion}\n`, { mode: 0o600 });
       yield* writeDurably(
         statePath,
         // @effect-diagnostics-next-line preferSchemaOverJson:off - fixed launcher-owned document.
@@ -950,55 +950,55 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const withStopped = Effect.fn("cloud.boot_service.with_stopped")(function* <A, E, R>(
     operation: Effect.Effect<A, E, R>,
   ): Effect.fn.Return<A, E | BootServiceError, R> {
-      if (detectedManager === undefined) return yield* operation;
-      const manager = detectedManager;
-      const unit = yield* fs.readFileString(unitPath).pipe(Effect.option);
-      if (Option.isNone(unit)) return yield* operation;
-      const installedBaseDir = bootServiceBaseDirOf(unit.value);
-      if (
-        installedBaseDir === undefined ||
-        path.resolve(installedBaseDir) !== path.resolve(input.baseDir)
-      ) {
-        return yield* operation;
-      }
-      // `is-active` fails while a crash-looping unit sits in `activating
-      // (auto-restart)`, and a throttled launchd job is loaded without a pid;
-      // both would start the server mid-repair. So the unit is always
-      // stopped, and started again when it was active, enabled or loaded
-      // before; a disabled unit caught crash-looping stays stopped.
-      const restore =
-        manager.kind === "systemd"
-          ? yield* Effect.map(
-              Effect.all(
-                [
-                  probe("systemctl", ["--user", "is-enabled", BOOT_SERVICE_UNIT_FILE]),
-                  probe("systemctl", ["--user", "is-active", BOOT_SERVICE_UNIT_FILE]),
-                ],
-                { concurrency: "unbounded" },
-              ),
-              ([enabled, active]) => succeeded(active) || succeeded(enabled),
-            )
-          : succeeded(
-              yield* probe("launchctl", ["print", `gui/${uid}/${BOOT_SERVICE_LAUNCHD_LABEL}`]),
-            );
-      return yield* Effect.acquireUseRelease(
-        // Every stop step is required when the service is to be restored: a
-        // step that was fine to skip during uninstall would leave the server
-        // holding the database. A stop that fails (a timeout, say) may still
-        // have stopped the service, so the restore below runs either way.
-        // Nothing to restore means nothing is expected to be loaded, and the
-        // stop is best-effort (launchd's bootout fails on an unloaded job).
-        runSteps(manager.stop.map((step) => ({ ...step, optional: !restore }))).pipe(Effect.exit),
-        (stopped): Effect.Effect<A, E | BootServiceError, R> =>
-          Exit.isSuccess(stopped) ? operation : Effect.failCause(stopped.cause),
-        (_, exit) => {
-          if (!restore) return Effect.void;
-          // Start only: `activate` would also enable a unit the user disabled.
-          // When the operation itself failed, its error is the one worth reporting.
-          const start = runSteps(manager.restart);
-          return Exit.isFailure(exit) ? Effect.ignore(start) : start;
-        },
-      );
+    if (detectedManager === undefined) return yield* operation;
+    const manager = detectedManager;
+    const unit = yield* fs.readFileString(unitPath).pipe(Effect.option);
+    if (Option.isNone(unit)) return yield* operation;
+    const installedBaseDir = bootServiceBaseDirOf(unit.value);
+    if (
+      installedBaseDir === undefined ||
+      path.resolve(installedBaseDir) !== path.resolve(input.baseDir)
+    ) {
+      return yield* operation;
+    }
+    // `is-active` fails while a crash-looping unit sits in `activating
+    // (auto-restart)`, and a throttled launchd job is loaded without a pid;
+    // both would start the server mid-repair. So the unit is always
+    // stopped, and started again when it was active, enabled or loaded
+    // before; a disabled unit caught crash-looping stays stopped.
+    const restore =
+      manager.kind === "systemd"
+        ? yield* Effect.map(
+            Effect.all(
+              [
+                probe("systemctl", ["--user", "is-enabled", BOOT_SERVICE_UNIT_FILE]),
+                probe("systemctl", ["--user", "is-active", BOOT_SERVICE_UNIT_FILE]),
+              ],
+              { concurrency: "unbounded" },
+            ),
+            ([enabled, active]) => succeeded(active) || succeeded(enabled),
+          )
+        : succeeded(
+            yield* probe("launchctl", ["print", `gui/${uid}/${BOOT_SERVICE_LAUNCHD_LABEL}`]),
+          );
+    return yield* Effect.acquireUseRelease(
+      // Every stop step is required when the service is to be restored: a
+      // step that was fine to skip during uninstall would leave the server
+      // holding the database. A stop that fails (a timeout, say) may still
+      // have stopped the service, so the restore below runs either way.
+      // Nothing to restore means nothing is expected to be loaded, and the
+      // stop is best-effort (launchd's bootout fails on an unloaded job).
+      runSteps(manager.stop.map((step) => ({ ...step, optional: !restore }))).pipe(Effect.exit),
+      (stopped): Effect.Effect<A, E | BootServiceError, R> =>
+        Exit.isSuccess(stopped) ? operation : Effect.failCause(stopped.cause),
+      (_, exit) => {
+        if (!restore) return Effect.void;
+        // Start only: `activate` would also enable a unit the user disabled.
+        // When the operation itself failed, its error is the one worth reporting.
+        const start = runSteps(manager.restart);
+        return Exit.isFailure(exit) ? Effect.ignore(start) : start;
+      },
+    );
   });
 
   const uninstall: BootService["Service"]["uninstall"] = Effect.gen(function* () {

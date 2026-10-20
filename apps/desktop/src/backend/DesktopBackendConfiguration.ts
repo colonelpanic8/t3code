@@ -896,10 +896,10 @@ export const make = Effect.gen(function* () {
       },
       (effect, input) =>
         effect.pipe(
-        Effect.withSpan("desktop.backendConfiguration.resolveWsl", {
-          attributes: { port: input.port, distro: input.distro ?? null },
-        }),
-      ),
+          Effect.withSpan("desktop.backendConfiguration.resolveWsl", {
+            attributes: { port: input.port, distro: input.distro ?? null },
+          }),
+        ),
     ),
   });
 });

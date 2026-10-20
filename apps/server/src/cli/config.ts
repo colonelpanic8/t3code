@@ -415,254 +415,252 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     readonly rejectRunningServer?: boolean;
   },
 ) {
-    const { findAvailablePort } = yield* NetService.NetService;
-    const path = yield* Path.Path;
-    const fs = yield* FileSystem.FileSystem;
-    const env = yield* EnvServerConfig;
-    const normalizedFlags = {
-      mode: flags.mode ?? Option.none(),
-      port: flags.port ?? Option.none(),
-      host: flags.host ?? Option.none(),
-      baseDir: flags.baseDir ?? Option.none(),
-      serverConfigDir: flags.serverConfigDir ?? Option.none(),
-      serverDataDir: flags.serverDataDir ?? Option.none(),
-      serverCacheDir: flags.serverCacheDir ?? Option.none(),
-      serverConfigFile: flags.serverConfigFile ?? Option.none(),
-      cwd: flags.cwd ?? Option.none(),
-      devUrl: flags.devUrl ?? Option.none(),
-      noBrowser: flags.noBrowser ?? Option.none(),
-      bootstrapFd: flags.bootstrapFd ?? Option.none(),
-      autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
-      logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
-      tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
-      tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
-    } satisfies CliServerFlags;
-    const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
-    const bootstrapEnvelope =
-      bootstrapFd !== undefined
-        ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
-        : Option.none();
-    const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
-    const devUrl = Option.getOrElse(
-      resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
-      () => undefined,
-    );
-    const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
-      devUrl,
-      fallbackBaseDir: bootstrap?.t3Home,
-    });
-    const serverConfigFile = yield* loadServerConfigFile(normalizedFlags, derivedPaths.configDir);
-    const file = serverConfigFile.options;
+  const { findAvailablePort } = yield* NetService.NetService;
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const env = yield* EnvServerConfig;
+  const normalizedFlags = {
+    mode: flags.mode ?? Option.none(),
+    port: flags.port ?? Option.none(),
+    host: flags.host ?? Option.none(),
+    baseDir: flags.baseDir ?? Option.none(),
+    serverConfigDir: flags.serverConfigDir ?? Option.none(),
+    serverDataDir: flags.serverDataDir ?? Option.none(),
+    serverCacheDir: flags.serverCacheDir ?? Option.none(),
+    serverConfigFile: flags.serverConfigFile ?? Option.none(),
+    cwd: flags.cwd ?? Option.none(),
+    devUrl: flags.devUrl ?? Option.none(),
+    noBrowser: flags.noBrowser ?? Option.none(),
+    bootstrapFd: flags.bootstrapFd ?? Option.none(),
+    autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
+    logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
+    tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
+    tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
+  } satisfies CliServerFlags;
+  const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
+  const bootstrapEnvelope =
+    bootstrapFd !== undefined
+      ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
+      : Option.none();
+  const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
+  const devUrl = Option.getOrElse(
+    resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
+    () => undefined,
+  );
+  const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
+    devUrl,
+    fallbackBaseDir: bootstrap?.t3Home,
+  });
+  const serverConfigFile = yield* loadServerConfigFile(normalizedFlags, derivedPaths.configDir);
+  const file = serverConfigFile.options;
 
-    const mode: ServerConfig.RuntimeMode = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.mode,
-        Option.fromUndefinedOr(env.mode),
-        Option.fromUndefinedOr(bootstrap?.mode),
-        Option.fromUndefinedOr(file.mode),
-      ),
-      () => "web",
-    );
+  const mode: ServerConfig.RuntimeMode = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.mode,
+      Option.fromUndefinedOr(env.mode),
+      Option.fromUndefinedOr(bootstrap?.mode),
+      Option.fromUndefinedOr(file.mode),
+    ),
+    () => "web",
+  );
 
-    const port = yield* Option.match(
-      resolveOptionPrecedence(
-        normalizedFlags.port,
-        Option.fromUndefinedOr(env.port),
-        Option.fromUndefinedOr(bootstrap?.port),
-        Option.fromUndefinedOr(file.port),
-      ),
-      {
-        onSome: (value) => Effect.succeed(value),
-        onNone: () => {
-          if (mode === "desktop") {
-            return Effect.succeed(ServerConfig.DEFAULT_PORT);
-          }
-          return findAvailablePort(ServerConfig.DEFAULT_PORT);
-        },
+  const port = yield* Option.match(
+    resolveOptionPrecedence(
+      normalizedFlags.port,
+      Option.fromUndefinedOr(env.port),
+      Option.fromUndefinedOr(bootstrap?.port),
+      Option.fromUndefinedOr(file.port),
+    ),
+    {
+      onSome: (value) => Effect.succeed(value),
+      onNone: () => {
+        if (mode === "desktop") {
+          return Effect.succeed(ServerConfig.DEFAULT_PORT);
+        }
+        return findAvailablePort(ServerConfig.DEFAULT_PORT);
       },
-    );
-    const devAuthToken =
-      mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
-    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
-    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
-    // An interactive CLI must not start over a discovered server. Lifetime locking
-    // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
-    if (options?.rejectRunningServer && mode === "web") {
-      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
-      // A killed container can leave a record with the new server's own PID.
-      if (
-        Option.isSome(runtime) &&
-        runtime.value.pid > 0 &&
-        runtime.value.pid !== process.pid &&
-        isProcessAlive(runtime.value.pid)
-      ) {
-        return yield* new CliError.UserError({
-          cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
-        });
-      }
+    },
+  );
+  const devAuthToken =
+    mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
+  const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
+  const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+  // An interactive CLI must not start over a discovered server. Lifetime locking
+  // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
+  if (options?.rejectRunningServer && mode === "web") {
+    const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+    // A killed container can leave a record with the new server's own PID.
+    if (
+      Option.isSome(runtime) &&
+      runtime.value.pid > 0 &&
+      runtime.value.pid !== process.pid &&
+      isProcessAlive(runtime.value.pid)
+    ) {
+      return yield* new CliError.UserError({
+        cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
+      });
     }
-    yield* fs.makeDirectory(cwd, { recursive: true });
-    yield* ServerConfig.ensureServerDirectories(derivedPaths);
-    const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
-      derivedPaths.settingsPath,
-    );
-    const serverTracePath = env.traceFile ?? file.traceFile ?? derivedPaths.serverTracePath;
-    yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
-    const startupPresentation = options?.startupPresentation ?? "browser";
-    const isHeadlessStartup = startupPresentation === "headless";
-    const noBrowser = Option.getOrElse(
-      resolveOptionPrecedence(
-        isHeadlessStartup ? Option.some(true) : Option.none(),
-        normalizedFlags.noBrowser,
-        Option.fromUndefinedOr(env.noBrowser),
-        Option.fromUndefinedOr(bootstrap?.noBrowser),
-        Option.fromUndefinedOr(file.noBrowser),
-      ),
-      () => mode === "desktop",
-    );
-    const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
-    const desktopBootstrapSecret = bootstrap?.desktopBootstrapSecret;
-    const shellEnvironmentPrepared = bootstrap?.shellEnvironmentPrepared;
-    const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
-    const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
-    const desktopBrowserFd = bootstrap?.desktopBrowserFd;
-    const desktopBrowserControlFd = bootstrap?.desktopBrowserControlFd;
-    const resourceMonitorPath = bootstrap?.resourceMonitorPath;
-    const autoBootstrapProjectFromCwd = Option.getOrElse(
-      resolveOptionPrecedence(
-        Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
-        isHeadlessStartup ? Option.some(false) : Option.none(),
-        normalizedFlags.autoBootstrapProjectFromCwd,
-        Option.fromUndefinedOr(env.autoBootstrapProjectFromCwd),
-      ),
-      () => mode === "web",
-    );
-    const logWebSocketEvents = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.logWebSocketEvents,
-        Option.fromUndefinedOr(env.logWebSocketEvents),
-        Option.fromUndefinedOr(file.logWebSocketEvents),
-      ),
-      () => Boolean(devUrl),
-    );
-    const tailscaleServeEnabled = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.tailscaleServeEnabled,
-        Option.fromUndefinedOr(env.tailscaleServeEnabled),
-        Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
-        Option.fromUndefinedOr(file.tailscaleServeEnabled),
-      ),
-      () => false,
-    );
-    const tailscaleServePort = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.tailscaleServePort,
-        Option.fromUndefinedOr(env.tailscaleServePort),
-        Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
-        Option.fromUndefinedOr(file.tailscaleServePort),
-      ),
-      () => 443,
-    );
-    const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
-    const host = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.host,
-        Option.fromUndefinedOr(env.host),
-        Option.fromUndefinedOr(bootstrap?.host),
-        Option.fromUndefinedOr(file.host),
-      ),
-      () => (mode === "desktop" ? "127.0.0.1" : undefined),
-    );
-    const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel ?? file.logLevel ?? "Info");
+  }
+  yield* fs.makeDirectory(cwd, { recursive: true });
+  yield* ServerConfig.ensureServerDirectories(derivedPaths);
+  const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
+    derivedPaths.settingsPath,
+  );
+  const serverTracePath = env.traceFile ?? file.traceFile ?? derivedPaths.serverTracePath;
+  yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
+  const startupPresentation = options?.startupPresentation ?? "browser";
+  const isHeadlessStartup = startupPresentation === "headless";
+  const noBrowser = Option.getOrElse(
+    resolveOptionPrecedence(
+      isHeadlessStartup ? Option.some(true) : Option.none(),
+      normalizedFlags.noBrowser,
+      Option.fromUndefinedOr(env.noBrowser),
+      Option.fromUndefinedOr(bootstrap?.noBrowser),
+      Option.fromUndefinedOr(file.noBrowser),
+    ),
+    () => mode === "desktop",
+  );
+  const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
+  const desktopBootstrapSecret = bootstrap?.desktopBootstrapSecret;
+  const shellEnvironmentPrepared = bootstrap?.shellEnvironmentPrepared;
+  const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
+  const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
+  const desktopBrowserFd = bootstrap?.desktopBrowserFd;
+  const desktopBrowserControlFd = bootstrap?.desktopBrowserControlFd;
+  const resourceMonitorPath = bootstrap?.resourceMonitorPath;
+  const autoBootstrapProjectFromCwd = Option.getOrElse(
+    resolveOptionPrecedence(
+      Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
+      isHeadlessStartup ? Option.some(false) : Option.none(),
+      normalizedFlags.autoBootstrapProjectFromCwd,
+      Option.fromUndefinedOr(env.autoBootstrapProjectFromCwd),
+    ),
+    () => mode === "web",
+  );
+  const logWebSocketEvents = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.logWebSocketEvents,
+      Option.fromUndefinedOr(env.logWebSocketEvents),
+      Option.fromUndefinedOr(file.logWebSocketEvents),
+    ),
+    () => Boolean(devUrl),
+  );
+  const tailscaleServeEnabled = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.tailscaleServeEnabled,
+      Option.fromUndefinedOr(env.tailscaleServeEnabled),
+      Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
+      Option.fromUndefinedOr(file.tailscaleServeEnabled),
+    ),
+    () => false,
+  );
+  const tailscaleServePort = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.tailscaleServePort,
+      Option.fromUndefinedOr(env.tailscaleServePort),
+      Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
+      Option.fromUndefinedOr(file.tailscaleServePort),
+    ),
+    () => 443,
+  );
+  const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
+  const host = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.host,
+      Option.fromUndefinedOr(env.host),
+      Option.fromUndefinedOr(bootstrap?.host),
+      Option.fromUndefinedOr(file.host),
+    ),
+    () => (mode === "desktop" ? "127.0.0.1" : undefined),
+  );
+  const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel ?? file.logLevel ?? "Info");
 
-    const otel = yield* OtelEnvironment.load;
+  const otel = yield* OtelEnvironment.load;
 
-    const exportIntervalMs =
-      env.otlpExportIntervalMs ??
-      file.otlpExportIntervalMs ??
-      DEFAULT_SIGNAL_EXPORT.exportIntervalMs;
-    const signalExport: SignalExport = {
-      protocol: env.otlpProtocol ?? DEFAULT_SIGNAL_EXPORT.protocol,
-      headers: env.otlpHeaders,
-      exportIntervalMs,
-    };
-    // A URL from the server config file exports only with the file's own
-    // protocol and headers, never with credentials meant for another collector.
-    const fileExport: SignalExport = {
-      protocol: file.otlpProtocol ?? DEFAULT_SIGNAL_EXPORT.protocol,
-      headers: file.otlpHeaders,
-      exportIntervalMs,
-    };
-    const fileEndpoint = (url: string | undefined) =>
-      url === undefined ? undefined : { url, export: fileExport };
-    const traces = OtelEnvironment.resolveSignalEndpoint(
-      otel,
-      "traces",
-      { url: env.otlpTracesUrl, export: signalExport },
-      bootstrap?.otlpTracesUrl,
-      fileEndpoint(file.otlpTracesUrl),
-      persistedObservabilitySettings.otlpTracesUrl,
-    );
-    const metrics = OtelEnvironment.resolveSignalEndpoint(
-      otel,
-      "metrics",
-      { url: env.otlpMetricsUrl, export: signalExport },
-      bootstrap?.otlpMetricsUrl,
-      fileEndpoint(file.otlpMetricsUrl),
-      persistedObservabilitySettings.otlpMetricsUrl,
-    );
-    const logs = OtelEnvironment.resolveSignalEndpoint(
-      otel,
-      "logs",
-      { url: env.otlpLogsUrl, export: signalExport },
-      bootstrap?.otlpLogsUrl,
-      fileEndpoint(file.otlpLogsUrl),
-      persistedObservabilitySettings.otlpLogsUrl,
-    );
+  const exportIntervalMs =
+    env.otlpExportIntervalMs ?? file.otlpExportIntervalMs ?? DEFAULT_SIGNAL_EXPORT.exportIntervalMs;
+  const signalExport: SignalExport = {
+    protocol: env.otlpProtocol ?? DEFAULT_SIGNAL_EXPORT.protocol,
+    headers: env.otlpHeaders,
+    exportIntervalMs,
+  };
+  // A URL from the server config file exports only with the file's own
+  // protocol and headers, never with credentials meant for another collector.
+  const fileExport: SignalExport = {
+    protocol: file.otlpProtocol ?? DEFAULT_SIGNAL_EXPORT.protocol,
+    headers: file.otlpHeaders,
+    exportIntervalMs,
+  };
+  const fileEndpoint = (url: string | undefined) =>
+    url === undefined ? undefined : { url, export: fileExport };
+  const traces = OtelEnvironment.resolveSignalEndpoint(
+    otel,
+    "traces",
+    { url: env.otlpTracesUrl, export: signalExport },
+    bootstrap?.otlpTracesUrl,
+    fileEndpoint(file.otlpTracesUrl),
+    persistedObservabilitySettings.otlpTracesUrl,
+  );
+  const metrics = OtelEnvironment.resolveSignalEndpoint(
+    otel,
+    "metrics",
+    { url: env.otlpMetricsUrl, export: signalExport },
+    bootstrap?.otlpMetricsUrl,
+    fileEndpoint(file.otlpMetricsUrl),
+    persistedObservabilitySettings.otlpMetricsUrl,
+  );
+  const logs = OtelEnvironment.resolveSignalEndpoint(
+    otel,
+    "logs",
+    { url: env.otlpLogsUrl, export: signalExport },
+    bootstrap?.otlpLogsUrl,
+    fileEndpoint(file.otlpLogsUrl),
+    persistedObservabilitySettings.otlpLogsUrl,
+  );
 
-    const config: ServerConfig.ServerConfig["Service"] = {
-      logLevel,
-      traceMinLevel: env.traceMinLevel ?? file.traceMinLevel ?? "Info",
-      traceTimingEnabled: env.traceTimingEnabled ?? file.traceTimingEnabled ?? true,
-      traceBatchWindowMs: env.traceBatchWindowMs ?? file.traceBatchWindowMs ?? 1_000,
-      traceMaxBytes: env.traceMaxBytes ?? file.traceMaxBytes ?? 10 * 1024 * 1024,
-      traceMaxFiles: env.traceMaxFiles ?? file.traceMaxFiles ?? DEFAULT_TRACE_MAX_FILES,
-      otlpTracesUrl: traces?.url,
-      otlpMetricsUrl: metrics?.url,
-      otlpLogsUrl: logs?.url,
-      otlpTracesExport: traces?.export ?? signalExport,
-      otlpMetricsExport: metrics?.export ?? signalExport,
-      otlpLogsExport: logs?.export ?? signalExport,
-      otelEnvironment: otel,
-      mode,
-      port,
-      cwd,
-      baseDir,
-      ...derivedPaths,
-      serverTracePath,
-      host,
-      staticDir,
-      devUrl,
-      ...(devAuthToken === undefined ? {} : { devAuthToken }),
-      devAllowedOrigins: env.devAllowedOrigins,
-      noBrowser,
-      startupPresentation,
-      desktopBootstrapToken,
-      ...(desktopBootstrapSecret === undefined ? {} : { desktopBootstrapSecret }),
-      ...(shellEnvironmentPrepared === undefined ? {} : { shellEnvironmentPrepared }),
-      desktopTelemetryFd,
-      desktopTelemetryControlFd,
-      desktopBrowserFd,
-      desktopBrowserControlFd,
-      resourceMonitorPath,
-      autoBootstrapProjectFromCwd,
-      logWebSocketEvents,
-      tailscaleServeEnabled,
-      tailscaleServePort,
-      serverConfigFile: { path: serverConfigFile.path, unknownKeys: serverConfigFile.unknownKeys },
-    };
+  const config: ServerConfig.ServerConfig["Service"] = {
+    logLevel,
+    traceMinLevel: env.traceMinLevel ?? file.traceMinLevel ?? "Info",
+    traceTimingEnabled: env.traceTimingEnabled ?? file.traceTimingEnabled ?? true,
+    traceBatchWindowMs: env.traceBatchWindowMs ?? file.traceBatchWindowMs ?? 1_000,
+    traceMaxBytes: env.traceMaxBytes ?? file.traceMaxBytes ?? 10 * 1024 * 1024,
+    traceMaxFiles: env.traceMaxFiles ?? file.traceMaxFiles ?? DEFAULT_TRACE_MAX_FILES,
+    otlpTracesUrl: traces?.url,
+    otlpMetricsUrl: metrics?.url,
+    otlpLogsUrl: logs?.url,
+    otlpTracesExport: traces?.export ?? signalExport,
+    otlpMetricsExport: metrics?.export ?? signalExport,
+    otlpLogsExport: logs?.export ?? signalExport,
+    otelEnvironment: otel,
+    mode,
+    port,
+    cwd,
+    baseDir,
+    ...derivedPaths,
+    serverTracePath,
+    host,
+    staticDir,
+    devUrl,
+    ...(devAuthToken === undefined ? {} : { devAuthToken }),
+    devAllowedOrigins: env.devAllowedOrigins,
+    noBrowser,
+    startupPresentation,
+    desktopBootstrapToken,
+    ...(desktopBootstrapSecret === undefined ? {} : { desktopBootstrapSecret }),
+    ...(shellEnvironmentPrepared === undefined ? {} : { shellEnvironmentPrepared }),
+    desktopTelemetryFd,
+    desktopTelemetryControlFd,
+    desktopBrowserFd,
+    desktopBrowserControlFd,
+    resourceMonitorPath,
+    autoBootstrapProjectFromCwd,
+    logWebSocketEvents,
+    tailscaleServeEnabled,
+    tailscaleServePort,
+    serverConfigFile: { path: serverConfigFile.path, unknownKeys: serverConfigFile.unknownKeys },
+  };
 
-    return config;
+  return config;
 });
 
 export const resolveCliAuthConfig = (
