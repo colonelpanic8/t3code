@@ -143,7 +143,10 @@ const ProjectListing = Schema.Struct({
 
 const decodeProjectListing = Schema.decodeUnknownEffect(ProjectListing);
 
-type VoiceHandlers = Parameters<typeof VoiceToolkit.toLayer>[0];
+type VoiceHandlers = Extract<
+  Parameters<typeof VoiceToolkit.toLayer>[0],
+  { readonly find_project: unknown }
+>;
 
 const handlers = {
   list_hosts: () => listHosts().pipe(Effect.map((hosts) => ({ hosts }))),
