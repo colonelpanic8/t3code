@@ -23,35 +23,38 @@ export class EnvironmentNotConnectedError extends Data.TaggedError(
   "@t3tools/client-runtime/state/authHttp/EnvironmentNotConnectedError",
 )<{ readonly message: string }> {}
 
-const executeAuthRequest = <A, E, R>(input: {
+const executeAuthRequest = Effect.fn("clientRuntime.state.authHttp.executeAuthRequest")(function* <
+  A,
+  E,
+  R,
+>(input: {
   readonly method: HttpMethod.HttpMethod;
   readonly url: (urls: ReturnType<typeof makeEnvironmentHttpApiUrlBuilder>["auth"]) => string;
   readonly request: (input: {
     readonly client: Effect.Success<ReturnType<typeof makeEnvironmentHttpApiGroupClient<"auth">>>;
     readonly headers: EnvironmentHttpAuthHeaders;
   }) => Effect.Effect<A, E, R>;
-}) =>
-  Effect.gen(function* () {
-    const supervisor = yield* EnvironmentSupervisor;
-    const prepared = yield* SubscriptionRef.get(supervisor.prepared);
-    if (Option.isNone(prepared)) {
-      return yield* new EnvironmentNotConnectedError({
-        message: "This environment is not connected, so its access settings cannot be changed.",
-      });
-    }
-    const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
-    const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
-    return yield* executeAuthenticatedEnvironmentHttpRequest({
-      prepared: prepared.value,
-      signer,
-      remoteAuthorization,
-      group: "auth",
-      method: input.method,
-      url: input.url,
-      timeoutMs: AUTH_MUTATION_TIMEOUT_MS,
-      request: input.request,
+}) {
+  const supervisor = yield* EnvironmentSupervisor;
+  const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+  if (Option.isNone(prepared)) {
+    return yield* new EnvironmentNotConnectedError({
+      message: "This environment is not connected, so its access settings cannot be changed.",
     });
+  }
+  const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
+  const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
+  return yield* executeAuthenticatedEnvironmentHttpRequest({
+    prepared: prepared.value,
+    signer,
+    remoteAuthorization,
+    group: "auth",
+    method: input.method,
+    url: input.url,
+    timeoutMs: AUTH_MUTATION_TIMEOUT_MS,
+    request: input.request,
   });
+});
 
 export const createEnvironmentPairingCredential = Effect.fn(
   "clientRuntime.state.authHttp.createEnvironmentPairingCredential",
