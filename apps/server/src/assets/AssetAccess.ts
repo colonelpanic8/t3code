@@ -495,6 +495,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   readonly projectFaviconPath?: string;
   /** Where a cloned project's checkout stands, while the clone tracker still knows it. */
   readonly projectCheckout?: "pending" | "cloned";
+  readonly revalidate?: boolean;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -655,7 +656,9 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
         input.projectCheckout === "pending"
           ? null
           : yield* faviconResolver
-              .resolvePath(workspaceRoot, input.projectFaviconPath ?? undefined)
+              .resolvePath(workspaceRoot, input.projectFaviconPath ?? undefined, {
+                revalidate: input.revalidate === true,
+              })
               .pipe(
                 Effect.mapError(
                   (cause) =>
