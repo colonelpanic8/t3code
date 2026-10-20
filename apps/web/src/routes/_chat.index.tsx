@@ -1,6 +1,7 @@
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { isElectron } from "../env";
@@ -19,10 +20,28 @@ import {
   useThreadShells,
 } from "../state/entities";
 import { useEnvironments } from "../state/environments";
+import { environmentCatalog } from "../connection/catalog";
 
 function ChatIndexRouteView() {
   const { authGateState } = Route.useRouteContext();
   const { environments, isReady } = useEnvironments();
+  const groupVisibility = useAtomValue(environmentCatalog.groups.stateAtom);
+
+  if (isReady && environments.length === 0 && groupVisibility.hiddenEnvironmentIds.size > 0) {
+    return (
+      <SidebarInset className="h-dvh">
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>Your environment groups are hidden</EmptyTitle>
+            <EmptyDescription>
+              Show a group in Connections to bring its projects and threads into view.
+            </EmptyDescription>
+          </EmptyHeader>
+          <Button render={<Link to="/settings/connections" />}>Manage environment groups</Button>
+        </Empty>
+      </SidebarInset>
+    );
+  }
 
   if (authGateState.status === "hosted-static") {
     if (!isReady) return null;
