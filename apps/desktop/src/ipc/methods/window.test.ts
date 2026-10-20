@@ -20,6 +20,7 @@ vi.mock("electron", () => ({
 }));
 
 import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfiguration.ts";
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
@@ -299,16 +300,13 @@ describe("revealWindow", () => {
 });
 
 describe("pickProjectFavicon", () => {
-  const pickerLayer = (
-    pickFiles: () => Effect.Effect<Array<string>>,
-    settings?: DesktopAppSettings.DesktopSettings,
-  ) =>
+  const pickerLayer = (pickFiles: () => Effect.Effect<Array<string>>) =>
     Layer.mergeAll(
       Layer.mock(ElectronDialog.ElectronDialog)({ pickFiles }),
       Layer.mock(ElectronWindow.ElectronWindow)({
         focusedMainOrFirst: Effect.succeedNone,
       }),
-      DesktopAppSettings.layerTest(settings),
+      DesktopBackendMode.layerTest().pipe(Layer.provideMerge(DesktopAppSettings.layerTest())),
     );
 
   it.effect("opens a single-image picker from the project directory", () =>
@@ -337,17 +335,15 @@ describe("pickProjectFavicon", () => {
     }),
   );
 
-  it.effect("does not open a picker while the local environment is off", () =>
+  it.effect("does not open a picker while this launch runs no local backend", () =>
     Effect.gen(function* () {
       const pickFiles = vi.fn(() => Effect.succeed(["/pictures/icon.png"]));
-      const result = yield* pickProjectFavicon.handler("/project").pipe(
-        Effect.provide(
-          pickerLayer(pickFiles, {
-            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-            localEnvironmentEnabled: false,
-          }),
-        ),
-      );
+      const result = yield* Effect.gen(function* () {
+        const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+        // The setting stays on; this launch attaches to an existing server.
+        yield* backendMode.decide(Effect.succeed(true));
+        return yield* pickProjectFavicon.handler("/project");
+      }).pipe(Effect.provide(pickerLayer(pickFiles)));
 
       assert.strictEqual(result, null);
       assert.strictEqual(pickFiles.mock.calls.length, 0);
