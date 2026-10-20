@@ -13,6 +13,7 @@ type Presentations = ReadonlyMap<EnvironmentId, Record<string, unknown>>;
 const state = vi.hoisted(() => ({
   presentations: null as unknown as Atom.Writable<Presentations>,
   refreshProviders: vi.fn<(input: unknown) => Promise<undefined>>(),
+  windows: [] as Array<{ readonly sinceDay: string; readonly untilDay: string }>,
 }));
 
 vi.mock(import("@tanstack/react-router"), async (original) => ({
@@ -60,15 +61,18 @@ vi.mock(import("../../state/usage"), async (original) => {
   };
   return {
     ...(await original()),
-    useUsage: (() => ({
-      merged: mergeUsage([], USAGE_CONTRACT_VERSION),
-      environments: [environment],
-      selectedEnvironments: [environment],
-      isPending: false,
-      shown: null,
-      isPartial: false,
-      refresh: async () => undefined,
-    })) as never,
+    useUsage: ((window: { readonly sinceDay: string; readonly untilDay: string }) => {
+      state.windows.push(window);
+      return {
+        merged: mergeUsage([], USAGE_CONTRACT_VERSION),
+        environments: [environment],
+        selectedEnvironments: [environment],
+        isPending: false,
+        shown: null,
+        isPartial: false,
+        refresh: async () => undefined,
+      };
+    }) as never,
   };
 });
 
@@ -144,6 +148,7 @@ async function setup() {
   const previous = localStorage.getItem(PREFERENCES_KEY);
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ metric: "limits", windowDays: 30 }));
   state.refreshProviders.mockReset().mockResolvedValue(undefined);
+  state.windows = [];
   await setPresentations([[environmentId, presentation()]]);
   return {
     [Symbol.dispose]() {
@@ -245,4 +250,23 @@ it("keeps manual refresh busy until the already-running automatic check settles"
 
   await act(async () => finishRefresh());
   await expect.element(refreshButton()).toHaveAttribute("aria-busy", "false");
+});
+
+it("asks for the new day's window when a page left open overnight comes back", async () => {
+  using _state = await setup();
+  // Days a full 24 hours apart differ in every time zone the browser may run in.
+  const localDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-09-11T12:00:00Z") });
+  try {
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ metric: "tokens", windowDays: 30 }));
+    await using _screen = await renderPage();
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(state.windows.at(-1)?.untilDay).toBe(localDay("2026-09-11T12:00:00Z"));
+
+    vi.setSystemTime(Date.parse("2026-09-12T12:00:00Z"));
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(state.windows.at(-1)?.untilDay).toBe(localDay("2026-09-12T12:00:00Z"));
+  } finally {
+    vi.useRealTimers();
+  }
 });
