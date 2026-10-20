@@ -2776,6 +2776,30 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }),
   );
 
+  it.effect.each([
+    {
+      name: "valid host",
+      host: { kind: "eas", id: "expo", label: "Expo", accessToken: "inline-token" },
+    },
+    { name: "invalid host", host: { accessToken: "inline-token" } },
+  ])("rejects inline managed device credentials in a $name", ({ host }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-managed-device-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(
+        `${baseDir}/userdata/managed-settings.json`,
+        JSON.stringify({ branchNamePrefix: "nix/", easDeviceHosts: [host] }),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const settings = yield* service.getSettings;
+        assert.equal(settings.branchNamePrefix, DEFAULT_SERVER_SETTINGS.branchNamePrefix);
+        assert.deepEqual(settings.easDeviceHosts, []);
+      }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
+    }),
+  );
+
   it.effect("reads managed file references in every credential position", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -2798,6 +2822,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           usageLimitSources: {
             hub: { kind: "cliproxy", url: "http://hub.test", managementKey: file },
           },
+          easDeviceHosts: [{ kind: "eas", id: "expo", label: "Expo", accessToken: file }],
         }),
       );
 
@@ -2809,6 +2834,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           ["providerInstances", "codex_x"],
           ["sourceControlHosts", "github", "tokens", "github.com"],
           ["usageLimitSources", "hub"],
+          ["easDeviceHosts"],
         ]);
         const ag = settings.providerInstances[ProviderInstanceId.make("ag")];
         assert.equal((ag?.config as { apiKey?: string } | undefined)?.apiKey, "sk-FILESECRET");
@@ -2820,6 +2846,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           "github.com": "sk-FILESECRET",
         });
         assert.equal(Object.values(settings.usageLimitSources)[0]?.managementKey, "sk-FILESECRET");
+        assert.equal(settings.easDeviceHosts[0]?.accessToken, "sk-FILESECRET");
         assert.notInclude(
           JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
           "sk-FILESECRET",
