@@ -253,12 +253,13 @@ it("keeps manual refresh busy until the already-running automatic check settles"
 });
 
 it("asks for the new day's window when a page left open overnight comes back", async () => {
+  using _state = await setup();
   // Days a full 24 hours apart differ in every time zone the browser may run in.
   const localDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
   vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-09-11T12:00:00Z") });
   try {
     localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ metric: "tokens", windowDays: 30 }));
-    await render();
+    await using _screen = await renderPage();
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(state.windows.at(-1)?.untilDay).toBe(localDay("2026-09-11T12:00:00Z"));
 
