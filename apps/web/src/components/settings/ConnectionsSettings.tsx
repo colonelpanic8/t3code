@@ -1,3 +1,4 @@
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import { SessionPermissions } from "./SessionPermissions";
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
@@ -1477,6 +1478,7 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {primarySettings}
       <SettingsSection
         {...searchableSetting("remote-environments")}
