@@ -586,6 +586,22 @@ export const ServerDirectEndpoint = Schema.Struct({
 });
 export type ServerDirectEndpoint = typeof ServerDirectEndpoint.Type;
 
+export const ServerStorageLayout = Schema.Struct({
+  layout: Schema.Literals(["split", "legacy"]),
+  configDirectoryPath: TrimmedNonEmptyString,
+  dataDirectoryPath: TrimmedNonEmptyString,
+  stateDirectoryPath: TrimmedNonEmptyString,
+  cacheDirectoryPath: TrimmedNonEmptyString,
+  runtimeDirectoryPath: TrimmedNonEmptyString,
+  databaseFilePath: TrimmedNonEmptyString,
+  settingsFilePath: TrimmedNonEmptyString,
+  keybindingsFilePath: TrimmedNonEmptyString,
+  worktreesDirectoryPath: TrimmedNonEmptyString,
+  attachmentsDirectoryPath: TrimmedNonEmptyString,
+  legacyBaseDirectoryPath: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ServerStorageLayout = typeof ServerStorageLayout.Type;
+
 /**
  * A stretch where the server's event loop could not run, so it answered
  * nothing and clients may have dropped the connection.
@@ -615,6 +631,8 @@ export const ServerConfig = Schema.Struct({
    */
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
   observability: ServerObservability,
+  /** Effective server-side storage paths. Optional for older server compatibility. */
+  storage: Schema.optionalKey(ServerStorageLayout),
   settings: ServerSettings,
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
   shellRevealInFileManager: Schema.optionalKey(Schema.Boolean),
