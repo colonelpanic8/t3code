@@ -1,12 +1,29 @@
-import type { AdvertisedEndpoint, DesktopUpdateState, DesktopWslState } from "@t3tools/contracts";
+import {
+  BearerConnectionTarget,
+  PrimaryConnectionTarget,
+  type ConnectionCatalogEntry,
+} from "@t3tools/client-runtime/connection";
+import {
+  EnvironmentId,
+  type DesktopUpdateState,
+  type AdvertisedEndpoint,
+  type DesktopWslState,
+  type RunningLocalServer,
+} from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
+
+import { getPairingTokenFromUrl } from "../../pairingUrl";
 import {
   applyWslEnableSelection,
   canRevokeOtherClients,
+  isLoopbackUrl,
   isQrShareableEndpoint,
   isWslSettingsRowVisible,
   missingTailscaleEndpointDescription,
   resolveLocalVersionStatusLabel,
+  resolveFallbackPairingUrl,
+  selectLocalServerPairingCandidates,
   selectQrEndpointOption,
   togglePairingScopeSelection,
 } from "./ConnectionsSettings.logic";
@@ -43,6 +60,43 @@ describe("togglePairingScopeSelection", () => {
     },
   ] as const)("$label", ({ current, scope, checked, expected }) => {
     expect(togglePairingScopeSelection(current, scope, checked)).toEqual(expected);
+  });
+});
+
+describe("resolveFallbackPairingUrl", () => {
+  it("shares only the code for an environment without an address another device can open", () => {
+    expect(
+      resolveFallbackPairingUrl({ credential: "secret", endpointUrl: null, pageUrl: null }),
+    ).toBeNull();
+  });
+
+  it("falls back to this page's origin unless the page is loopback", () => {
+    const url = resolveFallbackPairingUrl({
+      credential: "secret",
+      endpointUrl: undefined,
+      pageUrl: "http://box.tail.ts.net:3773/settings/connections",
+    });
+    expect(url).not.toBeNull();
+    expect(new URL(url!).origin + new URL(url!).pathname).toBe("http://box.tail.ts.net:3773/pair");
+    expect(getPairingTokenFromUrl(new URL(url!))).toBe("secret");
+
+    expect(
+      resolveFallbackPairingUrl({
+        credential: "secret",
+        endpointUrl: undefined,
+        pageUrl: "http://127.0.0.1:3773/settings/connections",
+      }),
+    ).toBeNull();
+  });
+
+  it("shares a loopback environment address as a link but never as a QR code", () => {
+    const url = resolveFallbackPairingUrl({
+      credential: "secret",
+      endpointUrl: "http://127.0.0.1:3773/",
+      pageUrl: null,
+    });
+    expect(url).not.toBeNull();
+    expect(isLoopbackUrl(url!)).toBe(true);
   });
 });
 
@@ -306,5 +360,59 @@ describe("missingTailscaleEndpointDescription", () => {
     expect(missingTailscaleEndpointDescription(state)).toBe(
       "Start Tailscale to set up HTTPS access through MagicDNS.",
     );
+  });
+});
+
+describe("selectLocalServerPairingCandidates", () => {
+  const server = {
+    environmentId: EnvironmentId.make("environment-local"),
+    label: "Local server",
+    httpBaseUrl: "http://127.0.0.1:3773/",
+    pid: 1234,
+    serverVersion: "0.0.1",
+    pairing: "available",
+  } satisfies RunningLocalServer;
+
+  const savedEnvironment = (
+    phase: "connected" | "reconnecting" | "error",
+    target: ConnectionCatalogEntry["target"] = new BearerConnectionTarget({
+      environmentId: server.environmentId,
+      label: server.label,
+      connectionId: `bearer:${server.environmentId}`,
+    }),
+  ) => ({
+    environmentId: server.environmentId,
+    entry: { target, profile: Option.none(), enabled: true },
+    connection: { phase, error: null, traceId: null },
+  });
+
+  it("offers pairing again only once the saved connection has failed", () => {
+    expect(selectLocalServerPairingCandidates([server], [])).toEqual([{ server, status: "pair" }]);
+    expect(
+      selectLocalServerPairingCandidates([server], [savedEnvironment("reconnecting")]),
+    ).toEqual([{ server, status: "paired" }]);
+    expect(selectLocalServerPairingCandidates([server], [savedEnvironment("error")])).toEqual([
+      { server, status: "pair-again" },
+    ]);
+  });
+
+  it("does not offer pairing with a server running a different version", () => {
+    const mismatched = { ...server, pairing: "version-mismatch" } satisfies RunningLocalServer;
+    expect(selectLocalServerPairingCandidates([mismatched], [])).toEqual([
+      { server: mismatched, status: "version-mismatch" },
+    ]);
+  });
+
+  it("never offers this machine's own environment", () => {
+    const primary = savedEnvironment(
+      "connected",
+      new PrimaryConnectionTarget({
+        environmentId: server.environmentId,
+        label: server.label,
+        httpBaseUrl: server.httpBaseUrl,
+        wsBaseUrl: "ws://127.0.0.1:3773/",
+      }),
+    );
+    expect(selectLocalServerPairingCandidates([server], [primary])).toEqual([]);
   });
 });
