@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
-import { RequestActionButton } from "../threads/RequestActionButton";
+import { Button } from "../../components/ui/Button";
 import { type AgeRecipient, importEnrollmentIdentity } from "./fleetEnrollmentKey";
 
 /**
@@ -74,7 +74,7 @@ export function FleetEnrollmentKeyField(props: {
           {error}
         </Text>
       ) : null}
-      <RequestActionButton
+      <Button
         label="Import key"
         disabled={saving || identity.trim().length === 0}
         onPress={() => void save()}
