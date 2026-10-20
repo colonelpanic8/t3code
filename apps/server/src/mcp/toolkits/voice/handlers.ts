@@ -143,98 +143,103 @@ const ProjectListing = Schema.Struct({
 
 const decodeProjectListing = Schema.decodeUnknownEffect(ProjectListing);
 
+type VoiceHandlers = Parameters<typeof VoiceToolkit.toLayer>[0];
+
 const handlers = {
   list_hosts: () => listHosts().pipe(Effect.map((hosts) => ({ hosts }))),
-  run_t3_tool_on_host: (input) =>
-    Effect.gen(function* () {
-      const invocation = yield* VoiceMcpInvocationContext;
-      const service = yield* VoiceLiveService;
-      const result = yield* service.routeExecute(invocation.liveSessionId, {
-        kind: "execute_tool",
-        targetEnvironmentId: input.environmentId,
-        toolName: input.toolName,
-        arguments: input.arguments,
+  run_t3_tool_on_host: Effect.fn("VoiceToolkit.run_t3_tool_on_host")(function* (
+    input: Parameters<VoiceHandlers["run_t3_tool_on_host"]>[0],
+  ) {
+    const invocation = yield* VoiceMcpInvocationContext;
+    const service = yield* VoiceLiveService;
+    const result = yield* service.routeExecute(invocation.liveSessionId, {
+      kind: "execute_tool",
+      targetEnvironmentId: input.environmentId,
+      toolName: input.toolName,
+      arguments: input.arguments,
+    });
+    if (result.kind !== "execute_tool") {
+      return yield* new VoiceLiveError({
+        message: `The routing client answered ${input.toolName} with '${result.kind}'.`,
+        code: "malformed_route_response",
+        liveSessionId: invocation.liveSessionId,
       });
-      if (result.kind !== "execute_tool") {
-        return yield* new VoiceLiveError({
-          message: `The routing client answered ${input.toolName} with '${result.kind}'.`,
-          code: "malformed_route_response",
-          liveSessionId: invocation.liveSessionId,
-        });
-      }
-      return {
-        environmentId: result.targetEnvironmentId,
-        result: result.result,
-        ...(result.isError === undefined ? {} : { isError: result.isError }),
-      };
-    }),
-  run_t3_tool_on_all_hosts: (input) =>
-    Effect.gen(function* () {
-      const invocation = yield* VoiceMcpInvocationContext;
-      if (!isFanOutTool(input.toolName)) {
-        return yield* new VoiceLiveError({
-          message: `'${input.toolName}' cannot run on every host at once. Run it on one host with run_t3_tool_on_host, or fan out one of: ${VOICE_LIVE_READ_TOOL_NAMES.join(", ")}.`,
-          code: "fan_out_not_allowed",
-          liveSessionId: invocation.liveSessionId,
-        });
-      }
-      const outcome = yield* fanOutRead({
-        toolName: input.toolName,
-        arguments: input.arguments ?? {},
+    }
+    return {
+      environmentId: result.targetEnvironmentId,
+      result: result.result,
+      ...(result.isError === undefined ? {} : { isError: result.isError }),
+    };
+  }),
+  run_t3_tool_on_all_hosts: Effect.fn("VoiceToolkit.run_t3_tool_on_all_hosts")(function* (
+    input: Parameters<VoiceHandlers["run_t3_tool_on_all_hosts"]>[0],
+  ) {
+    const invocation = yield* VoiceMcpInvocationContext;
+    if (!isFanOutTool(input.toolName)) {
+      return yield* new VoiceLiveError({
+        message: `'${input.toolName}' cannot run on every host at once. Run it on one host with run_t3_tool_on_host, or fan out one of: ${VOICE_LIVE_READ_TOOL_NAMES.join(", ")}.`,
+        code: "fan_out_not_allowed",
+        liveSessionId: invocation.liveSessionId,
       });
-      return {
-        toolName: input.toolName,
-        results: outcome.successes.map(({ host, result }) => ({
+    }
+    const outcome = yield* fanOutRead({
+      toolName: input.toolName,
+      arguments: input.arguments ?? {},
+    });
+    return {
+      toolName: input.toolName,
+      results: outcome.successes.map(({ host, result }) => ({
+        environmentId: host.environmentId,
+        label: host.label,
+        result,
+      })),
+      unavailableHosts: outcome.unavailableHosts,
+      erroredHosts: outcome.erroredHosts,
+    };
+  }),
+  find_project: Effect.fn("VoiceToolkit.find_project")(function* (
+    input: Parameters<VoiceHandlers["find_project"]>[0],
+  ) {
+    const outcome = yield* fanOutRead({
+      toolName: "list_projects",
+      arguments: {},
+      environmentId: input.environmentId,
+    });
+    // A host whose listing does not parse was not searched, whatever it sent
+    // back. Counting it as "searched, empty" would let a version-skewed host
+    // silently hide the project the user just named.
+    const searchedHosts: Array<{
+      environmentId: VoiceLiveHost["environmentId"];
+      label: string;
+    }> = [];
+    const erroredHosts = [...outcome.erroredHosts];
+    const candidates: VoiceLiveProjectCandidate[] = [];
+    for (const { host, result } of outcome.successes) {
+      const listing = yield* decodeProjectListing(result).pipe(Effect.option);
+      if (listing._tag === "None") {
+        erroredHosts.push(toHostReport(host, "returned a project list this call could not read"));
+        continue;
+      }
+      searchedHosts.push({ environmentId: host.environmentId, label: host.label });
+      candidates.push(
+        ...listing.value.projects.map((project) => ({
           environmentId: host.environmentId,
-          label: host.label,
-          result,
+          hostLabel: host.label,
+          projectId: project.projectId,
+          title: project.title,
+          workspaceRoot: project.workspaceRoot,
         })),
-        unavailableHosts: outcome.unavailableHosts,
-        erroredHosts: outcome.erroredHosts,
-      };
-    }),
-  find_project: (input) =>
-    Effect.gen(function* () {
-      const outcome = yield* fanOutRead({
-        toolName: "list_projects",
-        arguments: {},
-        environmentId: input.environmentId,
-      });
-      // A host whose listing does not parse was not searched, whatever it sent
-      // back. Counting it as "searched, empty" would let a version-skewed host
-      // silently hide the project the user just named.
-      const searchedHosts: Array<{
-        environmentId: VoiceLiveHost["environmentId"];
-        label: string;
-      }> = [];
-      const erroredHosts = [...outcome.erroredHosts];
-      const candidates: VoiceLiveProjectCandidate[] = [];
-      for (const { host, result } of outcome.successes) {
-        const listing = yield* decodeProjectListing(result).pipe(Effect.option);
-        if (listing._tag === "None") {
-          erroredHosts.push(toHostReport(host, "returned a project list this call could not read"));
-          continue;
-        }
-        searchedHosts.push({ environmentId: host.environmentId, label: host.label });
-        candidates.push(
-          ...listing.value.projects.map((project) => ({
-            environmentId: host.environmentId,
-            hostLabel: host.label,
-            projectId: project.projectId,
-            title: project.title,
-            workspaceRoot: project.workspaceRoot,
-          })),
-        );
-      }
-      const search = searchVoiceLiveProjects(input.query, candidates);
-      return {
-        resolution: search.resolution,
-        matches: search.matches,
-        searchedHosts,
-        unavailableHosts: outcome.unavailableHosts,
-        erroredHosts,
-      };
-    }),
+      );
+    }
+    const search = searchVoiceLiveProjects(input.query, candidates);
+    return {
+      resolution: search.resolution,
+      matches: search.matches,
+      searchedHosts,
+      unavailableHosts: outcome.unavailableHosts,
+      erroredHosts,
+    };
+  }),
 } satisfies Parameters<typeof VoiceToolkit.toLayer>[0];
 
 export const VoiceToolkitHandlersLive = VoiceToolkit.toLayer(handlers);

@@ -101,112 +101,108 @@ export interface VoiceLiveCallDeps<R = never, E = never> extends VoiceLiveRouter
  * `options.stopSignal` interrupts the stream (tearing the call down
  * server-side) and then fires `voice.live.stop` best-effort.
  */
-export function runVoiceLiveCall<R, E>(
+export const runVoiceLiveCall = Effect.fn("voiceLive.runCall")(function* <R, E>(
   deps: VoiceLiveCallDeps<R, E>,
   input: VoiceLiveStartInput,
   callbacks: VoiceLiveCallCallbacks,
   options?: { readonly stopSignal?: Promise<void> },
-): Effect.Effect<VoiceLiveCallEnd, never, R> {
-  return Effect.gen(function* () {
-    const sequencer = createVoiceLiveEventSequencer();
-    let liveSessionId: VoiceLiveSessionId | null = null;
-    let closed: VoiceLiveCallEnd | null = null;
-    const routeFibers: Array<Fiber.Fiber<void>> = [];
+) {
+  const sequencer = createVoiceLiveEventSequencer();
+  let liveSessionId: VoiceLiveSessionId | null = null;
+  let closed: VoiceLiveCallEnd | null = null;
+  const routeFibers: Array<Fiber.Fiber<void>> = [];
 
-    const respondToRoute = (
-      sessionId: VoiceLiveSessionId,
-      routeRequest: VoiceLiveRouteRequest,
-    ): Effect.Effect<void, never, R> =>
-      routeVoiceLiveRequest(routeRequest, deps).pipe(
-        Effect.flatMap((outcome) =>
-          deps.respondRoute({
-            liveSessionId: sessionId,
-            requestId: routeRequest.requestId,
-            ok: outcome.ok,
-            ...(outcome.ok
-              ? { result: outcome.result }
-              : { errorCode: outcome.errorCode, errorMessage: outcome.errorMessage }),
-          }),
-        ),
-        Effect.ignore,
-      );
-
-    const handleEvent = (event: VoiceLiveStreamEvent): Effect.Effect<void, never, R> => {
-      if (!sequencer.accept(event.seq)) {
-        return Effect.void;
-      }
-      switch (event.type) {
-        case "started":
-          return Effect.sync(() => {
-            liveSessionId = event.liveSessionId;
-            callbacks.onStarted?.({
-              liveSessionId: event.liveSessionId,
-              realtimeVersion: event.realtimeVersion,
-            });
-          });
-        case "answer":
-          return Effect.sync(() => callbacks.onAnswer?.(event.sdp));
-        case "transcript":
-          return Effect.sync(() =>
-            callbacks.onTranscript?.({ role: event.role, text: event.text }),
-          );
-        case "routeRequest":
-          // Forked (detached from the stream fiber) so a slow routed tool
-          // cannot stall answer/transcript delivery and so an in-flight
-          // response survives the stream ending first. Drained or interrupted
-          // below before the call settles.
-          return respondToRoute(event.liveSessionId, event.request).pipe(
-            Effect.forkDetach,
-            Effect.map((fiber) => {
-              routeFibers.push(fiber);
-            }),
-          );
-        case "error":
-          return Effect.sync(() => callbacks.onError?.(event.message));
-        case "closed":
-          return Effect.sync(() => {
-            closed = { type: "closed", reason: event.reason };
-            callbacks.onClosed?.(event.reason);
-          });
-      }
-    };
-
-    const consume: Effect.Effect<VoiceLiveCallEnd, never, R> = Stream.runForEach(
-      deps.runCallStream(input),
-      handleEvent,
-    ).pipe(
-      Effect.map((): VoiceLiveCallEnd => closed ?? { type: "ended" }),
-      Effect.catchCause((cause) =>
-        Effect.sync((): VoiceLiveCallEnd => {
-          const message = describeVoiceLiveFailure(cause);
-          callbacks.onError?.(message);
-          return { type: "failed", message };
+  const respondToRoute = (
+    sessionId: VoiceLiveSessionId,
+    routeRequest: VoiceLiveRouteRequest,
+  ): Effect.Effect<void, never, R> =>
+    routeVoiceLiveRequest(routeRequest, deps).pipe(
+      Effect.flatMap((outcome) =>
+        deps.respondRoute({
+          liveSessionId: sessionId,
+          requestId: routeRequest.requestId,
+          ok: outcome.ok,
+          ...(outcome.ok
+            ? { result: outcome.result }
+            : { errorCode: outcome.errorCode, errorMessage: outcome.errorMessage }),
         }),
       ),
+      Effect.ignore,
     );
 
-    const outcome =
-      options?.stopSignal === undefined
-        ? yield* consume
-        : yield* Effect.raceFirst(
-            consume,
-            Effect.promise(() => options.stopSignal!).pipe(
-              Effect.as<VoiceLiveCallEnd>({ type: "stopped" }),
-            ),
-          );
-
-    if (outcome.type === "stopped") {
-      // Pending routes fail server-side on teardown; do not hold the stop.
-      yield* Fiber.interruptAll(routeFibers);
-      if (liveSessionId !== null) {
-        yield* deps.stopCall({ liveSessionId }).pipe(Effect.ignore);
-      }
-    } else {
-      yield* Effect.ignore(Fiber.awaitAll(routeFibers));
+  const handleEvent = (event: VoiceLiveStreamEvent): Effect.Effect<void, never, R> => {
+    if (!sequencer.accept(event.seq)) {
+      return Effect.void;
     }
-    return outcome;
-  });
-}
+    switch (event.type) {
+      case "started":
+        return Effect.sync(() => {
+          liveSessionId = event.liveSessionId;
+          callbacks.onStarted?.({
+            liveSessionId: event.liveSessionId,
+            realtimeVersion: event.realtimeVersion,
+          });
+        });
+      case "answer":
+        return Effect.sync(() => callbacks.onAnswer?.(event.sdp));
+      case "transcript":
+        return Effect.sync(() => callbacks.onTranscript?.({ role: event.role, text: event.text }));
+      case "routeRequest":
+        // Forked (detached from the stream fiber) so a slow routed tool
+        // cannot stall answer/transcript delivery and so an in-flight
+        // response survives the stream ending first. Drained or interrupted
+        // below before the call settles.
+        return respondToRoute(event.liveSessionId, event.request).pipe(
+          Effect.forkDetach,
+          Effect.map((fiber) => {
+            routeFibers.push(fiber);
+          }),
+        );
+      case "error":
+        return Effect.sync(() => callbacks.onError?.(event.message));
+      case "closed":
+        return Effect.sync(() => {
+          closed = { type: "closed", reason: event.reason };
+          callbacks.onClosed?.(event.reason);
+        });
+    }
+  };
+
+  const consume: Effect.Effect<VoiceLiveCallEnd, never, R> = Stream.runForEach(
+    deps.runCallStream(input),
+    handleEvent,
+  ).pipe(
+    Effect.map((): VoiceLiveCallEnd => closed ?? { type: "ended" }),
+    Effect.catchCause((cause) =>
+      Effect.sync((): VoiceLiveCallEnd => {
+        const message = describeVoiceLiveFailure(cause);
+        callbacks.onError?.(message);
+        return { type: "failed", message };
+      }),
+    ),
+  );
+
+  const outcome =
+    options?.stopSignal === undefined
+      ? yield* consume
+      : yield* Effect.raceFirst(
+          consume,
+          Effect.promise(() => options.stopSignal!).pipe(
+            Effect.as<VoiceLiveCallEnd>({ type: "stopped" }),
+          ),
+        );
+
+  if (outcome.type === "stopped") {
+    // Pending routes fail server-side on teardown; do not hold the stop.
+    yield* Fiber.interruptAll(routeFibers);
+    if (liveSessionId !== null) {
+      yield* deps.stopCall({ liveSessionId }).pipe(Effect.ignore);
+    }
+  } else {
+    yield* Effect.ignore(Fiber.awaitAll(routeFibers));
+  }
+  return outcome;
+});
 
 /** Maps a connected environment onto the sanitized host shape the voice model sees. */
 export function voiceLiveHostFromPresentation(
