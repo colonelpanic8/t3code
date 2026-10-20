@@ -207,7 +207,13 @@ describe("WSL command deadlines", () => {
               isPackaged: true,
               resourcesPath: "/repo/resources",
               runningUnderArm64Translation: false,
-            }).pipe(Layer.provide([Path.layer, DesktopConfig.layerTest({})])),
+            }).pipe(
+              Layer.provide([
+                Path.layer,
+                DesktopConfig.layerTest({}),
+                FileSystem.layerNoop({ exists: () => Effect.succeed(true) }),
+              ]),
+            ),
             FileSystem.layerNoop({ exists: () => Effect.succeed(true) }),
             Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
           ]),
