@@ -13,6 +13,7 @@ import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
 import { FleetEnrollmentKeySettings } from "../connection/FleetEnrollmentKeySettings";
+import { SettingsFeedSection } from "../settings-feed/SettingsFeedSection";
 import { GitHubRoutingSettings } from "../connection/GitHubRoutingSettings";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -182,6 +183,7 @@ export function SettingsEnvironmentsRouteScreen() {
         />
         <GitHubRoutingSettings />
         <FleetEnrollmentKeySettings />
+        <SettingsFeedSection />
       </ScrollView>
     </SettingsScreen>
   );

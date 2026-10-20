@@ -12,6 +12,8 @@ import { DEFAULT_FOLLOW_UP_BEHAVIOR, type FollowUpBehavior } from "../../lib/fol
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
 
 const FOLLOW_UP_OPTIONS: ReadonlyArray<{
   readonly behavior: FollowUpBehavior;
@@ -36,6 +38,7 @@ export function SettingsFollowUpRouteScreen() {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
+  const managed = useManagedPreferenceKeys().has("followUpBehavior");
   const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR)
     : null;
@@ -63,11 +66,12 @@ export function SettingsFollowUpRouteScreen() {
               description={option.description}
               selected={selectedBehavior === option.behavior}
               separated={index > 0}
-              disabled={!preferencesReady}
+              disabled={!preferencesReady || managed}
               onPress={() => savePreferences({ followUpBehavior: option.behavior })}
             />
           ))}
         </SettingsSection>
+        {managed ? <ManagedBySettingsFeedNote /> : null}
         <Text className="px-2 text-sm text-foreground-muted">
           Long-press the send button to use the other option for a single message. With a hardware
           keyboard, hold Command while sending.
