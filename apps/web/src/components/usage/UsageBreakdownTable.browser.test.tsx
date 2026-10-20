@@ -1,8 +1,7 @@
 import type { EnvironmentId, UsageDay } from "@t3tools/contracts";
 import type { UsageEntry } from "@t3tools/shared/usageMerge";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
+import { render } from "../../../test/render";
 import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -34,49 +33,32 @@ const entries: UsageEntry[] = Array.from({ length: 250 }, (_, index) => ({
 }));
 
 describe("UsageBreakdownTable", () => {
-  let renderer: Root;
-  let container: HTMLDivElement;
-
-  beforeEach(() => {
-    container = document.createElement("div");
-    document.body.append(container);
-    renderer = createRoot(container);
-  });
-
-  afterEach(async () => {
-    await act(() => renderer.unmount());
-    container.remove();
-  });
-
-  const bodyRows = () => container.querySelectorAll("tbody > tr");
-  const showAllButton = () =>
-    [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.startsWith("Show all"),
-    );
-
-  const renderTable = (rows: readonly UsageEntry[]) =>
-    act(() => {
-      renderer.render(
-        <UsageBreakdownTable
-          entries={rows}
-          view={{
-            tableDimensions: ["period"],
-            sort: [{ field: "period", direction: "ascending" }],
-          }}
-          chartSeries={buildUsageChartSeries(rows, [], "day", [], "cost")}
-          onViewChange={() => {}}
-          grouping="day"
-          metric="cost"
-          environmentLabels={new Map()}
-          timeZone="UTC"
-          loadingProviders={new Set()}
-          onOpenModel={() => {}}
-        />,
-      );
-    });
+  const table = (rows: readonly UsageEntry[]) => (
+    <UsageBreakdownTable
+      entries={rows}
+      view={{
+        tableDimensions: ["period"],
+        sort: [{ field: "period", direction: "ascending" }],
+      }}
+      chartSeries={buildUsageChartSeries(rows, [], "day", [], "cost")}
+      onViewChange={() => {}}
+      grouping="day"
+      metric="cost"
+      environmentLabels={new Map()}
+      timeZone="UTC"
+      hour12={true}
+      loadingProviders={new Set()}
+      onOpenModel={() => {}}
+    />
+  );
 
   it("renders the first 200 rows until asked for all of them", async () => {
-    await renderTable(entries);
+    await using screen = await render(table(entries));
+    const bodyRows = () => screen.container.querySelectorAll("tbody > tr");
+    const showAllButton = () =>
+      [...screen.container.querySelectorAll("button")].find((button) =>
+        button.textContent?.startsWith("Show all"),
+      );
 
     expect(bodyRows()).toHaveLength(200);
     const button = showAllButton();
@@ -89,9 +71,9 @@ describe("UsageBreakdownTable", () => {
   });
 
   it("renders a short table whole, without the control", async () => {
-    await renderTable(entries.slice(0, 3));
+    await using screen = await render(table(entries.slice(0, 3)));
 
-    expect(bodyRows()).toHaveLength(3);
-    expect(showAllButton()).toBeUndefined();
+    expect(screen.container.querySelectorAll("tbody > tr")).toHaveLength(3);
+    await expect.element(screen.getByRole("button", { name: /Show all/ })).not.toBeInTheDocument();
   });
 });
