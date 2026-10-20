@@ -68,9 +68,8 @@ export function EnvironmentGroupsSettings() {
             }
           } catch (cause) {
             setError(cause instanceof Error ? cause.message : "Could not read the group file.");
-          } finally {
-            setImporting(false);
           }
+          setImporting(false);
         }}
       />
       {state.failed ? (
