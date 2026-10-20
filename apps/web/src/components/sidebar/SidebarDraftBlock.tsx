@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { environmentCatalog } from "../../connection/catalog";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import type { ContextMenuSource } from "@t3tools/contracts";
 import { contextMenuSourceOf } from "../../contextMenuSource";
@@ -157,6 +159,7 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
     source: ContextMenuSource,
   ) => void;
 }) {
+  const groupVisibility = useAtomValue(environmentCatalog.groups.stateAtom);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftsByThreadKey = useComposerDraftStore(
     useShallow((store) =>
@@ -187,7 +190,10 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   const drafts = (() => {
     const rows: SidebarDraftRowData[] = [];
     for (const [draftKey, session] of Object.entries(draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (
+        session.promotedTo != null ||
+        groupVisibility.hiddenEnvironmentIds.has(session.environmentId)
+      ) {
         continue;
       }
       if (

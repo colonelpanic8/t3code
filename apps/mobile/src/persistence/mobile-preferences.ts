@@ -11,6 +11,7 @@ import {
   IssueInvolvement,
   IssueListSort,
   IssueListState,
+  EnvironmentGroups,
   PullRequestInvolvement,
   PullRequestListFilters,
   PullRequestListState,
@@ -132,12 +133,14 @@ const ThreadProject = Schema.Struct({
   projectId: Schema.NonEmptyString,
 });
 const isThreadProject = Schema.is(ThreadProject);
+const isEnvironmentGroups = Schema.is(EnvironmentGroups);
 
 export interface Preferences {
   readonly navigationTabOrder?: readonly string[];
   readonly hiddenNavigationTabs?: readonly string[];
   /** Whether pull requests or issues last held the tab bar slot they share. */
   readonly sharedSlotTab?: "pullRequests" | "issues";
+  readonly environmentGroups?: EnvironmentGroups;
   readonly pullRequestHideTestFiles?: boolean;
   /** Which hidden-by-default PR activity is shown: bot comments and resolved or dismissed ones. */
   readonly pullRequestActivityVisibility?: PullRequestActivityVisibility;
@@ -232,6 +235,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     navigationTabOrder?: readonly string[];
     hiddenNavigationTabs?: readonly string[];
     sharedSlotTab?: "pullRequests" | "issues";
+    environmentGroups?: EnvironmentGroups;
     pullRequestHideTestFiles?: boolean;
     pullRequestActivityVisibility?: PullRequestActivityVisibility;
     pullRequestMergeMethod?: PullRequestMergeMethod;
@@ -286,6 +290,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
 
   if (parsed.sharedSlotTab === "pullRequests" || parsed.sharedSlotTab === "issues") {
     preferences.sharedSlotTab = parsed.sharedSlotTab;
+  }
+
+  if (isEnvironmentGroups(parsed.environmentGroups)) {
+    preferences.environmentGroups = parsed.environmentGroups;
   }
 
   if (typeof parsed.pullRequestHideTestFiles === "boolean") {
