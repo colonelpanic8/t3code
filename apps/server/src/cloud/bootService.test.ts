@@ -154,7 +154,13 @@ it.each([
   const program = `${baseDir}/runtime/versions/1.2.3/t3`;
   expect(
     BootService.bootServiceProgramOf(
-      render({ program: [program, "__service-launcher"], baseDir, logPath: "/log", unitPath: "" }),
+      render({
+        program: [program, "__service-launcher"],
+        baseDir,
+        storageRoots: legacyRoots(baseDir),
+        logPath: "/log",
+        unitPath: "",
+      }),
     ),
   ).toBe(program);
 });
@@ -827,7 +833,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
         installedBaseDir: roots.dataDir,
       });
       commands.length = 0;
-      expect(yield* service.restart).toBe(true);
+      expect(yield* service.restart).toBe("restarted");
       expect(yield* service.uninstall).toBe(true);
     }),
   );
