@@ -610,9 +610,7 @@ function canonicalizeSecretFields(document: SettingsDocument): {
   let duplicates = 0;
   const canonical = mapSettingsSecrets(
     {
-      providerInstances: {},
-      sourceControlHosts: {},
-      usageLimitSources: {},
+      ...DEFAULT_SERVER_SETTINGS,
       ...sections,
     } as unknown as ServerSettings,
     (secret) => {
