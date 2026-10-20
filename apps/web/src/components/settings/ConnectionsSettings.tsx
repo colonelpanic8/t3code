@@ -100,6 +100,7 @@ import { settingsScopeEnvironmentLabel } from "./settingsScopeAxis";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import {
   ConnectionDiagnosisPanel,
   ConnectionDiagnosisSummary,
@@ -4176,6 +4177,7 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {primarySettings}
       {renderAccessManagement()}
       {localServerPairingCandidates.length > 0 || localServerDiscoveryError !== null ? (
