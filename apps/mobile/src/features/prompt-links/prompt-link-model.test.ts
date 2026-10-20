@@ -4,7 +4,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   latestThreadEnvironmentIds,
   linkedThreadDraftAction,
+  linkedThreadPromptDelivery,
   promptLinkNotice,
+  promptLinkRequestsSend,
   promptLinkScratchEnvironmentId,
   promptLinkSearchFromParams,
 } from "./prompt-link-model";
@@ -72,5 +74,47 @@ describe("latestThreadEnvironmentIds", () => {
         { environmentId: "a", updatedAt: "2026-01-04T00:00:00.000Z" },
       ]),
     ).toEqual(["a", "b"]);
+  });
+});
+
+describe("linkedThreadPromptDelivery", () => {
+  const allowed = {
+    sendRequested: true,
+    sendEnabled: true,
+    launchedFromHistory: false,
+    hiddenCharacters: 0,
+  };
+
+  it("sends only when the link asks and the user opted in", () => {
+    expect(linkedThreadPromptDelivery(allowed)).toEqual({ kind: "send" });
+    expect(linkedThreadPromptDelivery({ ...allowed, sendRequested: false })).toEqual({
+      kind: "draft",
+      sendBlocked: null,
+    });
+    expect(linkedThreadPromptDelivery({ ...allowed, sendEnabled: false })).toEqual({
+      kind: "draft",
+      sendBlocked: "disabled",
+    });
+  });
+
+  it("drafts a replayed launch or a prompt that hid characters", () => {
+    expect(linkedThreadPromptDelivery({ ...allowed, launchedFromHistory: true })).toEqual({
+      kind: "draft",
+      sendBlocked: "reopened",
+    });
+    expect(linkedThreadPromptDelivery({ ...allowed, hiddenCharacters: 2 })).toEqual({
+      kind: "draft",
+      sendBlocked: "hidden-characters",
+    });
+  });
+});
+
+describe("promptLinkRequestsSend", () => {
+  it.each(["send=1", "send=true", "send=YES"])("accepts %s", (search) => {
+    expect(promptLinkRequestsSend(search)).toBe(true);
+  });
+
+  it.each(["", "send=0", "send=", "prompt=hi"])("rejects %s", (search) => {
+    expect(promptLinkRequestsSend(search)).toBe(false);
   });
 });
