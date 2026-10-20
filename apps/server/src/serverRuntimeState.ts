@@ -1,45 +1,22 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
+import {
+  type PersistedServerRuntimeState,
+  ServerRuntimeStateError,
+} from "@t3tools/shared/serverRuntimeState";
 
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import packageJson from "../package.json" with { type: "json" };
 import type * as ServerConfig from "./config.ts";
 import { formatHostForUrl, isWildcardHost } from "./startupAccess.ts";
 
-export const PersistedServerRuntimeState = Schema.Struct({
-  version: Schema.Literal(1),
-  pid: Schema.Int,
-  ownerId: Schema.optional(Schema.String),
-  host: Schema.optional(Schema.String),
-  port: Schema.Int,
-  origin: Schema.String,
-  // Dev is single-origin: browsers must pair through this URL, not `origin`.
-  devUrl: Schema.optional(Schema.String),
-  startedAt: Schema.String,
-  serviceManaged: Schema.optional(Schema.Boolean),
-  serverVersion: Schema.optional(Schema.String),
-});
-export type PersistedServerRuntimeState = typeof PersistedServerRuntimeState.Type;
-
-export class ServerRuntimeStateError extends Schema.TaggedError<ServerRuntimeStateError>()(
-  "ServerRuntimeStateError",
-  {
-    operation: Schema.Literals(["persist", "read", "decode", "clear"]),
-    statePath: Schema.String,
-    cause: Schema.Defect(),
-  },
-) {
-  override get message(): string {
-    return `Failed to ${this.operation} server runtime state at ${this.statePath}.`;
-  }
-}
-
-const decodePersistedServerRuntimeState = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(PersistedServerRuntimeState),
-);
+export {
+  PersistedServerRuntimeState,
+  readPersistedServerRuntimeState,
+  isProcessAlive,
+  ServerRuntimeStateError,
+} from "@t3tools/shared/serverRuntimeState";
 
 const runtimeOriginForConfig = (
   config: Pick<ServerConfig.ServerConfig["Service"], "host">,
@@ -110,71 +87,3 @@ export const clearPersistedServerRuntimeState = Effect.fn(
     }),
   );
 });
-
-/**
- * Signal 0 delivers nothing; it only reports whether the pid exists. EPERM
- * means it exists but belongs to another user, which still counts as alive.
- */
-export const isProcessAlive = (pid: number): boolean => {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM";
-  }
-};
-
-export const readPersistedServerRuntimeState = Effect.fn(
-  "serverRuntimeState.readPersistedServerRuntimeState",
-)(
-  function* (path: string) {
-    const fs = yield* FileSystem.FileSystem;
-    const raw = yield* fs.readFileString(path).pipe(
-      Effect.matchEffect({
-        onFailure: (cause) =>
-          cause.reason._tag === "NotFound"
-            ? Effect.succeed(Option.none<string>())
-            : Effect.fail(
-                new ServerRuntimeStateError({
-                  operation: "read",
-                  statePath: path,
-                  cause,
-                }),
-              ),
-        onSuccess: (contents) => Effect.succeedSome(contents),
-      }),
-    );
-    if (Option.isNone(raw)) {
-      return Option.none<PersistedServerRuntimeState>();
-    }
-
-    const trimmed = raw.value.trim();
-    if (trimmed.length === 0) {
-      return Option.none<PersistedServerRuntimeState>();
-    }
-
-    return yield* decodePersistedServerRuntimeState(trimmed).pipe(
-      Effect.asSome,
-      Effect.mapError(
-        (cause) =>
-          new ServerRuntimeStateError({
-            operation: "decode",
-            statePath: path,
-            cause,
-          }),
-      ),
-    );
-  },
-  Effect.catchTags({
-    ServerRuntimeStateError: (error) =>
-      Effect.logWarning(error.message).pipe(
-        Effect.annotateLogs({
-          operation: error.operation,
-          statePath: error.statePath,
-          cause: error,
-        }),
-        Effect.as(Option.none<PersistedServerRuntimeState>()),
-      ),
-  }),
-);
