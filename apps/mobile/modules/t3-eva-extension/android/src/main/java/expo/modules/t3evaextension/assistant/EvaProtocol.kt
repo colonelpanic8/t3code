@@ -28,11 +28,7 @@ object EvaProtocol {
             "title" to capability.title,
             "description" to capability.description,
             "inputSchema" to capability.inputSchema(),
-            "outputSchema" to if (AssistantLookups.byName(capability.name) != null) {
-              mapOf("type" to "object", "additionalProperties" to true)
-            } else {
-              outputSchema
-            },
+            "outputSchema" to outputSchema,
             "annotations" to
               linkedMapOf(
                 "readOnlyHint" to (capability.effects == "read"),
