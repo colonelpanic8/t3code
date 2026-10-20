@@ -30,6 +30,8 @@ import { enumeratePeriods, type UsageTimeGrouping } from "@t3tools/shared/usageP
 
 import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
+import { usePrimarySettings } from "../../hooks/useSettings";
+import { resolveHour12 } from "../../timestampFormat";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentPresentations } from "../../state/presentation";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
@@ -190,6 +192,7 @@ export function UsagePage() {
   const [preferences, setPreferences] = useState(readUsagePagePreferences);
   useEscapeToGoBack();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const hour12 = usePrimarySettings((settings) => resolveHour12(settings.timestampFormat));
   const shortcutTitle = (
     option: (typeof METRIC_OPTIONS)[number] | (typeof WINDOW_OPTIONS)[number],
   ) => {
@@ -387,7 +390,7 @@ export function UsagePage() {
 
   const windowLabel =
     shownHourly && shownWindow.sinceTime !== undefined && shownWindow.untilTime !== undefined
-      ? `${formatDateTimeShort(shownWindow.sinceTime, shownWindow.timeZone)} to ${formatDateTimeShort(shownWindow.untilTime, shownWindow.timeZone)}`
+      ? `${formatDateTimeShort(shownWindow.sinceTime, shownWindow.timeZone, hour12)} to ${formatDateTimeShort(shownWindow.untilTime, shownWindow.timeZone, hour12)}`
       : `${formatDayShort(shownWindow.sinceDay)} to ${formatDayShort(shownWindow.untilDay)}`;
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-2 xl:flex">
@@ -577,6 +580,7 @@ export function UsagePage() {
               <UsageOverview
                 merged={merged}
                 shownWindow={shownWindow}
+                hour12={hour12}
                 grouping={grouping}
                 chartDimensions={chartDimensions}
                 chartSeries={chartSeries}
@@ -610,6 +614,7 @@ export function UsagePage() {
             grouping,
             timeZone: shownWindow.timeZone,
             referenceTime: shownWindow.untilTime,
+            hour12,
           }}
           onSetPrice={(model) => setPriceDialog({ model })}
         />
@@ -631,6 +636,7 @@ export function UsagePage() {
 function UsageOverview({
   merged,
   shownWindow,
+  hour12,
   grouping,
   chartDimensions,
   chartSeries,
@@ -649,6 +655,7 @@ function UsageOverview({
 }: {
   readonly merged: MergedUsage;
   readonly shownWindow: UsageSummaryInput;
+  readonly hour12: boolean;
   readonly grouping: UsageTimeGrouping;
   readonly chartDimensions: readonly UsageChartDimension[];
   readonly chartSeries: UsageChartSeries;
@@ -895,6 +902,7 @@ function UsageOverview({
             loadingProviders={chartLoadingProviders}
             referenceTime={shownWindow.untilTime}
             timeZone={shownWindow.timeZone}
+            hour12={hour12}
           />
         </div>
       </section>
@@ -961,6 +969,7 @@ function UsageOverview({
       ) : null}
 
       <UsageBreakdownTable
+        hour12={hour12}
         entries={merged.entries}
         view={tableView}
         chartSeries={chartSeries}

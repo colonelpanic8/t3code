@@ -3,7 +3,13 @@ import type { UsageEntry } from "@t3tools/shared/usageMerge";
 import { buildStackedColumns, pivotUsage } from "@t3tools/shared/usagePivot";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildUsageChartSeries, usageRowSeriesColor, usageSeriesLabels } from "./usageSeries";
+import {
+  buildUsageChartSeries,
+  formatPeriod,
+  formatPeriodShort,
+  usageRowSeriesColor,
+  usageSeriesLabels,
+} from "./usageSeries";
 
 function entry(provider: UsageProviderKind, model: string, costUsd: number): UsageEntry {
   return {
@@ -33,8 +39,21 @@ const context = {
   environmentLabels: new Map([["mac" as EnvironmentId, "MacBook"]]),
   grouping: "day" as const,
   timeZone: "UTC",
+  hour12: true,
 };
 const periods = ["2026-08-07"];
+
+it.each([
+  [false, "14:00"],
+  [true, "2 PM"],
+] as const)(
+  "uses the selected clock for hourly axis and tooltip labels (%s)",
+  (hour12, expected) => {
+    const instant = "2026-08-11T14:00:00.000Z";
+    expect(formatPeriodShort(instant, "hour", "UTC", hour12)).toBe(expected);
+    expect(formatPeriod(instant, "hour", "UTC", instant, hour12)).toBe(`${expected} today`);
+  },
+);
 
 describe("usageSeriesLabels", () => {
   const entries = [
