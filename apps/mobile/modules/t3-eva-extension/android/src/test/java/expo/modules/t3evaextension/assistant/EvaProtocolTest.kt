@@ -208,6 +208,14 @@ class EvaProtocolTest {
     val allowed = setOf("type", "description", "enum", "minLength", "maxLength")
     val describe = EvaProtocol.describeReply()
     assertTrue(StrictJson.utf8Size(describe) <= 65_536)
+    val descriptor = StrictJson.parseObject(describe)["descriptor"] as Map<*, *>
+    for (entry in descriptor["capabilities"] as List<*>) {
+      val tool = (entry as Map<*, *>)["tool"] as Map<*, *>
+      val output = tool["outputSchema"] as Map<*, *>
+      // EVA requires these fields even when additionalProperties is true.
+      assertTrue(output["properties"] is Map<*, *>)
+      assertTrue(output["required"] is List<*>)
+    }
     for (capability in AssistantCapabilities.all) {
       @Suppress("UNCHECKED_CAST")
       val properties = capability.inputSchema()["properties"] as Map<String, Map<String, Any?>>
