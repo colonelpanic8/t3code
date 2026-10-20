@@ -159,6 +159,44 @@ For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
 open it, or pair from the desktop app. On mobile, an IP address entered without a
 scheme uses HTTP, so include `https://` when your server uses HTTPS.
 
+## Declarative desktop connections
+
+Managed desktop installations can provision a stable fleet without an interactive pairing step.
+Give each server a stable `T3CODE_ENVIRONMENT_ID` and set `T3CODE_MANAGED_ACCESS_TOKEN_FILE` to the
+path of a file holding the shared token. The server reads the file at startup and refuses to start
+if it is missing, unreadable, or empty. `T3CODE_MANAGED_ACCESS_TOKEN` still accepts the token
+inline, but set only one of the two. Then start the desktop app with
+`T3CODE_MANAGED_CONNECTIONS_FILE` pointing to a JSON file:
+
+```json
+{
+  "version": 1,
+  "connections": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "httpBaseUrl": "https://build-host.example.ts.net/",
+      "wsBaseUrl": "wss://build-host.example.ts.net/",
+      "token": { "$file": "/run/secrets/t3code-fleet-token" }
+    }
+  ]
+}
+```
+
+`token` is either `{ "$file": "/absolute/path" }` or the token itself. With `$file` the connections
+file holds no secret and can be generated and shared freely; the desktop reads the token file on
+every load, so a rotated token takes effect without editing the connections file. If any token
+file is missing, unreadable, or empty, the desktop reports the error instead of loading the
+catalog. An inline token makes the connections file a secret: keep it mode `0600`.
+
+Each connection is on unless it sets `"enabled": false`. The file owns that state: the settings
+switch is locked for managed connections, and every load re-applies the declared value.
+
+The desktop catalog overlays these entries on its encrypted user-managed catalog and reconciles
+removed entries on the next load. Treat the token files and server token as secrets. Use this mode
+only over a trusted private network or authenticated HTTPS endpoint, and rotate the token on every
+server and client together.
+
 ## Desktop-managed SSH
 
 In the desktop app, open **Settings → Connections → Add environment**, choose
