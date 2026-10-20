@@ -46,6 +46,7 @@ const context = {
   environmentLabels: new Map([["mac" as EnvironmentId, "MacBook"]]),
   grouping: "day" as const,
   timeZone: "UTC",
+  hour12: true,
 };
 
 function layout(

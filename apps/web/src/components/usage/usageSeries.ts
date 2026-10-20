@@ -24,6 +24,7 @@ export interface UsageLabelContext {
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   readonly grouping: UsageTimeGrouping;
   readonly timeZone: string;
+  readonly hour12: boolean;
 }
 
 export const DIMENSION_NAMES: { readonly [Dimension in UsageDimension]: string } = {
@@ -52,8 +53,9 @@ export function formatPeriodShort(
   period: string,
   grouping: UsageTimeGrouping,
   timeZone: string,
+  hour12 = true,
 ): string {
-  if (grouping === "hour") return formatHourShort(period, timeZone);
+  if (grouping === "hour") return formatHourShort(period, timeZone, hour12);
   return grouping === "month" ? formatMonthShort(period) : formatDayShort(period);
 }
 
@@ -63,13 +65,14 @@ export function formatPeriod(
   grouping: UsageTimeGrouping,
   timeZone: string,
   referenceTime?: string,
+  hour12 = true,
 ): string {
   if (grouping === "hour" && referenceTime !== undefined) {
-    return formatRelativeHourShort(period, referenceTime, timeZone);
+    return formatRelativeHourShort(period, referenceTime, timeZone, hour12);
   }
   return grouping === "week"
     ? `Week of ${formatDayShort(period)}`
-    : formatPeriodShort(period, grouping, timeZone);
+    : formatPeriodShort(period, grouping, timeZone, hour12);
 }
 
 const DIMENSION_LABEL: {
@@ -88,7 +91,7 @@ const DIMENSION_LABEL: {
   period: (row, context) =>
     row.period === undefined
       ? undefined
-      : formatPeriod(row.period, context.grouping, context.timeZone),
+      : formatPeriod(row.period, context.grouping, context.timeZone, undefined, context.hour12),
 };
 
 /** The row's values for the given dimensions, joined in the fixed dimension order. */

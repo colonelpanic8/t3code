@@ -33,6 +33,7 @@ const context = {
   environmentLabels: new Map([["mac" as EnvironmentId, "MacBook"]]),
   grouping: "day" as const,
   timeZone: "UTC",
+  hour12: true,
 };
 const periods = ["2026-08-07"];
 

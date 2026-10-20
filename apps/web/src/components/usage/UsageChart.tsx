@@ -32,6 +32,7 @@ interface UsageChartProps {
   readonly loadingProviders?: ReadonlySet<UsageProviderKind>;
   readonly referenceTime: string | undefined;
   readonly timeZone: string;
+  readonly hour12: boolean;
 }
 
 interface Point {
@@ -364,6 +365,7 @@ export function UsageChart({
   loadingProviders = NONE_LOADING,
   referenceTime,
   timeZone,
+  hour12,
 }: UsageChartProps) {
   const { stack, colors, dimensions } = chartSeries;
   const scale = chartScale(stack.peak, loadingProviders.size > 0);
@@ -371,6 +373,7 @@ export function UsageChart({
     environmentLabels,
     grouping,
     timeZone,
+    hour12,
   });
   const series = stack.series.map((entry, index) => ({
     key: entry.key,
@@ -397,7 +400,7 @@ export function UsageChart({
     cn("transition-opacity", loading && "opacity-40 delay-150");
   const format = metric === "tokens" ? formatTokens : formatUsd;
   const formatTooltipPeriod = (period: string) =>
-    formatPeriod(period, grouping, timeZone, referenceTime);
+    formatPeriod(period, grouping, timeZone, referenceTime, hour12);
   const partial = loadingProviders.size > 0;
   const showLegend =
     series.length > 1 && !(dimensions.length === 1 && dimensions[0] === "provider");
@@ -480,7 +483,7 @@ export function UsageChart({
       <div className="flex justify-between pl-16 text-3xs text-muted-foreground uppercase">
         {axisPeriods.map(({ position, period }) => (
           <span key={position}>
-            {period === undefined ? "" : formatPeriodShort(period, grouping, timeZone)}
+            {period === undefined ? "" : formatPeriodShort(period, grouping, timeZone, hour12)}
           </span>
         ))}
       </div>
