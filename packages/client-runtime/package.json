@@ -502,6 +502,10 @@
     "./provider-clients": {
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
+    },
+    "./state/environment-groups": {
+      "types": "./src/state/environmentGroups.ts",
+      "default": "./src/state/environmentGroups.ts"
     }
   },
   "scripts": {
