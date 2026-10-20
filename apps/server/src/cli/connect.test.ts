@@ -338,11 +338,9 @@ it.effect("points a failed relay unlink at retry and account deregistration", ()
 it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
   "connect with server location overrides",
   (it) => {
-    const runHarness = Effect.fn(function* (
+    const runHarness = Effect.fn("connectTest.runHarness")(function* <A, E, R>(
       overrides: ServerConfig.ServerLocationOverrides,
-      finish: (
-        locations: Parameters<typeof finishConnectSetup>[0],
-      ) => ReturnType<typeof finishConnectSetup>,
+      finish: (locations: Parameters<typeof finishConnectSetup>[0]) => Effect.Effect<A, E, R>,
     ) {
       const logs: Array<string> = [];
       let statusCalls = 0;
