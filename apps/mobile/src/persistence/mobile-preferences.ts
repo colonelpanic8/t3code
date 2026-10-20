@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import {
   EnvironmentId,
+  EnvironmentGroups,
   PullRequestInvolvement,
   PullRequestListFilters,
   PullRequestListState,
@@ -85,10 +86,12 @@ const ThreadProject = Schema.Struct({
   projectId: Schema.NonEmptyString,
 });
 const isThreadProject = Schema.is(ThreadProject);
+const isEnvironmentGroups = Schema.is(EnvironmentGroups);
 
 export interface Preferences {
   readonly navigationTabOrder?: readonly string[];
   readonly hiddenNavigationTabs?: readonly string[];
+  readonly environmentGroups?: EnvironmentGroups;
   readonly pullRequestHideTestFiles?: boolean;
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
@@ -171,6 +174,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
     navigationTabOrder?: readonly string[];
     hiddenNavigationTabs?: readonly string[];
+    environmentGroups?: EnvironmentGroups;
     pullRequestHideTestFiles?: boolean;
     pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
@@ -217,6 +221,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.navigationTabOrder = parsed.navigationTabOrder.filter(
       (tab): tab is string => typeof tab === "string",
     );
+  }
+
+  if (isEnvironmentGroups(parsed.environmentGroups)) {
+    preferences.environmentGroups = parsed.environmentGroups;
   }
 
   if (typeof parsed.pullRequestHideTestFiles === "boolean") {
