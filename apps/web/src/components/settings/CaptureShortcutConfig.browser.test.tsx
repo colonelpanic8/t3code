@@ -97,13 +97,13 @@ it.each(["niri", "hyprland"] as const)(
     using _env = setup();
     await using screen = await renderConfig(desktop);
     expect(screen.recorder().getAttribute("aria-label")).toBe(
-      "Record snapshot shortcut, currently Ctrl+Shift+2",
+      "Record snapshot shortcut, currently ⌃⇧2",
     );
     expect(screen.advanced().textContent).toContain("manual binding");
     expect(bridge.previewSnapShotConfig).not.toHaveBeenCalled();
     await screen.click("Review changes");
     expect(screen.recorder().getAttribute("aria-label")).toBe(
-      "Record snapshot shortcut, currently Ctrl+Shift+2",
+      "Record snapshot shortcut, currently ⌃⇧2",
     );
     expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
     expect(screen.diff()).not.toBeNull();
@@ -201,7 +201,7 @@ it("cancelling a reviewed diff does not write or finish setup", async () => {
   await screen.click("Review changes");
   await screen.click("Cancel");
   expect(screen.recorder().getAttribute("aria-label")).toBe(
-    "Record snapshot shortcut, currently Ctrl+Shift+2",
+    "Record snapshot shortcut, currently ⌃⇧2",
   );
   expect(screen.button("Review changes")).toBeDefined();
   expect(bridge.applySnapShotConfig).not.toHaveBeenCalled();
