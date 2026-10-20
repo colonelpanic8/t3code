@@ -61,7 +61,7 @@ describe("new task picker", () => {
       deriveNewTaskProjectPickerEmptyState({
         environment: { connectionState: "unsupported", connectionError: "Upgrade this client" },
         networkOffline: false,
-        shellStatus: "idle",
+        shellStatus: "empty",
         shellError: null,
         hasShellSnapshot: false,
       }),
