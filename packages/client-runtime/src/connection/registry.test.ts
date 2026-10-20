@@ -20,6 +20,9 @@ import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { Atom, AtomRegistry } from "effect/reactivity";
+import { createEnvironmentCatalogAtoms } from "../state/connections.ts";
+import { EnvironmentGroupPreferences } from "../state/environmentGroups.ts";
 
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
@@ -515,6 +518,64 @@ function awaitConnectionState(
 }
 
 describe("EnvironmentRegistry", () => {
+  it.effect(
+    "hides grouped machines from the client catalog without disconnecting or forgetting them",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness(
+          [BEARER_TARGET],
+          [BEARER_PROFILE],
+          [[BEARER_TARGET.connectionId, BEARER_CREDENTIAL]],
+        );
+        const context = yield* Layer.build(harness.layer);
+        const connections = Context.get(context, EnvironmentRegistry.EnvironmentRegistry);
+        yield* connections.start;
+        yield* awaitConnectionState(
+          connections,
+          BEARER_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+        const definitions = {
+          family: {
+            label: "Family",
+            environmentIds: [BEARER_TARGET.environmentId],
+            defaultVisible: false,
+          },
+        };
+        const runtime = Atom.runtime(
+          Layer.mergeAll(
+            Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, connections),
+            Layer.succeed(EnvironmentGroupPreferences, {
+              load: Effect.succeed(definitions),
+              save: () => Effect.die("Visibility must not save preferences"),
+            }),
+          ),
+        );
+        const atoms = createEnvironmentCatalogAtoms(runtime);
+        const atomRegistry = yield* Effect.acquireRelease(
+          Effect.sync(() => AtomRegistry.make()),
+          (registry) => Effect.sync(() => registry.dispose()),
+        );
+        yield* Effect.promise(async () => {
+          await expect.poll(() => atomRegistry.get(atoms.catalogValueAtom).isReady).toBe(true);
+          expect(atomRegistry.get(atoms.catalogValueAtom).entries.size).toBe(0);
+          expect(atomRegistry.get(atoms.unfilteredCatalogValueAtom).entries.size).toBe(1);
+          await atoms.groups.setVisible.run(atomRegistry, { groupId: "family", visible: true });
+          expect(
+            atomRegistry.get(atoms.catalogValueAtom).entries.has(BEARER_TARGET.environmentId),
+          ).toBe(true);
+          await atoms.groups.resetVisibility.run(atomRegistry, undefined);
+          expect(atomRegistry.get(atoms.catalogValueAtom).entries.size).toBe(0);
+        });
+        expect((yield* connections.state(BEARER_TARGET.environmentId)).phase).toBe("connected");
+        expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
+        expect(yield* Ref.get(harness.storedDisabled)).toEqual(new Set());
+        expect(yield* Ref.get(harness.storedCredentials)).toEqual(
+          new Map([[BEARER_TARGET.connectionId, BEARER_CREDENTIAL]]),
+        );
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("replays connected state when arming a desktop commit observer", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness([TARGET]);
