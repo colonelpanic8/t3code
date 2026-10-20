@@ -405,9 +405,32 @@ describe("DesktopEarlyElectronStartup", () => {
 describe("Linux device scale persistence failures", () => {
   const input = {
     env: { T3CODE_HOME: "/isolated" },
+    clientDirSwitch: null,
+    resolvePath: NodePath.posix.resolve,
     homeDirectory: "/home/user",
     joinPath: NodePath.posix.join,
   };
+
+  it("restores scaling from the selected client directory", () => {
+    const applied: Array<[string, string]> = [];
+    restoreEarlyLinuxDeviceScaleFactor({
+      ...input,
+      clientDirSwitch: "/custom-client",
+      commandLine: {
+        hasSwitch: () => false,
+        getSwitchValue: () => "",
+        appendSwitch: (name, value) => {
+          applied.push([name, value]);
+        },
+      },
+      readFileString: (path) => {
+        assert.equal(path, "/custom-client/linux-device-scale-factor");
+        return "1.5";
+      },
+      writeFileString: () => assert.fail("restoring a scale should not write it"),
+    });
+    assert.deepEqual(applied, [["force-device-scale-factor", "1.5"]]);
+  });
 
   it.each(["0", "Infinity", "garbage"])("ignores invalid persisted scale %j", (value) => {
     const applied: Array<[string, string]> = [];
