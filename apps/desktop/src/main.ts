@@ -97,11 +97,22 @@ const layerDesktopEnvironment = Layer.unwrap(
     return DesktopEnvironment.layer({
       dirname: __dirname,
       homeDirectory: NodeOS.homedir(),
+      temporaryDirectory: NodeOS.tmpdir(),
+      ...(process.getuid === undefined ? {} : { userId: process.getuid() }),
       platform,
       processArch,
       ...metadata,
       clientDirSwitch: DesktopPreReadyPlatform.readClientDirSwitch(),
-    });
+    }).pipe(
+      // A storage conflict or an unreadable ~/.t3 is the user's to fix, so say
+      // why before exiting. Before ready, Linux only prints the box to stderr.
+      Layer.tapError((error) =>
+        Effect.gen(function* () {
+          if (platform === "linux") yield* Effect.promise(() => Electron.app.whenReady());
+          Electron.dialog.showErrorBox("T3 Code failed to start", error.message);
+        }),
+      ),
+    );
   }),
 );
 
