@@ -50,6 +50,38 @@ export type PullRequestListPreferences = typeof PullRequestListPreferences.Type;
 const isThreadListFilters = Schema.is(ThreadListFilters);
 const isPullRequestListPreferences = Schema.is(PullRequestListPreferences);
 
+/** Preferences a settings feed may set. Device-local state never comes from a feed. */
+export const MANAGEABLE_PREFERENCE_KEYS = [
+  "pullRequestHideTestFiles",
+  "pullRequestMergeMethod",
+  "liveActivitiesEnabled",
+  "themeId",
+  "lightThemeId",
+  "darkThemeId",
+  "themeMode",
+  "baseFontSize",
+  "terminalFontSize",
+  "markdownFontSize",
+  "codeFontSize",
+  "codeWordBreak",
+  "composerEnterBehavior",
+  "followUpBehavior",
+  "projectGroupingEnabled",
+  "projectGroupingMode",
+  "planModeEnabled",
+  "workingShelfEnabled",
+  "modelFavorites",
+] as const satisfies ReadonlyArray<keyof Preferences>;
+export type ManageablePreferenceKey = (typeof MANAGEABLE_PREFERENCE_KEYS)[number];
+export type ManagedPreferences = Partial<Pick<Preferences, ManageablePreferenceKey>>;
+
+export interface SettingsFeedState {
+  readonly url: string;
+  readonly managed?: ManagedPreferences;
+  readonly fetchedAt?: number;
+  readonly error?: string;
+}
+
 export interface Preferences {
   readonly pullRequestHideTestFiles?: boolean;
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
@@ -87,6 +119,7 @@ export interface Preferences {
   readonly threadListWorkingShelfExpanded?: boolean;
   readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestListFilters?: PullRequestListPreferences;
+  readonly settingsFeed?: SettingsFeedState;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -158,6 +191,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListWorkingShelfExpanded?: boolean;
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
+    settingsFeed?: SettingsFeedState;
   } = {};
 
   if (typeof parsed.pullRequestHideTestFiles === "boolean") {
@@ -288,7 +322,59 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (isPullRequestListPreferences(parsed.pullRequestListFilters)) {
     preferences.pullRequestListFilters = parsed.pullRequestListFilters;
   }
+  const feed: unknown = parsed.settingsFeed;
+  if (
+    typeof feed === "object" &&
+    feed !== null &&
+    "url" in feed &&
+    typeof feed.url === "string" &&
+    feed.url.length > 0
+  ) {
+    preferences.settingsFeed = {
+      url: feed.url,
+      ...("managed" in feed && typeof feed.managed === "object" && feed.managed !== null
+        ? { managed: sanitizeManagedPreferences(feed.managed as Preferences) }
+        : {}),
+      ...("fetchedAt" in feed && typeof feed.fetchedAt === "number"
+        ? { fetchedAt: feed.fetchedAt }
+        : {}),
+      ...("error" in feed && typeof feed.error === "string" ? { error: feed.error } : {}),
+    };
+  }
   return preferences;
+}
+
+export function sanitizeManagedPreferences(parsed: Preferences): ManagedPreferences {
+  const sanitized = sanitizePreferences(parsed);
+  const managed: Record<string, unknown> = {};
+  for (const key of MANAGEABLE_PREFERENCE_KEYS) {
+    if (sanitized[key] !== undefined) managed[key] = sanitized[key];
+  }
+  return managed as ManagedPreferences;
+}
+
+export function managedPreferenceKeys(
+  preferences: Preferences,
+): ReadonlySet<ManageablePreferenceKey> {
+  return new Set(Object.keys(preferences.settingsFeed?.managed ?? {}) as ManageablePreferenceKey[]);
+}
+
+/** Feed values win over the user's own; the user's stay stored underneath. */
+export function applyManagedPreferences(preferences: Preferences): Preferences {
+  const managed = preferences.settingsFeed?.managed;
+  return managed === undefined ? preferences : { ...preferences, ...managed };
+}
+
+function withoutManagedKeys(
+  patch: Partial<Preferences>,
+  managed: ReadonlySet<ManageablePreferenceKey>,
+): Partial<Preferences> {
+  if (managed.size === 0) return patch;
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (!managed.has(key as ManageablePreferenceKey)) kept[key] = value;
+  }
+  return kept as Partial<Preferences>;
 }
 
 export const make = Effect.fn("MobilePreferencesStore.make")(function* () {
@@ -459,7 +545,7 @@ export const make = Effect.fn("MobilePreferencesStore.make")(function* () {
   });
 
   const load = lock
-    .withPermits(1)(loadUnlocked)
+    .withPermits(1)(Effect.map(loadUnlocked, applyManagedPreferences))
     .pipe(Effect.mapError((cause) => new MobilePreferencesLoadError({ cause })));
 
   const update = Effect.fn("MobilePreferencesStore.update")((transform) =>
@@ -468,13 +554,16 @@ export const make = Effect.fn("MobilePreferencesStore.make")(function* () {
         Effect.gen(function* () {
           const current = yield* loadUnlocked;
           const patch = yield* Effect.try({
-            try: () => transform(current),
+            try: () => transform(applyManagedPreferences(current)),
             catch: (cause) => new MobilePreferencesSaveError({ cause }),
           });
-          const next: Preferences = { ...current, ...patch };
+          const next: Preferences = {
+            ...current,
+            ...withoutManagedKeys(patch, managedPreferenceKeys(current)),
+          };
           const payload = yield* encode(PREFERENCES_KEY, next);
           yield* saveJson(payload);
-          return next;
+          return applyManagedPreferences(next);
         }),
       )
       .pipe(
