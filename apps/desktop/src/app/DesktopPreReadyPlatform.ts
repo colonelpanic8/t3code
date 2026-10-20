@@ -71,6 +71,8 @@ export const make = Effect.gen(function* () {
     if (linux !== null) {
       DesktopEarlyElectronStartup.restoreEarlyLinuxDeviceScaleFactor({
         env: process.env,
+        clientDirSwitch: readClientDirSwitch(),
+        resolvePath: NodePath.posix.resolve,
         homeDirectory,
         joinPath: NodePath.posix.join,
         commandLine: Electron.app.commandLine,
