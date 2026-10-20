@@ -212,7 +212,7 @@ function formatCloudStatus(status: CloudCliStatus, options?: { readonly json?: b
       ? []
       : status.reachability === null
         ? [
-    "",
+            "",
             "No running server answered, so reachability was not checked. Check the background service with `t3 service status`.",
           ]
         : status.reachability.status === "reachable"
@@ -595,9 +595,9 @@ export const finishConnectSetup = Effect.fn("cloud.cli.finish_connect_setup")(fu
 
   const outcome = yield* CliService.recoverServiceOnboardingOffer(
     CliService.offerServiceDuringOnboarding,
-    );
+  );
   if (outcome === "skipped") {
-  yield* Console.log(nextStep.message);
+    yield* Console.log(nextStep.message);
   } else {
     yield* reportServiceOnboarding(outcome);
   }
