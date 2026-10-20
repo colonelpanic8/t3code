@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import {
   EnvironmentId,
+  EnvironmentGroups,
   PullRequestInvolvement,
   PullRequestListFilters,
   PullRequestListState,
@@ -49,6 +50,7 @@ export type PullRequestListPreferences = typeof PullRequestListPreferences.Type;
 
 const isThreadListFilters = Schema.is(ThreadListFilters);
 const isPullRequestListPreferences = Schema.is(PullRequestListPreferences);
+const isEnvironmentGroups = Schema.is(EnvironmentGroups);
 
 /** Preferences a settings feed may set. Device-local state never comes from a feed. */
 export const MANAGEABLE_PREFERENCE_KEYS = [
@@ -83,6 +85,7 @@ export interface SettingsFeedState {
 }
 
 export interface Preferences {
+  readonly environmentGroups?: EnvironmentGroups;
   readonly pullRequestHideTestFiles?: boolean;
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
   readonly liveActivitiesEnabled?: boolean;
@@ -161,6 +164,7 @@ export class MobilePreferencesStore extends Context.Service<
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
+    environmentGroups?: EnvironmentGroups;
     pullRequestHideTestFiles?: boolean;
     pullRequestMergeMethod?: PullRequestMergeMethod;
     liveActivitiesEnabled?: boolean;
@@ -193,6 +197,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     pullRequestListFilters?: PullRequestListPreferences;
     settingsFeed?: SettingsFeedState;
   } = {};
+
+  if (isEnvironmentGroups(parsed.environmentGroups)) {
+    preferences.environmentGroups = parsed.environmentGroups;
+  }
 
   if (typeof parsed.pullRequestHideTestFiles === "boolean") {
     preferences.pullRequestHideTestFiles = parsed.pullRequestHideTestFiles;

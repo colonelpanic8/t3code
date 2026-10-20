@@ -1001,6 +1001,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "environment-groups",
+    title: "Environment groups",
+    to: "/settings/connections",
+    searchTerms: [
+      "machines groups family visibility show hide session defaults declarative import",
+    ],
+  },
+  {
     id: "remote-environments",
     title: "Environments",
     to: "/settings/connections",
