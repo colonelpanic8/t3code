@@ -2043,14 +2043,14 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                   ...(turnInput.runtimePolicy.blankSlate === true
                     ? []
                     : [
-                  {
+                        {
                           type: "text" as const,
-                    text: buildRuntimeInstructions({
-                      harness: "Muse Code",
-                      model: session.model ?? undefined,
-                      reasoningEffort: effort,
-                    }),
-                  },
+                          text: buildRuntimeInstructions({
+                            harness: "Muse Code",
+                            model: session.model ?? undefined,
+                            reasoningEffort: effort,
+                          }),
+                        },
                       ]),
                   ...parts,
                 ],

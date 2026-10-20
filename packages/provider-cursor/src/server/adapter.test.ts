@@ -1290,6 +1290,7 @@ describe("CursorAdapterV2", () => {
         cwd: "/workspace",
         blankSlate: true,
       },
+      platform: "linux",
       threadId: ThreadId.make("thread-cursor-blank-slate"),
       mcpSession: undefined,
     });

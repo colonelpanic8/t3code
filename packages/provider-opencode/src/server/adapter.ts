@@ -3233,9 +3233,9 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 turnInput.runtimePolicy.blankSlate === true
                   ? undefined
                   : buildRuntimeInstructions({
-                  harness: "OpenCode",
-                  model: turnInput.modelSelection.model,
-                }),
+                      harness: "OpenCode",
+                      model: turnInput.modelSelection.model,
+                    }),
               ]
                 .filter(Boolean)
                 .join("\n\n");
