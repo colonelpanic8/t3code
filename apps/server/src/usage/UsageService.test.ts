@@ -2583,7 +2583,7 @@ describe("UsageService", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         // Each scan probes the transcript directory once.
         let scans = 0;
-      const service = yield* UsageService.make.pipe(
+        const service = yield* UsageService.make.pipe(
           Effect.provideService(FileSystem.FileSystem, {
             ...fileSystem,
             exists: (path) =>
@@ -2591,20 +2591,20 @@ describe("UsageService", () => {
                 Effect.tap(() =>
                   Effect.sync(() => {
                     if (path === transcriptDir) scans += 1;
-          }),
-        ),
+                  }),
+                ),
               ),
           }),
-      );
+        );
 
-      const [first, second] = yield* Effect.all(
-        [service.readSummary(WINDOW), service.readSummary(WINDOW)],
-        { concurrency: 2 },
-      );
-      assert.deepStrictEqual(first, second);
+        const [first, second] = yield* Effect.all(
+          [service.readSummary(WINDOW), service.readSummary(WINDOW)],
+          { concurrency: 2 },
+        );
+        assert.deepStrictEqual(first, second);
         assert.strictEqual(scans, 1);
 
-      yield* service.readSummary(WINDOW);
+        yield* service.readSummary(WINDOW);
         assert.strictEqual(scans, 2);
       }).pipe(
         Effect.provide(layerService({ prefix: "usage-service-flight-test", home, settings })),

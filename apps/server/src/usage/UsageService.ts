@@ -477,7 +477,7 @@ export const make = Effect.gen(function* () {
     pendingPersist = yield* Effect.sleep(Duration.millis(delayMs)).pipe(
       Effect.andThen(persistCaches),
       Effect.forkDetach,
-  );
+    );
     if (previous !== undefined) yield* Fiber.interrupt(previous);
   });
   const awaitPersisted = Effect.suspend(() => {
