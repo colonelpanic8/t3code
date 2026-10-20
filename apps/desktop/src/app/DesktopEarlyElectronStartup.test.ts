@@ -11,12 +11,15 @@ import {
 
 describe("DesktopEarlyElectronStartup", () => {
   const joinPath = NodePath.posix.join;
+  const resolvePath = NodePath.posix.resolve;
 
   it("reads the persisted linux password-store preference before Electron is ready", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/home/user/.t3-test" },
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -29,8 +32,10 @@ describe("DesktopEarlyElectronStartup", () => {
   it("accepts JSONC in the early desktop settings file", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/home/user/.t3-test" },
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: () => `{
         // manually edited setting
         "linuxPasswordStore": "gnome-libsecret",
@@ -43,8 +48,10 @@ describe("DesktopEarlyElectronStartup", () => {
   it("falls back to auto when the early settings document is missing or invalid", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: {},
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: () => {
         throw new Error("missing");
       },
@@ -56,8 +63,10 @@ describe("DesktopEarlyElectronStartup", () => {
   it("preserves absolute root paths when resolving early settings", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { T3CODE_HOME: "/" },
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: (path) => {
         assert.equal(path, "/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet6" });
@@ -74,8 +83,10 @@ describe("DesktopEarlyElectronStartup", () => {
         XDG_CURRENT_DESKTOP: "niri",
         VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
       },
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3-test/userdata/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "auto" });
@@ -95,8 +106,10 @@ describe("DesktopEarlyElectronStartup", () => {
       env: {
         VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
       },
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "kwallet" });
@@ -112,8 +125,10 @@ describe("DesktopEarlyElectronStartup", () => {
         T3CODE_HOME: "   ",
         VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
       },
+      clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
+      resolvePath,
       readFileString: (path) => {
         assert.equal(path, "/home/user/.t3/dev/desktop-settings.json");
         return JSON.stringify({ linuxPasswordStore: "gnome-libsecret" });
@@ -121,6 +136,70 @@ describe("DesktopEarlyElectronStartup", () => {
     });
 
     assert.equal(preference, "gnome-libsecret");
+  });
+
+  it("reads the password-store preference from T3CODE_CLIENT_DIR", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: "/tmp/t3-client" },
+      clientDirSwitch: null,
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath,
+      readFileString: (path) => {
+        assert.equal(path, "/tmp/t3-client/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+      },
+    });
+
+    assert.equal(preference, "kwallet6");
+  });
+
+  it("reads the password-store preference from --client-dir over T3CODE_CLIENT_DIR", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: "/tmp/t3-client-env" },
+      clientDirSwitch: "/tmp/t3-client-flag",
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath,
+      readFileString: (path) => {
+        assert.equal(path, "/tmp/t3-client-flag/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "gnome-libsecret" });
+      },
+    });
+
+    assert.equal(preference, "gnome-libsecret");
+  });
+
+  it("expands ~ in the client directory against the home directory", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: "~/t3-client" },
+      clientDirSwitch: null,
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath,
+      readFileString: (path) => {
+        assert.equal(path, "/home/user/t3-client/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+      },
+    });
+
+    assert.equal(preference, "kwallet6");
+  });
+
+  it("resolves a relative client directory against the working directory", () => {
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: { T3CODE_HOME: "/tmp/t3-server" },
+      clientDirSwitch: "t3-client",
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath: (...segments) => NodePath.posix.resolve("/work", ...segments),
+      readFileString: (path) => {
+        assert.equal(path, "/work/t3-client/desktop-settings.json");
+        return JSON.stringify({ linuxPasswordStore: "kwallet6" });
+      },
+    });
+
+    assert.equal(preference, "kwallet6");
   });
 
   describe("resolveLinuxDisableFeaturesSwitch", () => {
@@ -274,9 +353,32 @@ describe("DesktopEarlyElectronStartup", () => {
 describe("Linux device scale persistence failures", () => {
   const input = {
     env: { T3CODE_HOME: "/isolated" },
+    clientDirSwitch: null,
+    resolvePath: NodePath.posix.resolve,
     homeDirectory: "/home/user",
     joinPath: NodePath.posix.join,
   };
+
+  it("restores scaling from the selected client directory", () => {
+    const applied: Array<[string, string]> = [];
+    restoreEarlyLinuxDeviceScaleFactor({
+      ...input,
+      clientDirSwitch: "/custom-client",
+      commandLine: {
+        hasSwitch: () => false,
+        getSwitchValue: () => "",
+        appendSwitch: (name, value) => {
+          applied.push([name, value]);
+        },
+      },
+      readFileString: (path) => {
+        assert.equal(path, "/custom-client/linux-device-scale-factor");
+        return "1.5";
+      },
+      writeFileString: () => assert.fail("restoring a scale should not write it"),
+    });
+    assert.deepEqual(applied, [["force-device-scale-factor", "1.5"]]);
+  });
 
   it.each(["0", "Infinity", "garbage"])("ignores invalid persisted scale %j", (value) => {
     const applied: Array<[string, string]> = [];
