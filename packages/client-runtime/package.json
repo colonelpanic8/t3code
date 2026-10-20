@@ -438,6 +438,10 @@
     "./state/voice-live": {
       "types": "./src/state/voiceLive.ts",
       "default": "./src/state/voiceLive.ts"
+    },
+    "./state/environment-groups": {
+      "types": "./src/state/environmentGroups.ts",
+      "default": "./src/state/environmentGroups.ts"
     }
   },
   "scripts": {
