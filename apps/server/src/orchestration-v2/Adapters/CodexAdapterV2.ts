@@ -42,6 +42,7 @@ import {
   dynamicToolTitle,
 } from "@t3tools/shared/toolActivity";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
+import { appendGeneratedImageEmbeds } from "@t3tools/shared/generatedImageMarkdown";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import type {
   ChatAttachment,
@@ -1940,6 +1941,23 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const offeredContinuationItemsByTurn = yield* Ref.make(new Map<string, Set<string>>());
         const finalAnswerItemIdsByTurn = yield* Ref.make(new Map<string, Set<string>>());
         const completedFinalAnswerTextsByTurn = yield* Ref.make(new Map<string, Set<string>>());
+        const imageTurns = new Map<
+          string,
+          {
+            readonly running: Set<string>;
+            readonly saved: Map<string, string>;
+            pending: boolean;
+            answer?: { readonly id: string; readonly text: string };
+          }
+        >();
+        const imageTurn = (nativeTurnId: string) => {
+          let state = imageTurns.get(nativeTurnId);
+          if (state === undefined) {
+            state = { running: new Set(), saved: new Map(), pending: false };
+            imageTurns.set(nativeTurnId, state);
+          }
+          return state;
+        };
         // Native completion and the interrupt timeout share one finalization
         // path. Serialize the race so only one can publish terminal events.
         const turnTerminalizationPermit = yield* Semaphore.make(1);
@@ -1956,6 +1974,26 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         const emitProviderEvent = (event: ProviderAdapter.ProviderAdapterV2Event) =>
           Queue.offer(events, event).pipe(Effect.asVoid);
+
+        const emitImageWorkState = Effect.fnUntraced(function* (
+          context: ActiveCodexTurnContext,
+          pending: boolean,
+        ) {
+          const state = imageTurns.get(context.nativeTurnId);
+          if (state === undefined || state.pending === pending) return;
+          state.pending = pending;
+          yield* emitProviderEvent({
+            type: "background_work.updated",
+            driver: CODEX_PROVIDER,
+            providerTurnId: context.providerTurnId,
+            pending,
+          });
+        });
+
+        const clearImageWork = Effect.fnUntraced(function* (context: ActiveCodexTurnContext) {
+          yield* emitImageWorkState(context, false);
+          imageTurns.delete(context.nativeTurnId);
+        });
 
         const emitGoalUpdate = Effect.fnUntraced(function* (nativeThreadId: string) {
           const providerThread = rootProviderThreads.get(nativeThreadId);
@@ -2205,6 +2243,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             if ((yield* Ref.get(pendingMcpAppCaptures)).has(nativeTurnId)) {
               return true;
             }
+            const images = imageTurns.get(nativeTurnId);
+            if (images !== undefined && (images.running.size > 0 || images.saved.size > 0)) {
+              return true;
+            }
             const tools = (yield* Ref.get(runningDynamicToolsByTurn)).get(nativeTurnId);
             if (tools === undefined) {
               return false;
@@ -2247,6 +2289,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               updated.delete(nativeTurnId);
               return updated;
             });
+            imageTurns.delete(nativeTurnId);
             yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
               if (!current.has(nativeTurnId)) {
                 return current;
@@ -3456,6 +3499,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 turnItem: artifacts.turnItem,
               });
               if (finalAnswerItem && update.completed) {
+                imageTurn(update.turnId).answer = { id: update.itemId, text: update.text };
                 yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
                   const updated = new Map(current);
                   const texts = new Set(updated.get(update.turnId) ?? []);
@@ -4781,6 +4825,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
 
+            if (payload.item.type === "imageGeneration") {
+              if (!(yield* Ref.get(interruptingNativeTurns)).has(payload.turnId)) {
+                imageTurn(payload.turnId).running.add(payload.item.id);
+                yield* emitImageWorkState(context, true);
+              }
+              return;
+            }
+
             if (payload.item.type === "commandExecution") {
               if (!codexItemStatus(payload.item.status).completed) {
                 yield* trackRunningCommandItem(payload.turnId, {
@@ -5055,6 +5107,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 context,
                 item: payload.item,
               });
+              return;
+            }
+
+            if (payload.item.type === "imageGeneration") {
+              if ((yield* Ref.get(interruptingNativeTurns)).has(payload.turnId)) return;
+              const { id, savedPath, status, failure } = payload.item;
+              const state = imageTurn(payload.turnId);
+              if (savedPath?.trim() && status === "completed" && failure == null) {
+                state.saved.set(id, savedPath);
+              }
+              // Idle release runs concurrently, so keep this work pending through projection.
+              if (settled) {
+                yield* projectGeneratedImages(context, payload.turnId);
+              }
+              state.running.delete(id);
+              yield* emitImageWorkState(context, state.running.size > 0 || state.saved.size > 0);
+              if (settled) {
+                yield* releaseSettledTurnIfIdle(payload.turnId);
+              }
               return;
             }
 
@@ -5866,6 +5937,40 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           },
         );
 
+        const projectGeneratedImages = Effect.fnUntraced(function* (
+          context: ActiveCodexTurnContext,
+          nativeTurnId: string,
+        ) {
+          const state = imageTurns.get(nativeTurnId);
+          const firstImageItemId = state?.saved.keys().next().value;
+          if (state === undefined || firstImageItemId === undefined) return;
+          const finalAnswer = state.answer;
+          const text = appendGeneratedImageEmbeds(finalAnswer?.text ?? "", state.saved.values());
+          if (text === (finalAnswer?.text ?? "")) {
+            state.saved.clear();
+            return;
+          }
+          const message = { id: finalAnswer?.id ?? firstImageItemId, text };
+          state.answer = message;
+          const artifacts = yield* buildAgentMessageArtifacts(context, message, true);
+          yield* emitProviderEvent({
+            type: "node.updated",
+            driver: CODEX_PROVIDER,
+            node: artifacts.node,
+          });
+          yield* emitProviderEvent({
+            type: "message.updated",
+            driver: CODEX_PROVIDER,
+            message: artifacts.message,
+          });
+          yield* emitProviderEvent({
+            type: "turn_item.updated",
+            driver: CODEX_PROVIDER,
+            turnItem: artifacts.turnItem,
+          });
+          state.saved.clear();
+        });
+
         const finalizeCodexTurn = (input: {
           readonly context: ActiveCodexTurnContext;
           readonly nativeTurnId: string;
@@ -5925,6 +6030,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               yield* planDeltas.flushTurn(input.nativeTurnId);
               for (const [key, part] of reasoningParts) {
                 if (part.turnId === input.nativeTurnId) reasoningParts.delete(key);
+              }
+              yield* projectGeneratedImages(input.context, input.nativeTurnId);
+              if (input.status !== "completed") {
+                yield* clearImageWork(input.context);
+              } else {
+                const images = imageTurns.get(input.nativeTurnId);
+                if (images !== undefined) {
+                  yield* emitImageWorkState(input.context, images.running.size > 0);
+                }
               }
               // Failed compaction can end the turn without item/completed.
               for (const nativeItemId of input.context.runningCompactionItemIds) {
@@ -6118,6 +6232,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   updated.delete(input.nativeTurnId);
                   return updated;
                 });
+                imageTurns.delete(input.nativeTurnId);
                 yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
                   if (!current.has(input.nativeTurnId)) {
                     return current;
@@ -6587,6 +6702,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             if ((yield* Ref.get(pendingMcpAppCaptures)).size > 0) {
               return true;
+            }
+            for (const state of imageTurns.values()) {
+              if (state.running.size > 0 || state.saved.size > 0) return true;
             }
             for (const subagent of (yield* Ref.get(subagentThreads)).values()) {
               if (subagent.task.status === "running") {
@@ -7226,6 +7344,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                         updated.delete(context.nativeTurnId);
                         return updated;
                       });
+                      yield* clearImageWork(context);
                       yield* releaseSettledTurnIfIdle(context.nativeTurnId);
                     }
                   }),
