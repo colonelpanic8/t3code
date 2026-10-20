@@ -225,41 +225,40 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
 
   let published = false;
 
-  const publish = (enrollment: PairingGrantStore.IssuedFleetEnrollment) =>
-    Effect.gen(function* () {
-      const plaintext = encodeFleetEnrollment({
-        environments: [
-          {
-            environment: plan.environment,
-            credential: enrollment.credential,
-            expiresAt: enrollment.expiresAt,
-          },
-        ],
-      });
-      if (Result.isFailure(plaintext)) {
-        return yield* plaintext.failure;
-      }
-      yield* runAge({
-        ageBin: plan.ageBin,
-        stage: "encrypt",
-        args: ["-e", "-a", "-R", plan.recipientsFile, "-o", partialPath],
-        stdin: plaintext.success,
-      });
-      yield* Effect.scoped(
-        fileSystem.open(partialPath, { flag: "r" }).pipe(Effect.flatMap((file) => file.sync)),
-      ).pipe(
-        Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })),
-      );
-      yield* fileSystem.rename(partialPath, outputPath).pipe(
-        Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })),
-        Effect.tap(() =>
-          Effect.sync(() => {
-            published = true;
-          }),
-        ),
-        Effect.uninterruptible,
-      );
+  const publish = Effect.fn("enrollment.publish")(function* (
+    enrollment: PairingGrantStore.IssuedFleetEnrollment,
+  ) {
+    const plaintext = encodeFleetEnrollment({
+      environments: [
+        {
+          environment: plan.environment,
+          credential: enrollment.credential,
+          expiresAt: enrollment.expiresAt,
+        },
+      ],
     });
+    if (Result.isFailure(plaintext)) {
+      return yield* plaintext.failure;
+    }
+    yield* runAge({
+      ageBin: plan.ageBin,
+      stage: "encrypt",
+      args: ["-e", "-a", "-R", plan.recipientsFile, "-o", partialPath],
+      stdin: plaintext.success,
+    });
+    yield* Effect.scoped(
+      fileSystem.open(partialPath, { flag: "r" }).pipe(Effect.flatMap((file) => file.sync)),
+    ).pipe(Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })));
+    yield* fileSystem.rename(partialPath, outputPath).pipe(
+      Effect.mapError((cause) => new FleetEnrollmentOutputError({ path: outputPath, cause })),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          published = true;
+        }),
+      ),
+      Effect.uninterruptible,
+    );
+  });
 
   const discard = (id: string) =>
     fileSystem.remove(partialPath, { force: true }).pipe(

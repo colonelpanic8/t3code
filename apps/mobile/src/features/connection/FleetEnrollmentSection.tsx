@@ -22,7 +22,7 @@ import {
 } from "../../connection/fleet-enrollment";
 import { connectFleetEnrollment } from "../../connection/onboarding";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { RequestActionButton } from "../threads/RequestActionButton";
+import { Button } from "../../components/ui/Button";
 import { FleetEnrollmentKeyField } from "./FleetEnrollmentKeyField";
 import { decryptFleetEnrollmentFile } from "./fleetEnrollmentKey";
 import type { FleetEnrollmentUrl } from "./fleetEnrollmentLink";
@@ -306,7 +306,7 @@ export function FleetEnrollmentSection(props: {
               <Text className="text-sm text-foreground-muted">
                 Expires {formatDate(firstExpiry)}
               </Text>
-              <RequestActionButton
+              <Button
                 label={busy ? "Joining…" : action.label}
                 disabled={busy}
                 onPress={action.onPress}
