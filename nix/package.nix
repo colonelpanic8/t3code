@@ -46,6 +46,7 @@
     "CC0-1.0" = "sha256-gdRg6RFSHhS1Ky/Y4Gl5Wscx6JhspYpdKUFdzAHqoSU=";
     "ISC" = "sha256-VJTDV7IdtsBt1r1r1J1ldZINPVNDQE5vVFkWPmjn5Yo=";
     "MIT" = "sha256-fuCJ3MxiW/GLCrHoDgxLysVYeIT1viXZATuK1sYd1Dk=";
+    "OFL-1.1" = "sha256-5X753vH8xzgoH9Qz9FsgLhX+07eWh0nTRyCdNky3408=";
     "Unlicense" = "sha256-itR5uQEH/xGJKbe09Fvk/axB/Aq0J6LEIbwwY52X4fs=";
   };
   spdxLicenseCache = pkgs.linkFarm "t3code-spdx-licenses-${spdxLicenseListVersion}" (
