@@ -531,10 +531,10 @@ export const make = Effect.gen(function* () {
       }
     }
     const base = parsed.resumed && cached !== undefined ? cached.records : [];
-      const tail = new Set(parsed.tailRecords);
-      const kept = dedupeWithinFile([...base, ...parsed.records, ...parsed.tailRecords]);
-      const records = kept.filter((record) => !tail.has(record));
-      const tailRecords = kept.filter((record) => tail.has(record));
+    const tail = new Set(parsed.tailRecords);
+    const kept = dedupeWithinFile([...base, ...parsed.records, ...parsed.tailRecords]);
+    const records = kept.filter((record) => !tail.has(record));
+    const tailRecords = kept.filter((record) => tail.has(record));
 
     return {
       records: tailRecords.length === 0 ? records : [...records, ...tailRecords],
