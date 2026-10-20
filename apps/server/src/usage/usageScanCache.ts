@@ -9,16 +9,12 @@ import * as Schema from "effect/Schema";
 import { CLAUDE_SYNTHETIC_MODEL } from "../provider/Drivers/claudeUsage.ts";
 import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptReader.ts";
 
-const USAGE_SCAN_CACHE_VERSION = 7 as const;
+const USAGE_SCAN_CACHE_VERSION = 8 as const;
 const SPEED_COMPATIBLE_SINCE_VERSION = 4;
 
-/**
- * An older server sharing that directory cannot read a newer cache and would
- * replace it, dropping saved usage for deleted transcripts. Separate files keep
- * both.
- */
-export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v7.json";
+export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v8.json";
 export const LEGACY_SCAN_CACHE_FILE_NAMES = [
+  "usage-scan-cache-v7.json",
   "usage-scan-cache-v6.json",
   "usage-scan-cache-v5.json",
   "usage-scan-cache.json",
@@ -309,10 +305,10 @@ export function decodeScanCache(
     ) {
       continue;
     }
-    // Keep history for deleted rollouts, but re-parse incompatible reducer state.
-    // Only Codex requires new provenance state in v7.
-    const legacy =
-      format.state !== undefined && (version < 6 || (entry.p === "codex" && version < 7));
+    // Keep the records of an entry that predates a parse change, because the
+    // transcript may be gone, but make a live one re-parse whole: no file has
+    // size -1, and a zero position cannot resume.
+    const legacy = predatesParseChange(entry.p, format, version);
     // A corrupt state disqualifies the entry: resuming with it would attach
     // appended usage to the wrong model or replay fork-copied history.
     if (!legacy && !isValidState.get(entry.p)?.(entry.cs)) continue;
@@ -343,6 +339,17 @@ export function decodeScanCache(
   return cache;
 }
 
+function predatesParseChange(
+  provider: UsageProviderKind,
+  format: TranscriptUsageFormat<unknown>,
+  version: number,
+): boolean {
+  return (
+    (format.state !== undefined && (version < 6 || (provider === "codex" && version < 7))) ||
+    (provider === "claude" && version < 8)
+  );
+}
+
 function makeStateValidators(
   formats: ReadonlyMap<UsageProviderKind, TranscriptUsageFormat<unknown>>,
 ): ReadonlyMap<UsageProviderKind, (value: unknown) => boolean> {
@@ -368,20 +375,23 @@ export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): num
   return removed;
 }
 
-/**
- * Callers stitching an incremental parse together pass one `seen` set across the line and tail
- * record batches so the whole file stays deduplicated as a unit; the set is mutated in place.
- */
-export function dedupeWithinFile(
-  records: readonly UsageRecord[],
-  seen: Set<string> = new Set(),
-): readonly UsageRecord[] {
+export function dedupeWithinFile(records: readonly UsageRecord[]): readonly UsageRecord[] {
   const kept: UsageRecord[] = [];
+  const keptIndexes = new Map<string, number>();
   for (const record of records) {
-    if (record.dedupeKey !== null) {
-      if (seen.has(record.dedupeKey)) continue;
-      seen.add(record.dedupeKey);
+    if (record.dedupeKey === null) {
+      kept.push(record);
+      continue;
     }
+    const keptIndex = keptIndexes.get(record.dedupeKey);
+    if (keptIndex !== undefined) {
+      const current = kept[keptIndex];
+      if (current !== undefined && record.totals.outputTokens > current.totals.outputTokens) {
+        kept[keptIndex] = record;
+      }
+      continue;
+    }
+    keptIndexes.set(record.dedupeKey, kept.length);
     kept.push(record);
   }
   return kept;
