@@ -295,13 +295,15 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.clientSettings.get")),
     getManaged,
     getManagedKeybindings: readManagedKeybindings(fileSystem, environment.managedKeybindingsPath),
-    set: (requested) =>
-      Effect.gen(function* () {
-        const managed = yield* getManaged;
-        if (Object.keys(managed).length === 0) return requested;
+    set: Effect.fn("DesktopClientSettings.set")(function* (requested: ClientSettings) {
+      const managed = yield* getManaged;
+      let settings = requested;
+      if (Object.keys(managed).length > 0) {
         const user = yield* readUserSettings.pipe(Effect.orElseSucceed(() => Option.none()));
-        return withoutManagedValues(requested, managed, user);
-      }).pipe(Effect.flatMap(writeUserSettings), Effect.withSpan("desktop.clientSettings.set")),
+        settings = withoutManagedValues(requested, managed, user);
+      }
+      yield* writeUserSettings(settings);
+    }),
   });
 });
 

@@ -563,6 +563,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         }),
       );
 
+      if (error._tag !== "ServerSettingsError") throw error;
       assert.equal(error.operation, "read-file");
       assert.equal(error.settingsPath, config.settingsPath);
       assert.instanceOf(error.cause, Error);
