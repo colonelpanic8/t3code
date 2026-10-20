@@ -499,7 +499,7 @@ const layerTest = (
           DesktopEnvironment.DesktopEnvironment.of({
             platform,
             displayName: "T3 Code (Dev)",
-            stateDir: "/state",
+            clientRoots: { configDir: "/state", stateDir: "/state", cacheDir: "/state" },
             linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
             appRoot: "/repo",
             linuxApplicationsDir: "/test-data/applications",
