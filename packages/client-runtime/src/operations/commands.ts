@@ -147,6 +147,7 @@ interface StartThreadBootstrap {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly createdAt: string;
+    readonly blankSlate?: boolean;
   };
   readonly prepareWorktree?: {
     readonly requireWorktree?: boolean;
@@ -670,6 +671,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       modelSelection: input.modelSelection ?? thread.modelSelection,
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
+      ...(bootstrap?.blankSlate === true ? { blankSlate: true } : {}),
       workspaceStrategy,
       initialMessage: {
         messageId: input.message.messageId,
