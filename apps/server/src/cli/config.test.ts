@@ -4,7 +4,7 @@ import * as NodeEvents from "node:events";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
-import { assert, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -27,7 +27,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import { resolveInstallLocations, resolveServerConfig } from "./config.ts";
+import { type CliServerFlags, resolveInstallLocations, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -365,6 +365,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
       assert.equal(resolved.stateDir, join(baseDir, "userdata"));
     }),
@@ -435,6 +436,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: true,
         tailscaleServePort: 8443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
       assert.equal(resolved.dbPath, join(baseDir, "userdata", "statev2.sqlite"));
     }),
@@ -508,6 +510,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
     }),
   );
@@ -591,6 +594,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
       assert.equal(join(baseDir, "userdata"), resolved.stateDir);
       assert.equal(resolved.desktopTelemetryFd, 4);
@@ -839,6 +843,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
     }),
   );
@@ -910,6 +915,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: {
+          path: path.join(derivedPaths.configDir, "server.json"),
+          unknownKeys: [],
+        },
       });
     }),
   );
@@ -1073,6 +1082,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
+        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
     }),
   );
@@ -1371,4 +1381,278 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(resolved.otlpLogsUrl).toBeUndefined();
       }),
   );
+
+  describe("server config file", () => {
+    const resolveWith = (flags: CliServerFlags, env: Record<string, string>) =>
+      resolveServerConfig(flags, Option.none()).pipe(
+        Effect.provide(
+          Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+        ),
+      );
+
+    const writeServerJson = Effect.fn(function* (filePath: string, contents: unknown) {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      yield* fs.makeDirectory(path.dirname(filePath), { recursive: true });
+      yield* fs.writeFileString(
+        filePath,
+        typeof contents === "string" ? contents : JSON.stringify(contents),
+      );
+    });
+
+    it.effect("ranks flag over env over bootstrap over the file over the default", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-order-" });
+        yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
+          host: "10.0.0.4",
+        });
+        const desktopFlags = { ...minimalDesktopFlags(baseDir), port: Option.none<number>() };
+
+        const resolveHost = Effect.fn(function* (layers: {
+          readonly flag?: string;
+          readonly env?: string;
+          readonly bootstrap?: string;
+        }) {
+          const fd =
+            layers.bootstrap === undefined
+              ? undefined
+              : yield* openBootstrapFd(makeDesktopBootstrap({ host: layers.bootstrap }));
+          const resolved = yield* resolveWith(
+            {
+              ...desktopFlags,
+              host: Option.fromUndefinedOr(layers.flag),
+              bootstrapFd: Option.fromUndefinedOr(fd),
+            },
+            layers.env === undefined ? {} : { T3CODE_HOST: layers.env },
+          );
+          return resolved.host;
+        });
+
+        expect(yield* resolveHost({})).toBe("10.0.0.4");
+        expect(yield* resolveHost({ bootstrap: "10.0.0.3" })).toBe("10.0.0.3");
+        expect(yield* resolveHost({ bootstrap: "10.0.0.3", env: "10.0.0.2" })).toBe("10.0.0.2");
+        expect(
+          yield* resolveHost({ bootstrap: "10.0.0.3", env: "10.0.0.2", flag: "10.0.0.1" }),
+        ).toBe("10.0.0.1");
+
+        yield* fs.remove(path.join(baseDir, "userdata", "server.json"));
+        expect(yield* resolveHost({})).toBe("127.0.0.1");
+      }),
+    );
+
+    it.effect("lets an explicit false from a flag or env beat true in the file", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-bools-" });
+        yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
+          noBrowser: true,
+          tailscaleServeEnabled: true,
+          logWebSocketEvents: false,
+          traceTimingEnabled: false,
+        });
+
+        const resolved = yield* resolveWith(
+          {
+            ...minimalWebFlags(baseDir),
+            noBrowser: Option.some(false),
+            logWebSocketEvents: Option.some(true),
+          },
+          { T3CODE_TAILSCALE_SERVE: "false" },
+        );
+
+        expect(resolved.noBrowser).toBe(false);
+        expect(resolved.tailscaleServeEnabled).toBe(false);
+        expect(resolved.logWebSocketEvents).toBe(true);
+        expect(resolved.traceTimingEnabled).toBe(false);
+      }),
+    );
+
+    it.effect("requires a named file but not the default one", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-missing-" });
+        const named = path.join(baseDir, "elsewhere", "server.json");
+
+        const resolved = yield* resolveWith(minimalWebFlags(baseDir), {});
+        expect(resolved.logLevel).toBe("Info");
+
+        const env = { T3CODE_SERVER_CONFIG_FILE: named };
+        const error = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), env));
+        expect(error.message).toBe(`Invalid server config file ${named}: the file does not exist`);
+
+        yield* writeServerJson(named, { logLevel: "Debug" });
+        expect((yield* resolveWith(minimalWebFlags(baseDir), env)).logLevel).toBe("Debug");
+      }),
+    );
+
+    it.effect("fails startup on a malformed file, naming the file and the key", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-invalid-" });
+        const filePath = path.join(baseDir, "userdata", "server.json");
+
+        yield* writeServerJson(filePath, { port: 3773, tailscaleServePort: "443" });
+        const badKey = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), {}));
+        expect(badKey.message).toBe(
+          `Invalid server config file ${filePath}: Invalid type\n  at ["tailscaleServePort"]`,
+        );
+
+        yield* writeServerJson(filePath, { mode: "daemon" });
+        const badEnum = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), {}));
+        expect(badEnum.message).toBe(
+          `Invalid server config file ${filePath}: Invalid value\n  at ["mode"]\nmode must be one of: web, desktop`,
+        );
+
+        yield* writeServerJson(filePath, "[1, 2]");
+        const notObject = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), {}));
+        expect(notObject.message).toBe(`Invalid server config file ${filePath}: not a JSON object`);
+      }),
+    );
+
+    it.effect("resolves relative paths against the file's directory", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-paths-" });
+        const configDir = path.join(root, "config");
+        yield* writeServerJson(path.join(configDir, "server.json"), {
+          traceFile: "traces/server.ndjson",
+        });
+
+        const resolved = yield* resolveWith(minimalWebFlags(path.join(root, "home")), {
+          T3CODE_SERVER_CONFIG_DIR: configDir,
+        });
+
+        expect(resolved.serverTracePath).toBe(path.join(root, "config", "traces", "server.ndjson"));
+      }),
+    );
+
+    it.effect("never takes server locations from the file", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-data-" });
+        const home = path.join(root, "home");
+        yield* writeServerJson(path.join(home, "userdata", "server.json"), {
+          serverDataDir: path.join(root, "file-data"),
+          serverCacheDir: path.join(root, "file-cache"),
+        });
+
+        const resolved = yield* resolveWith(minimalWebFlags(home), {});
+
+        expect(resolved.dbPath).toBe(path.join(home, "userdata", "statev2.sqlite"));
+        expect(resolved.serverRuntimeStatePath).toBe(
+          path.join(home, "userdata", "server-runtime.json"),
+        );
+        expect(resolved.providerStatusCacheDir).toBe(path.join(home, "caches"));
+        expect(resolved.serverConfigFile).toEqual({
+          path: path.join(home, "userdata", "server.json"),
+          unknownKeys: ["serverDataDir", "serverCacheDir"],
+        });
+      }),
+    );
+
+    it.effect("never reads the file for the install commands", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-install-" });
+        const home = path.join(root, "home");
+        const resolveInstall = (env: Record<string, string>) =>
+          resolveInstallLocations({ baseDir: Option.some(home) }).pipe(
+            Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+          );
+
+        yield* writeServerJson(path.join(home, "userdata", "server.json"), "{ not json");
+        const malformed = yield* resolveInstall({});
+        expect(malformed.logsDir).toBe(path.join(home, "userdata", "logs"));
+
+        const named = yield* resolveInstall({
+          T3CODE_SERVER_CONFIG_FILE: path.join(root, "missing.json"),
+        });
+        expect(named.logsDir).toBe(path.join(home, "userdata", "logs"));
+      }),
+    );
+
+    it.effect("exports a file URL only with the file's protocol and headers", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-otlp-" });
+        yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
+          otlpTracesUrl: "http://file:4318/v1/traces",
+          otlpMetricsUrl: "http://file:4318/v1/metrics",
+          otlpLogsUrl: "http://file:4318/v1/logs",
+          otlpProtocol: "http/protobuf",
+          otlpHeaders: { authorization: "file-secret" },
+          otlpExportIntervalMs: 5_000,
+        });
+        yield* writeServerJson(path.join(baseDir, "userdata", "settings.json"), {
+          observability: { otlpTracesUrl: "http://settings:4318/v1/traces" },
+        });
+        const fd = yield* openBootstrapFd(
+          makeDesktopBootstrap({ otlpMetricsUrl: "http://bootstrap:4318/v1/metrics" }),
+        );
+
+        const resolved = yield* resolveWith(
+          { ...minimalDesktopFlags(baseDir), bootstrapFd: Option.some(fd) },
+          {
+            T3CODE_OTLP_LOGS_URL: "http://env:4318/v1/logs",
+            T3CODE_OTLP_HEADERS: "authorization=env-secret",
+          },
+        );
+
+        const envExport = {
+          protocol: "http/json",
+          headers: { authorization: "env-secret" },
+          exportIntervalMs: 5_000,
+        };
+        expect(resolved.otlpTracesUrl).toBe("http://file:4318/v1/traces");
+        expect(resolved.otlpTracesExport).toEqual({
+          protocol: "http/protobuf",
+          headers: { authorization: "file-secret" },
+          exportIntervalMs: 5_000,
+        });
+        expect(resolved.otlpMetricsUrl).toBe("http://bootstrap:4318/v1/metrics");
+        expect(resolved.otlpMetricsExport).toEqual(envExport);
+        expect(resolved.otlpLogsUrl).toBe("http://env:4318/v1/logs");
+        expect(resolved.otlpLogsExport).toEqual(envExport);
+      }),
+    );
+
+    it.effect(
+      "ranks the file between OTEL endpoints and Settings without sharing its headers",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-otel-" });
+          yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
+            otlpTracesUrl: "http://file:4318/v1/traces",
+            otlpProtocol: "http/protobuf",
+            otlpHeaders: { authorization: "file-secret" },
+          });
+          yield* writeServerJson(path.join(baseDir, "userdata", "settings.json"), {
+            observability: { otlpLogsUrl: "http://settings:4318/v1/logs" },
+          });
+
+          const resolved = yield* resolveWith(minimalDesktopFlags(baseDir), {
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel:4318/v1/traces",
+          });
+
+          expect(resolved.otlpTracesUrl).toBe("http://otel:4318/v1/traces");
+          expect(resolved.otlpTracesExport).toEqual({
+            ...DEFAULT_SIGNAL_EXPORT,
+            protocol: "http/protobuf",
+          });
+          expect(resolved.otlpLogsUrl).toBe("http://settings:4318/v1/logs");
+          expect(resolved.otlpLogsExport).toEqual(DEFAULT_SIGNAL_EXPORT);
+        }),
+    );
+  });
 });
