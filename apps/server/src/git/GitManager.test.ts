@@ -3539,6 +3539,51 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
+  it.effect("creates worktrees at the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: { worktreePathTemplate: "{repoRoot}/.worktrees/{branch}" },
+      });
+
+      const created = yield* manager.createWorktree({
+        cwd: repoDir,
+        refName: "main",
+        newRefName: "feature/templated",
+        path: null,
+      });
+
+      expect(created.worktree.path).toBe(
+        NodePath.join(NodeFS.realpathSync(repoDir), ".worktrees", "feature-templated"),
+      );
+    }),
+  );
+
+  it.effect("expands ~ in the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const home = NodeFS.realpathSync(yield* makeTempDir("t3code-git-manager-home-"));
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: { worktreePathTemplate: "~/worktrees/{repoName}/{branch}" },
+      });
+
+      const created = yield* manager
+        .createWorktree({
+          cwd: repoDir,
+          refName: "main",
+          newRefName: "feature/home",
+          path: null,
+        })
+        .pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+
+      expect(created.worktree.path).toBe(
+        NodePath.join(home, "worktrees", NodePath.basename(repoDir), "feature-home"),
+      );
+    }),
+  );
+
   it.effect("creates a commit when working tree is dirty", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
