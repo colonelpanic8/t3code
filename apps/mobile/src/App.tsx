@@ -15,6 +15,7 @@ import * as Dialog from "./components/ui/Dialog";
 import { CloudAuthProvider } from "./features/cloud/CloudAuthProvider";
 import { prepareNativeShowcaseCapture } from "./features/showcase/nativeShowcaseScene";
 import { IncomingShareProvider } from "./features/sharing/IncomingShareProvider";
+import { AssistantCatalogSync } from "./features/eva/AssistantCatalogSync";
 import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
@@ -100,6 +101,7 @@ function AppContent() {
     <>
       <SplashScreenCoordinator />
       <SubscriptionUsageCoordinator />
+      <AssistantCatalogSync />
       <PermissionUpdateNotice />
       <GestureHandlerRootView className="flex-1">
         <KeyboardProvider statusBarTranslucent>
