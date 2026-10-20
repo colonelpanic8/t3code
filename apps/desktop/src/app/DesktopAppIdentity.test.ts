@@ -156,7 +156,10 @@ describe("DesktopAppIdentity", () => {
 
         assert.equal(userDataPath, "/Users/alice/Library/Application Support/t3code-v2");
       }),
-      { legacyPathExists: true },
+      {
+        legacyPathExists: true,
+        environment: { env: { T3CODE_HOME: "/Users/alice/.t3" } },
+      },
     ),
   );
 
@@ -171,7 +174,9 @@ describe("DesktopAppIdentity", () => {
       }),
       {
         legacyPathExists: true,
-        environment: { env: { VITE_DEV_SERVER_URL: "http://localhost:5173" } },
+        environment: {
+          env: { VITE_DEV_SERVER_URL: "http://localhost:5173", T3CODE_HOME: "/Users/alice/.t3" },
+        },
       },
     ),
   );
@@ -201,7 +206,9 @@ describe("DesktopAppIdentity", () => {
       }),
       {
         legacyPathProbeError: cause,
-        environment: { env: { VITE_DEV_SERVER_URL: "http://localhost:5173" } },
+        environment: {
+          env: { VITE_DEV_SERVER_URL: "http://localhost:5173", T3CODE_HOME: "/Users/alice/.t3" },
+        },
       },
     );
   });
