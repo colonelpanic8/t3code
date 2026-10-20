@@ -130,12 +130,11 @@ describe("usage connection state", () => {
     expect(registry.get(atom)[0]).toMatchObject({ isPending: false, error: null, summary });
   });
 
-  it("keeps cached usage with an unavailable status through disconnection and recovery", () => {
+  it("keeps cached usage while reconnecting and resumes scanning on recovery", () => {
     const { registry, atom, query, setPhase } = setup("connected");
     registry.set(query, AsyncResult.waiting(AsyncResult.success(summary)));
     setPhase("reconnecting");
-    expect(registry.get(atom)[0]).toMatchObject({ isPending: false, summary });
-    expect(registry.get(atom)[0]?.error).not.toBeNull();
+    expect(registry.get(atom)[0]).toMatchObject({ isPending: false, error: null, summary });
     setPhase("connected");
     expect(registry.get(atom)[0]).toMatchObject({ isPending: true, error: null, summary });
   });
