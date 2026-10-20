@@ -14,6 +14,50 @@ class EvaProtocolTest {
   )
 
   @Test
+  fun lookupsRequireScopedTargetsAndBoundedLimits() {
+    val messages = AssistantLookups.byName("read_messages")!!.capability
+    val target = mapOf<String, Any?>("environmentId" to "e", "threadId" to "t")
+    messages.validate(target + ("limit" to 50L))
+    for (args in listOf(
+      target - "environmentId",
+      target - "threadId",
+      target + ("limit" to 51L),
+      target + ("limit" to 0L),
+      target + ("q" to "ignored")
+    )) {
+      assertThrows(IllegalArgumentException::class.java) { messages.validate(args) }
+    }
+    AssistantLookups.byName("list_projects")!!.capability.validate(mapOf("q" to "assembly"))
+    AssistantLookups.byName("list_requests")!!.capability.validate(emptyMap())
+  }
+
+  @Test
+  fun lookupRepliesIncludeRowsInBothTextAndStructuredResults() {
+    val rows = listOf(mapOf("id" to "e", "name" to "desktop", "connected" to 1L))
+    val reply = StrictJson.parseObject(EvaProtocol.lookupReply("i", "environments", rows))
+    val result = reply["structuredContent"] as Map<*, *>
+    assertEquals(rows, result["rows"])
+    assertEquals(false, reply["truncated"])
+    val text = ((reply["content"] as List<*>).single() as Map<*, *>)["text"] as String
+    assertEquals(result, StrictJson.parseObject(text))
+  }
+
+  @Test
+  fun oversizedLookupResultsStayWithinTheWireBudgetAndReportTruncation() {
+    for (rows in listOf(
+      List(100) { mapOf("id" to "thread-$it", "text" to "message".repeat(100)) },
+      listOf(mapOf("id" to "t", "text" to "😀\n\"".repeat(20_000)))
+    )) {
+      val json = EvaProtocol.lookupReply("i", "messages", rows)
+      assertTrue(StrictJson.utf8Size(json) <= 16_384)
+      val reply = StrictJson.parseObject(json)
+      assertEquals("completed", reply["status"])
+      assertEquals(true, reply["truncated"])
+      assertTrue(((reply["structuredContent"] as Map<*, *>)["rows"] as List<*>).isNotEmpty())
+    }
+  }
+
+  @Test
   fun strictJsonRejectsWhatOrgJsonAccepts() {
     listOf("""{"a":1,"a":2}""", "\"\\ud800\"", "1e999", "NaN", "{} {}", "{'a':1}").forEach { text ->
       assertThrows(text, IllegalArgumentException::class.java) { StrictJson.parse(text) }

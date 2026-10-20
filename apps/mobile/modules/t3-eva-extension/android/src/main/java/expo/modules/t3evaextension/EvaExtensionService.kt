@@ -2,6 +2,8 @@ package expo.modules.t3evaextension
 
 import android.app.Service
 import android.content.Intent
+import android.database.Cursor
+import android.net.Uri
 import android.os.Binder
 import android.os.IBinder
 import android.os.RemoteException
@@ -12,6 +14,7 @@ import com.colonelpanic.eva.extension.IEvaExtension
 import com.colonelpanic.eva.extension.IEvaExtensionCallback
 import expo.modules.t3evaextension.assistant.Admission
 import expo.modules.t3evaextension.assistant.AssistantCapabilities
+import expo.modules.t3evaextension.assistant.AssistantLookups
 import expo.modules.t3evaextension.assistant.AssistantOperation
 import expo.modules.t3evaextension.assistant.AssistantRequestEntry
 import expo.modules.t3evaextension.assistant.Capability
@@ -209,6 +212,37 @@ class EvaExtensionService : Service() {
     if (userManager != null && !userManager.isUserUnlocked) {
       return EvaProtocol.executeReply(placeholder + ("state" to ReceiptState.NEEDS_UNLOCK))
     }
+    val lookup = AssistantLookups.byName(capability.name)
+    if (lookup != null) {
+      val uri = Uri.Builder().scheme("content").authority("$packageName.assistant")
+        .appendPath(lookup.table).apply {
+          arguments.forEach { (name, value) -> appendQueryParameter(name, value.toString()) }
+        }.build()
+      val remaining = replyAt - SystemClock.elapsedRealtime()
+      if (remaining <= 0) {
+        return EvaProtocol.failure(
+          "not_executed",
+          "deadline_exceeded",
+          "The lookup deadline expired."
+        )
+      }
+      val rows = AssistantQueries(this, minOf(17_000L, remaining)).query(uri).use { cursor ->
+        buildList {
+          while (cursor.moveToNext()) {
+            add(
+              cursor.columnNames.mapIndexed { index, name ->
+                name to when (cursor.getType(index)) {
+                  Cursor.FIELD_TYPE_NULL -> null
+                  Cursor.FIELD_TYPE_INTEGER -> cursor.getLong(index)
+                  else -> cursor.getString(index)
+                }
+              }.toMap()
+            )
+          }
+        }
+      }
+      return EvaProtocol.lookupReply(invocationId, lookup.table, rows)
+    }
     val journal = AssistantJobs.journal(this)
 
     if (operation == null) {
@@ -301,7 +335,7 @@ class EvaExtensionService : Service() {
     linkedMapOf<String, Any?>(
       "version" to 1L,
       "invocationId" to
-        (if (operation == null) arguments["invocationId"] as String else invocationId),
+        (arguments["invocationId"] as? String ?: invocationId),
     ).apply {
       if (operation != null) {
         put("operation", operation.wire)

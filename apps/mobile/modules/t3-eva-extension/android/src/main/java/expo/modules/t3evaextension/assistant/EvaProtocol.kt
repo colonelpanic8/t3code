@@ -28,7 +28,11 @@ object EvaProtocol {
             "title" to capability.title,
             "description" to capability.description,
             "inputSchema" to capability.inputSchema(),
-            "outputSchema" to outputSchema,
+            "outputSchema" to if (AssistantLookups.byName(capability.name) != null) {
+              mapOf("type" to "object", "additionalProperties" to true)
+            } else {
+              outputSchema
+            },
             "annotations" to
               linkedMapOf(
                 "readOnlyHint" to (capability.effects == "read"),
@@ -114,6 +118,48 @@ object EvaProtocol {
   fun statusReply(
     receipt: Map<String, Any?>
   ): String = envelope("completed", null, messageFor(receipt), receipt)
+
+  /** Preserve complete rows where possible and always fit EVA's advertised Binder result budget. */
+  fun lookupReply(invocationId: String, table: String, rows: List<Map<String, Any?>>): String {
+    val bounded = rows.map { it.toMutableMap() }.toMutableList()
+    var truncated = false
+    while (true) {
+      val result = linkedMapOf<String, Any?>(
+        "state" to "completed",
+        "invocationId" to invocationId,
+        "table" to table,
+        "rows" to bounded,
+        "truncated" to truncated,
+      )
+      val text = StrictJson.stringify(result)
+      val json = StrictJson.stringify(
+        linkedMapOf(
+          "protocolVersion" to EVA_PROTOCOL_VERSION,
+          "status" to "completed",
+          "reasonCode" to null,
+          "truncated" to truncated,
+          "content" to listOf(mapOf("type" to "text", "text" to text)),
+          "structuredContent" to result,
+        )
+      )
+      if (StrictJson.utf8Size(json) <= RESULT_MAX_BYTES) return json
+      truncated = true
+      if (bounded.size > 1) {
+        bounded.removeAt(bounded.lastIndex)
+      } else {
+        val row = bounded.single()
+        val largest = row.entries.filter { it.value is String }
+          .maxByOrNull { (it.value as String).length }
+        if (largest == null || (largest.value as String).length < 2) {
+          bounded.clear()
+        } else {
+          val value = largest.value as String
+          val count = value.codePointCount(0, value.length) / 2
+          row[largest.key] = value.substring(0, value.offsetByCodePoints(0, count))
+        }
+      }
+    }
+  }
 
   fun statusFor(state: String): Pair<String, String?> =
     when (state) {
