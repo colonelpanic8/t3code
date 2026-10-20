@@ -116,15 +116,7 @@ describe("pre-merge V2 assembly upgrade", () => {
         [52, "ProjectionThreadTitleState"],
         [53, "PullRequestFilesViewed"],
         [54, "ProjectionThreadsAutoSettleDisabledAt"],
-        [56, "RemoveRedundantProjectionIndexes"],
-        [57, "ScheduledTaskWebhooks"],
-        [58, "WebhookRelayDeliveries"],
-        [59, "McpAppModelContext"],
-        [60, "ThreadSnapshotWindowIndexes"],
-        [61, "PullRequestReviewGuides"],
-        [62, "ThreadFailureLookupIndex"],
-        [63, "DropUnusedV1Projections"],
-        [64, "CanonicalizeThreadPullRequestLinks"],
+        ...migrationManifest.filter(([id]) => id > 55),
       ]);
       yield* assertCanonicalUpgrade;
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
