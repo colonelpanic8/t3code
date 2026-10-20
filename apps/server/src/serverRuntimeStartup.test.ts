@@ -111,6 +111,7 @@ it.effect.each([
           noBrowser: true,
           startupPresentation: "browser",
           autoBootstrapProjectFromCwd: true,
+          serverConfigFile: undefined,
         }),
         Layer.mock(Keybindings.Keybindings)({ start: Effect.void }),
         Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
