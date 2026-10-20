@@ -1,3 +1,5 @@
+import { VoiceLiveService } from "./voice/VoiceLiveService.ts";
+import { VoiceLiveToolExecutor } from "./voice/VoiceLiveToolExecutor.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -512,6 +514,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
   Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
   Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+  Layer.mock(VoiceLiveService)({}),
+  Layer.mock(VoiceLiveToolExecutor)({}),
 );
 
 const layerConfigSources = Layer.mergeAll(
