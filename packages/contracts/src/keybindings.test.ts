@@ -22,6 +22,22 @@ const decode = <S extends Schema.Top>(
 const decodeResolvedRule = Schema.decodeUnknownEffect(ResolvedKeybindingRule as never);
 const encodeResolvedKeybindings = Schema.encodeEffect(ResolvedKeybindingsConfig);
 
+it.effect("decodes direct model and reasoning selections", () =>
+  Effect.gen(function* () {
+    const parsedModelSelect = yield* decode(KeybindingRule, {
+      key: "f15",
+      command: "model.select.codex.gpt-5.6-sol",
+    });
+    assert.strictEqual(parsedModelSelect.command, "model.select.codex.gpt-5.6-sol");
+
+    const parsedReasoningSelect = yield* decode(KeybindingRule, {
+      key: "f19",
+      command: "reasoning.select.high",
+    });
+    assert.strictEqual(parsedReasoningSelect.command, "reasoning.select.high");
+  }),
+);
+
 it.effect("rejects invalid command values", () =>
   Effect.gen(function* () {
     const result = yield* Effect.exit(
@@ -31,6 +47,21 @@ it.effect("rejects invalid command values", () =>
       }),
     );
     assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("rejects malformed direct selection commands", () =>
+  Effect.gen(function* () {
+    for (const command of [
+      "model.select.codex",
+      "model.select.1bad.model",
+      "model.select.codex.model with spaces",
+      "reasoning.select.",
+      "reasoning.select.extra.high",
+    ]) {
+      const result = yield* Effect.exit(decode(KeybindingRule, { key: "f13", command }));
+      assert.strictEqual(result._tag, "Failure");
+    }
   }),
 );
 

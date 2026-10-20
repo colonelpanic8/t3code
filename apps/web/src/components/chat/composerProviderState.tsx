@@ -20,6 +20,7 @@ import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
 import {
+  getReasoningTraitSelection,
   getReasoningTraitStep,
   shouldRenderTraitsControls,
   TraitsMenuContent,
@@ -215,6 +216,26 @@ export function getComposerReasoningStep(input: {
     cursor: Math.min(step.prompt.length, Math.max(keptStart, cursor + offset)),
     ...modelOptions,
   };
+}
+
+/** Applies a direct reasoning effort shortcut with the same rules as the composer's traits picker. */
+export function selectComposerReasoningEffort(input: {
+  provider: ProviderDriverKind;
+  model: string;
+  models: ReadonlyArray<ServerProviderModel>;
+  modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
+  prompt: string;
+  planModeEnabled: boolean;
+  effort: string;
+}): { prompt: string; modelOptions?: ReadonlyArray<ProviderOptionSelection> | undefined } | null {
+  const { selections } = resolveComposerOptionSelections(
+    input.models,
+    input.model,
+    input.provider,
+    input.modelOptions,
+    input.planModeEnabled,
+  );
+  return getReasoningTraitSelection({ ...input, modelOptions: selections });
 }
 
 function renderTraitsControl(
