@@ -547,41 +547,41 @@ export const pairCommand = Command.make("pair", {
           return yield* new JsonTailscaleUnsupportedError();
         }
 
-      const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+        const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
 
-      const notes: Array<string> = [];
-      let pairingBaseUrl: string;
-      if (flags.tailscale) {
-        const resolved = yield* resolveTailscalePairingBase({
-          target,
-          servePort: flags.tailscaleServePort,
+        const notes: Array<string> = [];
+        let pairingBaseUrl: string;
+        if (flags.tailscale) {
+          const resolved = yield* resolveTailscalePairingBase({
+            target,
+            servePort: flags.tailscaleServePort,
+          });
+          pairingBaseUrl = resolved.baseUrl;
+          notes.push(...resolved.notes);
+        } else {
+          pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
+          if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
+            notes.push(
+              "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
+            );
+          }
+          if (target.variant === "dev" && target.state.devUrl === undefined) {
+            notes.push(
+              "This dev server did not record its web URL; restart it so pairing can go through the web origin.",
+            );
+          }
+        }
+
+        const config = yield* makePairServerConfig({ target, logLevel });
+        const issued = yield* mintPairingLink({
+          config,
+          scopes: flags.scopes,
+          ttl: flags.ttl,
+          label: flags.label,
         });
-        pairingBaseUrl = resolved.baseUrl;
-        notes.push(...resolved.notes);
-      } else {
-        pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
-        if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
-          notes.push(
-            "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
-          );
-        }
-        if (target.variant === "dev" && target.state.devUrl === undefined) {
-          notes.push(
-            "This dev server did not record its web URL; restart it so pairing can go through the web origin.",
-          );
-        }
-      }
+        const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
 
-      const config = yield* makePairServerConfig({ target, logLevel });
-      const issued = yield* mintPairingLink({
-        config,
-        scopes: flags.scopes,
-        ttl: flags.ttl,
-        label: flags.label,
-      });
-      const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
-
-      yield* Console.log(
+        yield* Console.log(
           flags.json
             ? formatPairJsonOutput({
                 pairingUrl,
@@ -591,14 +591,14 @@ export const pairCommand = Command.make("pair", {
                 label: target.descriptor.label,
               })
             : formatPairOutput({
-          serverLabel: target.descriptor.label,
-          origin: target.state.origin,
-          pairingUrl,
-          token: issued.credential,
-          expiresAt: issued.expiresAt,
-          notes,
-        }),
-      );
+                serverLabel: target.descriptor.label,
+                origin: target.state.origin,
+                pairingUrl,
+                token: issued.credential,
+                expiresAt: issued.expiresAt,
+                notes,
+              }),
+        );
       }).pipe(Effect.provide(FetchHttpClient.layer));
       return yield* flags.json ? asJsonCommand(run, logLevel) : run;
     }),
