@@ -310,7 +310,9 @@ export const layer: Layer.Layer<
     const agentScope = yield* AgentScope;
     const completedTurnAnalytics = new Set<string>();
 
-    const makeDomainEvent = (
+    const makeDomainEvent =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(function* (
       input: ProviderEventIngestInput,
       payloadInput: {
         readonly type: OrchestrationV2DomainEvent["type"];
@@ -320,8 +322,7 @@ export const layer: Layer.Layer<
         readonly nodeId?: NodeId | null;
         readonly occurredAt?: DateTime.Utc;
       },
-    ) =>
-      Effect.gen(function* () {
+      ) {
         const threadId = payloadInput.threadId ?? input.threadId;
         const eventId = yield* idAllocator.allocate.event({
           threadId,
@@ -517,8 +518,10 @@ export const layer: Layer.Layer<
       return events;
     });
 
-    const normalize: ProviderEventIngestorV2Shape["normalize"] = (input) =>
-      Effect.gen(function* () {
+    const normalize: ProviderEventIngestorV2Shape["normalize"] =
+      /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+      Effect.fnUntraced(
+        function* (input) {
         switch (input.event.type) {
           case "app_thread.created": {
             const offered = input.event.appThread;
@@ -529,8 +532,9 @@ export const layer: Layer.Layer<
             );
             if (
               existing !== null &&
-              existing.title === offered.title &&
-              modelSelectionsEqual(existing.modelSelection, offered.modelSelection)
+                (input.event.createOnly === true ||
+                  (existing.title === offered.title &&
+                    modelSelectionsEqual(existing.modelSelection, offered.modelSelection)))
             )
               return [];
             const now = yield* DateTime.now;
@@ -710,7 +714,9 @@ export const layer: Layer.Layer<
               }),
             ];
         }
-      }).pipe(
+        },
+        (effect, input) =>
+          effect.pipe(
         Effect.mapError(
           (cause) =>
             new ProviderEventNormalizeError({
@@ -720,12 +726,15 @@ export const layer: Layer.Layer<
               cause,
             }),
         ),
+          ),
       );
 
     return ProviderEventIngestorV2.of({
       normalize,
-      ingestNormalized: (input) =>
-        Effect.gen(function* () {
+      ingestNormalized:
+        /* This helper runs for individual orchestration events; the enclosing operation owns the span. */
+        Effect.fnUntraced(
+          function* (input) {
           const events = yield* normalize(input);
           if (events.length === 0) {
             return [];
@@ -766,11 +775,15 @@ export const layer: Layer.Layer<
             })
             .pipe(Effect.mapError(mapWriteError));
           return result.storedEvents;
-        }).pipe(
+          },
+          (effect, input) =>
+            effect.pipe(
           Effect.flatMap((storedEvents) =>
             Effect.gen(function* () {
               if (input.event.type !== "app_thread.created") return storedEvents;
-              const created = storedEvents.find((stored) => stored.event.type === "thread.created");
+                  const created = storedEvents.find(
+                    (stored) => stored.event.type === "thread.created",
+                  );
               if (created?.event.type !== "thread.created") return storedEvents;
               const child = created.event.payload;
               if (
@@ -821,7 +834,8 @@ export const layer: Layer.Layer<
           ),
           Effect.tap((storedEvents) =>
             Effect.gen(function* () {
-              if (storedEvents.length === 0 || input.event.type !== "provider_turn.updated") return;
+                  if (storedEvents.length === 0 || input.event.type !== "provider_turn.updated")
+                    return;
               const providerTurn = input.event.providerTurn;
               if (
                 providerTurn.status !== "completed" &&
@@ -852,6 +866,7 @@ export const layer: Layer.Layer<
             input.event.type === "app_thread.created"
               ? threadCommands.withLock(input.event.appThread.id, effect)
               : effect,
+        ),
         ),
     });
   }),
