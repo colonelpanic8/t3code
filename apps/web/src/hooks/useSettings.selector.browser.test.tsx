@@ -5,7 +5,11 @@ import { act, render } from "../../test/render";
 
 vi.mock("~/localApi", () => ({
   ensureLocalApi: () => ({
-    persistence: { getClientSettings: async () => null, setClientSettings: async () => {} },
+    persistence: {
+      getClientSettings: async () => null,
+      getManagedClientSettings: async () => null,
+      setClientSettings: async () => {},
+    },
   }),
 }));
 

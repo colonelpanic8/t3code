@@ -510,6 +510,8 @@ const layerTest = (
           DesktopClientSettings.DesktopClientSettings.of({
             get: settingsGet,
             set: () => Effect.void,
+            getManaged: Effect.succeed({}),
+            getManagedKeybindings: Effect.succeed([]),
           }),
         ),
         Layer.succeed(
