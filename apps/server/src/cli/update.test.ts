@@ -1,3 +1,4 @@
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -277,6 +278,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("t3 update servic
                 return {
                   program: [runtime.entryPath],
                   baseDir,
+                  storageRoots: resolveLegacyT3StorageRoots({
+                    baseDir: baseDir,
+                    stateDirectoryName: "userdata",
+                    path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+                  }),
                   logPath,
                   unitPath,
                   handedOff: true,

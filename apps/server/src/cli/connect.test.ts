@@ -1,3 +1,4 @@
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
@@ -83,6 +84,11 @@ it.effect("reports pending onboarding until the handed-off service is ready", ()
     const plan = {
       program: ["/test/t3", "__service-launcher"],
       baseDir: "/test",
+      storageRoots: resolveLegacyT3StorageRoots({
+        baseDir: "/test",
+        stateDirectoryName: "userdata",
+        path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+      }),
       unitPath: "/test/t3code.service",
       logPath: "/test/boot-service.log",
       handedOff: true,
@@ -338,11 +344,9 @@ it.effect("points a failed relay unlink at retry and account deregistration", ()
 it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
   "connect with server location overrides",
   (it) => {
-    const runHarness = Effect.fn(function* (
+    const runHarness = Effect.fn("connectTest.runHarness")(function* <A, E, R>(
       overrides: ServerConfig.ServerLocationOverrides,
-      finish: (
-        locations: Parameters<typeof finishConnectSetup>[0],
-      ) => ReturnType<typeof finishConnectSetup>,
+      finish: (locations: Parameters<typeof finishConnectSetup>[0]) => Effect.Effect<A, E, R>,
     ) {
       const logs: Array<string> = [];
       let statusCalls = 0;

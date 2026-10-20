@@ -241,6 +241,14 @@ const make = Effect.fn("desktop.environment.make")(function* (
     clientDirEnv: config.clientDir,
     path,
   });
+  const clientPaths = resolveDesktopClientPaths({
+    stateDir,
+    homeDirectory,
+    clientDirSwitch: Option.fromNullishOr(input.clientDirSwitch),
+    clientDirEnv: config.clientDir,
+    joinPath: path.join,
+    resolvePath: path.resolve,
+  });
   const linuxApplicationsDir = path.join(
     Option.getOrElse(config.xdgDataHome, () => path.join(homeDirectory, ".local", "share")),
     "applications",

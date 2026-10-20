@@ -329,8 +329,8 @@ const fetchLiveOrchestrationSnapshot = Effect.fn("project.fetchLiveOrchestration
   },
   (effect, _origin, _bearerToken) =>
     effect.pipe(
-    withProjectCliLiveServerTimeout,
-    Effect.mapError(projectCommandErrorFromLiveServerRequest),
+      withProjectCliLiveServerTimeout,
+      Effect.mapError(projectCommandErrorFromLiveServerRequest),
     ),
 );
 
@@ -344,8 +344,8 @@ const dispatchLiveOrchestrationCommand = Effect.fn("project.dispatchLiveOrchestr
   },
   (effect, _origin, _bearerToken, _command) =>
     effect.pipe(
-    withProjectCliLiveServerTimeout,
-    Effect.mapError(projectCommandErrorFromLiveServerRequest),
+      withProjectCliLiveServerTimeout,
+      Effect.mapError(projectCommandErrorFromLiveServerRequest),
     ),
 );
 

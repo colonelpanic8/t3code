@@ -1,3 +1,4 @@
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -66,6 +67,11 @@ const startBesideBootService = Effect.fn("test.startBesideBootService")(function
       ? ["/usr/bin/node", path.join(serviceHome, "runtime", "service-launcher.mjs")]
       : [],
     baseDir: serviceHome,
+    storageRoots: resolveLegacyT3StorageRoots({
+      baseDir: serviceHome,
+      stateDirectoryName: "userdata",
+      path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+    }),
     logPath: "",
     unitPath: "",
   };
