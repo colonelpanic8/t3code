@@ -60,7 +60,7 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "auto");
   });
 
-  it("reads the split-layout config directory when no legacy settings exist", () => {
+  it("reads the split-layout client config directory when no legacy settings exist", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
       env: { XDG_CONFIG_HOME: "/home/user/.xdg" },
       clientDirSwitch: null,
@@ -68,12 +68,41 @@ describe("DesktopEarlyElectronStartup", () => {
       joinPath,
       resolvePath,
       readFileString: (path) => {
-        if (path !== "/home/user/.xdg/t3code/desktop-settings.json") throw new Error("missing");
+        if (path !== "/home/user/.xdg/t3code-client/desktop-settings.json") {
+          throw new Error("missing");
+        }
         return JSON.stringify({ linuxPasswordStore: "kwallet5" });
       },
     });
 
     assert.equal(preference, "kwallet5");
+  });
+
+  it("skips legacy settings once the legacy tree was migrated", () => {
+    const files: Record<string, string> = {
+      "/home/user/.t3/userdata/storage-migration.json": "{}",
+      "/home/user/.t3/userdata/desktop-settings.json": JSON.stringify({
+        linuxPasswordStore: "basic",
+      }),
+      "/home/user/.config/t3code-client/desktop-settings.json": JSON.stringify({
+        linuxPasswordStore: "gnome-libsecret",
+      }),
+    };
+    const preference = resolveEarlyLinuxPasswordStorePreference({
+      env: {},
+      clientDirSwitch: null,
+      homeDirectory: "/home/user",
+      joinPath,
+      resolvePath,
+      exists: (path) => Object.hasOwn(files, path),
+      readFileString: (path) => {
+        const contents = files[path];
+        if (contents === undefined) throw new Error("missing");
+        return contents;
+      },
+    });
+
+    assert.equal(preference, "gnome-libsecret");
   });
 
   it("reads the client dir's settings in the split layout too", () => {
@@ -93,9 +122,9 @@ describe("DesktopEarlyElectronStartup", () => {
     assert.equal(preference, "kwallet5");
   });
 
-  it("expands ~ in T3CODE_CONFIG_DIR", () => {
+  it("reads T3CODE_CLIENT_CONFIG_DIR, not the server's T3CODE_CONFIG_DIR", () => {
     const preference = resolveEarlyLinuxPasswordStorePreference({
-      env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" },
+      env: { T3CODE_CONFIG_DIR: "/srv/t3/config", T3CODE_CLIENT_CONFIG_DIR: "~/dotfiles/t3code" },
       clientDirSwitch: null,
       homeDirectory: "/home/user",
       joinPath,
