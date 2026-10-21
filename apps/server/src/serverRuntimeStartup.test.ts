@@ -92,6 +92,8 @@ it.effect.each([
           staticDir: undefined,
           devAllowedOrigins: [],
           desktopBootstrapToken: undefined,
+          managedAccessToken: undefined,
+          environmentIdOverride: undefined,
           logWebSocketEvents: false,
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
@@ -104,6 +106,9 @@ it.effect.each([
           startupPresentation: "browser",
           autoBootstrapProjectFromCwd: true,
           serverConfigFile: undefined,
+        }),
+        Layer.mock(Keybindings.Keybindings)({
+          start: Effect.void,
         }),
         Layer.mock(Keybindings.Keybindings)({
           start: Effect.void,

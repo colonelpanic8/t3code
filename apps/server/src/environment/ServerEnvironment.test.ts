@@ -6,11 +6,9 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import {
   PUBLISH_AGENT_ACTIVITY_SECRET,
@@ -19,13 +17,11 @@ import {
 } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
-
 const layerServerEnvironment = (baseDir: string) =>
   ServerEnvironment.layer.pipe(
     Layer.provide(ServerSecretStore.layer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
-
 const layerEmptySecretStore = Layer.succeed(
   ServerSecretStore.ServerSecretStore,
   ServerSecretStore.ServerSecretStore.of({
@@ -36,10 +32,8 @@ const layerEmptySecretStore = Layer.succeed(
     remove: () => Effect.void,
   }),
 );
-
 const makeServerConfig = Effect.fn(function* (baseDir: string) {
   const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, undefined);
-
   return {
     ...derivedPaths,
     logLevel: "Error",
@@ -65,6 +59,8 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
     port: 0,
     host: undefined,
     desktopBootstrapToken: undefined,
+    managedAccessToken: undefined,
+    environmentIdOverride: undefined,
     staticDir: undefined,
     devUrl: undefined,
     devAllowedOrigins: [],
@@ -72,7 +68,6 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
     startupPresentation: "browser",
   } satisfies ServerConfig.ServerConfig["Service"];
 });
-
 it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
   it.effect("publishes proven install ownership only for manually updated servers", () =>
     Effect.gen(function* () {
@@ -80,8 +75,12 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       const baseDir = yield* fs.makeTempDirectoryScoped();
       const prefix = `${baseDir}/node`;
       const entry = `${prefix}/lib/node_modules/t3/dist/bin.mjs`;
-      yield* fs.makeDirectory(`${prefix}/lib/node_modules/t3/dist`, { recursive: true });
-      yield* fs.makeDirectory(`${prefix}/bin`, { recursive: true });
+      yield* fs.makeDirectory(`${prefix}/lib/node_modules/t3/dist`, {
+        recursive: true,
+      });
+      yield* fs.makeDirectory(`${prefix}/bin`, {
+        recursive: true,
+      });
       yield* fs.writeFileString(entry, "");
       yield* fs.writeFileString(
         `${prefix}/lib/node_modules/t3/package.json`,
@@ -89,7 +88,9 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       );
       yield* fs.symlink(entry, `${prefix}/bin/t3`);
       const config = yield* makeServerConfig(baseDir);
-      yield* fs.makeDirectory(config.stateDir, { recursive: true });
+      yield* fs.makeDirectory(config.stateDir, {
+        recursive: true,
+      });
       for (const mode of ["web", "desktop"] as const) {
         const descriptor = yield* Effect.gen(function* () {
           const environment = yield* ServerEnvironment.ServerEnvironment;
@@ -98,7 +99,12 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           Effect.provide(
             ServerEnvironment.layer.pipe(
               Layer.provide(layerEmptySecretStore),
-              Layer.provide(ServerConfig.layer({ ...config, mode })),
+              Layer.provide(
+                ServerConfig.layer({
+                  ...config,
+                  mode,
+                }),
+              ),
             ),
           ),
           Effect.provideService(HostProcess.Arguments, ["node", entry]),
@@ -107,7 +113,12 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
           Effect.provideService(HostProcess.Environment, {}),
         );
         expect(descriptor.capabilities.serverInstallation).toEqual(
-          mode === "web" ? { kind: "npm-global", prefix } : undefined,
+          mode === "web"
+            ? {
+                kind: "npm-global",
+                prefix,
+              }
+            : undefined,
         );
         expect(descriptor.capabilities.serverSelfUpdate).toBe(
           mode === "web" ? undefined : "desktop-managed",
@@ -123,9 +134,18 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
     }),
   );
   it.effect.each([
-    { name: "missing", content: undefined },
-    { name: "empty", content: "" },
-    { name: "whitespace-only", content: " \t\n" },
+    {
+      name: "missing",
+      content: undefined,
+    },
+    {
+      name: "empty",
+      content: "",
+    },
+    {
+      name: "whitespace-only",
+      content: " \t\n",
+    },
   ])("concurrent initializers recover a $name environment id file", ({ content }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -134,7 +154,9 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
         prefix: "t3-server-environment-concurrent-test-",
       });
       const serverConfig = yield* makeServerConfig(baseDir);
-      yield* fileSystem.makeDirectory(serverConfig.stateDir, { recursive: true });
+      yield* fileSystem.makeDirectory(serverConfig.stateDir, {
+        recursive: true,
+      });
       if (content !== undefined) {
         yield* fileSystem.writeFileString(serverConfig.environmentIdPath, content);
       }
@@ -182,24 +204,38 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
             })) as Crypto.Crypto["randomUUIDv4"],
         }),
       );
-
       const [first, second] = yield* Effect.all([readIdentity, readIdentity], {
         concurrency: "unbounded",
       });
       const persisted = yield* fileSystem.readFileString(serverConfig.environmentIdPath);
-
       expect(first).toBe(second);
       expect(persisted.trim()).toBe(first);
     }),
   );
-
+  it.effect("uses a configured fleet environment ID without persisting a generated ID", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-server-environment-test-",
+      });
+      const config = {
+        ...(yield* makeServerConfig(baseDir)),
+        environmentIdOverride: "fleet:ryzen-shine",
+      };
+      const identity = yield* ServerEnvironment.ServerEnvironmentIdentity.pipe(
+        Effect.provide(Layer.fresh(ServerEnvironment.layerIdentity)),
+        Effect.provideService(ServerConfig.ServerConfig, config),
+      );
+      expect(yield* identity.getEnvironmentId).toBe("fleet:ryzen-shine");
+      expect(yield* fileSystem.exists(config.environmentIdPath)).toBe(false);
+    }).pipe(Effect.scoped),
+  );
   it.effect("persists the environment id across service restarts", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-server-environment-test-",
       });
-
       const first = yield* Effect.gen(function* () {
         const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
         return yield* serverEnvironment.getDescriptor;
@@ -208,13 +244,14 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
         const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
         return yield* serverEnvironment.getDescriptor;
       }).pipe(Effect.provide(layerServerEnvironment(baseDir)));
-
       expect(first.environmentId).toBe(second.environmentId);
       expect(first.orchestrationProtocolVersion).toBe(ORCHESTRATION_PROTOCOL_VERSION);
       expect(second.capabilities.repositoryIdentity).toBe(true);
       expect(second.capabilities.connectionProbe).toBe(true);
       expect(second.capabilities.attachmentUploads).toBe(true);
-      expect(second.capabilities.fileAttachments).toEqual({ maxUploadBytes: 50 * 1024 * 1024 });
+      expect(second.capabilities.fileAttachments).toEqual({
+        maxUploadBytes: 50 * 1024 * 1024,
+      });
       expect(second.capabilities.pullRequests).toBe(true);
       expect(second.capabilities.requiredWorktreeBootstrap).toBe(true);
       expect(second.capabilities.usagePriceOverrides).toBe(true);
@@ -227,7 +264,6 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.agentActivityPublishing).toBe(false);
     }),
   );
-
   it.effect("reports agent activity publishing from the current secret state", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -238,28 +274,22 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
         ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer)),
         ServerSecretStore.layer,
       ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)));
-
       yield* Effect.gen(function* () {
         const secrets = yield* ServerSecretStore.ServerSecretStore;
         const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
         const encode = (value: string) => new TextEncoder().encode(value);
-
         const unlinked = yield* serverEnvironment.getDescriptor;
         expect(unlinked.capabilities.agentActivityPublishing).toBe(false);
-
         yield* secrets.set(PUBLISH_AGENT_ACTIVITY_SECRET, encode("true"));
         const withoutLink = yield* serverEnvironment.getDescriptor;
         expect(withoutLink.capabilities.agentActivityPublishing).toBe(false);
-
         yield* secrets.set(RELAY_URL_SECRET, encode(""));
         yield* secrets.set(RELAY_ENVIRONMENT_CREDENTIAL_SECRET, encode("credential"));
         const emptyUrl = yield* serverEnvironment.getDescriptor;
         expect(emptyUrl.capabilities.agentActivityPublishing).toBe(false);
-
         yield* secrets.set(RELAY_URL_SECRET, encode("https://relay.example"));
         const linked = yield* serverEnvironment.getDescriptor;
         expect(linked.capabilities.agentActivityPublishing).toBe(true);
-
         yield* secrets.set(PUBLISH_AGENT_ACTIVITY_SECRET, encode("false"));
         const disabled = yield* serverEnvironment.getDescriptor;
         expect(disabled.capabilities.agentActivityPublishing).toBe(false);
