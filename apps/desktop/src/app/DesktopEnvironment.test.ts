@@ -100,6 +100,27 @@ describe("DesktopEnvironment", () => {
       );
     }),
   );
+  it.effect("reads server settings from the server config dir override", () =>
+    Effect.gen(function* () {
+      const relative = yield* makeEnvironment(
+        {},
+        {
+          T3CODE_SERVER_CONFIG_DIR: "config",
+        },
+      );
+      assert.equal(relative.serverSettingsPath, "/repo/config/settings.json");
+      const home = yield* makeEnvironment(
+        {
+          isPackaged: true,
+        },
+        {
+          T3CODE_SERVER_CONFIG_DIR: "~/c",
+        },
+      );
+      assert.equal(home.serverSettingsPath, "/Users/alice/c/settings.json");
+      assert.equal(home.stateDir, "/Users/alice/.t3/userdata");
+    }),
+  );
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({

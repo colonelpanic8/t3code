@@ -127,7 +127,7 @@ export const resolveCliCommand = (subcommand: string) =>
     formatCliCommand({ subcommand, entryPath, version: packageJson.version }),
   );
 
-const shellWord = (value: string) =>
+export const shellWord = (value: string) =>
   /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
 
 /**

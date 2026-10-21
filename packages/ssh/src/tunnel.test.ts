@@ -1,3 +1,5 @@
+import * as FileSystem from "effect/FileSystem";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
@@ -13,11 +15,9 @@ import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
-
 import * as SshAuth from "./auth.ts";
 import { SshCommandError } from "./errors.ts";
 import * as SshTunnel from "./tunnel.ts";
-
 const makeSuccessfulProcess = (stdout: string) => {
   const stdoutStream = Stream.make(new TextEncoder().encode(stdout));
   return ChildProcessSpawner.makeHandle({
@@ -34,7 +34,6 @@ const makeSuccessfulProcess = (stdout: string) => {
     unref: Effect.succeed(Effect.void),
   });
 };
-
 const makeRunningProcess = (onKill: () => void) => {
   let finish: ((exitCode: ChildProcessSpawner.ExitCode) => void) | null = null;
   return ChildProcessSpawner.makeHandle({
@@ -60,13 +59,17 @@ const makeRunningProcess = (onKill: () => void) => {
     unref: Effect.succeed(Effect.void),
   });
 };
-
 const testHttpClient = HttpClient.make((request) =>
-  Effect.succeed(HttpClientResponse.fromWeb(request, new Response("", { status: 200 }))),
+  Effect.succeed(
+    HttpClientResponse.fromWeb(
+      request,
+      new Response("", {
+        status: 200,
+      }),
+    ),
+  ),
 );
-
 const hangingHttpClient = HttpClient.make(() => Effect.never);
-
 const testNetService = NetService.NetService.of({
   canListenOnHost: () => Effect.succeed(true),
   isPortAvailableOnLoopback: () => Effect.succeed(true),
@@ -74,13 +77,12 @@ const testNetService = NetService.NetService.of({
   reserveLoopbackPort: () => Effect.succeed(41_773),
   findAvailablePort: (preferred) => Effect.succeed(preferred),
 });
-
 function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
   return command._tag === "StandardCommand" ? command.args : [];
 }
-
-const ARCHIVE = { archiveVersion: "1.2.3-preview.20260911.4" } as const;
-
+const ARCHIVE = {
+  archiveVersion: "1.2.3-preview.20260911.4",
+} as const;
 describe("ssh tunnel scripts", () => {
   it("rejects archive versions that are not a single exact version segment", () => {
     for (const archiveVersion of [
@@ -92,7 +94,10 @@ describe("ssh tunnel scripts", () => {
       "v1.2.3",
     ]) {
       assert.throws(
-        () => SshTunnel.buildRemoteT3RunnerScript({ archiveVersion }),
+        () =>
+          SshTunnel.buildRemoteT3RunnerScript({
+            archiveVersion,
+          }),
         SshTunnel.SshInvalidArchiveVersionError,
         undefined,
         archiveVersion,
@@ -103,7 +108,6 @@ describe("ssh tunnel scripts", () => {
       "T3_ARCHIVE_VERSION='1.2.3-preview.20260911.4'",
     );
   });
-
   it.effect("accepts launch JSON after remote shell startup noise", () => {
     const target = {
       alias: "devbox",
@@ -120,14 +124,12 @@ describe("ssh tunnel scripts", () => {
     );
     const layerSpawner = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner);
     const layerProcess = Layer.merge(NodeServices.layer, layerSpawner);
-
     return Effect.gen(function* () {
       const result = yield* SshTunnel.launchOrReuseRemoteServer(target, undefined, ARCHIVE);
       assert.equal(result.remotePort, 3774);
       assert.deepEqual(spawnedCommands[0]?.slice(-5, -1), ["sh", "-l", "-s", "--"]);
     }).pipe(Effect.provide(layerProcess));
   });
-
   it.effect("accepts pretty-printed pairing JSON after remote shell startup noise", () => {
     const target = {
       alias: "devbox",
@@ -155,7 +157,6 @@ describe("ssh tunnel scripts", () => {
       assert.equal(result.credential, "LCL4R2TPHDKQ");
     }).pipe(Effect.provide(layerProcess));
   });
-
   it.effect("retains a bounded diagnostic tail when the tunnel exits before readiness", () =>
     Effect.gen(function* () {
       const diagnostic = "Connection refused: café";
@@ -179,7 +180,9 @@ describe("ssh tunnel scripts", () => {
         Layer.succeed(HttpClient.HttpClient, hangingHttpClient),
         Layer.succeed(NetService.NetService, testNetService),
         SshAuth.SshPasswordPrompt.disabledLayer,
-        SshTunnel.SshEnvironmentManager.layer({ resolveCliRunner: Effect.succeed(ARCHIVE) }),
+        SshTunnel.SshEnvironmentManager.layer({
+          resolveCliRunner: Effect.succeed(ARCHIVE),
+        }),
       );
       yield* Effect.gen(function* () {
         const manager = yield* SshTunnel.SshEnvironmentManager;
@@ -204,7 +207,6 @@ describe("ssh tunnel scripts", () => {
       }).pipe(Effect.provide(layer), Effect.scoped);
     }),
   );
-
   it.effect("reports the real exit when reading tunnel diagnostics fails", () =>
     Effect.gen(function* () {
       const diagnostic = "Permission denied (publickey)";
@@ -236,7 +238,9 @@ describe("ssh tunnel scripts", () => {
         Layer.succeed(HttpClient.HttpClient, hangingHttpClient),
         Layer.succeed(NetService.NetService, testNetService),
         SshAuth.SshPasswordPrompt.disabledLayer,
-        SshTunnel.SshEnvironmentManager.layer({ resolveCliRunner: Effect.succeed(ARCHIVE) }),
+        SshTunnel.SshEnvironmentManager.layer({
+          resolveCliRunner: Effect.succeed(ARCHIVE),
+        }),
       );
       yield* Effect.gen(function* () {
         const manager = yield* SshTunnel.SshEnvironmentManager;
@@ -259,7 +263,6 @@ describe("ssh tunnel scripts", () => {
       }).pipe(Effect.provide(layer), Effect.scoped);
     }),
   );
-
   it.effect.each(["local tunnel", "remote server"] as const)(
     "waits for %s shutdown before reconnecting the same target",
     (stalledStep) =>
@@ -275,7 +278,12 @@ describe("ssh tunnel scripts", () => {
         let tunnels = 0;
         let stops = 0;
         let remoteRunning = false;
-        const target = { alias: "devbox", hostname: "devbox", username: null, port: null };
+        const target = {
+          alias: "devbox",
+          hostname: "devbox",
+          username: null,
+          port: null,
+        };
         const spawner = ChildProcessSpawner.make((command) =>
           Effect.gen(function* () {
             const args = commandArgs(command);
@@ -326,7 +334,9 @@ describe("ssh tunnel scripts", () => {
           Layer.succeed(HttpClient.HttpClient, testHttpClient),
           Layer.succeed(NetService.NetService, testNetService),
           SshAuth.SshPasswordPrompt.disabledLayer,
-          SshTunnel.SshEnvironmentManager.layer({ resolveCliRunner: Effect.succeed(ARCHIVE) }),
+          SshTunnel.SshEnvironmentManager.layer({
+            resolveCliRunner: Effect.succeed(ARCHIVE),
+          }),
         );
         yield* Effect.gen(function* () {
           const manager = yield* SshTunnel.SshEnvironmentManager;
@@ -336,7 +346,6 @@ describe("ssh tunnel scripts", () => {
           const firstReconnect = yield* Effect.forkChild(manager.ensureEnvironment(target));
           const secondReconnect = yield* Effect.forkChild(manager.ensureEnvironment(target));
           yield* Deferred.await(reconnectsStarted);
-
           yield* manager.ensureEnvironment({
             alias: "other",
             hostname: "other",
@@ -349,7 +358,6 @@ describe("ssh tunnel scripts", () => {
           yield* Fiber.join(disconnect);
           const first = yield* Fiber.join(firstReconnect);
           const second = yield* Fiber.join(secondReconnect);
-
           assert.equal(launchesBeforeShutdown, 1);
           assert.equal(launches, 2);
           assert.equal(tunnels, 2);
@@ -368,3 +376,114 @@ describe("ssh tunnel scripts", () => {
 // desktop app with network access on) listens on *:<port>. Linux refuses that
 // bind unless both sockets set SO_REUSEPORT, so on Linux the preload adds it to
 // the picker's probe and the holder sets it too.
+
+describe("remote launch and pairing scripts", () => {
+  const windowsHost = HostProcess.Platform.defaultValue() === "win32";
+
+  // Stands in for the t3 CLI: records each invocation, and `serve` answers the
+  // readiness probe on its --port.
+  const FAKE_T3 = `const fs = require("node:fs");
+const http = require("node:http");
+const args = process.argv.slice(2);
+fs.appendFileSync(
+  process.env.T3_FAKE_RECORD,
+  JSON.stringify({ args, dataDir: process.env.T3CODE_SERVER_DATA_DIR ?? null }) + "\\n",
+);
+if (args[0] === "serve") {
+  const port = Number(args[args.indexOf("--port") + 1]);
+  http.createServer((_request, response) => response.end("ok")).listen(port, "127.0.0.1");
+  setTimeout(() => process.exit(0), 10_000);
+} else {
+  process.stdout.write("{}\\n");
+}
+`;
+  const runScript = (script: string, args: ReadonlyArray<string>, env: Record<string, string>) =>
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const child = yield* spawner.spawn(
+        ChildProcess.make("sh", ["-c", script, "sh", ...args], {
+          env,
+          extendEnv: false,
+        }),
+      );
+      const [stderr, exitCode] = yield* Effect.all(
+        [
+          child.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runFold(
+              () => "",
+              (acc, chunk) => acc + chunk,
+            ),
+          ),
+          child.exitCode.pipe(Effect.map(Number)),
+          child.stdout.pipe(Stream.runDrain),
+        ],
+        {
+          concurrency: "unbounded",
+        },
+      );
+      return {
+        stderr,
+        exitCode,
+      };
+    });
+  it.effect.skipIf(windowsHost)(
+    "pins the server and pairing to ~/.t3 even when the remote exports a data dir",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-ssh-launch-",
+        });
+        const home = `${root}/home`;
+        const record = `${root}/record.ndjson`;
+        const fakeT3 = `${root}/fake-t3.cjs`;
+        yield* fs.makeDirectory(home, {
+          recursive: true,
+        });
+        yield* fs.writeFileString(fakeT3, FAKE_T3);
+        const runner = {
+          nodeScriptPath: fakeT3,
+        };
+        const stateKey = "location-test";
+        const env = {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          T3_FAKE_RECORD: record,
+          T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
+        };
+        yield* Effect.addFinalizer(() =>
+          fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
+            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.ignore,
+          ),
+        );
+        const launch = yield* runScript(SshTunnel.buildRemoteLaunchScript(runner), [stateKey], env);
+        assert.equal(launch.exitCode, 0, launch.stderr);
+        const pairing = yield* runScript(
+          SshTunnel.buildRemotePairingScript(stateKey, runner),
+          [],
+          env,
+        );
+        assert.equal(pairing.exitCode, 0, pairing.stderr);
+        const invocations = (yield* fs.readFileString(record))
+          .trim()
+          .split("\n")
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                args: Array<string>;
+                dataDir: string | null;
+              },
+          );
+        const serve = invocations.find((entry) => entry.args[0] === "serve");
+        const pair = invocations.find((entry) => entry.args[0] === "auth");
+        assert.deepEqual(serve?.args.slice(-2), ["--base-dir", `${home}/.t3`]);
+        assert.isNull(serve?.dataDir);
+        assert.deepEqual(pair, {
+          args: ["auth", "pairing", "create", "--base-dir", `${home}/.t3`, "--json"],
+          dataDir: null,
+        });
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
