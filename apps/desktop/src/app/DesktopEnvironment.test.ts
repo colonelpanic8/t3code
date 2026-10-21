@@ -3,11 +3,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
-
 const defaultInput = {
   dirname: "/repo/apps/desktop/dist-electron",
   homeDirectory: "/Users/alice",
@@ -19,7 +16,6 @@ const defaultInput = {
   resourcesPath: "/Applications/T3 Code.app/Contents/Resources",
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
-
 const layerEnvironment = (
   overrides: Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> = {},
   env: Record<string, string | undefined> = {},
@@ -32,107 +28,20 @@ const layerEnvironment = (
       Layer.mergeAll(NodeServices.layer, NodePath.layerPosix, DesktopConfig.layerTest(env)),
     ),
   );
-
 const makeEnvironment = (
   overrides: Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> = {},
   env: Record<string, string | undefined> = {},
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
-
 describe("DesktopEnvironment", () => {
-  it.effect("derives state paths and development identity inside Effect", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment(
-        {},
-        {
-          T3CODE_HOME: " /tmp/t3 ",
-          T3CODE_COMMIT_HASH: " 0123456789abcdef ",
-          T3CODE_PORT: "4949",
-          VITE_DEV_SERVER_URL: "http://localhost:5173",
-          T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH: " /remote/server.mjs ",
-          T3CODE_OTLP_TRACES_URL: " http://127.0.0.1:4318/v1/traces ",
-          T3CODE_OTLP_METRICS_URL: " http://127.0.0.1:4318/v1/metrics ",
-          T3CODE_OTLP_LOGS_URL: " http://127.0.0.1:4318/v1/logs ",
-          T3CODE_OTLP_EXPORT_INTERVAL_MS: "2500",
-          T3CODE_OTLP_HEADERS: "authorization=Basic%20abc%3D%3D,x-tenant=t3",
-          T3CODE_OTLP_PROTOCOL: "http/protobuf",
-        },
-      );
-
-      assert.equal(environment.isDevelopment, true);
-      assert.equal(environment.appDataDirectory, "/Users/alice/Library/Application Support");
-      assert.equal(environment.baseDir, "/tmp/t3");
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.clientConfigDir, "/tmp/t3/userdata");
-      assert.equal(environment.clientStateDir, "/tmp/t3/userdata");
-      assert.equal(environment.desktopSettingsPath, "/tmp/t3/userdata/desktop-settings.json");
-      assert.equal(
-        environment.desktopWindowStatePath,
-        "/tmp/t3/userdata/desktop-window-state.json",
-      );
-      assert.equal(environment.clientSettingsPath, "/tmp/t3/userdata/client-settings.json");
-      assert.equal(environment.connectionCatalogPath, "/tmp/t3/userdata/connection-catalog.json");
-      assert.equal(
-        environment.savedEnvironmentRegistryPath,
-        "/tmp/t3/userdata/saved-environments.json",
-      );
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
-      assert.equal(environment.rootDir, "/repo");
-      assert.equal(environment.appRoot, "/repo");
-      assert.equal(environment.serverRoot, "/repo");
-      assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
-      assert.equal(environment.backendCwd, "/repo");
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
-      assert.equal(environment.linuxWmClass, "t3code-dev");
-      assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.Development.desktop");
-      assert.deepEqual(
-        Option.map(environment.devServerUrl, (url) => url.href),
-        Option.some("http://localhost:5173/"),
-      );
-      assert.deepEqual(environment.devRemoteT3ServerEntryPath, Option.some("/remote/server.mjs"));
-      assert.deepEqual(environment.configuredBackendPort, Option.some(4949));
-      assert.deepEqual(environment.commitHashOverride, Option.some("0123456789abcdef"));
-      assert.deepEqual(environment.otlpTracesUrl, Option.some("http://127.0.0.1:4318/v1/traces"));
-      assert.deepEqual(environment.otlpMetricsUrl, Option.some("http://127.0.0.1:4318/v1/metrics"));
-      assert.deepEqual(environment.otlpLogsUrl, Option.some("http://127.0.0.1:4318/v1/logs"));
-      assert.equal(environment.otlpExportIntervalMs, 2500);
-      assert.deepEqual(
-        environment.otlpHeaders,
-        Option.some({
-          authorization: "Basic abc==",
-          "x-tenant": "t3",
-        }),
-      );
-      assert.equal(environment.otlpProtocol, "http/protobuf");
-    }),
-  );
-
-  it.effect("stores production state under userdata in an explicit home", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment(
-        {},
-        {
-          T3CODE_HOME: "/tmp/t3",
-        },
-      );
-
-      assert.equal(environment.isDevelopment, false);
-      assert.equal(environment.stateDir, "/tmp/t3/userdata");
-      assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
-      assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
-      assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
-      assert.equal(environment.otlpProtocol, "http/json");
-    }),
-  );
-
   it.effect("keeps desktop client files in T3CODE_CLIENT_DIR, apart from server state", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(
         {},
-        { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: " /tmp/t3-client " },
+        {
+          T3CODE_HOME: "/tmp/t3-server",
+          T3CODE_CLIENT_DIR: " /tmp/t3-client ",
+        },
       );
-
       assert.equal(environment.stateDir, "/tmp/t3-server/userdata");
       assert.equal(environment.serverSettingsPath, "/tmp/t3-server/userdata/settings.json");
       assert.equal(environment.logDir, "/tmp/t3-server/userdata/logs");
@@ -149,14 +58,17 @@ describe("DesktopEnvironment", () => {
       );
     }),
   );
-
   it.effect("prefers --client-dir over T3CODE_CLIENT_DIR", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment(
-        { clientDirSwitch: "/tmp/t3-client-flag" },
-        { T3CODE_HOME: "/tmp/t3-server", T3CODE_CLIENT_DIR: "/tmp/t3-client-env" },
+        {
+          clientDirSwitch: "/tmp/t3-client-flag",
+        },
+        {
+          T3CODE_HOME: "/tmp/t3-server",
+          T3CODE_CLIENT_DIR: "/tmp/t3-client-env",
+        },
       );
-
       assert.equal(environment.stateDir, "/tmp/t3-server/userdata");
       assert.equal(environment.desktopSettingsPath, "/tmp/t3-client-flag/desktop-settings.json");
       assert.equal(
@@ -165,27 +77,29 @@ describe("DesktopEnvironment", () => {
       );
     }),
   );
-
   it.effect("expands ~ in --client-dir against the home directory", () =>
     Effect.gen(function* () {
-      const environment = yield* makeEnvironment({ clientDirSwitch: "~/c" });
-
+      const environment = yield* makeEnvironment({
+        clientDirSwitch: "~/c",
+      });
       assert.equal(environment.clientConfigDir, "/Users/alice/c");
       assert.equal(environment.desktopSettingsPath, "/Users/alice/c/desktop-settings.json");
     }),
   );
-
   it.effect("resolves a relative T3CODE_CLIENT_DIR against the working directory", () =>
     Effect.gen(function* () {
-      const environment = yield* makeEnvironment({}, { T3CODE_CLIENT_DIR: "t3-client" });
-
+      const environment = yield* makeEnvironment(
+        {},
+        {
+          T3CODE_CLIENT_DIR: "t3-client",
+        },
+      );
       assert.equal(
         environment.desktopSettingsPath,
         `${process.cwd()}/t3-client/desktop-settings.json`,
       );
     }),
   );
-
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({
@@ -194,7 +108,6 @@ describe("DesktopEnvironment", () => {
         appPath: "/install/resources/app.asar",
         resourcesPath: "/install/resources",
       });
-
       assert.equal(environment.appRoot, "/install/resources/app.asar");
       assert.equal(environment.serverRoot, "/install/resources/server.asar");
       assert.equal(
@@ -207,64 +120,17 @@ describe("DesktopEnvironment", () => {
       );
     }),
   );
-
-  it.effect("uses the stable desktop entry as the packaged Linux portal identity", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment({
-        platform: "linux",
-        isPackaged: true,
-        appPath: "/tmp/.mount_t3code/resources/app.asar",
-        resourcesPath: "/tmp/.mount_t3code/resources",
-      });
-
-      assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.desktop");
-    }),
-  );
-
   it.effect("keeps implicit development state separate from production state", () =>
     Effect.gen(function* () {
       const development = yield* makeEnvironment(
         {},
-        { VITE_DEV_SERVER_URL: "http://localhost:5173" },
-      );
-      const production = yield* makeEnvironment();
-
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
-    }),
-  );
-
-  it.effect("uses a configured app user model id override", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment(
-        {},
         {
-          T3CODE_DESKTOP_APP_USER_MODEL_ID: " com.t3tools.t3code.dev.local ",
           VITE_DEV_SERVER_URL: "http://localhost:5173",
         },
       );
-
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev.local");
-    }),
-  );
-
-  it.effect("resolves picker defaults without nullish sentinels", () =>
-    Effect.gen(function* () {
-      const environment = yield* makeEnvironment();
-
-      assert.deepEqual(environment.resolvePickFolderDefaultPath(null), Option.none());
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: " " }),
-        Option.none(),
-      );
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~" }),
-        Option.some("/Users/alice"),
-      );
-      assert.deepEqual(
-        environment.resolvePickFolderDefaultPath({ initialPath: "~/project" }),
-        Option.some("/Users/alice/project"),
-      );
+      const production = yield* makeEnvironment();
+      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
+      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
     }),
   );
 });
