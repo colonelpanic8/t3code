@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
@@ -70,12 +71,16 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
   "NoRunningServerError",
   {
     checkedStatePaths: Schema.Array(Schema.String),
+    inLinkedWorktree: Schema.Boolean,
   },
 ) {
   override get message(): string {
     return [
       "No running T3 Code server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
+      ...(this.inLinkedWorktree
+        ? ["In a linked worktree, pass --base-dir to pair with a server outside it."]
+        : []),
       "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
     ].join("\n");
   }
@@ -262,29 +267,29 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   const path = yield* Path.Path;
   const overrides = yield* resolveServerLocationOverrides(flags);
   const candidates: Array<PairCandidate> = [];
+  let inLinkedWorktree = false;
   if (Option.isNone(Option.filter(flags.baseDir, (value) => value.trim().length > 0))) {
-    // Same precedence as dev-runner: inside a linked worktree its own `.t3`
-    // outranks the shared home, so `t3 pair` in a worktree pairs with the dev
-    // server under test rather than the daily-driver install.
-    const worktreeHome = yield* resolveWorktreeT3Home(process.cwd());
+    const worktreeHome = yield* resolveWorktreeT3Home(yield* HostProcess.WorkingDirectory);
     if (worktreeHome !== undefined) {
       candidates.push(...legacyCandidates(worktreeHome, path));
+      inLinkedWorktree = true;
     }
   }
-  const host = yield* currentStorageHost;
-  for (const variant of ["userdata", "dev"] as const) {
-    const storage = yield* resolveServerStorage({
-      baseDir: flags.baseDir,
-      storageLayout: flags.storageLayout ?? Option.none(),
-      isDevelopment: variant === "dev",
-      host,
-    });
-    // A legacy home holds both variants whichever one this pass asked for.
-    candidates.push(
-      ...(storage.roots.layout === "legacy"
-        ? legacyCandidates(storage.roots.legacyBaseDir, path)
-        : [{ storage, variant }]),
-    );
+  if (!inLinkedWorktree) {
+    const host = yield* currentStorageHost;
+    for (const variant of ["userdata", "dev"] as const) {
+      const storage = yield* resolveServerStorage({
+        baseDir: flags.baseDir,
+        storageLayout: flags.storageLayout ?? Option.none(),
+        isDevelopment: variant === "dev",
+        host,
+      });
+      candidates.push(
+        ...(storage.roots.layout === "legacy"
+          ? legacyCandidates(storage.roots.legacyBaseDir, path)
+          : [{ storage, variant }]),
+      );
+    }
   }
 
   const checkedStatePaths: Array<string> = [];
@@ -317,7 +322,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       descriptor: probed.descriptor,
     } satisfies DiscoveredPairTarget;
   }
-  return yield* new NoRunningServerError({ checkedStatePaths });
+  return yield* new NoRunningServerError({ checkedStatePaths, inLinkedWorktree });
 });
 
 /**
