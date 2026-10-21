@@ -8,7 +8,7 @@ import {
 } from "./ChatView.logic";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
-import { deriveProviderInstanceEntries } from "../providerInstances";
+import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { ensureInlineContextReferences } from "../lib/composerContextReferences";
 import { terminalContextReference } from "../lib/composerContextRecords";
 import {
@@ -35,6 +35,7 @@ import { environmentThreadDetails } from "../state/threads";
 import type { Thread } from "../types";
 import { makeThreadFixture, makeThreadProjectionFixture } from "../test-fixtures";
 import {
+  buildLocalDraftThread,
   getAntigravitySendBlockReason,
   resolveComposerProviderSelection,
   resolveWorktreeSetupProgress,
@@ -99,6 +100,36 @@ const readySession = {
   lastError: null,
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
+describe("buildLocalDraftThread", () => {
+  it("shows a draft's blank slate before the thread exists", () => {
+    const draft = {
+      threadId: ThreadId.make("thread-draft-blank-slate"),
+      environmentId: EnvironmentId.make("environment-local"),
+      projectId: ProjectId.make("project-1"),
+      logicalProjectKey: "project-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      runtimeMode: "full-access" as const,
+      interactionMode: "default" as const,
+      branch: null,
+      worktreePath: null,
+      envMode: "local" as const,
+      startFromOrigin: false,
+    };
+    const build = (blankSlate: boolean) =>
+      buildLocalDraftThread(
+        draft.threadId,
+        blankSlate
+          ? {
+              ...draft,
+              blankSlate,
+            }
+          : draft,
+        NO_PROVIDER_MODEL_SELECTION,
+      ).blankSlate;
+    expect(build(true)).toBe(true);
+    expect(build(false)).toBeUndefined();
+  });
+});
 describe("resolveDraftPromotionNavigationTarget", () => {
   const serverThreadRef = {
     environmentId,

@@ -21,7 +21,6 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -36,16 +35,34 @@ import {
 } from "./adapter.ts";
 import * as CursorAgentSdk from "./CursorAgentSdk.ts";
 import { ConfigurationError } from "./sdk.ts";
-
 const decodeCursorSettings = Schema.decodeEffect(CursorSettings);
-
 describe("CursorAdapterV2", () => {
   it.effect.each([
-    { status: "finished", model: undefined, lateModel: undefined },
-    { status: "cancelled", model: "claude-opus-4-6", lateModel: undefined },
-    { status: "error", model: "custom-fable", lateModel: undefined },
-    { status: "finished", model: undefined, lateModel: "gpt-6-sol" },
-    { status: "finished", model: "gpt-6-sol", lateModel: null },
+    {
+      status: "finished",
+      model: undefined,
+      lateModel: undefined,
+    },
+    {
+      status: "cancelled",
+      model: "claude-opus-4-6",
+      lateModel: undefined,
+    },
+    {
+      status: "error",
+      model: "custom-fable",
+      lateModel: undefined,
+    },
+    {
+      status: "finished",
+      model: undefined,
+      lateModel: "gpt-6-sol",
+    },
+    {
+      status: "finished",
+      model: "gpt-6-sol",
+      lateModel: null,
+    },
   ] as const)(
     "projects Cursor tasks: $status, late model $lateModel",
     ({ status, model, lateModel }) =>
@@ -67,7 +84,10 @@ describe("CursorAdapterV2", () => {
           browserToolsAvailable: true,
         });
         let sentWithMcpOverride = true;
-        const modelSelection = { instanceId, model: "composer-2.5" };
+        const modelSelection = {
+          instanceId,
+          model: "composer-2.5",
+        };
         const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: "full-access",
           interactionMode: "default",
@@ -76,7 +96,9 @@ describe("CursorAdapterV2", () => {
         const adapter = yield* makeCursorAdapterV2({
           instanceId,
           settings: yield* decodeCursorSettings({}),
-          environment: { HOME: workspace },
+          environment: {
+            HOME: workspace,
+          },
         }).pipe(
           Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
             assertComplete: Effect.void,
@@ -97,8 +119,14 @@ describe("CursorAdapterV2", () => {
                       args: {
                         description: "Review",
                         prompt: "Review the code.",
-                        subagentType: { kind: "unspecified" },
-                        ...(model === undefined ? {} : { model }),
+                        subagentType: {
+                          kind: "unspecified",
+                        },
+                        ...(model === undefined
+                          ? {}
+                          : {
+                              model,
+                            }),
                         agentId: "cursor-task-agent",
                         mode: "unspecified" as const,
                       },
@@ -117,7 +145,9 @@ describe("CursorAdapterV2", () => {
                           args: {
                             ...taskToolCall.args,
                             ...(type === "tool-call-completed"
-                              ? { model: lateModel ?? undefined }
+                              ? {
+                                  model: lateModel ?? undefined,
+                                }
                               : {}),
                           },
                         },
@@ -130,7 +160,9 @@ describe("CursorAdapterV2", () => {
                         id: "native-cursor-run",
                         requestId: "native-request",
                         status,
-                        model: { id: "composer-2.5" },
+                        model: {
+                          id: "composer-2.5",
+                        },
                         durationMs: 1,
                       }),
                       cancel: Effect.void,
@@ -138,7 +170,11 @@ describe("CursorAdapterV2", () => {
                   }),
               }),
           }),
-          Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+          Effect.provide(
+            TestProviderHost.layer({
+              cwd: workspace,
+            }),
+          ),
         );
         const runtime = yield* adapter.openSession({
           threadId,
@@ -175,7 +211,11 @@ describe("CursorAdapterV2", () => {
             branch: null,
             worktreePath: null,
             activeProviderThreadId: providerThread.id,
-            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+            lineage: {
+              parentThreadId: null,
+              relationshipToParent: null,
+              rootThreadId: threadId,
+            },
             forkedFrom: null,
             createdAt: now,
             updatedAt: now,
@@ -220,7 +260,6 @@ describe("CursorAdapterV2", () => {
         ),
       ),
   );
-
   it.effect.each([
     {
       reason: "the error Cursor's run ended with",
@@ -231,7 +270,9 @@ describe("CursorAdapterV2", () => {
         error: {
           message: "Model Blocked Please ask your admin to enable access to Claude Fable 5.",
         },
-        model: { id: "claude-fable-5" },
+        model: {
+          id: "claude-fable-5",
+        },
         durationMs: 1,
       }),
       failure: {
@@ -259,10 +300,15 @@ describe("CursorAdapterV2", () => {
   ])("fails the turn with $reason", ({ wait, failure }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
-      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "cursor-v2-failure-" });
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "cursor-v2-failure-",
+      });
       const instanceId = ProviderInstanceId.make("cursor");
       const threadId = ThreadId.make("cursor-failure-thread");
-      const modelSelection = { instanceId, model: "claude-fable-5" };
+      const modelSelection = {
+        instanceId,
+        model: "claude-fable-5",
+      };
       const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -271,7 +317,9 @@ describe("CursorAdapterV2", () => {
       const adapter = yield* makeCursorAdapterV2({
         instanceId,
         settings: yield* decodeCursorSettings({}),
-        environment: { HOME: workspace },
+        environment: {
+          HOME: workspace,
+        },
       }).pipe(
         Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
           assertComplete: Effect.void,
@@ -289,7 +337,11 @@ describe("CursorAdapterV2", () => {
                 }),
             }),
         }),
-        Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+        Effect.provide(
+          TestProviderHost.layer({
+            cwd: workspace,
+          }),
+        ),
       );
       const runtime = yield* adapter.openSession({
         threadId,
@@ -326,7 +378,11 @@ describe("CursorAdapterV2", () => {
           branch: null,
           worktreePath: null,
           activeProviderThreadId: providerThread.id,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          lineage: {
+            parentThreadId: null,
+            relationshipToParent: null,
+            rootThreadId: threadId,
+          },
           forkedFrom: null,
           createdAt: now,
           updatedAt: now,
@@ -361,16 +417,20 @@ describe("CursorAdapterV2", () => {
       ),
     ),
   );
-
   it.effect("fails standalone SDK transport diagnostics and sends compaction as /compress", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
-      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "cursor-v2-errors-" });
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "cursor-v2-errors-",
+      });
       const sentMessages: Array<string> = [];
       let sendCalls = 0;
       const instanceId = ProviderInstanceId.make("cursor");
       const threadId = ThreadId.make("cursor-transport-error-thread");
-      const modelSelection = { instanceId, model: "composer-2.5" };
+      const modelSelection = {
+        instanceId,
+        model: "composer-2.5",
+      };
       const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -379,7 +439,9 @@ describe("CursorAdapterV2", () => {
       const adapter = yield* makeCursorAdapterV2({
         instanceId,
         settings: yield* decodeCursorSettings({}),
-        environment: { HOME: workspace },
+        environment: {
+          HOME: workspace,
+        },
       }).pipe(
         Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
           assertComplete: Effect.void,
@@ -402,10 +464,14 @@ describe("CursorAdapterV2", () => {
                       id: runId,
                       requestId: `native-request-${sendCalls}`,
                       status: "finished" as const,
-                      model: { id: "composer-2.5" },
+                      model: {
+                        id: "composer-2.5",
+                      },
                       durationMs: 1,
                       ...(sendCalls === 1
-                        ? { result: "Error: RetriableError: WritableIterable is closed" }
+                        ? {
+                            result: "Error: RetriableError: WritableIterable is closed",
+                          }
                         : {}),
                     }),
                     cancel: Effect.void,
@@ -413,7 +479,11 @@ describe("CursorAdapterV2", () => {
                 }),
             }),
         }),
-        Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+        Effect.provide(
+          TestProviderHost.layer({
+            cwd: workspace,
+          }),
+        ),
       );
       const runtime = yield* adapter.openSession({
         threadId,
@@ -440,7 +510,11 @@ describe("CursorAdapterV2", () => {
         branch: null,
         worktreePath: null,
         activeProviderThreadId: providerThread.id,
-        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        lineage: {
+          parentThreadId: null,
+          relationshipToParent: null,
+          rootThreadId: threadId,
+        },
         forkedFrom: null,
         createdAt: now,
         updatedAt: now,
@@ -478,7 +552,6 @@ describe("CursorAdapterV2", () => {
         assert.equal(first.value.status, "failed");
         assert.equal(first.value.failure?.class, "transport_error");
       }
-
       assert.isDefined(runtime.compactThread);
       yield* runtime.compactThread!({
         threadId,
@@ -511,15 +584,19 @@ describe("CursorAdapterV2", () => {
       ),
     ),
   );
-
   it.effect("projects Cursor directory trees and lint diagnostics as file search results", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "cursor-v2-search-" });
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "cursor-v2-search-",
+      });
       const instanceId = ProviderInstanceId.make("cursor");
       const threadId = ThreadId.make("cursor-search-thread");
-      const modelSelection = { instanceId, model: "composer-2.5" };
+      const modelSelection = {
+        instanceId,
+        model: "composer-2.5",
+      };
       const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
         runtimeMode: "full-access",
         interactionMode: "default",
@@ -542,10 +619,20 @@ describe("CursorAdapterV2", () => {
             args: {
               providerIdentifier: "weather",
               toolName: "get_weather",
-              args: { city: "Berlin" },
+              args: {
+                city: "Berlin",
+              },
             },
             ...(type === "tool-call-completed"
-              ? { result: { status: "success" as const, value: { content: [], isError: false } } }
+              ? {
+                  result: {
+                    status: "success" as const,
+                    value: {
+                      content: [],
+                      isError: false,
+                    },
+                  },
+                }
               : {}),
           },
         })),
@@ -555,10 +642,16 @@ describe("CursorAdapterV2", () => {
           callId: "read-file",
           toolCall: {
             type: "read",
-            args: { path: "src/env.ts" },
+            args: {
+              path: "src/env.ts",
+            },
             result: {
               status: "success",
-              value: { fileSize: 12, content: "---\nfile body", totalLines: 2 },
+              value: {
+                fileSize: 12,
+                content: "---\nfile body",
+                totalLines: 2,
+              },
             },
           },
         },
@@ -568,24 +661,38 @@ describe("CursorAdapterV2", () => {
           callId: "ls-nested",
           toolCall: {
             type: "ls",
-            args: { path: workspace },
+            args: {
+              path: workspace,
+            },
             result: {
               status: "success",
               value: {
                 directoryTreeRoot: {
                   ...emptyLsNode,
                   absPath: workspace,
-                  childrenFiles: [{ name: "README.md" }],
+                  childrenFiles: [
+                    {
+                      name: "README.md",
+                    },
+                  ],
                   childrenDirs: [
                     {
                       ...emptyLsNode,
                       absPath: path.join(workspace, "src"),
-                      childrenFiles: [{ name: "index.ts" }],
+                      childrenFiles: [
+                        {
+                          name: "index.ts",
+                        },
+                      ],
                       childrenDirs: [
                         {
                           ...emptyLsNode,
                           absPath: path.join(workspace, "src", "nested"),
-                          childrenFiles: [{ name: "util.ts" }],
+                          childrenFiles: [
+                            {
+                              name: "util.ts",
+                            },
+                          ],
                         },
                       ],
                     },
@@ -601,11 +708,16 @@ describe("CursorAdapterV2", () => {
           callId: "ls-empty",
           toolCall: {
             type: "ls",
-            args: { path: path.join(workspace, "empty") },
+            args: {
+              path: path.join(workspace, "empty"),
+            },
             result: {
               status: "success",
               value: {
-                directoryTreeRoot: { ...emptyLsNode, absPath: path.join(workspace, "empty") },
+                directoryTreeRoot: {
+                  ...emptyLsNode,
+                  absPath: path.join(workspace, "empty"),
+                },
               },
             },
           },
@@ -616,8 +728,13 @@ describe("CursorAdapterV2", () => {
           callId: "ls-failed",
           toolCall: {
             type: "ls",
-            args: { path: path.join(workspace, "missing") },
-            result: { status: "error", error: "ENOENT" },
+            args: {
+              path: path.join(workspace, "missing"),
+            },
+            result: {
+              status: "error",
+              error: "ENOENT",
+            },
           },
         },
         {
@@ -626,8 +743,14 @@ describe("CursorAdapterV2", () => {
           callId: "grep-failed",
           toolCall: {
             type: "grep",
-            args: { pattern: "TODO", path: "src" },
-            result: { status: "error", error: "search failed" },
+            args: {
+              pattern: "TODO",
+              path: "src",
+            },
+            result: {
+              status: "error",
+              error: "search failed",
+            },
           },
         },
         {
@@ -636,8 +759,13 @@ describe("CursorAdapterV2", () => {
           callId: "glob-failed",
           toolCall: {
             type: "glob",
-            args: { globPattern: "*.ts" },
-            result: { status: "error", error: "search failed" },
+            args: {
+              globPattern: "*.ts",
+            },
+            result: {
+              status: "error",
+              error: "search failed",
+            },
           },
         },
         {
@@ -646,7 +774,9 @@ describe("CursorAdapterV2", () => {
           callId: "lints",
           toolCall: {
             type: "readLints",
-            args: { paths: ["src/a.ts", "src/b.ts"] },
+            args: {
+              paths: ["src/a.ts", "src/b.ts"],
+            },
             result: {
               status: "success",
               value: {
@@ -662,14 +792,23 @@ describe("CursorAdapterV2", () => {
                         code: "TS6133",
                         source: "ts",
                         severity: "warning",
-                        range: { start: { line: 0, character: 4 } },
+                        range: {
+                          start: {
+                            line: 0,
+                            character: 4,
+                          },
+                        },
                       },
                       {
                         message: "Cannot find name",
                         code: "TS2304",
                         source: "ts",
                         severity: "error",
-                        range: { start: { line: 11 } },
+                        range: {
+                          start: {
+                            line: 11,
+                          },
+                        },
                       },
                     ],
                   },
@@ -696,13 +835,21 @@ describe("CursorAdapterV2", () => {
           callId: "lints-empty",
           toolCall: {
             type: "readLints",
-            args: { paths: ["src/clean.ts"] },
+            args: {
+              paths: ["src/clean.ts"],
+            },
             result: {
               status: "success",
               value: {
                 totalFiles: 1,
                 totalDiagnostics: 0,
-                fileDiagnostics: [{ path: "src/clean.ts", diagnosticsCount: 0, diagnostics: [] }],
+                fileDiagnostics: [
+                  {
+                    path: "src/clean.ts",
+                    diagnosticsCount: 0,
+                    diagnostics: [],
+                  },
+                ],
               },
             },
           },
@@ -713,15 +860,22 @@ describe("CursorAdapterV2", () => {
           callId: "lints-failed",
           toolCall: {
             type: "readLints",
-            args: { paths: ["src/a.ts"] },
-            result: { status: "error", error: "lint failed" },
+            args: {
+              paths: ["src/a.ts"],
+            },
+            result: {
+              status: "error",
+              error: "lint failed",
+            },
           },
         },
       ];
       const adapter = yield* makeCursorAdapterV2({
         instanceId,
         settings: yield* decodeCursorSettings({}),
-        environment: { HOME: workspace },
+        environment: {
+          HOME: workspace,
+        },
       }).pipe(
         Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
           assertComplete: Effect.void,
@@ -744,7 +898,9 @@ describe("CursorAdapterV2", () => {
                       id: "native-cursor-run",
                       requestId: "native-request",
                       status: "finished" as const,
-                      model: { id: "composer-2.5" },
+                      model: {
+                        id: "composer-2.5",
+                      },
                       durationMs: 1,
                     }),
                     cancel: Effect.void,
@@ -752,7 +908,11 @@ describe("CursorAdapterV2", () => {
                 }),
             }),
         }),
-        Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+        Effect.provide(
+          TestProviderHost.layer({
+            cwd: workspace,
+          }),
+        ),
       );
       const runtime = yield* adapter.openSession({
         threadId,
@@ -789,7 +949,11 @@ describe("CursorAdapterV2", () => {
           branch: null,
           worktreePath: null,
           activeProviderThreadId: providerThread.id,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          lineage: {
+            parentThreadId: null,
+            relationshipToParent: null,
+            rootThreadId: threadId,
+          },
           forkedFrom: null,
           createdAt: now,
           updatedAt: now,
@@ -829,7 +993,9 @@ describe("CursorAdapterV2", () => {
           name: "weather",
           kind: "integration",
         });
-        assert.deepEqual(item.input, { city: "Berlin" });
+        assert.deepEqual(item.input, {
+          city: "Berlin",
+        });
       }
       const fileSearchItems = events.flatMap((event) =>
         event.type === "turn_item.updated" &&
@@ -847,8 +1013,18 @@ describe("CursorAdapterV2", () => {
           : [],
       );
       assert.deepEqual(
-        readItems.map((item) => ({ title: item.title, input: item.input })),
-        [{ title: "Read src/env.ts", input: { path: "src/env.ts" } }],
+        readItems.map((item) => ({
+          title: item.title,
+          input: item.input,
+        })),
+        [
+          {
+            title: "Read src/env.ts",
+            input: {
+              path: "src/env.ts",
+            },
+          },
+        ],
       );
       assert.deepEqual(
         fileSearchItems.map((item) => ({
@@ -861,9 +1037,15 @@ describe("CursorAdapterV2", () => {
             pattern: workspace,
             status: "completed",
             results: [
-              { fileName: path.join(workspace, "README.md") },
-              { fileName: path.join(workspace, "src", "index.ts") },
-              { fileName: path.join(workspace, "src", "nested", "util.ts") },
+              {
+                fileName: path.join(workspace, "README.md"),
+              },
+              {
+                fileName: path.join(workspace, "src", "index.ts"),
+              },
+              {
+                fileName: path.join(workspace, "src", "nested", "util.ts"),
+              },
             ],
           },
           {
@@ -874,25 +1056,52 @@ describe("CursorAdapterV2", () => {
           {
             pattern: path.join(workspace, "missing"),
             status: "failed",
-            results: [{ fileName: path.join(workspace, "missing"), preview: "ENOENT" }],
+            results: [
+              {
+                fileName: path.join(workspace, "missing"),
+                preview: "ENOENT",
+              },
+            ],
           },
           {
             pattern: "TODO",
             status: "failed",
-            results: [{ fileName: "src", preview: "search failed" }],
+            results: [
+              {
+                fileName: "src",
+                preview: "search failed",
+              },
+            ],
           },
           {
             pattern: "*.ts",
             status: "failed",
-            results: [{ fileName: ".", preview: "search failed" }],
+            results: [
+              {
+                fileName: ".",
+                preview: "search failed",
+              },
+            ],
           },
           {
             pattern: "src/a.ts, src/b.ts",
             status: "completed",
             results: [
-              { fileName: "src/a.ts", line: 1, column: 5, preview: "Unused variable" },
-              { fileName: "src/a.ts", line: 12, preview: "Cannot find name" },
-              { fileName: "src/b.ts", preview: "File-level diagnostic" },
+              {
+                fileName: "src/a.ts",
+                line: 1,
+                column: 5,
+                preview: "Unused variable",
+              },
+              {
+                fileName: "src/a.ts",
+                line: 12,
+                preview: "Cannot find name",
+              },
+              {
+                fileName: "src/b.ts",
+                preview: "File-level diagnostic",
+              },
             ],
           },
           {
@@ -903,7 +1112,12 @@ describe("CursorAdapterV2", () => {
           {
             pattern: "src/a.ts",
             status: "failed",
-            results: [{ fileName: "src/a.ts", preview: "lint failed" }],
+            results: [
+              {
+                fileName: "src/a.ts",
+                preview: "lint failed",
+              },
+            ],
           },
         ],
       );
@@ -914,22 +1128,36 @@ describe("CursorAdapterV2", () => {
       ),
     ),
   );
-
   it.effect("names a custom model Cursor's account catalog rejects", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
-      const workspace = yield* fileSystem.makeTempDirectoryScoped({ prefix: "cursor-v2-model-" });
+      const workspace = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "cursor-v2-model-",
+      });
       const instanceId = ProviderInstanceId.make("cursor");
       const threadId = ThreadId.make("cursor-custom-model-thread");
-      const catalogModel = { instanceId, model: "composer-2.5" };
-      const customModel = { instanceId, model: "deepseek/deepseek-v4.1-flash" };
+      const catalogModel = {
+        instanceId,
+        model: "composer-2.5",
+      };
+      const customModel = {
+        instanceId,
+        model: "deepseek/deepseek-v4.1-flash",
+      };
       const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
         runtimeMode: "full-access",
         interactionMode: "default",
         cwd: workspace,
       });
       // The SDK checks every create, resume, and send model against the account catalog.
-      const checkModel = (method: string, model: { readonly id: string } | undefined) =>
+      const checkModel = (
+        method: string,
+        model:
+          | {
+              readonly id: string;
+            }
+          | undefined,
+      ) =>
         model === undefined || model.id === "composer-2.5"
           ? Effect.void
           : Effect.fail(
@@ -937,14 +1165,18 @@ describe("CursorAdapterV2", () => {
                 method,
                 cause: new ConfigurationError(
                   `Cannot use this model: ${model.id}. Available models: default, composer-2.5. Use Cursor.models.list() to discover valid selections.`,
-                  { isRetryable: false },
+                  {
+                    isRetryable: false,
+                  },
                 ),
               }),
             );
       const adapter = yield* makeCursorAdapterV2({
         instanceId,
         settings: yield* decodeCursorSettings({}),
-        environment: { HOME: workspace },
+        environment: {
+          HOME: workspace,
+        },
       }).pipe(
         Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
           assertComplete: Effect.void,
@@ -961,7 +1193,11 @@ describe("CursorAdapterV2", () => {
               }),
             ),
         }),
-        Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+        Effect.provide(
+          TestProviderHost.layer({
+            cwd: workspace,
+          }),
+        ),
       );
       const runtime = yield* adapter.openSession({
         threadId,
@@ -974,9 +1210,18 @@ describe("CursorAdapterV2", () => {
 
       // A new thread created with the custom model.
       const createFailure = yield* runtime
-        .ensureThread({ threadId, modelSelection: customModel, runtimePolicy })
+        .ensureThread({
+          threadId,
+          modelSelection: customModel,
+          runtimePolicy,
+        })
         .pipe(Effect.flip);
-      assert.equal(makeProviderFailure({ cause: createFailure }).message, expected);
+      assert.equal(
+        makeProviderFailure({
+          cause: createFailure,
+        }).message,
+        expected,
+      );
 
       // An existing thread switched to the custom model.
       const providerThread = yield* runtime.ensureThread({
@@ -1009,7 +1254,11 @@ describe("CursorAdapterV2", () => {
             branch: null,
             worktreePath: null,
             activeProviderThreadId: providerThread.id,
-            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+            lineage: {
+              parentThreadId: null,
+              relationshipToParent: null,
+              rootThreadId: threadId,
+            },
             forkedFrom: null,
             createdAt: now,
             updatedAt: now,
@@ -1028,7 +1277,12 @@ describe("CursorAdapterV2", () => {
           },
         })
         .pipe(Effect.flip);
-      assert.equal(makeProviderFailure({ cause: sendFailure }).message, expected);
+      assert.equal(
+        makeProviderFailure({
+          cause: sendFailure,
+        }).message,
+        expected,
+      );
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -1036,7 +1290,6 @@ describe("CursorAdapterV2", () => {
       ),
     ),
   );
-
   it("maps runtime modes to the SDK sandbox and auto-review controls", () => {
     const base = {
       interactionMode: "default" as const,
@@ -1100,7 +1353,9 @@ describe("CursorAdapterV2", () => {
           ...base,
           runtimeMode: "full-access",
           approvalPolicy: "never",
-          sandboxPolicy: { type: "readOnly" },
+          sandboxPolicy: {
+            type: "readOnly",
+          },
         },
         "linux",
       ),
@@ -1115,7 +1370,9 @@ describe("CursorAdapterV2", () => {
           ...base,
           runtimeMode: "approval-required",
           approvalPolicy: "never",
-          sandboxPolicy: { type: "dangerFullAccess" },
+          sandboxPolicy: {
+            type: "dangerFullAccess",
+          },
         },
         "linux",
       ),
@@ -1170,7 +1427,9 @@ describe("CursorAdapterV2", () => {
         {
           ...base,
           runtimeMode: "auto",
-          sandboxPolicy: { type: "workspaceWrite" },
+          sandboxPolicy: {
+            type: "workspaceWrite",
+          },
         },
         "win32",
       ),
@@ -1180,7 +1439,24 @@ describe("CursorAdapterV2", () => {
       },
     );
   });
-
+  it("keeps only administrator policy layers for blank-slate threads", () => {
+    const options = makeCursorAgentOptions({
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("cursor"),
+        model: "composer-2.5",
+      },
+      runtimePolicy: {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/workspace",
+        blankSlate: true,
+      },
+      platform: "linux",
+      threadId: ThreadId.make("thread-cursor-blank-slate"),
+      mcpSession: undefined,
+    });
+    assert.deepEqual(options.local?.settingSources, ["team", "mdm"]);
+  });
   it("injects thread-scoped MCP credentials without logging them", () => {
     const threadId = ThreadId.make("thread-cursor-mcp");
     const mcpSession = {
@@ -1192,7 +1468,6 @@ describe("CursorAdapterV2", () => {
       authorizationHeader: "Bearer secret-cursor-mcp-token",
       browserToolsAvailable: true,
     };
-
     assert.deepEqual(cursorMcpServers(mcpSession), {
       "t3-code": {
         type: "http",
@@ -1202,7 +1477,6 @@ describe("CursorAdapterV2", () => {
         },
       },
     });
-
     const options = makeCursorAgentOptions({
       apiKey: "secret-cursor-api-key",
       modelSelection: {
@@ -1219,41 +1493,48 @@ describe("CursorAdapterV2", () => {
       platform: "linux",
     });
     assert.deepEqual(options.mcpServers, cursorMcpServers(mcpSession));
-
     const logged = JSON.stringify(CursorAgentSdk.loggedCursorAgentOptions(options));
     assert.notInclude(logged, "secret-cursor-api-key");
     assert.notInclude(logged, "secret-cursor-mcp-token");
   });
-
   it("recognizes direct and SDK-wrapped abort failures as cancellation", () => {
-    assert.isTrue(CursorAgentSdk.isCursorCancellationError({ name: "AbortError" }));
+    assert.isTrue(
+      CursorAgentSdk.isCursorCancellationError({
+        name: "AbortError",
+      }),
+    );
     assert.isTrue(
       CursorAgentSdk.isCursorCancellationError({
         name: "ConnectError",
         cause: {
           name: "ConnectError",
-          cause: { name: "AbortError" },
+          cause: {
+            name: "AbortError",
+          },
         },
       }),
     );
     assert.isFalse(CursorAgentSdk.isCursorCancellationError(new Error("request failed")));
     assert.isFalse(CursorAgentSdk.isCursorCancellationError(null));
   });
-
   it("preserves failed nested read calls when Cursor omits their path", () => {
     assert.deepEqual(
       nestedToolCallFromEnvelope({
         toolCallId: "tool:failed-read",
         readToolCall: {
           args: {},
-          result: { error: "File path was not provided." },
+          result: {
+            error: "File path was not provided.",
+          },
         },
       }),
       {
         callId: "tool:failed-read",
         toolCall: {
           type: "read",
-          args: { path: "<unknown path>" },
+          args: {
+            path: "<unknown path>",
+          },
           result: {
             status: "error",
             error: "File path was not provided.",

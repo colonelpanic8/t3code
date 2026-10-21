@@ -13,19 +13,16 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
-
 const projectId = ProjectId.make("project:runtime-policy");
 const providerInstanceId = ProviderInstanceId.make("codex");
 const modelSelection = {
   instanceId: providerInstanceId,
   model: "gpt-5.5",
 } satisfies ModelSelection;
-
 function makeThread(input: {
   readonly now: DateTime.Utc;
   readonly worktreePath: string | null;
@@ -60,7 +57,6 @@ function makeThread(input: {
     deletedAt: null,
   };
 }
-
 const grokInstanceId = ProviderInstanceId.make("grok");
 const supportedRuntimeModesByInstance = new Map<ProviderInstanceId, ReadonlyArray<RuntimeMode>>([
   [grokInstanceId, ["approval-required", "auto", "full-access"]],
@@ -73,7 +69,6 @@ const providerInstanceFor = (instanceId: ProviderInstanceId) =>
       } as ServerProvider),
     },
   }) as ProviderInstance;
-
 const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
   Layer.provide(
     Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
@@ -106,8 +101,29 @@ const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
     }),
   ),
 );
-
 it.layer(layerTest)("RuntimePolicyV2", (it) => {
+  it.effect("carries a thread's blank slate to every provider session", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const resolve = (thread: ReturnType<typeof makeThread>) =>
+        policy.resolve({
+          thread,
+          modelSelection,
+        });
+      const regular = makeThread({
+        now,
+        worktreePath: null,
+      });
+      assert.isTrue(
+        (yield* resolve({
+          ...regular,
+          blankSlate: true,
+        })).blankSlate,
+      );
+      assert.isUndefined((yield* resolve(regular)).blankSlate);
+    }),
+  );
   it.effect("runs a mode the provider does not offer in Supervised", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;
@@ -115,11 +131,17 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       const modeFor = (instanceId: ProviderInstanceId, runtimeMode: RuntimeMode) =>
         policy
           .resolve({
-            thread: makeThread({ now, worktreePath: null, runtimeMode }),
-            modelSelection: { instanceId, model: "test-model" },
+            thread: makeThread({
+              now,
+              worktreePath: null,
+              runtimeMode,
+            }),
+            modelSelection: {
+              instanceId,
+              model: "test-model",
+            },
           })
           .pipe(Effect.map((resolved) => resolved.runtimeMode));
-
       assert.equal(yield* modeFor(grokInstanceId, "auto-accept-edits"), "approval-required");
       assert.equal(yield* modeFor(grokInstanceId, "auto"), "auto");
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
