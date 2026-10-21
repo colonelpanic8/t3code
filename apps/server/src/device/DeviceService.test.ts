@@ -32,16 +32,21 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as DeviceHost from "./DeviceHost.ts";
 import { makeDeviceHubOperations } from "./DeviceHubOperations.ts";
 import { NodeRuntimeUnavailableError } from "@t3tools/shared/nodeRuntime";
-
 import * as DeviceService from "./DeviceService.ts";
-
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const decodeBootError = Schema.decodeUnknownSync(Schema.fromJsonString(DeviceBootError));
 const encodeBootError = Schema.encodeSync(Schema.fromJsonString(DeviceBootError));
-
 const fixture = Effect.fn("fixture")(function* (
   onBoot: Effect.Effect<void> = Effect.void,
-  bootError?: string | { error?: string; errors?: Array<{ message: string; error?: string }> },
+  bootError?:
+    | string
+    | {
+        error?: string;
+        errors?: Array<{
+          message: string;
+          error?: string;
+        }>;
+      },
   failListAfterShutdown = false,
   runtimeFailure?:
     | NodeRuntimeUnavailableError
@@ -49,7 +54,9 @@ const fixture = Effect.fn("fixture")(function* (
     | DeviceHost.AgentDeviceStartError,
   inspectError = false,
   installTool?: Parameters<typeof DeviceService.makeWithHosts>[3],
-  options: { readonly endsDevices?: boolean } = {},
+  options: {
+    readonly endsDevices?: boolean;
+  } = {},
 ) {
   const settings = yield* Ref.make(DEFAULT_SERVER_SETTINGS);
   const starts: string[] = [];
@@ -57,8 +64,17 @@ const fixture = Effect.fn("fixture")(function* (
   const agentStops: string[] = [];
   const requests: string[] = [];
   const devices: Array<Omit<DeviceSummary, "hostId">> = [];
-  const discoveryErrors = yield* Ref.make<Array<{ message: string; error?: string }>>([]);
-  const encoderResult = yield* Ref.make({ code: 0, stdout: " V....D libx264", stderr: "" });
+  const discoveryErrors = yield* Ref.make<
+    Array<{
+      message: string;
+      error?: string;
+    }>
+  >([]);
+  const encoderResult = yield* Ref.make({
+    code: 0,
+    stdout: " V....D libx264",
+    stderr: "",
+  });
   let booted = false;
   let shutDown = false;
   const http = HttpClient.make((request) =>
@@ -70,10 +86,20 @@ const fixture = Effect.fn("fixture")(function* (
       if (request.url.endsWith("/shutdown")) {
         shutDown = true;
         booted = false;
-        return HttpClientResponse.fromWeb(request, Response.json({ ok: true }));
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json({
+            ok: true,
+          }),
+        );
       }
       if (shutDown && failListAfterShutdown) {
-        return HttpClientResponse.fromWeb(request, new Response("Discovery busy", { status: 503 }));
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response("Discovery busy", {
+            status: 503,
+          }),
+        );
       }
       if (request.url.endsWith("/boot")) {
         yield* onBoot;
@@ -82,13 +108,28 @@ const fixture = Effect.fn("fixture")(function* (
           request,
           Response.json(
             bootError
-              ? { ok: false, ...(typeof bootError === "string" ? { error: bootError } : bootError) }
-              : { ok: true, serial: "emulator-5554" },
+              ? {
+                  ok: false,
+                  ...(typeof bootError === "string"
+                    ? {
+                        error: bootError,
+                      }
+                    : bootError),
+                }
+              : {
+                  ok: true,
+                  serial: "emulator-5554",
+                },
           ),
         );
       }
       if (request.url.endsWith("/grid/api/start")) {
-        return HttpClientResponse.fromWeb(request, Response.json({ ok: true }));
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json({
+            ok: true,
+          }),
+        );
       }
       return HttpClientResponse.fromWeb(
         request,
@@ -116,11 +157,17 @@ const fixture = Effect.fn("fixture")(function* (
   );
   const run = (command: string) =>
     command === "emulator"
-      ? Effect.succeed({ code: 0, stdout: "Pixel_API_35\n", stderr: "" })
+      ? Effect.succeed({
+          code: 0,
+          stdout: "Pixel_API_35\n",
+          stderr: "",
+        })
       : Ref.get(encoderResult);
   const ready: DeviceHost.DeviceHostReady = {
     nodePath: process.execPath,
-    hub: { origin: "http://device.test" },
+    hub: {
+      origin: "http://device.test",
+    },
     devices: {
       ...makeDeviceHubOperations({
         hostId: LOCAL_DEVICE_HOST_ID,
@@ -129,9 +176,16 @@ const fixture = Effect.fn("fixture")(function* (
         run,
         androidAvailable: Effect.succeed(true),
       }),
-      ...(options.endsDevices ? { endsDevices: true } : {}),
+      ...(options.endsDevices
+        ? {
+            endsDevices: true,
+          }
+        : {}),
     },
-    helpers: { serveSimAxSettings: null, serveSimCli: null },
+    helpers: {
+      serveSimAxSettings: null,
+      serveSimCli: null,
+    },
     run,
   };
   const host: DeviceHost.DeviceHost["Service"] = {
@@ -153,13 +207,23 @@ const fixture = Effect.fn("fixture")(function* (
       kind: "local",
       label: "Test server",
       platforms: [
-        { platform: "android", available: true },
-        { platform: "ios", available: true },
+        {
+          platform: "android",
+          available: true,
+        },
+        {
+          platform: "ios",
+          available: true,
+        },
       ],
       hubInstalled: true,
       agentDeviceInstalled: false,
     }),
-    platformAvailability: (platform) => Effect.succeed({ platform, available: true }),
+    platformAvailability: (platform) =>
+      Effect.succeed({
+        platform,
+        available: true,
+      }),
     ensureReady: (onPhase) =>
       Effect.gen(function* () {
         if (runtimeFailure && runtimeFailure._tag !== "AgentDeviceStartError")
@@ -175,7 +239,11 @@ const fixture = Effect.fn("fixture")(function* (
         yield* onPhase("starting");
         return {
           ...ready,
-          agentDevice: { baseUrl: "http://agent.test", token: "test", entryPath: "/agent" },
+          agentDevice: {
+            baseUrl: "http://agent.test",
+            token: "test",
+            entryPath: "/agent",
+          },
         };
       }),
     current: Effect.succeed(null),
@@ -202,6 +270,7 @@ const fixture = Effect.fn("fixture")(function* (
         start: Effect.void,
         ready: Effect.void,
         getSettings: Ref.get(settings),
+        managedSettingPaths: Effect.succeed([]),
         updateSettings: (patch) =>
           Ref.updateAndGet(settings, (current) => ({
             ...current,
@@ -233,7 +302,6 @@ const fixture = Effect.fn("fixture")(function* (
     endDevice,
   };
 });
-
 describe("device setup consent", () => {
   it.effect("exposes daemon startup diagnostics through agent readiness and host status", () =>
     Effect.gen(function* () {
@@ -242,7 +310,10 @@ describe("device setup consent", () => {
         stateDir: "/test/device/agent-device",
         exitCode: 1,
         reason: "daemon_lock_not_directory",
-        cause: { stdout: "private startup diagnostics", code: 1 },
+        cause: {
+          stdout: "private startup diagnostics",
+          code: 1,
+        },
       });
       const { service, settings } = yield* fixture(Effect.void, undefined, false, startupError);
       yield* Ref.update(settings, (current) => ({
@@ -264,7 +335,6 @@ describe("device setup consent", () => {
       });
     }).pipe(Effect.scoped),
   );
-
   it.effect("listing and provider startup do not start helpers before consent", () =>
     Effect.gen(function* () {
       const { service, starts, requests } = yield* fixture();
@@ -276,19 +346,22 @@ describe("device setup consent", () => {
       expect(requests).toEqual([]);
     }).pipe(Effect.scoped),
   );
-
   it.effect(
     "explicit setup discovers never-booted AVDs; disabling stops helpers and blocks agents",
     () =>
       Effect.gen(function* () {
         const { service, starts, settings } = yield* fixture();
-        const state = yield* service.configure({ enabled: true });
+        const state = yield* service.configure({
+          enabled: true,
+        });
         expect((yield* Ref.get(settings)).enableDeviceSupport).toBe(true);
         expect(state.devices.map((device) => [device.id, device.booted])).toEqual([
           ["Pixel_API_35", false],
         ]);
         expect(starts).toEqual(["start"]);
-        const disabled = yield* service.configure({ enabled: false });
+        const disabled = yield* service.configure({
+          enabled: false,
+        });
         expect(disabled.hostStatus).toBe("disabled");
         expect(disabled.devices).toEqual([]);
         expect((yield* Ref.get(settings)).enableDeviceSupport).toBe(false);
@@ -296,11 +369,12 @@ describe("device setup consent", () => {
         expect(starts).toEqual(["start", "stop"]);
       }).pipe(Effect.scoped),
   );
-
   it.effect("boots a stopped Android AVD and uses its emulator serial without duplicating it", () =>
     Effect.gen(function* () {
       const { service, requests } = yield* fixture();
-      yield* service.configure({ enabled: true });
+      yield* service.configure({
+        enabled: true,
+      });
       const session = yield* service.open({
         threadId: ThreadId.make("thread-1"),
         deviceId: "Pixel_API_35",
@@ -313,7 +387,6 @@ describe("device setup consent", () => {
       expect(state.bootingDevices).toEqual([]);
     }).pipe(Effect.scoped),
   );
-
   it.effect("blocks only emulator video until ffmpeg is usable, then allows retry", () =>
     Effect.gen(function* () {
       const { service, requests, devices, encoderResult } = yield* fixture();
@@ -335,8 +408,14 @@ describe("device setup consent", () => {
           physical: false,
         },
       );
-      yield* Ref.set(encoderResult, { code: 127, stdout: "", stderr: "spawn ffmpeg ENOENT" });
-      const state = yield* service.configure({ enabled: true });
+      yield* Ref.set(encoderResult, {
+        code: 127,
+        stdout: "",
+        stderr: "spawn ffmpeg ENOENT",
+      });
+      const state = yield* service.configure({
+        enabled: true,
+      });
       expect(state.devices.map((device) => device.id)).toEqual([
         "ios-simulator",
         "physical-android",
@@ -348,10 +427,13 @@ describe("device setup consent", () => {
         deviceId: "physical-android",
         platform: "android",
       });
-      const ios = yield* service.open({ threadId, deviceId: "ios-simulator", platform: "ios" });
+      const ios = yield* service.open({
+        threadId,
+        deviceId: "ios-simulator",
+        platform: "ios",
+      });
       expect(physical.deviceId).toBe("physical-android");
       expect(ios.deviceId).toBe("ios-simulator");
-
       const openEmulator = service.open({
         threadId,
         deviceId: "Pixel_API_35",
@@ -363,8 +445,11 @@ describe("device setup consent", () => {
       expect(requests.filter((url) => url.endsWith("/boot"))).toEqual([]);
       expect((yield* service.state).sessions).toEqual([physical, ios]);
       expect((yield* service.state).bootingDevices ?? []).toEqual([]);
-
-      yield* Ref.set(encoderResult, { code: 1, stdout: "", stderr: "cannot execute ffmpeg" });
+      yield* Ref.set(encoderResult, {
+        code: 1,
+        stdout: "",
+        stderr: "cannot execute ffmpeg",
+      });
       expect((yield* openEmulator.pipe(Effect.flip)).message).toMatch(/ffmpeg/i);
       yield* Ref.set(encoderResult, {
         code: 0,
@@ -374,7 +459,6 @@ describe("device setup consent", () => {
       expect((yield* openEmulator.pipe(Effect.flip)).message).toMatch(/libx264/i);
       expect(requests.filter((url) => url.endsWith("/boot"))).toEqual([]);
       expect((yield* service.state).sessions).toEqual([physical, ios]);
-
       devices.push({
         id: DeviceId.make("emulator-5556"),
         name: "Already_booted",
@@ -385,37 +469,47 @@ describe("device setup consent", () => {
       });
       expect(
         (yield* service
-          .open({ threadId, deviceId: "emulator-5556", platform: "android" })
+          .open({
+            threadId,
+            deviceId: "emulator-5556",
+            platform: "android",
+          })
           .pipe(Effect.flip)).message,
       ).toMatch(/libx264/i);
-
-      yield* Ref.set(encoderResult, { code: 0, stdout: " V....D libx264", stderr: "" });
+      yield* Ref.set(encoderResult, {
+        code: 0,
+        stdout: " V....D libx264",
+        stderr: "",
+      });
       const emulator = yield* openEmulator;
       expect(emulator.deviceId).toBe("emulator-5554");
       expect(requests.filter((url) => url.endsWith("/boot"))).toHaveLength(1);
     }).pipe(Effect.scoped),
   );
-
   it.effect("installs agent support only after the separate agent permission", () =>
     Effect.gen(function* () {
       const { service, agentStarts, agentStops, settings } = yield* fixture();
-      yield* service.configure({ enabled: true });
+      yield* service.configure({
+        enabled: true,
+      });
       expect(agentStarts).toEqual([]);
       expect(yield* service.agentReadinessIfSupported()).toBeNull();
-
-      yield* service.configure({ agentAccessEnabled: true });
+      yield* service.configure({
+        agentAccessEnabled: true,
+      });
       expect(agentStarts).toEqual(["start"]);
       expect((yield* Ref.get(settings)).enableAgentDeviceAccess).toBe(true);
       expect((yield* service.state).agentAccessEnabled).toBe(true);
-
-      yield* service.configure({ agentAccessEnabled: false, onboardingCompleted: true });
+      yield* service.configure({
+        agentAccessEnabled: false,
+        onboardingCompleted: true,
+      });
       expect(agentStops).toEqual(["stop"]);
       expect((yield* service.state).onboardingCompleted).toBe(true);
       expect((yield* Ref.get(settings)).deviceOnboardingCompleted).toBe(true);
     }).pipe(Effect.scoped),
   );
 });
-
 it.effect("publishes boot progress and does not restore sessions after support is disabled", () =>
   Effect.gen(function* () {
     const started = yield* Deferred.make<void>();
@@ -423,15 +517,23 @@ it.effect("publishes boot progress and does not restore sessions after support i
     const { service } = yield* fixture(
       Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(finish))),
     );
-    yield* service.configure({ enabled: true });
+    yield* service.configure({
+      enabled: true,
+    });
     const opening = yield* service
-      .open({ threadId: ThreadId.make("thread-1"), deviceId: "Pixel_API_35", platform: "android" })
+      .open({
+        threadId: ThreadId.make("thread-1"),
+        deviceId: "Pixel_API_35",
+        platform: "android",
+      })
       .pipe(Effect.result, Effect.forkChild);
     yield* Deferred.await(started);
     expect((yield* service.state).bootingDevices?.map((device) => device.name)).toEqual([
       "Pixel_API_35",
     ]);
-    yield* service.configure({ enabled: false });
+    yield* service.configure({
+      enabled: false,
+    });
     yield* Deferred.succeed(finish, undefined);
     expect((yield* Fiber.join(opening))._tag).toBe("Failure");
     const state = yield* service.state;
@@ -441,9 +543,12 @@ it.effect("publishes boot progress and does not restore sessions after support i
     expect(state.bootingDevices).toEqual([]);
   }).pipe(Effect.scoped),
 );
-
 it.effect.each([
-  { case: "drops it on a host that ends devices itself", endsDevices: true, kept: 0 },
+  {
+    case: "drops it on a host that ends devices itself",
+    endsDevices: true,
+    kept: 0,
+  },
   {
     case: "keeps it on a host that can miss a device for one listing",
     endsDevices: false,
@@ -458,11 +563,19 @@ it.effect.each([
       undefined,
       false,
       undefined,
-      { endsDevices },
+      {
+        endsDevices,
+      },
     );
-    yield* service.configure({ enabled: true });
+    yield* service.configure({
+      enabled: true,
+    });
     const threadId = ThreadId.make("ended-by-host");
-    yield* service.open({ threadId, deviceId: "Pixel_API_35", platform: "android" });
+    yield* service.open({
+      threadId,
+      deviceId: "Pixel_API_35",
+      platform: "android",
+    });
     expect((yield* service.state).sessions.map((session) => session.deviceId)).toEqual([
       "emulator-5554",
     ]);
@@ -471,24 +584,26 @@ it.effect.each([
     expect((yield* service.state).sessions).toHaveLength(kept);
   }).pipe(Effect.scoped),
 );
-
 describe("device discovery after server restart", () => {
   it.effect("captures an explicit device before any client lists devices", () =>
     Effect.gen(function* () {
       const { service, settings, requests } = yield* fixture();
-      yield* Ref.update(settings, (current) => ({ ...current, enableDeviceSupport: true }));
+      yield* Ref.update(settings, (current) => ({
+        ...current,
+        enableDeviceSupport: true,
+      }));
       expect((yield* service.state).devices).toEqual([]);
-      const capture = yield* service.screenshot({ deviceId: DeviceId.make("Pixel_API_35") });
+      const capture = yield* service.screenshot({
+        deviceId: DeviceId.make("Pixel_API_35"),
+      });
       expect(capture.device.id).toBe("Pixel_API_35");
       expect(Array.from(capture.png)).toEqual([137, 80, 78, 71]);
       expect(requests.some((url) => url.endsWith("/api/devices"))).toBe(true);
     }).pipe(Effect.scoped),
   );
 });
-
 const missingPlistMessage =
   "[apple-utils] Failed to read CoreSimulator plist at /Users/test/Library/Developer/CoreSimulator/Devices/deleted-simulator/device.plist:";
-
 it.effect("keeps other discovery warnings and clears them when only a deleted plist remains", () =>
   Effect.gen(function* () {
     const { service, discoveryErrors } = yield* fixture();
@@ -496,8 +611,15 @@ it.effect("keeps other discovery warnings and clears them when only a deleted pl
       message: missingPlistMessage,
       error: "Error: ENOENT: no such file or directory",
     };
-    yield* Ref.set(discoveryErrors, [missing, { message: "Android discovery failed." }]);
-    const initial = yield* service.configure({ enabled: true });
+    yield* Ref.set(discoveryErrors, [
+      missing,
+      {
+        message: "Android discovery failed.",
+      },
+    ]);
+    const initial = yield* service.configure({
+      enabled: true,
+    });
     expect(initial.hostStatusDetail).toBe("Android discovery failed.");
     yield* Ref.set(discoveryErrors, [missing]);
     const refreshed = yield* service.list;
@@ -505,7 +627,6 @@ it.effect("keeps other discovery warnings and clears them when only a deleted pl
     expect(refreshed.hostStatuses.local?.detail).toBeUndefined();
   }).pipe(Effect.scoped),
 );
-
 it.effect.each([
   {
     diagnostic: "Insufficient disk space at /private/user/path",
@@ -526,7 +647,9 @@ it.effect.each([
 ] as const)("normalizes boot failure: $reason", ({ diagnostic, message }) =>
   Effect.gen(function* () {
     const { service } = yield* fixture(Effect.void, diagnostic);
-    yield* service.configure({ enabled: true });
+    yield* service.configure({
+      enabled: true,
+    });
     const error = yield* service
       .open({
         threadId: ThreadId.make("boot-failure"),
@@ -547,9 +670,16 @@ it.effect("includes nested hub boot diagnostics and bounds them to 2,000 charact
     const diagnostic = "Error: emulator binary missing\n" + "diagnostic output\n".repeat(200);
     const { service } = yield* fixture(Effect.void, {
       error: "Failed to spawn emulator",
-      errors: [{ message: "Failed to launch emulator binary", error: diagnostic }],
+      errors: [
+        {
+          message: "Failed to launch emulator binary",
+          error: diagnostic,
+        },
+      ],
     });
-    yield* service.configure({ enabled: true });
+    yield* service.configure({
+      enabled: true,
+    });
     const error = yield* service
       .open({
         threadId: ThreadId.make("nested-boot-failure"),
@@ -568,24 +698,28 @@ it.effect("includes nested hub boot diagnostics and bounds them to 2,000 charact
     expect((yield* service.state).bootingDevices).toEqual([]);
   }).pipe(Effect.scoped),
 );
-
 it.effect("keeps shutdown successful when subsequent discovery fails", () =>
   Effect.gen(function* () {
     const { service } = yield* fixture(Effect.void, undefined, true);
-    yield* service.configure({ enabled: true });
+    yield* service.configure({
+      enabled: true,
+    });
     const threadId = ThreadId.make("shutdown-refresh");
     const session = yield* service.open({
       threadId,
       deviceId: "Pixel_API_35",
       platform: "android",
     });
-    yield* service.close({ threadId, deviceId: session.deviceId, shutdown: true });
+    yield* service.close({
+      threadId,
+      deviceId: session.deviceId,
+      shutdown: true,
+    });
     const state = yield* service.state;
     expect(state.sessions).toEqual([]);
     expect(state.devices.find((device) => device.id === session.deviceId)?.booted).toBe(false);
   }).pipe(Effect.scoped),
 );
-
 it.effect.each(["shutdown", "close"] as const)(
   "%s releases iOS capture so reopening uses a fresh session",
   (operation) =>
@@ -629,13 +763,26 @@ it.effect.each(["shutdown", "close"] as const)(
             booted = false;
           } else if (path === "/api/devices/boot") booted = true;
           else throw new Error(`Unexpected hub path: ${path}`);
-          return HttpClientResponse.fromWeb(request, Response.json({ ok: true, id: deviceId }));
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json({
+              ok: true,
+              id: deviceId,
+            }),
+          );
         }),
       );
-      const run = () => Effect.succeed({ code: 0, stdout: "", stderr: "" });
+      const run = () =>
+        Effect.succeed({
+          code: 0,
+          stdout: "",
+          stderr: "",
+        });
       const ready: DeviceHost.DeviceHostReady = {
         nodePath: process.execPath,
-        hub: { origin: "http://device.test" },
+        hub: {
+          origin: "http://device.test",
+        },
         devices: makeDeviceHubOperations({
           hostId: LOCAL_DEVICE_HOST_ID,
           origin: "http://device.test",
@@ -643,7 +790,10 @@ it.effect.each(["shutdown", "close"] as const)(
           run,
           androidAvailable: Effect.succeed(true),
         }),
-        helpers: { serveSimAxSettings: null, serveSimCli: null },
+        helpers: {
+          serveSimAxSettings: null,
+          serveSimCli: null,
+        },
         run,
       };
       const host: DeviceHost.DeviceHost["Service"] = {
@@ -653,11 +803,20 @@ it.effect.each(["shutdown", "close"] as const)(
           id: LOCAL_DEVICE_HOST_ID,
           kind: "local",
           label: "Simulator host",
-          platforms: [{ platform: "ios", available: true }],
+          platforms: [
+            {
+              platform: "ios",
+              available: true,
+            },
+          ],
           hubInstalled: true,
           agentDeviceInstalled: false,
         }),
-        platformAvailability: (platform) => Effect.succeed({ platform, available: true }),
+        platformAvailability: (platform) =>
+          Effect.succeed({
+            platform,
+            available: true,
+          }),
         ensureReady: () => Effect.succeed(ready),
         ensureAgentReady: () => Effect.die("Agent access is not used in this test"),
         current: Effect.succeed(ready),
@@ -667,23 +826,47 @@ it.effect.each(["shutdown", "close"] as const)(
       const service = yield* DeviceService.makeWithHosts(new Map([[host.id, host]])).pipe(
         Effect.provide(NodeCrypto.layer),
       );
-      const input = { threadId, deviceId, platform: "ios" as const };
+      const input = {
+        threadId,
+        deviceId,
+        platform: "ios" as const,
+      };
       yield* service.open(input);
       expect(capture).toBe(1);
       if (operation === "shutdown") yield* service.shutdown(input);
-      else yield* service.close({ threadId, deviceId, shutdown: true });
+      else
+        yield* service.close({
+          threadId,
+          deviceId,
+          shutdown: true,
+        });
       expect(capture).toBeNull();
       expect((yield* service.state).sessions).toEqual([]);
       yield* service.open(input);
       expect(capture).toBe(2);
       expect((yield* service.state).sessions).toHaveLength(1);
-    }).pipe(Effect.provide(ServerSettings.layerTest({ enableDeviceSupport: true })), Effect.scoped),
+    }).pipe(
+      Effect.provide(
+        ServerSettings.layerTest({
+          enableDeviceSupport: true,
+        }),
+      ),
+      Effect.scoped,
+    ),
 );
-
 it.effect.each([
-  { hubReports: "off", outcome: "succeeds" },
-  { hubReports: "booted", outcome: "fails" },
-  { hubReports: "missing", outcome: "fails" },
+  {
+    hubReports: "off",
+    outcome: "succeeds",
+  },
+  {
+    hubReports: "booted",
+    outcome: "fails",
+  },
+  {
+    hubReports: "missing",
+    outcome: "fails",
+  },
 ] as const)(
   "iOS shutdown $outcome when serve-sim rejects it and the hub reports the simulator $hubReports",
   ({ hubReports, outcome }) =>
@@ -713,7 +896,14 @@ it.effect.each([
                           booted: listed === "booted",
                         },
                       ],
-                errors: listed === "missing" ? [{ message: "simctl list failed" }] : [],
+                errors:
+                  listed === "missing"
+                    ? [
+                        {
+                          message: "simctl list failed",
+                        },
+                      ]
+                    : [],
               }),
             );
           }
@@ -723,18 +913,30 @@ it.effect.each([
             return HttpClientResponse.fromWeb(
               request,
               Response.json(
-                { ok: false, error: "Unable to shutdown device in current state: Shutdown" },
-                { status: 500 },
+                {
+                  ok: false,
+                  error: "Unable to shutdown device in current state: Shutdown",
+                },
+                {
+                  status: 500,
+                },
               ),
             );
           }
           throw new Error(`Unexpected hub path: ${path}`);
         }),
       );
-      const run = () => Effect.succeed({ code: 0, stdout: "", stderr: "" });
+      const run = () =>
+        Effect.succeed({
+          code: 0,
+          stdout: "",
+          stderr: "",
+        });
       const ready: DeviceHost.DeviceHostReady = {
         nodePath: process.execPath,
-        hub: { origin: "http://device.test" },
+        hub: {
+          origin: "http://device.test",
+        },
         devices: makeDeviceHubOperations({
           hostId: LOCAL_DEVICE_HOST_ID,
           origin: "http://device.test",
@@ -742,7 +944,10 @@ it.effect.each([
           run,
           androidAvailable: Effect.succeed(true),
         }),
-        helpers: { serveSimAxSettings: null, serveSimCli: null },
+        helpers: {
+          serveSimAxSettings: null,
+          serveSimCli: null,
+        },
         run,
       };
       const host: DeviceHost.DeviceHost["Service"] = {
@@ -752,11 +957,20 @@ it.effect.each([
           id: LOCAL_DEVICE_HOST_ID,
           kind: "local",
           label: "Simulator host",
-          platforms: [{ platform: "ios", available: true }],
+          platforms: [
+            {
+              platform: "ios",
+              available: true,
+            },
+          ],
           hubInstalled: true,
           agentDeviceInstalled: false,
         }),
-        platformAvailability: (platform) => Effect.succeed({ platform, available: true }),
+        platformAvailability: (platform) =>
+          Effect.succeed({
+            platform,
+            available: true,
+          }),
         ensureReady: () => Effect.succeed(ready),
         ensureAgentReady: () => Effect.die("Agent access is not used in this test"),
         current: Effect.succeed(ready),
@@ -767,7 +981,12 @@ it.effect.each([
         Effect.provide(NodeCrypto.layer),
       );
       yield* service.list;
-      const exit = yield* Effect.exit(service.shutdown({ deviceId, platform: "ios" }));
+      const exit = yield* Effect.exit(
+        service.shutdown({
+          deviceId,
+          platform: "ios",
+        }),
+      );
       expect(paths.filter((path) => path.endsWith("shutdown"))).toEqual([
         "/vendor/serve-sim/grid/api/shutdown",
       ]);
@@ -782,31 +1001,65 @@ it.effect.each([
           (yield* service.state).devices.find((device) => device.id === deviceId)?.booted,
         ).toBe(true);
       }
-    }).pipe(Effect.provide(ServerSettings.layerTest({ enableDeviceSupport: true })), Effect.scoped),
+    }).pipe(
+      Effect.provide(
+        ServerSettings.layerTest({
+          enableDeviceSupport: true,
+        }),
+      ),
+      Effect.scoped,
+    ),
 );
-
 it.effect.each([LOCAL_DEVICE_HOST_ID, "ssh-fixture"])(
   "retains hub inventory on %s when AVD enumeration fails and recovers on retry",
   (hostId) =>
     Effect.gen(function* () {
-      let enumeration = { code: 1, stdout: "private stdout", stderr: "private stderr" };
+      let enumeration = {
+        code: 1,
+        stdout: "private stdout",
+        stderr: "private stderr",
+      };
       const run = () => Effect.sync(() => enumeration);
       const hubDevices = [
-        { id: "iphone", name: "iPhone", platform: "ios", physical: false },
-        { id: "phone", name: "Pixel", platform: "android", physical: true },
-        { id: "emulator-5554", name: "Running_AVD", platform: "android", physical: false },
-      ].map((device) => ({ ...device, booted: true, version: "test" }));
+        {
+          id: "iphone",
+          name: "iPhone",
+          platform: "ios",
+          physical: false,
+        },
+        {
+          id: "phone",
+          name: "Pixel",
+          platform: "android",
+          physical: true,
+        },
+        {
+          id: "emulator-5554",
+          name: "Running_AVD",
+          platform: "android",
+          physical: false,
+        },
+      ].map((device) => ({
+        ...device,
+        booted: true,
+        version: "test",
+      }));
       const http = HttpClient.make((request) =>
         Effect.succeed(
           HttpClientResponse.fromWeb(
             request,
-            Response.json({ simulators: hubDevices.slice(0, 1), emulators: hubDevices.slice(1) }),
+            Response.json({
+              simulators: hubDevices.slice(0, 1),
+              emulators: hubDevices.slice(1),
+            }),
           ),
         ),
       );
       const ready: DeviceHost.DeviceHostReady = {
         nodePath: process.execPath,
-        hub: { origin: "http://device.test" },
+        hub: {
+          origin: "http://device.test",
+        },
         devices: makeDeviceHubOperations({
           hostId,
           origin: "http://device.test",
@@ -814,7 +1067,10 @@ it.effect.each([LOCAL_DEVICE_HOST_ID, "ssh-fixture"])(
           run,
           androidAvailable: Effect.succeed(true),
         }),
-        helpers: { serveSimAxSettings: null, serveSimCli: null },
+        helpers: {
+          serveSimAxSettings: null,
+          serveSimCli: null,
+        },
         run,
       };
       const host: DeviceHost.DeviceHost["Service"] = {
@@ -824,11 +1080,20 @@ it.effect.each([LOCAL_DEVICE_HOST_ID, "ssh-fixture"])(
           id: hostId,
           kind: hostId === LOCAL_DEVICE_HOST_ID ? "local" : "ssh",
           label: "Test device host",
-          platforms: [{ platform: "android", available: true }],
+          platforms: [
+            {
+              platform: "android",
+              available: true,
+            },
+          ],
           hubInstalled: true,
           agentDeviceInstalled: false,
         }),
-        platformAvailability: (platform) => Effect.succeed({ platform, available: true }),
+        platformAvailability: (platform) =>
+          Effect.succeed({
+            platform,
+            available: true,
+          }),
         ensureReady: () => Effect.succeed(ready),
         ensureAgentReady: () => Effect.die("Agent access is not used in this test"),
         current: Effect.succeed(ready),
@@ -839,9 +1104,13 @@ it.effect.each([LOCAL_DEVICE_HOST_ID, "ssh-fixture"])(
         Effect.provide(NodeCrypto.layer),
         Effect.provideService(HttpClient.HttpClient, http),
       );
-
       const incomplete = yield* service.list;
-      expect(incomplete.devices).toEqual(hubDevices.map((device) => ({ ...device, hostId })));
+      expect(incomplete.devices).toEqual(
+        hubDevices.map((device) => ({
+          ...device,
+          hostId,
+        })),
+      );
       expect(incomplete.hostStatuses[hostId]).toEqual({
         status: "ready",
         androidDiscoveryIncomplete: true,
@@ -851,11 +1120,17 @@ it.effect.each([LOCAL_DEVICE_HOST_ID, "ssh-fixture"])(
       if (hostId === LOCAL_DEVICE_HOST_ID) {
         expect(incomplete.hostStatusDetail).toBe(incomplete.hostStatuses[hostId]?.detail);
       }
-
-      enumeration = { code: 0, stdout: "Running_AVD\r\nStopped_AVD\nStopped_AVD\n", stderr: "" };
+      enumeration = {
+        code: 0,
+        stdout: "Running_AVD\r\nStopped_AVD\nStopped_AVD\n",
+        stderr: "",
+      };
       const recovered = yield* service.retryHost(hostId);
       expect(recovered.devices).toEqual([
-        ...hubDevices.map((device) => ({ ...device, hostId })),
+        ...hubDevices.map((device) => ({
+          ...device,
+          hostId,
+        })),
         {
           hostId,
           id: "Stopped_AVD",
@@ -866,27 +1141,38 @@ it.effect.each([LOCAL_DEVICE_HOST_ID, "ssh-fixture"])(
           physical: false,
         },
       ]);
-      expect(recovered.hostStatuses[hostId]).toEqual({ status: "ready" });
+      expect(recovered.hostStatuses[hostId]).toEqual({
+        status: "ready",
+      });
       if (hostId === LOCAL_DEVICE_HOST_ID) expect(recovered.hostStatusDetail).toBeUndefined();
-    }).pipe(Effect.provide(ServerSettings.layerTest({ enableDeviceSupport: true })), Effect.scoped),
+    }).pipe(
+      Effect.provide(
+        ServerSettings.layerTest({
+          enableDeviceSupport: true,
+        }),
+      ),
+      Effect.scoped,
+    ),
 );
-
 it.effect("retry keeps device and agent consent unchanged", () =>
   Effect.gen(function* () {
     const { service, starts, agentStarts } = yield* fixture();
     yield* service.retryHost(LOCAL_DEVICE_HOST_ID);
     expect(starts).toEqual([]);
     expect(agentStarts).toEqual([]);
-    yield* service.configure({ enabled: true });
+    yield* service.configure({
+      enabled: true,
+    });
     yield* service.retryHost(LOCAL_DEVICE_HOST_ID);
     expect(agentStarts).toEqual([]);
-    yield* service.configure({ agentAccessEnabled: true });
+    yield* service.configure({
+      agentAccessEnabled: true,
+    });
     const before = agentStarts.length;
     yield* service.retryHost(LOCAL_DEVICE_HOST_ID);
     expect(agentStarts.length).toBe(before + 1);
   }).pipe(Effect.scoped),
 );
-
 it.effect("failed read-only discovery preserves lifecycle status and installed inventory", () =>
   Effect.gen(function* () {
     const { service, starts } = yield* fixture(Effect.void, undefined, false, undefined, true);
@@ -898,7 +1184,6 @@ it.effect("failed read-only discovery preserves lifecycle status and installed i
     expect(starts).toEqual([]);
   }).pipe(Effect.scoped),
 );
-
 it.effect(
   "manual updates install only the selected tool without enabling access or starting helpers",
   () =>
@@ -929,7 +1214,6 @@ it.effect(
       expect(installed).toEqual(["agent", "hub"]);
     }).pipe(Effect.scoped),
 );
-
 it.effect("failed manual installation leaves lifecycle state unchanged and can be retried", () =>
   Effect.gen(function* () {
     let attempts = 0;
@@ -962,14 +1246,18 @@ it.effect("failed manual installation leaves lifecycle state unchanged and can b
     expect(agentStarts).toEqual([]);
   }).pipe(Effect.scoped),
 );
-
 it.effect("reconciles SSH host settings without publishing no-op changes", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-device-reconcile-" });
+    const baseDir = yield* fs.makeTempDirectoryScoped({
+      prefix: "t3-device-reconcile-",
+    });
     const settings = yield* ServerSettings.ServerSettingsService;
     // Each change is acknowledged after reconciliation consumed it, so no-ops are observable.
-    const changes = yield* Queue.unbounded<{ value: Settings; done: Deferred.Deferred<void> }>();
+    const changes = yield* Queue.unbounded<{
+      value: Settings;
+      done: Deferred.Deferred<void>;
+    }>();
     const removedFiles: string[] = [];
     const localHost: DeviceHost.DeviceHost["Service"] = {
       id: LOCAL_DEVICE_HOST_ID,
@@ -982,7 +1270,11 @@ it.effect("reconciles SSH host settings without publishing no-op changes", () =>
         hubInstalled: false,
         agentDeviceInstalled: false,
       }),
-      platformAvailability: (platform) => Effect.succeed({ platform, available: false }),
+      platformAvailability: (platform) =>
+        Effect.succeed({
+          platform,
+          available: false,
+        }),
       current: Effect.succeed(null),
       ensureReady: () => Effect.die("Unexpected device launch"),
       ensureAgentReady: () => Effect.die("Unexpected agent launch"),
@@ -1042,16 +1334,19 @@ it.effect("reconciles SSH host settings without publishing no-op changes", () =>
       Effect.provide(Layer.mergeAll(ServerConfig.layerTest(baseDir, baseDir), NetService.layer)),
     );
     const update = Effect.fnUntraced(function* (deviceHosts: ReadonlyArray<SshDeviceHostConfig>) {
-      const value = yield* settings.updateSettings({ deviceHosts: [...deviceHosts] });
+      const value = yield* settings.updateSettings({
+        deviceHosts: [...deviceHosts],
+      });
       const done = yield* Deferred.make<void>();
-      yield* Queue.offer(changes, { value, done });
+      yield* Queue.offer(changes, {
+        value,
+        done,
+      });
       yield* Deferred.await(done);
       return yield* service.state;
     });
-
     const initial = yield* service.state;
     expect(yield* update([])).toEqual(initial);
-
     const host: SshDeviceHostConfig = {
       kind: "ssh",
       id: "remote",
@@ -1060,9 +1355,17 @@ it.effect("reconciles SSH host settings without publishing no-op changes", () =>
     };
     const added = yield* update([host]);
     expect(added.hosts.map((entry) => entry.id)).toEqual([LOCAL_DEVICE_HOST_ID, host.id]);
-    expect(yield* update([{ ...host }])).toEqual(added);
-
-    yield* service.setHostStatus(host.id, { status: "failed", detail: "stale" });
+    expect(
+      yield* update([
+        {
+          ...host,
+        },
+      ]),
+    ).toEqual(added);
+    yield* service.setHostStatus(host.id, {
+      status: "failed",
+      detail: "stale",
+    });
     const removed = yield* update([]);
     expect(removed.hosts.map((entry) => entry.id)).toEqual([LOCAL_DEVICE_HOST_ID]);
     expect(removed.hostStatuses[host.id]).toBeUndefined();
@@ -1072,7 +1375,6 @@ it.effect("reconciles SSH host settings without publishing no-op changes", () =>
     Effect.provide(Layer.mergeAll(ServerSettings.layerTest(), NodeServices.layer)),
   ),
 );
-
 it.effect("a failed tool update reports npm's exit code but not its output", () =>
   Effect.gen(function* () {
     const host: DeviceHost.DeviceHost["Service"] = {
@@ -1086,7 +1388,11 @@ it.effect("a failed tool update reports npm's exit code but not its output", () 
         hubInstalled: false,
         agentDeviceInstalled: false,
       }),
-      platformAvailability: (platform) => Effect.succeed({ platform, available: false }),
+      platformAvailability: (platform) =>
+        Effect.succeed({
+          platform,
+          available: false,
+        }),
       ensureReady: () => Effect.die("Updating a tool does not start the hub"),
       ensureAgentReady: () => Effect.die("Updating a tool does not start the agent"),
       current: Effect.succeed(null),
@@ -1113,7 +1419,6 @@ it.effect("a failed tool update reports npm's exit code but not its output", () 
         HttpClient.make(() => Effect.die("Updating a tool makes no hub requests")),
       ),
     );
-
     const error = yield* service.updateTool("hub").pipe(Effect.flip);
     expect(error).toMatchObject({
       _tag: "DeviceOperationError",
@@ -1126,8 +1431,12 @@ it.effect("a failed tool update reports npm's exit code but not its output", () 
   }).pipe(
     Effect.provide(
       Layer.mergeAll(
-        ServerSettings.layerTest({ enableDeviceSupport: true }),
-        ServerConfig.layerTest(process.cwd(), { prefix: "t3-device-update-" }),
+        ServerSettings.layerTest({
+          enableDeviceSupport: true,
+        }),
+        ServerConfig.layerTest(process.cwd(), {
+          prefix: "t3-device-update-",
+        }),
         NodeCrypto.layer,
         NetService.layer,
       ).pipe(Layer.provideMerge(NodeServices.layer)),
