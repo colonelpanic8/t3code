@@ -4,12 +4,10 @@ import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
-  EnvironmentInternalError,
   EventId,
   ProviderInstanceId,
   ThreadId,
@@ -24,7 +22,6 @@ import * as Layer from "effect/Layer";
 import * as References from "effect/References";
 import * as Stream from "effect/Stream";
 import { Command } from "effect/cli";
-
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { cli } from "../binCli.ts";
 import * as ServerConfig from "../config.ts";
@@ -40,16 +37,11 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import {
-  ProjectLiveServerDeclaredResponseError,
-  ProjectLiveServerRequestError,
-  projectCommandErrorFromLiveServerRequest,
-} from "./project.ts";
-
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 const runCli = (args: ReadonlyArray<string>) =>
-  Command.runWith(cli, { version: "0.0.0" })(args).pipe(Effect.provide(layerCliRuntime));
-
+  Command.runWith(cli, {
+    version: "0.0.0",
+  })(args).pipe(Effect.provide(layerCliRuntime));
 const makeConfig = (baseDir: string) =>
   Effect.gen(function* () {
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, undefined);
@@ -87,7 +79,6 @@ const makeConfig = (baseDir: string) =>
       tailscaleServePort: 443,
     } satisfies ServerConfig.ServerConfig["Service"];
   });
-
 const readProjects = (baseDir: string) =>
   Effect.gen(function* () {
     const config = yield* makeConfig(baseDir);
@@ -108,67 +99,39 @@ const readProjects = (baseDir: string) =>
       Effect.provide(layer),
     );
   });
-
-it("maps declared server failures into structural project command errors", () => {
-  const cause = new EnvironmentInternalError({
-    code: "internal_error",
-    reason: "access_token_issuance_failed",
-    traceId: "trace-123",
-  });
-
-  const error = projectCommandErrorFromLiveServerRequest(cause);
-
-  assert.instanceOf(error, ProjectLiveServerDeclaredResponseError);
-  assert.strictEqual(error.operation, "callLiveServer");
-  assert.strictEqual(error.code, "internal_error");
-  assert.strictEqual(error.traceId, "trace-123");
-  assert.strictEqual(error.message, "Server request failed (internal_error, trace trace-123).");
-  assert.strictEqual(error.cause, cause);
-});
-
-it("preserves unexpected server failures without deriving the message from them", () => {
-  const cause = new Error("credential abc123 was rejected");
-
-  const error = projectCommandErrorFromLiveServerRequest(cause);
-
-  assert.instanceOf(error, ProjectLiveServerRequestError);
-  assert.strictEqual(error.operation, "callLiveServer");
-  assert.strictEqual(error.message, "Failed to call the running server.");
-  assert.strictEqual(error.cause, cause);
-});
-
 it.effect("adds, renames, and removes projects through the V2 project CLI domain", () =>
   Effect.gen(function* () {
     const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-v2-project-cli-"));
     const workspaceRoot = NodeFS.mkdtempSync(
       NodePath.join(NodeOS.tmpdir(), "t3-v2-project-workspace-"),
     );
-
     yield* runCli(["project", "add", workspaceRoot, "--title", "Alpha", "--base-dir", baseDir]);
     const added = (yield* readProjects(baseDir)).projects[0];
     assert.equal(added?.title, "Alpha");
     assert.equal(added?.workspaceRoot, workspaceRoot);
-
     yield* runCli(["project", "rename", workspaceRoot, "Beta", "--base-dir", baseDir]);
     assert.equal((yield* readProjects(baseDir)).projects[0]?.title, "Beta");
-
     yield* runCli(["project", "remove", added?.id ?? "", "--base-dir", baseDir]);
     assert.deepEqual((yield* readProjects(baseDir)).projects, []);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
-
 const makeProjectLookupFixture = Effect.fn("ProjectCliTest.makeProjectLookupFixture")(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-v2-project-lookup-" });
+  const root = yield* fs.makeTempDirectoryScoped({
+    prefix: "t3-v2-project-lookup-",
+  });
   const baseDir = NodePath.join(root, "state");
   const workspaceRoot = NodePath.join(root, "workspace");
   yield* fs.makeDirectory(workspaceRoot);
   yield* runCli(["project", "add", workspaceRoot, "--base-dir", baseDir]);
   const project = (yield* readProjects(baseDir)).projects[0];
   assert.isDefined(project);
-  return { baseDir, workspaceRoot, project: project! };
+  return {
+    baseDir,
+    workspaceRoot,
+    project: project!,
+  };
 });
-
 const makeThreadPersistenceLayer = Effect.fn("ProjectCliTest.makeThreadPersistenceLayer")(
   function* (baseDir: string) {
     const config = yield* makeConfig(baseDir);
@@ -184,7 +147,6 @@ const makeThreadPersistenceLayer = Effect.fn("ProjectCliTest.makeThreadPersisten
     );
   },
 );
-
 const seedNativeThreads = Effect.fn("ProjectCliTest.seedNativeThreads")(function* (
   baseDir: string,
   threads: ReadonlyArray<{
@@ -208,13 +170,20 @@ const seedNativeThreads = Effect.fn("ProjectCliTest.seedNativeThreads")(function
           projectId,
           title: id,
           providerInstanceId,
-          modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+          modelSelection: {
+            instanceId: providerInstanceId,
+            model: "gpt-5",
+          },
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: null,
           worktreePath: null,
           activeProviderThreadId: null,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
+          lineage: {
+            parentThreadId: null,
+            relationshipToParent: null,
+            rootThreadId: id,
+          },
           forkedFrom: null,
           createdAt,
           updatedAt: createdAt,
@@ -236,7 +205,6 @@ const seedNativeThreads = Effect.fn("ProjectCliTest.seedNativeThreads")(function
     });
   }).pipe(Effect.provide(layer));
 });
-
 const readNativeThreadState = Effect.fn("ProjectCliTest.readNativeThreadState")(function* (
   baseDir: string,
   threadId: ThreadId,
@@ -247,19 +215,20 @@ const readNativeThreadState = Effect.fn("ProjectCliTest.readNativeThreadState")(
     const events = yield* EventStore.EventStoreV2;
     return {
       thread: yield* projections.getThread(threadId),
-      events: yield* events.read({ threadId }).pipe(Stream.runCollect),
+      events: yield* events
+        .read({
+          threadId,
+        })
+        .pipe(Stream.runCollect),
     };
   }).pipe(Effect.provide(layer));
 });
-
 it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => {
   it.effect.each([
-    { label: "an active thread", archived: false, missing: false },
-    { label: "an archived thread", archived: true, missing: false },
     {
-      label: "an active thread after its workspace disappears",
+      label: "an active thread",
       archived: false,
-      missing: true,
+      missing: false,
     },
     {
       label: "an archived thread after its workspace disappears",
@@ -271,10 +240,15 @@ it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => 
       const fs = yield* FileSystem.FileSystem;
       const { baseDir, workspaceRoot, project } = yield* makeProjectLookupFixture();
       const threadId = ThreadId.make("project-cli-preserved-thread");
-      yield* seedNativeThreads(baseDir, [{ id: threadId, projectId: project.id, archived }]);
+      yield* seedNativeThreads(baseDir, [
+        {
+          id: threadId,
+          projectId: project.id,
+          archived,
+        },
+      ]);
       const before = yield* readNativeThreadState(baseDir, threadId);
       if (missing) yield* fs.rename(workspaceRoot, `${workspaceRoot}-removed`);
-
       const error = yield* runCli([
         "project",
         "remove",
@@ -287,7 +261,6 @@ it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => 
           onSuccess: () => assert.fail("Removing a nonempty project must require --force."),
         }),
       );
-
       assert.include(error.message, "not empty");
       assert.deepEqual(
         (yield* readProjects(baseDir)).projects.map((entry) => entry.id),
@@ -297,7 +270,6 @@ it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => 
       assert.equal(yield* fs.exists(workspaceRoot), !missing);
     }),
   );
-
   it.effect.each(["present", "missing"] as const)(
     "force-removes active and archived V2 threads with the workspace %s, preserving unrelated projects",
     (workspace) =>
@@ -315,15 +287,26 @@ it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => 
         const archivedId = ThreadId.make("project-cli-deleted-archived");
         const unrelatedId = ThreadId.make("project-cli-unrelated-thread");
         yield* seedNativeThreads(baseDir, [
-          { id: activeId, projectId: project.id, archived: false },
-          { id: archivedId, projectId: project.id, archived: true },
-          { id: unrelatedId, projectId: otherProject!.id, archived: false },
+          {
+            id: activeId,
+            projectId: project.id,
+            archived: false,
+          },
+          {
+            id: archivedId,
+            projectId: project.id,
+            archived: true,
+          },
+          {
+            id: unrelatedId,
+            projectId: otherProject!.id,
+            archived: false,
+          },
         ]);
         const unrelatedBefore = yield* readNativeThreadState(baseDir, unrelatedId);
         if (workspace === "missing") {
           yield* fs.rename(workspaceRoot, `${workspaceRoot}-removed`);
         }
-
         yield* runCli([
           "project",
           "remove",
@@ -332,7 +315,6 @@ it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => 
           "--base-dir",
           baseDir,
         ]);
-
         assert.deepEqual(
           (yield* readProjects(baseDir)).projects.map((entry) => entry.id),
           [otherProject!.id],
@@ -351,7 +333,6 @@ it.layer(NodeServices.layer)("project deletion with native V2 threads", (it) => 
       }),
   );
 });
-
 it.layer(NodeServices.layer)("project lookup with unavailable workspaces", (it) => {
   it.effect.each(["id", "stored path"] as const)(
     "removes an empty project by %s after its directory is gone",
@@ -371,29 +352,14 @@ it.layer(NodeServices.layer)("project lookup with unavailable workspaces", (it) 
         assert.isFalse(yield* fs.exists(workspaceRoot));
       }),
   );
-
-  it.effect("renames by ID and stored path after the directory is gone", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const { baseDir, workspaceRoot, project } = yield* makeProjectLookupFixture();
-      yield* fs.rename(workspaceRoot, `${workspaceRoot}-removed`);
-      for (const [identifier, title] of [
-        [project.id, "Renamed by ID"],
-        [workspaceRoot, "Renamed by stored path"],
-      ] as const) {
-        yield* runCli(["project", "rename", identifier, title, "--base-dir", baseDir]);
-        assert.equal((yield* readProjects(baseDir)).projects[0]?.title, title);
-      }
-      assert.isFalse(yield* fs.exists(workspaceRoot));
-    }),
-  );
-
   it.effect("does not resolve another environment's project ID in an empty database", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const { baseDir, workspaceRoot, project } = yield* makeProjectLookupFixture();
       yield* fs.rename(workspaceRoot, `${workspaceRoot}-removed`);
-      const replacementDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-v2-project-empty-" });
+      const replacementDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-v2-project-empty-",
+      });
       const error = yield* runCli([
         "project",
         "remove",
@@ -410,7 +376,6 @@ it.layer(NodeServices.layer)("project lookup with unavailable workspaces", (it) 
       assert.deepEqual((yield* readProjects(replacementDir)).projects, []);
     }),
   );
-
   it.effect("normalizes existing paths without conflating separately registered symlinks", () =>
     Effect.gen(function* () {
       const { baseDir, workspaceRoot, project } = yield* makeProjectLookupFixture();

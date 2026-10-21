@@ -15,9 +15,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
-
 import { failedFleetEntries, joinFleetEnrollment } from "./fleet-enrollment";
-
 const credential = (letter: string) => `t3enroll1.${letter.repeat(43)}`;
 const machine = (name: string, letter: string) => ({
   environmentId: name,
@@ -40,7 +38,6 @@ const { environments: bundle } = Result.getOrThrow(
 );
 const [alpha] = bundle;
 const beta = bundle[1]!;
-
 const connected: SupervisorConnectionState = {
   ...AVAILABLE_CONNECTION_STATE,
   desired: true,
@@ -50,7 +47,10 @@ const blocked = (reason: "authentication" | "configuration"): SupervisorConnecti
   ...AVAILABLE_CONNECTION_STATE,
   desired: true,
   phase: "blocked",
-  lastFailure: new ConnectionBlockedError({ reason, detail: "fixture" }),
+  lastFailure: new ConnectionBlockedError({
+    reason,
+    detail: "fixture",
+  }),
 });
 
 /**
@@ -66,12 +66,20 @@ function device(
   } = {},
 ) {
   const saved = new Map(Object.entries(options.saved ?? {}));
-  const pairings: Array<{ host: string; pairingCode: string; expectedEnvironmentId: string }> = [];
+  const pairings: Array<{
+    host: string;
+    pairingCode: string;
+    expectedEnvironmentId: string;
+  }> = [];
   const registry = EnvironmentRegistry.EnvironmentRegistry.of({
     state: (environmentId: EnvironmentId) => {
       const state = saved.get(environmentId);
       return state === undefined
-        ? Effect.fail(new EnvironmentNotRegisteredError({ environmentId }))
+        ? Effect.fail(
+            new EnvironmentNotRegisteredError({
+              environmentId,
+            }),
+          )
         : Effect.succeed(state);
     },
   } as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]);
@@ -100,17 +108,28 @@ function device(
       ),
   };
 }
-
 const unreachable = (host: string) =>
-  new ConnectionTransientError({ reason: "network", detail: `${host} is unreachable.` });
-
+  new ConnectionTransientError({
+    reason: "network",
+    detail: `${host} is unreachable.`,
+  });
 describe("joining a fleet enrollment", () => {
   it.effect("pairs every machine at its own address, checking each is the expected machine", () =>
     Effect.gen(function* () {
       const phone = device();
       expect(yield* phone.join(bundle)).toEqual([
-        ["alpha", { kind: "joined" }],
-        ["beta", { kind: "joined" }],
+        [
+          "alpha",
+          {
+            kind: "joined",
+          },
+        ],
+        [
+          "beta",
+          {
+            kind: "joined",
+          },
+        ],
       ]);
       expect(phone.pairings).toEqual([
         {
@@ -126,25 +145,44 @@ describe("joining a fleet enrollment", () => {
       ]);
     }),
   );
-
   it.effect("skips a saved machine unless its session was rejected", () =>
     Effect.gen(function* () {
       const phone = device({
-        saved: { alpha: connected, beta: blocked("authentication") },
+        saved: {
+          alpha: connected,
+          beta: blocked("authentication"),
+        },
       });
       expect(yield* phone.join(bundle)).toEqual([
-        ["alpha", { kind: "already-connected" }],
-        ["beta", { kind: "joined" }],
+        [
+          "alpha",
+          {
+            kind: "already-connected",
+          },
+        ],
+        [
+          "beta",
+          {
+            kind: "joined",
+          },
+        ],
       ]);
       expect(phone.pairings.map((pairing) => pairing.expectedEnvironmentId)).toEqual(["beta"]);
-
-      const misconfigured = device({ saved: { alpha: blocked("configuration") } });
+      const misconfigured = device({
+        saved: {
+          alpha: blocked("configuration"),
+        },
+      });
       expect(yield* misconfigured.join([alpha])).toEqual([
-        ["alpha", { kind: "already-connected" }],
+        [
+          "alpha",
+          {
+            kind: "already-connected",
+          },
+        ],
       ]);
     }),
   );
-
   it.effect("records a failed machine without holding up the others", () =>
     Effect.gen(function* () {
       const betaPaired = yield* Deferred.make<void>();
@@ -157,18 +195,31 @@ describe("joining a fleet enrollment", () => {
             : Deferred.succeed(betaPaired, undefined),
       });
       expect(yield* phone.join(bundle)).toEqual([
-        ["alpha", { kind: "failed", message: "alpha is unreachable." }],
-        ["beta", { kind: "joined" }],
+        [
+          "alpha",
+          {
+            kind: "failed",
+            message: "alpha is unreachable.",
+          },
+        ],
+        [
+          "beta",
+          {
+            kind: "joined",
+          },
+        ],
       ]);
     }),
   );
-
   it.effect("explains a revoked or expired credential the machine rejected", () =>
     Effect.gen(function* () {
       const phone = device({
         pair: () =>
           Effect.fail(
-            new ConnectionBlockedError({ reason: "authentication", detail: "Invalid grant." }),
+            new ConnectionBlockedError({
+              reason: "authentication",
+              detail: "Invalid grant.",
+            }),
           ),
       });
       expect(yield* phone.join([alpha])).toEqual([
@@ -182,7 +233,6 @@ describe("joining a fleet enrollment", () => {
       ]);
     }),
   );
-
   it.effect("retries only the machines that failed, and a re-import skips joined ones", () =>
     Effect.gen(function* () {
       let betaOnline = false;
@@ -193,28 +243,56 @@ describe("joining a fleet enrollment", () => {
       const first = yield* phone.join(bundle);
       betaOnline = true;
       const retried = yield* phone.join(failedFleetEntries(bundle, new Map(first)));
-      expect(retried).toEqual([["beta", { kind: "joined" }]]);
+      expect(retried).toEqual([
+        [
+          "beta",
+          {
+            kind: "joined",
+          },
+        ],
+      ]);
       expect(phone.pairings.map((pairing) => pairing.expectedEnvironmentId)).toEqual([
         "alpha",
         "beta",
         "beta",
       ]);
-
       expect(yield* phone.join(bundle)).toEqual([
-        ["alpha", { kind: "already-connected" }],
-        ["beta", { kind: "already-connected" }],
+        [
+          "alpha",
+          {
+            kind: "already-connected",
+          },
+        ],
+        [
+          "beta",
+          {
+            kind: "already-connected",
+          },
+        ],
       ]);
       expect(phone.pairings).toHaveLength(3);
     }),
   );
-
   it.effect("refuses an expired machine without sending its credential", () =>
     Effect.gen(function* () {
       const phone = device();
-      const expired = { ...alpha, expiresAt: DateTime.makeUnsafe(0) };
+      const expired = {
+        ...alpha,
+        expiresAt: DateTime.makeUnsafe(0),
+      };
       expect(yield* phone.join([expired, beta])).toEqual([
-        ["alpha", { kind: "expired" }],
-        ["beta", { kind: "joined" }],
+        [
+          "alpha",
+          {
+            kind: "expired",
+          },
+        ],
+        [
+          "beta",
+          {
+            kind: "joined",
+          },
+        ],
       ]);
       expect(phone.pairings.map((pairing) => pairing.expectedEnvironmentId)).toEqual(["beta"]);
     }),
