@@ -369,6 +369,11 @@ describe("ServerSettings.sourceControlWritingStyle", () => {
     }
   });
 });
+describe("ServerSettings worktree path template", () => {
+  it("defaults to the existing centralized worktree layout", () => {
+    expect(DEFAULT_SERVER_SETTINGS.worktreePathTemplate).toBe("{worktreesDir}/{repoName}/{branch}");
+  });
+});
 describe("ServerSettings environment icon", () => {
   it("decodes a kind from a newer server as null instead of failing the snapshot", () => {
     expect(
