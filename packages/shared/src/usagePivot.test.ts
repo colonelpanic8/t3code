@@ -1,6 +1,5 @@
 import type { EnvironmentId, UsageDay, UsageProviderKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-
 import type { UsageEntry } from "./usageMerge.ts";
 import {
   buildStackedColumns,
@@ -11,7 +10,6 @@ import {
   usageRowKey,
   type UsagePivotRow,
 } from "./usagePivot.ts";
-
 function entry(
   environment: string,
   {
@@ -38,7 +36,11 @@ function entry(
     environmentId: environment as EnvironmentId,
     bucket: {
       day: day as UsageDay,
-      ...(hourStart === undefined ? {} : { hourStart }),
+      ...(hourStart === undefined
+        ? {}
+        : {
+            hourStart,
+          }),
       provider,
       model,
       totals: {
@@ -57,23 +59,35 @@ function entry(
     },
   };
 }
-
 const label = (row: UsagePivotRow) =>
   [row.environmentId, row.provider, row.model].filter(Boolean).join(" ");
-
 describe("pivotUsage", () => {
   it("splits by environment and model, keeping one model name under two providers apart", () => {
     const rows = pivotUsage(
       [
-        entry("mac", { costUsd: 3, tokens: 30 }),
-        entry("mac", { day: "2026-08-08", costUsd: 2, tokens: 20 }),
-        entry("linux", { costUsd: 4, tokens: 40, unpricedRecords: 1 }),
-        entry("mac", { provider: "codex", costUsd: 1, tokens: 10 }),
+        entry("mac", {
+          costUsd: 3,
+          tokens: 30,
+        }),
+        entry("mac", {
+          day: "2026-08-08",
+          costUsd: 2,
+          tokens: 20,
+        }),
+        entry("linux", {
+          costUsd: 4,
+          tokens: 40,
+          unpricedRecords: 1,
+        }),
+        entry("mac", {
+          provider: "codex",
+          costUsd: 1,
+          tokens: 10,
+        }),
       ],
       ["model", "environment"],
       "day",
     );
-
     expect(rows).toEqual([
       {
         key: '["mac","claude opus"]',
@@ -116,22 +130,28 @@ describe("pivotUsage", () => {
       },
     ]);
   });
-
   it("collapses everything into one total row without dimensions", () => {
     expect(
-      pivotUsage([entry("mac"), entry("linux", { provider: "codex" })], [], "day").map((row) => [
-        row.key,
-        row.costUsd,
-        row.provider,
-      ]),
+      pivotUsage(
+        [
+          entry("mac"),
+          entry("linux", {
+            provider: "codex",
+          }),
+        ],
+        [],
+        "day",
+      ).map((row) => [row.key, row.costUsd, row.provider]),
     ).toEqual([["[]", 2, undefined]]);
   });
-
   it("groups days into Monday weeks and calendar months across a month boundary", () => {
-    const entries = ["2026-07-30", "2026-08-02", "2026-08-03"].map((day) => entry("mac", { day }));
+    const entries = ["2026-07-30", "2026-08-02", "2026-08-03"].map((day) =>
+      entry("mac", {
+        day,
+      }),
+    );
     const periods = (grouping: "week" | "month") =>
       pivotUsage(entries, ["period"], grouping).map((row) => [row.period, row.costUsd]);
-
     expect(periods("week")).toEqual([
       ["2026-07-27", 2],
       ["2026-08-03", 1],
@@ -141,12 +161,15 @@ describe("pivotUsage", () => {
       ["2026-08-01", 2],
     ]);
   });
-
   it("keys hourly periods by hour start", () => {
     const rows = pivotUsage(
       [
-        entry("mac", { hourStart: "2026-08-07T09:00:00.000Z" }),
-        entry("mac", { hourStart: "2026-08-07T10:00:00.000Z" }),
+        entry("mac", {
+          hourStart: "2026-08-07T09:00:00.000Z",
+        }),
+        entry("mac", {
+          hourStart: "2026-08-07T10:00:00.000Z",
+        }),
       ],
       ["period"],
       "hour",
@@ -157,68 +180,106 @@ describe("pivotUsage", () => {
     ]);
   });
 });
-
 describe("usageRowKey", () => {
   it("maps a finer row onto the key of the coarser row that contains it", () => {
-    const entries = [entry("mac", { provider: "codex", model: "gpt" })];
+    const entries = [
+      entry("mac", {
+        provider: "codex",
+        model: "gpt",
+      }),
+    ];
     const [byModelAndPeriod] = pivotUsage(entries, ["model", "period"], "day");
     const [byModel] = pivotUsage(entries, ["model"], "day");
-
     expect(usageRowKey(byModelAndPeriod!, ["model"])).toBe(byModel!.key);
     expect(byModel!.key).toBe('["codex gpt"]');
   });
 });
-
 describe("enumeratePeriods", () => {
   const days = ["2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03"];
-
   it("collapses days into the weeks and months that contain them", () => {
     expect(enumeratePeriods(days, "week")).toEqual(["2026-07-27", "2026-08-03"]);
     expect(enumeratePeriods(days, "month")).toEqual(["2026-07-01", "2026-08-01"]);
     expect(enumeratePeriods(days, "day")).toEqual(days);
   });
 });
-
 describe("sortUsageRows", () => {
   const rows = pivotUsage(
     [
-      entry("b", { costUsd: 2, tokens: 5 }),
-      entry("a", { costUsd: 2, tokens: 5 }),
-      entry("c", { costUsd: 2, tokens: 9 }),
-      entry("d", { costUsd: 7, tokens: 1 }),
+      entry("b", {
+        costUsd: 2,
+        tokens: 5,
+      }),
+      entry("a", {
+        costUsd: 2,
+        tokens: 5,
+      }),
+      entry("c", {
+        costUsd: 2,
+        tokens: 9,
+      }),
+      entry("d", {
+        costUsd: 7,
+        tokens: 1,
+      }),
     ],
     ["environment"],
     "day",
   );
-
   it("applies each criterion in turn and breaks remaining ties by key", () => {
     const sorted = sortUsageRows(
       rows,
       [
-        { field: "costUsd", direction: "descending" },
-        { field: "totalTokens", direction: "ascending" },
+        {
+          field: "costUsd",
+          direction: "descending",
+        },
+        {
+          field: "totalTokens",
+          direction: "ascending",
+        },
       ],
       label,
     );
     expect(sorted.map((row) => row.environmentId)).toEqual(["d", "a", "b", "c"]);
   });
-
   it("sorts labels in either direction", () => {
     expect(
-      sortUsageRows(rows, [{ field: "label", direction: "descending" }], label).map(
-        (row) => row.environmentId,
-      ),
+      sortUsageRows(
+        rows,
+        [
+          {
+            field: "label",
+            direction: "descending",
+          },
+        ],
+        label,
+      ).map((row) => row.environmentId),
     ).toEqual(["d", "c", "b", "a"]);
   });
 });
-
 describe("sorting and grouping two series named alike", () => {
   const rows = pivotUsage(
     [
-      entry("mac", { provider: "opencode", model: "gpt", day: "2026-08-07" }),
-      entry("mac", { provider: "codex", model: "gpt", day: "2026-08-08" }),
-      entry("mac", { provider: "codex", model: "gpt", day: "2026-08-07" }),
-      entry("mac", { provider: "opencode", model: "gpt", day: "2026-08-08" }),
+      entry("mac", {
+        provider: "opencode",
+        model: "gpt",
+        day: "2026-08-07",
+      }),
+      entry("mac", {
+        provider: "codex",
+        model: "gpt",
+        day: "2026-08-08",
+      }),
+      entry("mac", {
+        provider: "codex",
+        model: "gpt",
+        day: "2026-08-07",
+      }),
+      entry("mac", {
+        provider: "opencode",
+        model: "gpt",
+        day: "2026-08-08",
+      }),
     ],
     ["model", "period"],
     "day",
@@ -226,12 +287,17 @@ describe("sorting and grouping two series named alike", () => {
   const sorted = sortUsageRows(
     rows,
     [
-      { field: "label", direction: "ascending" },
-      { field: "period", direction: "ascending" },
+      {
+        field: "label",
+        direction: "ascending",
+      },
+      {
+        field: "period",
+        direction: "ascending",
+      },
     ],
     (row) => row.model ?? "",
   );
-
   it("keeps each series' rows together under a shared label", () => {
     expect(sorted.map((row) => [row.provider, row.period])).toEqual([
       ["codex", "2026-08-07"],
@@ -240,7 +306,6 @@ describe("sorting and grouping two series named alike", () => {
       ["opencode", "2026-08-08"],
     ]);
   });
-
   it("groups by identity, never merging the two series", () => {
     expect(
       groupUsageRows(sorted, ["model"]).map((group) => [group.key, group.rows.length]),
@@ -250,26 +315,43 @@ describe("sorting and grouping two series named alike", () => {
     ]);
   });
 });
-
 describe("groupUsageRows", () => {
   it("totals each consecutive run that shares the primary value", () => {
     const rows = sortUsageRows(
       pivotUsage(
         [
-          entry("mac", { day: "2026-08-07", costUsd: 3, tokens: 30 }),
-          entry("linux", { day: "2026-08-07", costUsd: 1, tokens: 10, unpricedRecords: 1 }),
-          entry("mac", { day: "2026-08-08", costUsd: 6, tokens: 60 }),
+          entry("mac", {
+            day: "2026-08-07",
+            costUsd: 3,
+            tokens: 30,
+          }),
+          entry("linux", {
+            day: "2026-08-07",
+            costUsd: 1,
+            tokens: 10,
+            unpricedRecords: 1,
+          }),
+          entry("mac", {
+            day: "2026-08-08",
+            costUsd: 6,
+            tokens: 60,
+          }),
         ],
         ["environment", "period"],
         "day",
       ),
       [
-        { field: "period", direction: "descending" },
-        { field: "costUsd", direction: "descending" },
+        {
+          field: "period",
+          direction: "descending",
+        },
+        {
+          field: "costUsd",
+          direction: "descending",
+        },
       ],
       label,
     );
-
     expect(
       groupUsageRows(rows, ["period"]).map((group) => ({
         period: group.rows[0]?.period,
@@ -302,57 +384,89 @@ describe("groupUsageRows", () => {
     ]);
   });
 });
-
 describe("buildStackedColumns", () => {
   const periods = ["2026-08-07", "2026-08-08"];
-
   it("stacks series largest first, zero-fills periods, and peaks at the column sum", () => {
     const stack = buildStackedColumns(
       [
-        entry("mac", { provider: "claude", costUsd: 3 }),
-        entry("mac", { provider: "codex", costUsd: 5 }),
-        entry("mac", { provider: "codex", day: "2026-08-08", costUsd: 1 }),
-        entry("mac", { provider: "pi", costUsd: 0 }),
+        entry("mac", {
+          provider: "claude",
+          costUsd: 3,
+        }),
+        entry("mac", {
+          provider: "codex",
+          costUsd: 5,
+        }),
+        entry("mac", {
+          provider: "codex",
+          day: "2026-08-08",
+          costUsd: 1,
+        }),
+        entry("mac", {
+          provider: "pi",
+          costUsd: 0,
+        }),
       ],
       ["provider"],
       "day",
       periods,
       "cost",
     );
-
     expect(stack.series.map((series) => [series.key, series.total])).toEqual([
       ['["codex"]', 6],
       ['["claude"]', 3],
     ]);
     expect(stack.columns).toEqual([
-      { period: "2026-08-07", values: [5, 3], total: 8 },
-      { period: "2026-08-08", values: [1, 0], total: 1 },
+      {
+        period: "2026-08-07",
+        values: [5, 3],
+        total: 8,
+      },
+      {
+        period: "2026-08-08",
+        values: [1, 0],
+        total: 1,
+      },
     ]);
     expect(stack.peak).toBe(8);
   });
-
   it("folds the smallest series into Other past the limit", () => {
     const stack = buildStackedColumns(
-      ["a", "b", "c", "d"].map((model, index) => entry("mac", { model, tokens: 40 - index * 10 })),
+      ["a", "b", "c", "d"].map((model, index) =>
+        entry("mac", {
+          model,
+          tokens: 40 - index * 10,
+        }),
+      ),
       ["model"],
       "day",
       periods,
       "tokens",
       3,
     );
-
     expect(stack.series.map((series) => [series.key, series.total, series.row?.model])).toEqual([
       ['["claude a"]', 40, "a"],
       ['["claude b"]', 30, "b"],
       ["other", 30, undefined],
     ]);
-    expect(stack.columns[0]).toEqual({ period: "2026-08-07", values: [40, 30, 30], total: 100 });
+    expect(stack.columns[0]).toEqual({
+      period: "2026-08-07",
+      values: [40, 30, 30],
+      total: 100,
+    });
     expect(stack.folded).toEqual(['["claude c"]', '["claude d"]']);
   });
-
   it("draws one total series without dimensions", () => {
     const stack = buildStackedColumns(
-      [entry("mac", { costUsd: 2 }), entry("linux", { day: "2026-08-08", costUsd: 3 })],
+      [
+        entry("mac", {
+          costUsd: 2,
+        }),
+        entry("linux", {
+          day: "2026-08-08",
+          costUsd: 3,
+        }),
+      ],
       [],
       "day",
       periods,
@@ -362,23 +476,28 @@ describe("buildStackedColumns", () => {
     expect(stack.columns.map((column) => column.values)).toEqual([[2], [3]]);
   });
 });
-
 describe("host and account dimensions", () => {
   const usage = [
     {
-      ...entry("server-a", { costUsd: 2 }),
+      ...entry("server-a", {
+        costUsd: 2,
+      }),
       host: "laptop",
       accountId: "personal",
       accountLabel: "Personal",
     },
     {
-      ...entry("server-b", { costUsd: 3 }),
+      ...entry("server-b", {
+        costUsd: 3,
+      }),
       host: "laptop",
       accountId: "work",
       accountLabel: "Work",
     },
     {
-      ...entry("server-c", { costUsd: 5 }),
+      ...entry("server-c", {
+        costUsd: 5,
+      }),
       host: "desktop",
       accountId: "desktop-work",
       accountLabel: "Work",
