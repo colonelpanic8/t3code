@@ -21,15 +21,50 @@ export function clearedPromptLinkParams(keys: ReadonlyArray<string> = PROMPT_LIN
   return Object.fromEntries(keys.map((key) => [key, undefined]));
 }
 
+export type LinkedPromptSendBlock = "disabled" | "reopened" | "hidden-characters";
+
+export type LinkedPromptDelivery =
+  | { readonly kind: "send" }
+  | { readonly kind: "draft"; readonly sendBlocked: LinkedPromptSendBlock | null };
+
+export function promptLinkRequestsSend(search: string): boolean {
+  const flag = new URLSearchParams(search).get("send")?.trim().toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes";
+}
+
+/**
+ * A link may only send when the user opted in. A replayed launch or a prompt
+ * that needed hidden characters stripped is drafted for review instead.
+ */
+export function linkedThreadPromptDelivery(input: {
+  readonly sendRequested: boolean;
+  readonly sendEnabled: boolean;
+  readonly launchedFromHistory: boolean;
+  readonly hiddenCharacters: number;
+}): LinkedPromptDelivery {
+  if (!input.sendRequested) return { kind: "draft", sendBlocked: null };
+  if (!input.sendEnabled) return { kind: "draft", sendBlocked: "disabled" };
+  if (input.launchedFromHistory) return { kind: "draft", sendBlocked: "reopened" };
+  if (input.hiddenCharacters > 0) return { kind: "draft", sendBlocked: "hidden-characters" };
+  return { kind: "send" };
+}
+
 export function promptLinkNotice(input: {
   readonly hiddenCharacters: number;
   readonly modelUnavailable?: boolean;
   readonly pullRequestUnavailable?: number | null;
+  readonly sendBlocked?: LinkedPromptSendBlock | null;
 }): string {
   return [
     input.hiddenCharacters > 0
       ? "This prompt had hidden characters, it may be malicious. They were removed. Read it before you send."
       : "This prompt came from a link. Read it before you send.",
+    input.sendBlocked === "disabled"
+      ? "The link asked to send it, but sending from links is off in Settings > Thread behavior."
+      : null,
+    input.sendBlocked === "reopened"
+      ? "The link was reopened from recent apps, so it was not sent again."
+      : null,
     input.modelUnavailable
       ? "The requested model is not available, so your default is used."
       : null,
