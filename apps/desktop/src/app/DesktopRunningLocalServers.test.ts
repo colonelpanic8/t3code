@@ -1,6 +1,5 @@
 import * as NodePath from "@effect/platform-node/NodePath";
 import { EnvironmentId, type ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
-import { deriveServerRuntimeStatePath } from "@t3tools/shared/serverRuntimeState";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -13,6 +12,9 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { make } from "./DesktopRunningLocalServers.ts";
 const textEncoder = new TextEncoder();
 const baseDir = "/test/.t3";
+const legacyStateDir = "/test/.t3/userdata";
+const splitRuntimeDir = "/run/user/1000/t3code";
+const splitStateDir = "/home/user/.local/state/t3code";
 const environmentId = EnvironmentId.make("environment-local");
 const descriptor = {
   environmentId,
@@ -26,11 +28,7 @@ const descriptor = {
     repositoryIdentity: true,
   },
 } as const;
-const statePath = deriveServerRuntimeStatePath({
-  baseDir,
-  variant: "userdata",
-  joinPath: (...segments) => segments.join("/"),
-});
+
 const runtimeState = (input: { readonly pid: number; readonly origin: string }) =>
   JSON.stringify({
     version: 1,
@@ -41,13 +39,18 @@ const runtimeState = (input: { readonly pid: number; readonly origin: string }) 
   });
 const homeFiles = new Map([
   [
-    statePath,
-    runtimeState({
-      pid: 42,
-      origin: "http://127.0.0.1:3773",
-    }),
+    `${legacyStateDir}/server-runtime.json`,
+    runtimeState({ pid: 42, origin: "http://127.0.0.1:3773" }),
   ],
-  ["/test/.t3/userdata/environment-id", environmentId],
+  [`${legacyStateDir}/environment-id`, environmentId],
+]);
+
+const splitHomeFiles = new Map([
+  [
+    `${splitRuntimeDir}/server-runtime.json`,
+    runtimeState({ pid: 42, origin: "http://127.0.0.1:3773" }),
+  ],
+  [`${splitStateDir}/environment-id`, environmentId],
 ]);
 const fakeFileSystemLayer = (files: ReadonlyMap<string, string>) =>
   FileSystem.layerNoop({
@@ -98,9 +101,20 @@ const makeTestService = (input: {
   readonly processIsAlive?: (pid: number) => boolean;
   readonly runsOwnBackend?: boolean;
   readonly spawner?: ChildProcessSpawner.ChildProcessSpawner["Service"];
+  readonly splitLayout?: boolean;
 }) =>
   make({
-    baseDir,
+    ...(input.splitLayout
+      ? {
+          runtimeDir: splitRuntimeDir,
+          stateDir: splitStateDir,
+          pairStorageArgs: ["--storage-layout", "xdg"],
+        }
+      : {
+          runtimeDir: legacyStateDir,
+          stateDir: legacyStateDir,
+          pairStorageArgs: ["--base-dir", baseDir],
+        }),
     backendEntryPath: "/bundle/apps/server/dist/bin.mjs",
     backendCwd: "/home/user",
     executablePath: "/bundle/electron",
@@ -112,7 +126,7 @@ const makeTestService = (input: {
   }).pipe(
     Effect.provide(
       Layer.mergeAll(
-        fakeFileSystemLayer(input.files ?? homeFiles),
+        fakeFileSystemLayer(input.files ?? (input.splitLayout ? splitHomeFiles : homeFiles)),
         NodePath.layer,
         Layer.succeed(
           ChildProcessSpawner.ChildProcessSpawner,
@@ -208,6 +222,32 @@ describe("DesktopRunningLocalServers", () => {
       });
     });
   });
+
+  it.effect("reads split-layout runtime state and pins `t3 pair` to the split layout", () => {
+    let command: ChildProcess.StandardCommand | null = null;
+    const spawner = ChildProcessSpawner.make((candidate) => {
+      if (candidate._tag === "StandardCommand") command = candidate;
+      return Effect.succeed(makeProcess({ stdout: pairOutput() }));
+    });
+
+    return Effect.gen(function* () {
+      const service = yield* makeTestService({ splitLayout: true, spawner });
+
+      const [server] = yield* service.discover;
+      expect(server?.environmentId).toBe(environmentId);
+      yield* service.pairLocalServer(environmentId);
+      expect(command?.args).toEqual([
+        "/bundle/apps/server/dist/bin.mjs",
+        "pair",
+        "--json",
+        "--label",
+        "T3 Code Desktop",
+        "--storage-layout",
+        "xdg",
+      ]);
+    });
+  });
+
   it.effect("refuses to run a different version's pairing command against the server", () =>
     Effect.gen(function* () {
       const service = yield* makeTestService({
