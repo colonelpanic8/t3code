@@ -1,5 +1,5 @@
+import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
 import * as DateTime from "effect/DateTime";
-
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "../../pairingUrl";
 import { readHostedPairingRequest } from "../../hostedPairing";
@@ -19,11 +19,59 @@ import {
   type DesktopSshEnvironmentTarget,
   type DesktopUpdateState,
   type DesktopWslState,
+  type RunningLocalServer,
 } from "@t3tools/contracts";
 import {
   getDesktopUpdateDownloadedVersion,
   resolveDesktopUpdateButtonAction,
 } from "../desktopUpdate.logic";
+import * as Option from "effect/Option";
+import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
+import { isLoopbackHostname } from "../../environments/primary/target";
+import type { EnvironmentPresentation } from "../../state/environments";
+export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string | null {
+  switch (entry.target._tag) {
+    case "PrimaryConnectionTarget":
+      return entry.target.httpBaseUrl;
+    case "BearerConnectionTarget":
+      return Option.isSome(entry.profile) && entry.profile.value._tag === "BearerConnectionProfile"
+        ? entry.profile.value.httpBaseUrl
+        : null;
+    case "RelayConnectionTarget":
+    case "SshConnectionTarget":
+      return null;
+  }
+}
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The link a new pairing credential is shared as when no advertised endpoint
+ * applies, or null to share the code alone. `pageUrl` is only passed for the
+ * environment serving this page: a relay or SSH environment has no address
+ * another device could open.
+ */
+export function resolveFallbackPairingUrl(input: {
+  readonly credential: string;
+  readonly endpointUrl: string | null | undefined;
+  readonly pageUrl: string | null;
+}): string | null {
+  if (input.endpointUrl) {
+    return (
+      resolveHostedPairingUrl(input.endpointUrl, input.credential) ??
+      resolveDesktopPairingUrl(input.endpointUrl, input.credential)
+    );
+  }
+  if (input.pageUrl === null || isLoopbackUrl(input.pageUrl)) {
+    return null;
+  }
+  return setPairingTokenOnUrl(new URL("/pair", input.pageUrl), input.credential).toString();
+}
 
 /**
  * Operating terminals without being able to list them leaves a client
@@ -47,14 +95,57 @@ export function togglePairingScopeSelection(
     ? [...next, AuthTerminalReadScope]
     : next;
 }
-
 export function canRevokeOtherClients(
-  clientSessions: ReadonlyArray<{ readonly current: boolean }> | null,
+  clientSessions: ReadonlyArray<{
+    readonly current: boolean;
+  }> | null,
 ): boolean {
   return clientSessions === null || clientSessions.some((session) => !session.current);
 }
-
 type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
+export type LocalServerPairingStatus = "pair" | "pair-again" | "paired" | "version-mismatch";
+export interface LocalServerPairingCandidate {
+  readonly server: RunningLocalServer;
+  readonly status: LocalServerPairingStatus;
+}
+
+/**
+ * Discovered servers this client could pair with. This machine's own and
+ * desktop-managed backends are never candidates. A saved environment is only
+ * offered again once its connection has failed.
+ */
+export function selectLocalServerPairingCandidates(
+  servers: ReadonlyArray<RunningLocalServer>,
+  environments: ReadonlyArray<
+    Pick<EnvironmentPresentation, "environmentId" | "entry" | "connection">
+  >,
+): ReadonlyArray<LocalServerPairingCandidate> {
+  return servers.flatMap((server): LocalServerPairingCandidate[] => {
+    const saved = environments.find(
+      (environment) => environment.environmentId === server.environmentId,
+    );
+    if (
+      saved?.entry.target._tag === "PrimaryConnectionTarget" ||
+      (saved !== undefined && isDesktopLocalConnectionTarget(saved.entry.target))
+    ) {
+      return [];
+    }
+    const status: LocalServerPairingStatus =
+      saved !== undefined && saved.connection.phase !== "error"
+        ? "paired"
+        : server.pairing === "version-mismatch"
+          ? "version-mismatch"
+          : saved !== undefined
+            ? "pair-again"
+            : "pair";
+    return [
+      {
+        server,
+        status,
+      },
+    ];
+  });
+}
 
 /**
  * A QR code encoding a loopback URL makes the scanning device dial itself, so
@@ -78,7 +169,6 @@ export function missingTailscaleEndpointDescription(
     ? "Turn on Network access to detect Tailscale."
     : "Start Tailscale to set up HTTPS access through MagicDNS.";
 }
-
 export function isWslSettingsRowVisible(input: {
   readonly state: DesktopWslState | null;
   readonly error: string | null;
@@ -118,7 +208,6 @@ export function resolveLocalVersionStatusLabel(state: DesktopUpdateState | null)
   }
   return "Up to date";
 }
-
 export type QrEndpointOption = {
   readonly id: string;
   /**
@@ -128,7 +217,6 @@ export type QrEndpointOption = {
   readonly preferenceKey: string;
   readonly qrShareable: boolean;
 };
-
 export function selectQrEndpointOption<T extends QrEndpointOption>(
   options: ReadonlyArray<T>,
   selectedId: string | null,
@@ -144,7 +232,6 @@ export function selectQrEndpointOption<T extends QrEndpointOption>(
     null
   );
 }
-
 export async function applyWslEnableSelection(input: {
   readonly bridge: WslEnableBridge;
   readonly mode: "both" | "wsl-only";
@@ -162,12 +249,10 @@ export async function applyWslEnableSelection(input: {
   }
   return await bridge.setWslBackendEnabled(true);
 }
-
 const accessTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
-
 export function formatAccessTimestamp(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -175,7 +260,6 @@ export function formatAccessTimestamp(value: string): string {
   }
   return accessTimestampFormatter.format(parsed);
 }
-
 export function parseManualDesktopSshTarget(input: {
   readonly host: string;
   readonly username: string;
@@ -185,11 +269,9 @@ export function parseManualDesktopSshTarget(input: {
   if (rawHost.length === 0) {
     throw new Error("SSH host or alias is required.");
   }
-
   let hostname = rawHost;
   let username = input.username.trim() || null;
   let port: number | null = null;
-
   const atIndex = hostname.lastIndexOf("@");
   if (atIndex > 0) {
     const inlineUsername = hostname.slice(0, atIndex).trim();
@@ -198,7 +280,6 @@ export function parseManualDesktopSshTarget(input: {
       username = inlineUsername;
     }
   }
-
   const bracketedHostMatch = /^\[([^\]]+)\](?::(\d+))?$/u.exec(hostname);
   if (bracketedHostMatch) {
     hostname = bracketedHostMatch[1]!.trim();
@@ -212,20 +293,16 @@ export function parseManualDesktopSshTarget(input: {
       port = Number.parseInt(colonSegments[1]!, 10);
     }
   }
-
   const rawPort = input.port.trim();
   if (rawPort.length > 0) {
     port = Number.parseInt(rawPort, 10);
   }
-
   if (hostname.length === 0) {
     throw new Error("SSH host or alias is required.");
   }
-
   if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
     throw new Error("SSH port must be between 1 and 65535.");
   }
-
   return {
     alias: hostname,
     hostname,
@@ -233,13 +310,12 @@ export function parseManualDesktopSshTarget(input: {
     port,
   };
 }
-
-export function parsePairingUrlFields(
-  input: string,
-): { readonly host: string; readonly pairingCode: string } | null {
+export function parsePairingUrlFields(input: string): {
+  readonly host: string;
+  readonly pairingCode: string;
+} | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-
   try {
     const urlLikeInput =
       /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//u.test(trimmed) || trimmed.startsWith("//")
@@ -253,7 +329,6 @@ export function parsePairingUrlFields(
         pairingCode: hostedPairingRequest.token,
       };
     }
-
     const pairingCode = getPairingTokenFromUrl(url);
     if (!pairingCode) return null;
     return {
@@ -264,7 +339,6 @@ export function parsePairingUrlFields(
     return null;
   }
 }
-
 export function parseRemotePairingFields(input: {
   readonly host: string;
   readonly pairingCode: string;
@@ -274,7 +348,6 @@ export function parseRemotePairingFields(input: {
 } {
   const parsedPairingUrl = parsePairingUrlFields(input.host);
   if (parsedPairingUrl) return parsedPairingUrl;
-
   const host = input.host.trim();
   const pairingCode = input.pairingCode.trim();
   if (!host) {
@@ -283,9 +356,11 @@ export function parseRemotePairingFields(input: {
   if (!pairingCode) {
     throw new Error("Enter a pairing code.");
   }
-  return { host, pairingCode };
+  return {
+    host,
+    pairingCode,
+  };
 }
-
 export function formatDesktopSshConnectionError(error: unknown): string {
   const fallback = "Failed to connect SSH host.";
   const rawMessage = error instanceof Error ? error.message : fallback;
@@ -296,13 +371,11 @@ export function formatDesktopSshConnectionError(error: unknown): string {
   const withoutTaggedErrorPrefix = withoutIpcPrefix.replace(/^Ssh[A-Za-z]+Error:\s*/u, "");
   return withoutTaggedErrorPrefix.trim() || fallback;
 }
-
 export function sortDesktopPairingLinks(links: ReadonlyArray<ServerPairingLinkRecord>) {
   return [...links].toSorted(
     (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
   );
 }
-
 export function summarizeAuthorizedClients(
   sessions: ReadonlyArray<ServerClientSessionRecord>,
   links: ReadonlyArray<ServerPairingLinkRecord>,
@@ -315,7 +388,6 @@ export function summarizeAuthorizedClients(
   ];
   return parts.filter((part): part is string => part !== null).join(" · ");
 }
-
 export function sortDesktopClientSessions(sessions: ReadonlyArray<ServerClientSessionRecord>) {
   return [...sessions].toSorted((left, right) => {
     if (left.current !== right.current) {
@@ -327,7 +399,6 @@ export function sortDesktopClientSessions(sessions: ReadonlyArray<ServerClientSe
     return new Date(right.issuedAt).getTime() - new Date(left.issuedAt).getTime();
   });
 }
-
 export function toDesktopPairingLinkRecord(pairingLink: AuthPairingLink): ServerPairingLinkRecord {
   return {
     ...pairingLink,
@@ -336,7 +407,6 @@ export function toDesktopPairingLinkRecord(pairingLink: AuthPairingLink): Server
     expiresAt: DateTime.formatIso(pairingLink.expiresAt),
   };
 }
-
 export function toDesktopClientSessionRecord(
   clientSession: AuthClientSession,
 ): ServerClientSessionRecord {
@@ -351,7 +421,6 @@ export function toDesktopClientSessionRecord(
         : DateTime.formatIso(clientSession.lastConnectedAt),
   };
 }
-
 export function selectPairingEndpoint(
   endpoints: ReadonlyArray<AdvertisedEndpoint>,
   defaultEndpointKey?: string | null,
@@ -372,11 +441,9 @@ export function selectPairingEndpoint(
     null
   );
 }
-
 export function isTailscaleHttpsEndpoint(endpoint: AdvertisedEndpoint): boolean {
   return endpoint.id.startsWith("tailscale-magicdns:");
 }
-
 export function endpointDefaultPreferenceKey(endpoint: AdvertisedEndpoint): string {
   if (endpoint.id.startsWith("desktop-loopback:")) {
     return "desktop-core:loopback:http";
@@ -390,15 +457,12 @@ export function endpointDefaultPreferenceKey(endpoint: AdvertisedEndpoint): stri
   if (isTailscaleHttpsEndpoint(endpoint)) {
     return "tailscale:magicdns:https";
   }
-
   let scheme = "unknown";
   try {
     scheme = new URL(endpoint.httpBaseUrl).protocol.replace(/:$/u, "");
   } catch {}
-
   return `${endpoint.provider.id}:${endpoint.reachability}:${scheme}:${endpoint.label}`;
 }
-
 export function resolveAdvertisedEndpointPairingUrl(
   endpoint: AdvertisedEndpoint,
   credential: string,
@@ -411,12 +475,10 @@ export function resolveAdvertisedEndpointPairingUrl(
   }
   return resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential);
 }
-
 export function resolveCurrentOriginPairingUrl(credential: string): string {
   const url = new URL("/pair", window.location.href);
   return setPairingTokenOnUrl(url, credential).toString();
 }
-
 export function isHostedAppPairingUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -425,7 +487,6 @@ export function isHostedAppPairingUrl(value: string): boolean {
     return false;
   }
 }
-
 export function endpointShareHint(endpoint: AdvertisedEndpoint, url: string): string {
   if (isHostedAppPairingUrl(url)) {
     return "Opens the hosted app, no install needed";
