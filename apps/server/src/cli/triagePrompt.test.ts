@@ -8,7 +8,10 @@ it("stays byte-identical to .github/triage/PLAYBOOK.md", () => {
   // from their bundled playbook. The two must say the same thing at HEAD, or a
   // playbook edit silently changes behavior only for old (or only for new)
   // installs.
-  const canonicalPath = NodePath.join(import.meta.dirname, "../../../../.github/triage/PLAYBOOK.md");
+  const canonicalPath = NodePath.join(
+    import.meta.dirname,
+    "../../../../.github/triage/PLAYBOOK.md",
+  );
   assert.equal(TRIAGE_PLAYBOOK, NodeFS.readFileSync(canonicalPath, "utf8"));
 });
 it("launch prompt stays a single argv-safe line naming the prompt file", () => {
@@ -42,8 +45,8 @@ it("context file labels the CLI version as the CLI's, not the user's build", () 
       terminalLogsDir: "/home/u/.t3/userdata/logs/terminals",
       providerStatusCacheDir: "/home/u/.t3/caches",
       secretsDir: "/home/u/.t3/userdata/secrets",
-      sourceCacheDir: "/home/u/.t3/source"
-    }
+      sourceCacheDir: "/home/u/.t3/source",
+    },
   });
   assert.notInclude(context, "Installed version");
   assert.notInclude(context, "Release tag");
