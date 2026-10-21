@@ -1,16 +1,20 @@
 import { DEFAULT_SERVER_SETTINGS, ProviderInstanceId } from "@t3tools/contracts";
-import { DEFAULT_CLIENT_SETTINGS, type ClientSettings } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  type ClientSettings,
+  type ClientSettingsPatch,
+} from "@t3tools/contracts/settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-
 const persistenceMocks = vi.hoisted(() => ({
   getClientSettings: vi.fn<() => Promise<ClientSettings | null>>(),
   setClientSettings: vi.fn<(settings: ClientSettings) => Promise<void>>(),
+  getManagedClientSettings: vi.fn<() => Promise<ClientSettingsPatch | null>>(),
 }));
-
 vi.mock("~/localApi", () => ({
-  ensureLocalApi: () => ({ persistence: persistenceMocks }),
+  ensureLocalApi: () => ({
+    persistence: persistenceMocks,
+  }),
 }));
-
 import {
   __resetClientSettingsPersistenceForTests,
   __setClientSettingsForTests,
@@ -22,26 +26,54 @@ import {
   prepareModelPreferencesPatch,
 } from "./useSettings";
 import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
-
 beforeEach(() => {
   persistenceMocks.getClientSettings.mockReset().mockResolvedValue(null);
   persistenceMocks.setClientSettings.mockReset().mockResolvedValue(undefined);
+  persistenceMocks.getManagedClientSettings.mockReset().mockResolvedValue(null);
   __resetClientSettingsPersistenceForTests();
 });
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
-
 describe("client settings hydration", () => {
+  it("keeps managed values over saved settings and later patches", async () => {
+    persistenceMocks.getClientSettings.mockResolvedValue({
+      ...DEFAULT_CLIENT_SETTINGS,
+      diffLayout: "stacked",
+      wordWrap: false,
+    });
+    persistenceMocks.getManagedClientSettings.mockResolvedValue({
+      diffLayout: "split",
+    });
+    await ensureClientSettingsHydrated();
+    expect(getClientSettings()).toMatchObject({
+      diffLayout: "split",
+      wordWrap: false,
+    });
+    await persistClientSettingsPatch({
+      diffLayout: "stacked",
+      wordWrap: true,
+    });
+    expect(getClientSettings()).toMatchObject({
+      diffLayout: "split",
+      wordWrap: true,
+    });
+  });
   const savedSettings = {
     ...DEFAULT_CLIENT_SETTINGS,
     timestampFormat: "12-hour" as const,
-    favorites: [{ provider: ProviderInstanceId.make("codex_work"), model: "gpt-5.6" }],
+    favorites: [
+      {
+        provider: ProviderInstanceId.make("codex_work"),
+        model: "gpt-5.6",
+      },
+    ],
   };
   const onboardingCompletedAt = "2026-09-05T12:00:00.000Z";
-  const complete = (current: ClientSettings) => ({ ...current, onboardingCompletedAt });
-
+  const complete = (current: ClientSettings) => ({
+    ...current,
+    onboardingCompletedAt,
+  });
   it("waits for saved model preferences before applying the first server edit", async () => {
     const provider = ProviderInstanceId.make("codex_work");
     let finishRead!: (settings: ClientSettings) => void;
@@ -51,18 +83,39 @@ describe("client settings hydration", () => {
       }),
     );
     const patch = prepareModelPreferencesPatch(DEFAULT_SERVER_SETTINGS, {
-      setModelFavorites: [{ provider, model: "new", favorite: true }],
-      setModelsHidden: [{ provider, model: "new", hidden: true }],
+      setModelFavorites: [
+        {
+          provider,
+          model: "new",
+          favorite: true,
+        },
+      ],
+      setModelsHidden: [
+        {
+          provider,
+          model: "new",
+          hidden: true,
+        },
+      ],
     });
     expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
     finishRead({
       ...savedSettings,
       providerModelPreferences: {
-        [provider]: { hiddenModels: ["saved-hidden"], modelOrder: ["saved-order"] },
+        [provider]: {
+          hiddenModels: ["saved-hidden"],
+          modelOrder: ["saved-order"],
+        },
       },
     });
     const edited = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, await patch);
-    expect(edited.favorites).toEqual([...savedSettings.favorites, { provider, model: "new" }]);
+    expect(edited.favorites).toEqual([
+      ...savedSettings.favorites,
+      {
+        provider,
+        model: "new",
+      },
+    ]);
     expect(edited.providerModelPreferences?.[provider]).toEqual({
       hiddenModels: ["saved-hidden", "new"],
       modelOrder: ["saved-order"],
@@ -76,28 +129,30 @@ describe("client settings hydration", () => {
     persistenceMocks.getClientSettings.mockRejectedValueOnce(failure);
     await expect(
       prepareModelPreferencesPatch(DEFAULT_SERVER_SETTINGS, {
-        setProviderModelOrder: { provider: ProviderInstanceId.make("codex_work"), modelOrder: [] },
+        setProviderModelOrder: {
+          provider: ProviderInstanceId.make("codex_work"),
+          modelOrder: [],
+        },
       }),
     ).rejects.toBe(failure);
   });
-
   it("rejects completion after a failed read and preserves saved preferences on retry", async () => {
     const failure = new Error("storage unavailable");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     persistenceMocks.getClientSettings
       .mockRejectedValueOnce(failure)
       .mockResolvedValue(savedSettings);
-
     await expect(persistClientSettingsUpdate(complete)).rejects.toBe(failure);
     expect(persistenceMocks.setClientSettings).not.toHaveBeenCalled();
     expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
-
-    const completedSettings = { ...savedSettings, onboardingCompletedAt };
+    const completedSettings = {
+      ...savedSettings,
+      onboardingCompletedAt,
+    };
     await expect(persistClientSettingsUpdate(complete)).resolves.toEqual(completedSettings);
     expect(persistenceMocks.setClientSettings).toHaveBeenCalledExactlyOnceWith(completedSettings);
     expect(persistenceMocks.getClientSettings).toHaveBeenCalledTimes(2);
   });
-
   it("holds patches until a pending read supplies the saved preferences", async () => {
     let finishRead!: (settings: ClientSettings) => void;
     persistenceMocks.getClientSettings.mockImplementationOnce(
@@ -111,18 +166,20 @@ describe("client settings hydration", () => {
         resolve(settings);
       });
     });
-
     const hydration = ensureClientSettingsHydrated();
-    persistClientSettingsPatch({ wordWrap: false });
+    persistClientSettingsPatch({
+      wordWrap: false,
+    });
     expect(getClientSettings()).toBe(DEFAULT_CLIENT_SETTINGS);
     expect(persistenceMocks.setClientSettings).not.toHaveBeenCalled();
-
     finishRead(savedSettings);
     await hydration;
-    await expect(persisted).resolves.toEqual({ ...savedSettings, wordWrap: false });
+    await expect(persisted).resolves.toEqual({
+      ...savedSettings,
+      wordWrap: false,
+    });
     expect(persistenceMocks.getClientSettings).toHaveBeenCalledOnce();
   });
-
   it("preserves patch order across hydration and a blocked completion write", async () => {
     let finishRead!: (settings: ClientSettings) => void;
     const read = new Promise<ClientSettings>((resolve) => {
@@ -148,24 +205,34 @@ describe("client settings hydration", () => {
       .mockImplementation(async (settings) => {
         durableSettings = settings;
       });
-
     const completion = persistClientSettingsUpdate(complete, persist);
-    persistClientSettingsPatch({ wordWrap: false }, persist);
+    persistClientSettingsPatch(
+      {
+        wordWrap: false,
+      },
+      persist,
+    );
     finishRead(savedSettings);
     await completionWriteStarted;
-    persistClientSettingsPatch({ wordWrap: true }, persist);
+    persistClientSettingsPatch(
+      {
+        wordWrap: true,
+      },
+      persist,
+    );
     const finalWrite = persistClientSettingsUpdate((current) => current, persist);
-
     finishCompletionWrite();
     await completion;
     await finalWrite;
-
-    const expected = { ...savedSettings, onboardingCompletedAt, wordWrap: true };
+    const expected = {
+      ...savedSettings,
+      onboardingCompletedAt,
+      wordWrap: true,
+    };
     expect(getClientSettings()).toEqual(expected);
     expect(durableSettings).toEqual(expected);
   });
 });
-
 describe("persistClientSettingsPatch", () => {
   it("waits for settings writes in request order", async () => {
     __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
@@ -180,23 +247,29 @@ describe("persistClientSettingsPatch", () => {
         finishFirst = resolve;
       });
     });
-
-    const firstSettings = { ...DEFAULT_CLIENT_SETTINGS, snapShotFlash: false };
-    const secondSettings = { ...firstSettings, snapShotPlaySound: false };
-    const first = persistClientSettingsPatch({ snapShotFlash: false });
+    const firstSettings = {
+      ...DEFAULT_CLIENT_SETTINGS,
+      snapShotFlash: false,
+    };
+    const secondSettings = {
+      ...firstSettings,
+      snapShotPlaySound: false,
+    };
+    const first = persistClientSettingsPatch({
+      snapShotFlash: false,
+    });
     await firstStarted;
-    const second = persistClientSettingsPatch({ snapShotPlaySound: false });
-
+    const second = persistClientSettingsPatch({
+      snapShotPlaySound: false,
+    });
     expect(persistenceMocks.setClientSettings).toHaveBeenCalledTimes(1);
     expect(getClientSettings()).toEqual(secondSettings);
     finishFirst();
     await Promise.all([first, second]);
-
     expect(persistenceMocks.setClientSettings).toHaveBeenNthCalledWith(1, firstSettings);
     expect(persistenceMocks.setClientSettings).toHaveBeenNthCalledWith(2, secondSettings);
   });
 });
-
 describe("persistClientSettingsUpdate", () => {
   it("publishes the update only after persistence succeeds", async () => {
     let finishPersistence!: () => void;
@@ -205,7 +278,6 @@ describe("persistClientSettingsUpdate", () => {
     });
     const setClientSettings = vi.fn(() => persistence);
     __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
-
     const pending = persistClientSettingsUpdate(
       (current) => ({
         ...current,
@@ -213,13 +285,13 @@ describe("persistClientSettingsUpdate", () => {
       }),
       setClientSettings,
     );
-
     expect(getClientSettings().timestampFormat).toBe(DEFAULT_CLIENT_SETTINGS.timestampFormat);
     finishPersistence();
-    await expect(pending).resolves.toMatchObject({ timestampFormat: "12-hour" });
+    await expect(pending).resolves.toMatchObject({
+      timestampFormat: "12-hour",
+    });
     expect(getClientSettings().timestampFormat).toBe("12-hour");
   });
-
   it("preserves an optimistic write made while an awaited update persists", async () => {
     let finishFirstPersistence!: () => void;
     let durableSettings = DEFAULT_CLIENT_SETTINGS;
@@ -237,8 +309,11 @@ describe("persistClientSettingsUpdate", () => {
         durableSettings = settings;
       });
     __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
-    const importedProfile = { id: "profile-import", name: "Imported", kind: "persistent" as const };
-
+    const importedProfile = {
+      id: "profile-import",
+      name: "Imported",
+      kind: "persistent" as const,
+    };
     const pending = persistClientSettingsUpdate(
       (current) => ({
         ...current,
@@ -247,10 +322,14 @@ describe("persistClientSettingsUpdate", () => {
       persist,
     );
     await Promise.resolve();
-    const patch = persistClientSettingsPatch({ wordWrap: false }, persist);
+    const patch = persistClientSettingsPatch(
+      {
+        wordWrap: false,
+      },
+      persist,
+    );
     finishFirstPersistence();
     await Promise.all([pending, patch]);
-
     expect(persist).toHaveBeenCalledTimes(3);
     expect(persist.mock.calls[1]?.[0]).toMatchObject({
       wordWrap: false,
@@ -262,7 +341,6 @@ describe("persistClientSettingsUpdate", () => {
     expect(getClientSettings().browserProfiles).toContainEqual(importedProfile);
   });
 });
-
 describe("mergeEnvironmentSettings", () => {
   it("keeps server settlement settings when legacy client data contains retired keys", () => {
     const serverSettings = {
@@ -275,14 +353,11 @@ describe("mergeEnvironmentSettings", () => {
       sidebarAutoSettleAfterDays: 1,
       sidebarAutoSettleOnMerge: true,
     };
-
     const settings = mergeEnvironmentSettings(serverSettings, legacyClientSettings);
-
     expect(settings.sidebarAutoSettleAfterDays).toBe(14);
     expect(settings.sidebarAutoSettleOnMerge).toBe(false);
   });
 });
-
 describe("onboarding completion persistence", () => {
   it("keeps onboarding incomplete after a failed save and preserves preferences on retry", async () => {
     const failure = new Error("disk full");
@@ -306,12 +381,13 @@ describe("onboarding completion persistence", () => {
       ...current,
       onboardingCompletedAt,
     });
-
     await expect(persistClientSettingsUpdate(complete, persist)).rejects.toBe(failure);
     expect(getClientSettings()).toBe(existingSettings);
     expect(getClientSettings().onboardingCompletedAt).toBeNull();
-
-    const completedSettings = { ...existingSettings, onboardingCompletedAt };
+    const completedSettings = {
+      ...existingSettings,
+      onboardingCompletedAt,
+    };
     await expect(persistClientSettingsUpdate(complete, persist)).resolves.toEqual(
       completedSettings,
     );
@@ -319,18 +395,31 @@ describe("onboarding completion persistence", () => {
     expect(persist).toHaveBeenLastCalledWith(completedSettings);
   });
 });
-
 it("uses the environment's model preferences after migration, including empty lists", () => {
   const client = {
     ...DEFAULT_CLIENT_SETTINGS,
-    favorites: [{ provider: ProviderInstanceId.make("codex_work"), model: "old" }],
-    providerModelPreferences: { codex_work: { hiddenModels: ["old"], modelOrder: [] } },
+    favorites: [
+      {
+        provider: ProviderInstanceId.make("codex_work"),
+        model: "old",
+      },
+    ],
+    providerModelPreferences: {
+      codex_work: {
+        hiddenModels: ["old"],
+        modelOrder: [],
+      },
+    },
   };
   expect(mergeEnvironmentSettings(DEFAULT_SERVER_SETTINGS, client).favorites).toEqual(
     client.favorites,
   );
   const merged = mergeEnvironmentSettings(
-    { ...DEFAULT_SERVER_SETTINGS, favorites: [], providerModelPreferences: {} },
+    {
+      ...DEFAULT_SERVER_SETTINGS,
+      favorites: [],
+      providerModelPreferences: {},
+    },
     client,
   );
   expect(merged.favorites).toEqual([]);
