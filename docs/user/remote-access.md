@@ -510,3 +510,9 @@ in **Settings → Connections**. One-click pairing needs that server to run the 
 as the desktop app; otherwise run `t3 pair` on this computer and paste the link. To pick the mode
 for a single launch, start the desktop app with `--backend-mode=client-only` or
 `--backend-mode=managed`.
+
+## Group occasional machines
+
+Use [environment groups](environment-groups.md) to declare which machines appear
+by default and show or hide a group for the current client session. Hidden
+environments stay connected.

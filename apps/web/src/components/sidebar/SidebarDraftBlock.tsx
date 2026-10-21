@@ -1,3 +1,5 @@
+import { environmentCatalog } from "~/connection/catalog";
+import { useAtomValue } from "@effect/atom-react";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { SquarePenIcon, XIcon } from "lucide-react";
@@ -20,7 +22,6 @@ import {
   type DraftSessionState,
 } from "../../composerDraftStore";
 import { draftPenClassName, draftSurfaceClassName } from "./SidebarThreadRow";
-
 const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   draftId: DraftId;
   composer: ComposerThreadDraftState;
@@ -29,7 +30,13 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   isActive: boolean;
   onNavigate: (draftId: DraftId) => void;
   onDiscard: (draftId: DraftId) => void;
-  onContextMenu: (draftId: DraftId, position: { x: number; y: number }) => void;
+  onContextMenu: (
+    draftId: DraftId,
+    position: {
+      x: number;
+      y: number;
+    },
+  ) => void;
 }) {
   const { composer, draftId, onContextMenu, onDiscard, onNavigate } = props;
   const promptPreview =
@@ -63,7 +70,10 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
       event.preventDefault();
       const rect = event.currentTarget.getBoundingClientRect();
-      onContextMenu(draftId, { x: rect.left, y: rect.bottom });
+      onContextMenu(draftId, {
+        x: rect.left,
+        y: rect.bottom,
+      });
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onNavigate(draftId);
@@ -71,7 +81,10 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   };
   const handleContextMenu = (event: ReactMouseEvent) => {
     event.preventDefault();
-    onContextMenu(draftId, { x: event.clientX, y: event.clientY });
+    onContextMenu(draftId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
   };
   const handleDiscard = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -130,27 +143,35 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
     </li>
   );
 });
-
 interface SidebarDraftRowData {
   draftId: DraftId;
   session: DraftSessionState;
   composer: ComposerThreadDraftState;
 }
-
 export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   projectByKey: ReadonlyMap<string, EnvironmentProject>;
   projectDisplayNameByKey: ReadonlyMap<string, string>;
   scopedProjectKeys: ReadonlySet<string> | null;
   routeDraftId: string | null;
   onNavigateToDraft: (draftId: DraftId) => void;
-  onDraftContextMenu: (draftId: DraftId, position: { x: number; y: number }) => void;
+  onDraftContextMenu: (
+    draftId: DraftId,
+    position: {
+      x: number;
+      y: number;
+    },
+  ) => void;
 }) {
+  const groupVisibility = useAtomValue(environmentCatalog.groups.stateAtom);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftsByThreadKey = useComposerDraftStore((store) => store.draftsByThreadKey);
   const [frozenActive, setFrozenActive] = useState<{
     routeDraftId: string | null;
     row: SidebarDraftRowData | null;
-  }>({ routeDraftId: null, row: null });
+  }>({
+    routeDraftId: null,
+    row: null,
+  });
   if (frozenActive.routeDraftId !== props.routeDraftId) {
     let row: SidebarDraftRowData | null = null;
     if (props.routeDraftId !== null) {
@@ -159,15 +180,25 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
       const composer = draftsByThreadKey[draftId];
       row =
         session && session.promotedTo == null && composer && composerDraftHasUserContent(composer)
-          ? { draftId, session, composer }
+          ? {
+              draftId,
+              session,
+              composer,
+            }
           : null;
     }
-    setFrozenActive({ routeDraftId: props.routeDraftId, row });
+    setFrozenActive({
+      routeDraftId: props.routeDraftId,
+      row,
+    });
   }
   const drafts = (() => {
     const rows: SidebarDraftRowData[] = [];
     for (const [draftKey, session] of Object.entries(draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (
+        session.promotedTo != null ||
+        groupVisibility.hiddenEnvironmentIds.has(session.environmentId)
+      ) {
         continue;
       }
       if (
@@ -186,7 +217,11 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
       if (!composer || !composerDraftHasUserContent(composer)) {
         continue;
       }
-      rows.push({ draftId: DraftId.make(draftKey), session, composer });
+      rows.push({
+        draftId: DraftId.make(draftKey),
+        session,
+        composer,
+      });
     }
     rows.sort((left, right) => right.session.createdAt.localeCompare(left.session.createdAt));
     return rows;
