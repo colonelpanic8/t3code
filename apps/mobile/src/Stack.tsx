@@ -484,6 +484,7 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: NewTaskDraftRouteScreen,
       linking: "draft",
       options: {
+        headerShown: Platform.OS !== "android",
         headerBackVisible: false,
         title: "",
       },
