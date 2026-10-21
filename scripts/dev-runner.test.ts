@@ -126,6 +126,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             T3CODE_SERVER_CONFIG_DIR: "/real/config",
             T3CODE_SERVER_DATA_DIR: "/real/data",
             T3CODE_SERVER_CACHE_DIR: "/real/cache",
+            T3CODE_SERVER_CONFIG_FILE: "/real/config/server.json",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -141,6 +142,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.T3CODE_SERVER_CONFIG_DIR, undefined);
         assert.equal(env.T3CODE_SERVER_DATA_DIR, undefined);
         assert.equal(env.T3CODE_SERVER_CACHE_DIR, undefined);
+        assert.equal(env.T3CODE_SERVER_CONFIG_FILE, undefined);
       }),
     );
     it.effect.each(["dev", "dev:web"] as const)(
