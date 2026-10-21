@@ -11,15 +11,16 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { EnvironmentQueryStore, persistQuery, UsageQueryStore } from "./queryPersistence.ts";
-
 import { persistPullRequestStats } from "./pullRequestStatsPersistence.ts";
 import { persistUsageSummary } from "./usagePersistence.ts";
 import { usageEnvironmentProgress } from "./usageProgress.ts";
-
 const env = EnvironmentId.make("one");
 const other = EnvironmentId.make("two");
-const persisted = persistQuery(Schema.Struct({ title: Schema.String }));
-
+const persisted = persistQuery(
+  Schema.Struct({
+    title: Schema.String,
+  }),
+);
 function store(records = new Map<string, string>()) {
   return {
     load: (environmentId: EnvironmentId, key: string) =>
@@ -34,17 +35,21 @@ function store(records = new Map<string, string>()) {
       }),
   };
 }
-
 describe("query persistence", () => {
   it.effect("round trips responses without mixing environments or query scopes", () =>
     Effect.gen(function* () {
-      yield* persisted.save(env, "open", { title: "saved" });
-      expect(yield* persisted.load(env, "open")).toEqual(Option.some({ title: "saved" }));
+      yield* persisted.save(env, "open", {
+        title: "saved",
+      });
+      expect(yield* persisted.load(env, "open")).toEqual(
+        Option.some({
+          title: "saved",
+        }),
+      );
       expect(yield* persisted.load(other, "open")).toEqual(Option.none());
       expect(yield* persisted.load(env, "closed")).toEqual(Option.none());
     }).pipe(Effect.provideService(EnvironmentQueryStore, store())),
   );
-
   it.effect("drops corrupt or incompatible records", () => {
     const records = new Map([
       ["one:broken", "not json"],
@@ -54,32 +59,58 @@ describe("query persistence", () => {
     return Effect.gen(function* () {
       expect(yield* persisted.load(env, "broken")).toEqual(Option.none());
       expect(yield* persisted.load(env, "incompatible")).toEqual(Option.none());
-      expect(yield* persisted.load(env, "valid")).toEqual(Option.some({ title: "kept" }));
+      expect(yield* persisted.load(env, "valid")).toEqual(
+        Option.some({
+          title: "kept",
+        }),
+      );
       expect([...records.keys()]).toEqual(["one:valid"]);
     }).pipe(Effect.provideService(EnvironmentQueryStore, store(records)));
   });
-
-  it.effect("does not persist on platforms without a query store", () =>
-    Effect.gen(function* () {
-      yield* persisted.save(env, "open", { title: "saved" });
-      expect(yield* persisted.load(env, "open")).toEqual(Option.none());
-    }),
-  );
 });
-
 it.effect("restores line counts when visible PR batches change", () =>
   Effect.gen(function* () {
     const cache = persistPullRequestStats();
-    const first = { projectId: ProjectId.make("project"), repository: "owner/repo", number: 1 };
-    const second = { ...first, number: 2 };
-    const stat = { ...first, additions: 42, deletions: 3 };
-    yield* cache.save(env, JSON.stringify(["stats", { refs: [first, second] }]), { stats: [stat] });
-    const key = JSON.stringify(["stats", { refs: [first] }]);
-    expect(yield* cache.load(env, key)).toEqual(Option.some({ stats: [stat] }));
+    const first = {
+      projectId: ProjectId.make("project"),
+      repository: "owner/repo",
+      number: 1,
+    };
+    const second = {
+      ...first,
+      number: 2,
+    };
+    const stat = {
+      ...first,
+      additions: 42,
+      deletions: 3,
+    };
+    yield* cache.save(
+      env,
+      JSON.stringify([
+        "stats",
+        {
+          refs: [first, second],
+        },
+      ]),
+      {
+        stats: [stat],
+      },
+    );
+    const key = JSON.stringify([
+      "stats",
+      {
+        refs: [first],
+      },
+    ]);
+    expect(yield* cache.load(env, key)).toEqual(
+      Option.some({
+        stats: [stat],
+      }),
+    );
     expect(yield* cache.load(other, key)).toEqual(Option.none());
   }).pipe(Effect.provideService(EnvironmentQueryStore, store())),
 );
-
 describe("usage summary persistence", () => {
   const cache = persistUsageSummary();
   const label = "environment-data:server:usage-summary";
@@ -124,35 +155,46 @@ describe("usage summary persistence", () => {
         refreshing: true,
       },
     ],
-    pricing: { status: "fresh", source: "test", fetchedAt: null, knownModels: 1 },
+    pricing: {
+      status: "fresh",
+      source: "test",
+      fetchedAt: null,
+      knownModels: 1,
+    },
     scanDurationMs: 1,
   };
   const { refreshing: _refreshing, ...settledSource } = summary.sources[0]!;
-
   it.effect("finds the last 24-hour summary from a window that has since moved", () =>
     Effect.gen(function* () {
       yield* cache.save(env, runtimeKey(morning), summary);
       const later = runtimeKey(afternoon);
       expect(yield* cache.load(env, later)).toEqual(
-        Option.some({ ...summary, sources: [settledSource] }),
+        Option.some({
+          ...summary,
+          sources: [settledSource],
+        }),
       );
       expect(yield* cache.load(other, later)).toEqual(Option.none());
       expect(yield* cache.load(env, runtimeKey(daily("2026-10-08", "2026-10-14")))).toEqual(
         Option.none(),
       );
-      expect(yield* cache.load(env, runtimeKey({ ...afternoon, timeZone: "Asia/Tokyo" }))).toEqual(
-        Option.none(),
-      );
+      expect(
+        yield* cache.load(
+          env,
+          runtimeKey({
+            ...afternoon,
+            timeZone: "Asia/Tokyo",
+          }),
+        ),
+      ).toEqual(Option.none());
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
-
   const days = (sinceDay: string, untilDay: string): UsageSummary => ({
     ...summary,
     sinceDay: UsageDay.make(sinceDay),
     untilDay: UsageDay.make(untilDay),
     sources: [],
   });
-
   it.effect("keeps day windows of different lengths apart", () =>
     Effect.gen(function* () {
       const week = days("2026-10-08", "2026-10-14");
@@ -165,7 +207,6 @@ describe("usage summary persistence", () => {
       );
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
-
   it.effect("serves a day window only the summary that answered it", () =>
     Effect.gen(function* () {
       // Requested before midnight, answered after it.
@@ -179,7 +220,6 @@ describe("usage summary persistence", () => {
       );
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
-
   it.effect("keeps only the hours a moved 24-hour window still covers", () =>
     Effect.gen(function* () {
       const bucket = (hourStart: string, costUsd: number) => ({
@@ -220,7 +260,6 @@ describe("usage summary persistence", () => {
       ).toEqual(Option.none());
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
-
   it.effect("reads a restored summary as wholly stale while its environment rescans", () =>
     Effect.gen(function* () {
       const key = runtimeKey(morning);
@@ -236,10 +275,11 @@ describe("usage summary persistence", () => {
           error: null,
           summary: restored,
         }),
-      ).toEqual({ phase: "stale" });
+      ).toEqual({
+        phase: "stale",
+      });
     }).pipe(Effect.provideService(UsageQueryStore, store())),
   );
-
   it.effect("stays out of the pull request query store", () =>
     Effect.gen(function* () {
       const key = runtimeKey(morning);

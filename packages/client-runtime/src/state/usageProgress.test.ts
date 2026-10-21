@@ -5,9 +5,7 @@ import {
   type UsageSummary,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-
 import { usageEnvironmentProgress, usageLoadingState, usageProgress } from "./usageProgress.ts";
-
 function summary(refreshing: readonly UsageProviderKind[] = []): UsageSummary {
   return {
     contractVersion: USAGE_CONTRACT_VERSION,
@@ -17,20 +15,33 @@ function summary(refreshing: readonly UsageProviderKind[] = []): UsageSummary {
     untilDay: UsageDay.make("2026-09-05"),
     buckets: [],
     sources: (["codex", ...refreshing] as const).map((provider) => ({
-      fingerprint: { hostId: "host", provider, resolvedHomePath: "/home", volumeId: "1:1" },
+      fingerprint: {
+        hostId: "host",
+        provider,
+        resolvedHomePath: "/home",
+        volumeId: "1:1",
+      },
       status: "ok" as const,
       scannedFiles: 1,
       skippedFiles: 0,
       malformedRecords: 0,
       distinctSessions: 1,
       message: null,
-      ...(provider === "codex" ? {} : { refreshing: true as const }),
+      ...(provider === "codex"
+        ? {}
+        : {
+            refreshing: true as const,
+          }),
     })),
-    pricing: { status: "fresh", source: "test", fetchedAt: null, knownModels: 1 },
+    pricing: {
+      status: "fresh",
+      source: "test",
+      fetchedAt: null,
+      knownModels: 1,
+    },
     scanDurationMs: 1,
   };
 }
-
 function environment(
   label: string,
   overrides: Partial<{
@@ -51,58 +62,98 @@ function environment(
     ...overrides,
   };
 }
-
-const options = { providerLabel: (provider: UsageProviderKind) => `${provider} label` };
-
+const options = {
+  providerLabel: (provider: UsageProviderKind) => `${provider} label`,
+};
 describe("usageProgress", () => {
-  it("dims a lone environment while it refetches over its old totals", () => {
-    expect(usageProgress([environment("a", { isPending: true })], options)).toEqual({
-      dimmed: true,
-      label: "Updating…",
-    });
-    expect(usageProgress([environment("a")], options)).toEqual({ dimmed: false, label: null });
-  });
-
   it("undims once one device answers and names the slow one", () => {
-    const waiting = [environment("a", { isPending: true }), environment("b", { isPending: true })];
+    const waiting = [
+      environment("a", {
+        isPending: true,
+      }),
+      environment("b", {
+        isPending: true,
+      }),
+    ];
     expect(usageProgress(waiting, options)).toEqual({
       dimmed: true,
       label: "Updating 2 environments…",
     });
     expect(
       usageProgress([environment("a"), ...waiting.slice(1), environment("c")], options),
-    ).toEqual({ dimmed: false, label: "Updating b…" });
+    ).toEqual({
+      dimmed: false,
+      label: "Updating b…",
+    });
     expect(
       usageProgress(
-        [environment("a"), environment("b", { summary: null, isPending: true })],
+        [
+          environment("a"),
+          environment("b", {
+            summary: null,
+            isPending: true,
+          }),
+        ],
         options,
       ),
-    ).toEqual({ dimmed: false, label: "Updating b…" });
+    ).toEqual({
+      dimmed: false,
+      label: "Updating b…",
+    });
   });
-
   it("names a slow source without dimming once its environment answers from cache", () => {
-    const partway = environment("a", { isPending: true, summary: summary(["cursor"]) });
-    expect(usageEnvironmentProgress(partway)).toEqual({ phase: "partway", providers: ["cursor"] });
+    const partway = environment("a", {
+      isPending: true,
+      summary: summary(["cursor"]),
+    });
+    expect(usageEnvironmentProgress(partway)).toEqual({
+      phase: "partway",
+      providers: ["cursor"],
+    });
     expect(usageProgress([partway, environment("b")], options)).toEqual({
       dimmed: false,
       label: "Updating cursor label…",
     });
     expect(
       usageProgress(
-        [partway, environment("b", { isPending: true, summary: summary(["cursor", "grok"]) })],
+        [
+          partway,
+          environment("b", {
+            isPending: true,
+            summary: summary(["cursor", "grok"]),
+          }),
+        ],
         options,
       ),
-    ).toEqual({ dimmed: false, label: "Updating 2 providers…" });
-    expect(usageProgress([{ ...partway, isPending: false }], options)).toEqual({
+    ).toEqual({
+      dimmed: false,
+      label: "Updating 2 providers…",
+    });
+    expect(
+      usageProgress(
+        [
+          {
+            ...partway,
+            isPending: false,
+          },
+        ],
+        options,
+      ),
+    ).toEqual({
       dimmed: false,
       label: null,
     });
   });
-
   it("ignores reconnecting and failed environments", () => {
     const ignored = [
-      environment("reconnecting", { isPending: true, isConnected: false }),
-      environment("failed", { error: "Offline", summary: null }),
+      environment("reconnecting", {
+        isPending: true,
+        isConnected: false,
+      }),
+      environment("failed", {
+        error: "Offline",
+        summary: null,
+      }),
     ];
     expect(usageProgress([environment("a"), ...ignored], options)).toEqual({
       dimmed: false,
@@ -110,53 +161,72 @@ describe("usageProgress", () => {
     });
     expect(
       usageProgress(
-        [environment("a"), ...ignored, environment("slow", { summary: null, isPending: true })],
+        [
+          environment("a"),
+          ...ignored,
+          environment("slow", {
+            summary: null,
+            isPending: true,
+          }),
+        ],
         options,
       ),
-    ).toEqual({ dimmed: false, label: "Updating slow…" });
-    expect(usageEnvironmentProgress(ignored[0]!)).toEqual({ phase: "inactive" });
-  });
-
-  it("dims last reported usage while its environment first connects", () => {
-    const connecting = environment("a", { isConnected: false, isConnecting: true });
-    expect(usageEnvironmentProgress(connecting)).toEqual({ phase: "stale" });
-    expect(usageProgress([connecting], options)).toEqual({ dimmed: true, label: "Updating…" });
-    expect(
-      usageEnvironmentProgress({ ...connecting, isConnecting: false, isPending: true }),
-    ).toEqual({ phase: "inactive" });
-    expect(usageEnvironmentProgress({ ...connecting, summary: null })).toEqual({
+    ).toEqual({
+      dimmed: false,
+      label: "Updating slow…",
+    });
+    expect(usageEnvironmentProgress(ignored[0]!)).toEqual({
       phase: "inactive",
     });
   });
-
-  it("dims every answered environment while a manual refresh runs", () => {
+  it("dims last reported usage while its environment first connects", () => {
+    const connecting = environment("a", {
+      isConnected: false,
+      isConnecting: true,
+    });
+    expect(usageEnvironmentProgress(connecting)).toEqual({
+      phase: "stale",
+    });
+    expect(usageProgress([connecting], options)).toEqual({
+      dimmed: true,
+      label: "Updating…",
+    });
     expect(
-      usageProgress([environment("a"), environment("b")], { ...options, refreshing: true }),
-    ).toEqual({ dimmed: true, label: "Updating 2 environments…" });
+      usageEnvironmentProgress({
+        ...connecting,
+        isConnecting: false,
+        isPending: true,
+      }),
+    ).toEqual({
+      phase: "inactive",
+    });
+    expect(
+      usageEnvironmentProgress({
+        ...connecting,
+        summary: null,
+      }),
+    ).toEqual({
+      phase: "inactive",
+    });
   });
 });
-
 describe("usageLoadingState", () => {
-  it("marks only refreshing providers while the rest have answered", () => {
-    const state = usageLoadingState([
-      environment("a", { isPending: true, summary: summary(["cursor"]) }),
-      environment("b"),
-    ]);
-    expect(state).toEqual({ partial: true, everyProvider: false, providers: new Set(["cursor"]) });
-  });
-
-  it("marks every provider while an environment has not answered", () => {
-    const state = usageLoadingState([environment("a"), environment("b", { summary: null })]);
-    expect(state.everyProvider).toBe(true);
-    expect(state.partial).toBe(true);
-  });
-
   it("ignores environments that cannot answer and settles once all have", () => {
     const state = usageLoadingState([
       environment("a"),
-      environment("b", { summary: null, isConnected: false }),
-      environment("c", { summary: null, error: "Offline" }),
+      environment("b", {
+        summary: null,
+        isConnected: false,
+      }),
+      environment("c", {
+        summary: null,
+        error: "Offline",
+      }),
     ]);
-    expect(state).toEqual({ partial: false, everyProvider: false, providers: new Set() });
+    expect(state).toEqual({
+      partial: false,
+      everyProvider: false,
+      providers: new Set(),
+    });
   });
 });

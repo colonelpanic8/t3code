@@ -11,9 +11,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
-
 import { makeUsageSummaryStore, type UsageSummaryBackend } from "./usageSummaryCache";
-
 const environmentId = EnvironmentId.make("local");
 const label = "environment-data:server:usage-summary";
 const hourly = (sinceTime: string, untilTime: string): UsageSummaryInput => ({
@@ -41,10 +39,14 @@ const summary: UsageSummary = {
   untilDay: UsageDay.make("2026-10-14"),
   buckets: [],
   sources: [],
-  pricing: { status: "fresh", source: "test", fetchedAt: null, knownModels: 1 },
+  pricing: {
+    status: "fresh",
+    source: "test",
+    fetchedAt: null,
+    knownModels: 1,
+  },
   scanDurationMs: 1,
 };
-
 function harness(start: string, maxEntries?: number) {
   const records = new Map<string, unknown>();
   let now = Date.parse(start);
@@ -55,14 +57,22 @@ function harness(start: string, maxEntries?: number) {
     // Like the IndexedDB index, it lists only records that carry a save time.
     savedAt: Effect.sync(() =>
       [...records].flatMap(([id, record]) => {
-        const savedAt = (record as { readonly savedAt?: unknown }).savedAt;
+        const savedAt = (
+          record as {
+            readonly savedAt?: unknown;
+          }
+        ).savedAt;
         return typeof savedAt === "number" ? [[id, savedAt] as const] : [];
       }),
     ),
   };
   const store = makeUsageSummaryStore(backend, {
     now: () => now,
-    ...(maxEntries === undefined ? {} : { maxEntries }),
+    ...(maxEntries === undefined
+      ? {}
+      : {
+          maxEntries,
+        }),
   });
   return {
     records,
@@ -74,16 +84,13 @@ function harness(start: string, maxEntries?: number) {
       effect.pipe(Effect.provideService(UsageQueryStore, store)),
   };
 }
-
 const cache = persistUsageSummary();
-
 beforeEach(() => {
   vi.stubEnv("TZ", "UTC");
 });
 afterEach(() => {
   vi.unstubAllEnvs();
 });
-
 describe("usage summary cache", () => {
   it.effect("restores the last 24-hour summary for a window that has since moved", () => {
     const { run } = harness("2026-10-14T09:00:00Z");
@@ -95,7 +102,6 @@ describe("usage summary cache", () => {
       }),
     );
   });
-
   it.effect("serves windows by what they cover and prunes days that have passed", () => {
     const { run, records, setNow } = harness("2026-10-14T23:00:00Z");
     const weekSummary = {
@@ -125,7 +131,6 @@ describe("usage summary cache", () => {
       }),
     );
   });
-
   it.effect("keeps only the most recently saved summaries", () => {
     const { run, records, setNow } = harness("2026-10-14T09:00:00Z", 2);
     return run(
@@ -138,7 +143,6 @@ describe("usage summary cache", () => {
       }),
     );
   });
-
   it.effect("drops records this client can no longer read", () => {
     const { run, records, store } = harness("2026-10-14T09:00:00Z");
     return run(
@@ -147,10 +151,15 @@ describe("usage summary cache", () => {
         const storedKey = `local:["usage-summary","UTC","24h"]`;
         const { buckets: _buckets, ...withoutBuckets } = summary;
         records.set(storedKey, {
-          payload: JSON.stringify({ ...withoutBuckets, contractVersion: 99 }),
+          payload: JSON.stringify({
+            ...withoutBuckets,
+            contractVersion: 99,
+          }),
           savedAt: Date.parse("2026-10-14T09:00:00Z"),
         });
-        records.set("local:malformed", { payload: 42 });
+        records.set("local:malformed", {
+          payload: 42,
+        });
         expect(yield* cache.load(environmentId, evening)).toEqual(Option.none());
         expect(yield* store.load(environmentId, "malformed")).toEqual(Option.none());
         expect([...records.keys()]).toEqual([]);
