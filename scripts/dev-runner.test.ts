@@ -133,6 +133,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             T3CODE_CACHE_DIR: "/real/xdg/cache",
             T3CODE_RUNTIME_DIR: "/real/xdg/runtime",
             T3CODE_CLIENT_DIR: "/real/desktop-client",
+            T3CODE_CLIENT_CONFIG_DIR: "/real/client/config",
+            T3CODE_CLIENT_STATE_DIR: "/real/client/state",
+            T3CODE_CLIENT_CACHE_DIR: "/real/client/cache",
           },
           serverOffset: 0,
           webOffset: 0,
@@ -155,6 +158,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         assert.equal(env.T3CODE_CACHE_DIR, undefined);
         assert.equal(env.T3CODE_RUNTIME_DIR, undefined);
         assert.equal(env.T3CODE_CLIENT_DIR, undefined);
+        assert.equal(env.T3CODE_CLIENT_CONFIG_DIR, undefined);
+        assert.equal(env.T3CODE_CLIENT_STATE_DIR, undefined);
+        assert.equal(env.T3CODE_CLIENT_CACHE_DIR, undefined);
       }),
     );
     it.effect.each(["dev", "dev:web"] as const)(
