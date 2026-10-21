@@ -9,15 +9,12 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
-
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as VoiceLiveToolExecutor from "./VoiceLiveToolExecutor.ts";
-
 const threadId = ThreadId.make("thread:voice-1");
 const updatedAt = DateTime.makeUnsafe("2026-08-01T00:00:00Z");
-
 const withExecutor = <A, E>(
   dependencies: Layer.Layer<
     | ThreadManagementService.ThreadManagementService
@@ -36,20 +33,22 @@ const withExecutor = <A, E>(
       ),
     ),
   );
-
 const emptyMocks = Layer.mergeAll(
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ProjectStore.ProjectStoreV2)({}),
 );
-
 describe("VoiceLiveToolExecutor", () => {
   it.effect("returns an isError result naming the valid tools for an unknown tool", () =>
     withExecutor(emptyMocks, (executor) =>
       Effect.gen(function* () {
         const result = yield* executor.execute("reboot_host", {});
         assert.strictEqual(result.isError, true);
-        const message = (result.result as { message: string }).message;
+        const message = (
+          result.result as {
+            message: string;
+          }
+        ).message;
         assert.include(message, "reboot_host");
         for (const tool of VoiceLiveToolExecutor.VOICE_LIVE_TOOL_NAMES) {
           assert.include(message, tool);
@@ -57,30 +56,45 @@ describe("VoiceLiveToolExecutor", () => {
       }),
     ),
   );
-
   it.effect("returns an isError result for invalid arguments", () =>
     withExecutor(emptyMocks, (executor) =>
       Effect.gen(function* () {
-        const result = yield* executor.execute("read_thread", { threadId: 42 });
+        const result = yield* executor.execute("read_thread", {
+          threadId: 42,
+        });
         assert.strictEqual(result.isError, true);
-        assert.include((result.result as { message: string }).message, "Invalid arguments");
+        assert.include(
+          (
+            result.result as {
+              message: string;
+            }
+          ).message,
+          "Invalid arguments",
+        );
       }),
     ),
   );
-
   it.effect("read_thread returns a bounded, truncated conversation tail", () =>
     Effect.gen(function* () {
       const projection = {
-        thread: { id: threadId, title: "Voice thread" },
+        thread: {
+          id: threadId,
+          title: "Voice thread",
+        },
         visibleTurnItems: [
-          ...Array.from({ length: 45 }, (_, index) => ({
-            position: index,
-            item: {
-              type: "assistant_message" as const,
-              text: `message ${index}`,
-              updatedAt,
+          ...Array.from(
+            {
+              length: 45,
             },
-          })),
+            (_, index) => ({
+              position: index,
+              item: {
+                type: "assistant_message" as const,
+                text: `message ${index}`,
+                updatedAt,
+              },
+            }),
+          ),
           {
             position: 45,
             item: {
@@ -91,7 +105,10 @@ describe("VoiceLiveToolExecutor", () => {
           },
           {
             position: 46,
-            item: { type: "checkpoint" as const, updatedAt },
+            item: {
+              type: "checkpoint" as const,
+              updatedAt,
+            },
           },
         ],
       } as unknown as OrchestrationV2ThreadProjection;
@@ -104,10 +121,15 @@ describe("VoiceLiveToolExecutor", () => {
       );
       yield* withExecutor(dependencies, (executor) =>
         Effect.gen(function* () {
-          const result = yield* executor.execute("read_thread", { threadId });
+          const result = yield* executor.execute("read_thread", {
+            threadId,
+          });
           assert.notStrictEqual(result.isError, true);
           const payload = result.result as {
-            items: ReadonlyArray<{ type: string; text: string }>;
+            items: ReadonlyArray<{
+              type: string;
+              text: string;
+            }>;
             shownItems: number;
             totalItems: number;
           };
@@ -124,7 +146,6 @@ describe("VoiceLiveToolExecutor", () => {
       );
     }),
   );
-
   it.effect("send_message routes through sendToThread with the thread's project", () =>
     Effect.gen(function* () {
       const sent = yield* Ref.make<ReadonlyArray<unknown>>([]);
@@ -148,7 +169,10 @@ describe("VoiceLiveToolExecutor", () => {
           sendToThread: (input) =>
             Ref.update(sent, (all) => [...all, input]).pipe(
               Effect.as({
-                run: { id: "run-1", status: "running" },
+                run: {
+                  id: "run-1",
+                  status: "running",
+                },
                 delivery: "started",
               } as never),
             ),
@@ -163,7 +187,11 @@ describe("VoiceLiveToolExecutor", () => {
             message: "ship it",
           });
           assert.notStrictEqual(result.isError, true);
-          const payload = result.result as { threadId: string; runId: string; status: string };
+          const payload = result.result as {
+            threadId: string;
+            runId: string;
+            status: string;
+          };
           assert.strictEqual(payload.threadId, threadId);
           assert.strictEqual(payload.runId, "run-1");
           const dispatched = yield* Ref.get(sent);
@@ -178,7 +206,6 @@ describe("VoiceLiveToolExecutor", () => {
           assert.strictEqual(input.text, "ship it");
           assert.strictEqual(input.mode, "auto");
           assert.strictEqual(input.createdBy, "user");
-
           const missing = yield* executor.execute("send_message", {
             threadId: ThreadId.make("thread:nope"),
             message: "hello",

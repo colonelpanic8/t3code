@@ -16,7 +16,6 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
-
 import * as ServerConfig from "../config.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -28,7 +27,6 @@ import type {
   OpenCodexRealtimeHostInput,
 } from "./CodexRealtimeHost.ts";
 import * as VoiceLiveService from "./VoiceLiveService.ts";
-
 const owner: VoiceLiveService.VoiceLiveOwner = {
   sessionId: AuthSessionId.make("session-1"),
   rpcClientId: RpcClientId.make(1),
@@ -37,14 +35,11 @@ const otherOwner: VoiceLiveService.VoiceLiveOwner = {
   sessionId: AuthSessionId.make("session-1"),
   rpcClientId: RpcClientId.make(2),
 };
-
 const defaultSettings = Schema.decodeUnknownSync(ServerSettings)({});
-
 const fakeHttpServer = HttpServer.HttpServer.of({
   address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
   serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
 });
-
 interface FakeHostState {
   input: OpenCodexRealtimeHostInput | undefined;
   startParams: CodexRealtimeStartParams | undefined;
@@ -52,7 +47,6 @@ interface FakeHostState {
   childKilled: boolean;
   opened: number;
 }
-
 const makeFakeHost = () => {
   const state: FakeHostState = {
     input: undefined,
@@ -85,38 +79,57 @@ const makeFakeHost = () => {
   const emit = (event: CodexRealtimeEvent) => {
     state.input?.onEvent(event);
   };
-  return { state, openHost, emit };
+  return {
+    state,
+    openHost,
+    emit,
+  };
 };
-
 const dependencies = Layer.mergeAll(
   NodeServices.layer,
   Layer.succeed(HttpServer.HttpServer, fakeHttpServer),
-  ServerConfig.layerTest(process.cwd(), { prefix: "t3code-voice-live-test-" }).pipe(
-    Layer.provide(NodeServices.layer),
-  ),
-  Layer.mock(ServerSettingsService)({ getSettings: Effect.succeed(defaultSettings) }),
+  ServerConfig.layerTest(process.cwd(), {
+    prefix: "t3code-voice-live-test-",
+  }).pipe(Layer.provide(NodeServices.layer)),
+  Layer.mock(ServerSettingsService)({
+    getSettings: Effect.succeed(defaultSettings),
+  }),
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
   Layer.mock(ProjectStore.ProjectStoreV2)({}),
 );
-
 const makeService = (openHost: VoiceLiveService.OpenVoiceRealtimeHost) =>
-  VoiceLiveService.__testing.make({ openHost }).pipe(Effect.provide(dependencies));
-
+  VoiceLiveService.__testing
+    .make({
+      openHost,
+    })
+    .pipe(Effect.provide(dependencies));
 const startCall = Effect.fn(function* (
   service: VoiceLiveService.VoiceLiveService["Service"],
-  input?: { readonly crossHostRouting?: boolean },
+  input?: {
+    readonly crossHostRouting?: boolean;
+  },
   callOwner: VoiceLiveService.VoiceLiveOwner = owner,
 ) {
   const events = yield* Queue.unbounded<VoiceLiveStreamEvent>();
-  const stream = yield* service.start({ offerSdp: "offer-sdp", ...input }, callOwner);
+  const stream = yield* service.start(
+    {
+      offerSdp: "offer-sdp",
+      ...input,
+    },
+    callOwner,
+  );
   const fiber = yield* Stream.runForEach(stream, (event) => Queue.offer(events, event)).pipe(
     Effect.forkChild,
   );
   const started = yield* Queue.take(events);
   assert.strictEqual(started.type, "started");
-  return { events, fiber, started, liveSessionId: started.liveSessionId };
+  return {
+    events,
+    fiber,
+    started,
+    liveSessionId: started.liveSessionId,
+  };
 });
-
 describe("VoiceLiveService", () => {
   it.effect("runs a call through started, answer, transcript, and terminal closed", () =>
     Effect.gen(function* () {
@@ -136,17 +149,24 @@ describe("VoiceLiveService", () => {
       const credential = yield* service.resolveVoiceCredential(rawToken);
       assert.strictEqual(credential?.liveSessionId, liveSessionId);
       expect(fake.state.startParams?.prompt).toContain("chief of staff");
-
-      fake.emit({ kind: "sdp", sdp: "answer-sdp" });
+      fake.emit({
+        kind: "sdp",
+        sdp: "answer-sdp",
+      });
       const answer = yield* Queue.take(events);
       assert.ok(answer.type === "answer" && answer.sdp === "answer-sdp");
       assert.strictEqual(answer.seq, 2);
-
-      fake.emit({ kind: "transcript", role: "assistant", text: "hello" });
+      fake.emit({
+        kind: "transcript",
+        role: "assistant",
+        text: "hello",
+      });
       const transcript = yield* Queue.take(events);
       assert.ok(transcript.type === "transcript" && transcript.text === "hello");
-
-      fake.emit({ kind: "closed", reason: "peer_hung_up" });
+      fake.emit({
+        kind: "closed",
+        reason: "peer_hung_up",
+      });
       const closed = yield* Queue.take(events);
       assert.ok(closed.type === "closed" && closed.reason === "peer_hung_up");
 
@@ -158,13 +178,19 @@ describe("VoiceLiveService", () => {
       assert.strictEqual(yield* service.resolveVoiceCredential(rawToken), undefined);
     }),
   );
-
   it.effect("rejects a second call from the same owner while one is active", () =>
     Effect.gen(function* () {
       const fake = makeFakeHost();
       const service = yield* makeService(fake.openHost);
       const call = yield* startCall(service);
-      const busy = yield* service.start({ offerSdp: "offer-sdp" }, owner).pipe(Effect.flip);
+      const busy = yield* service
+        .start(
+          {
+            offerSdp: "offer-sdp",
+          },
+          owner,
+        )
+        .pipe(Effect.flip);
       assert.strictEqual(busy.code, "busy");
       // A different socket is not affected by this owner's call.
       const other = yield* startCall(service, {}, otherOwner);
@@ -172,18 +198,18 @@ describe("VoiceLiveService", () => {
       yield* Fiber.interrupt(call.fiber);
     }),
   );
-
   it.effect("does not hand the MCP endpoint to Codex when crossHostRouting is off", () =>
     Effect.gen(function* () {
       const fake = makeFakeHost();
       const service = yield* makeService(fake.openHost);
-      const call = yield* startCall(service, { crossHostRouting: false });
+      const call = yield* startCall(service, {
+        crossHostRouting: false,
+      });
       assert.strictEqual(fake.state.input?.mcp, undefined);
       expect(fake.state.startParams?.prompt).toContain("no cross-environment routing");
       yield* Fiber.interrupt(call.fiber);
     }),
   );
-
   it.effect("tears down the call when the client's stream is interrupted", () =>
     Effect.gen(function* () {
       const fake = makeFakeHost();
@@ -199,27 +225,29 @@ describe("VoiceLiveService", () => {
       assert.strictEqual(fake.state.opened, 2);
     }),
   );
-
   it.effect("respond resolves a pending routeExecute for the owning client", () =>
     Effect.gen(function* () {
       const fake = makeFakeHost();
       const service = yield* makeService(fake.openHost);
       const call = yield* startCall(service);
-
       const routeFiber = yield* service
-        .routeExecute(call.liveSessionId, { kind: "list_hosts" })
+        .routeExecute(call.liveSessionId, {
+          kind: "list_hosts",
+        })
         .pipe(Effect.forkChild);
       const routeEvent = yield* Queue.take(call.events);
       assert.ok(routeEvent.type === "routeRequest");
       assert.strictEqual(routeEvent.request.kind, "list_hosts");
       const requestId = routeEvent.request.requestId;
-
       const accepted = yield* service.respond(
         {
           liveSessionId: call.liveSessionId,
           requestId,
           ok: true,
-          result: { kind: "list_hosts", hosts: [] },
+          result: {
+            kind: "list_hosts",
+            hosts: [],
+          },
         },
         owner,
       );
@@ -229,21 +257,26 @@ describe("VoiceLiveService", () => {
 
       // A second answer to the same request is stale.
       const again = yield* service.respond(
-        { liveSessionId: call.liveSessionId, requestId, ok: true },
+        {
+          liveSessionId: call.liveSessionId,
+          requestId,
+          ok: true,
+        },
         owner,
       );
       assert.strictEqual(again.accepted, false);
       yield* Fiber.interrupt(call.fiber);
     }),
   );
-
   it.effect("routeExecute fails with route_timeout when nobody answers", () =>
     Effect.gen(function* () {
       const fake = makeFakeHost();
       const service = yield* makeService(fake.openHost);
       const call = yield* startCall(service);
       const routeFiber = yield* service
-        .routeExecute(call.liveSessionId, { kind: "list_hosts" })
+        .routeExecute(call.liveSessionId, {
+          kind: "list_hosts",
+        })
         .pipe(Effect.flip, Effect.forkChild);
       const routeEvent = yield* Queue.take(call.events);
       assert.strictEqual(routeEvent.type, "routeRequest");
@@ -253,22 +286,20 @@ describe("VoiceLiveService", () => {
       yield* Fiber.interrupt(call.fiber);
     }),
   );
-
   it.effect("stop is owner-checked and respond after teardown is not accepted", () =>
     Effect.gen(function* () {
       const fake = makeFakeHost();
       const service = yield* makeService(fake.openHost);
       const call = yield* startCall(service);
-
       const routeFiber = yield* service
-        .routeExecute(call.liveSessionId, { kind: "list_hosts" })
+        .routeExecute(call.liveSessionId, {
+          kind: "list_hosts",
+        })
         .pipe(Effect.forkChild);
       const routeEvent = yield* Queue.take(call.events);
       assert.ok(routeEvent.type === "routeRequest");
-
       const denied = yield* service.stop(call.liveSessionId, otherOwner).pipe(Effect.flip);
       assert.strictEqual(denied.code, "not_call_owner");
-
       const stopped = yield* service.stop(call.liveSessionId, owner);
       assert.strictEqual(stopped.stopped, true);
       const closed = yield* Queue.take(call.events);
@@ -278,7 +309,6 @@ describe("VoiceLiveService", () => {
       // Teardown failed the pending route request.
       const routeError = yield* Fiber.join(routeFiber).pipe(Effect.flip);
       assert.strictEqual(routeError.code, "call_closed");
-
       const late = yield* service.respond(
         {
           liveSessionId: call.liveSessionId,
@@ -289,7 +319,6 @@ describe("VoiceLiveService", () => {
         owner,
       );
       assert.strictEqual(late.accepted, false);
-
       const secondStop = yield* service.stop(call.liveSessionId, owner);
       assert.strictEqual(secondStop.stopped, false);
     }),
