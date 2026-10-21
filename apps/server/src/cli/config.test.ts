@@ -20,6 +20,7 @@ import {
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import {
+  LegacyStorageMigratedError,
   selectT3Storage,
   T3StorageConfigurationError,
   T3StorageProbeError,
@@ -112,6 +113,20 @@ const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapVal
         }
       }),
   );
+});
+const minimalDesktopFlags = (baseDir: string) => ({
+  mode: Option.some("desktop" as const),
+  port: Option.some(4888),
+  host: Option.none<string>(),
+  baseDir: Option.some(baseDir),
+  cwd: Option.none<string>(),
+  devUrl: Option.none<URL>(),
+  noBrowser: Option.none<boolean>(),
+  bootstrapFd: Option.none<number>(),
+  autoBootstrapProjectFromCwd: Option.none<boolean>(),
+  logWebSocketEvents: Option.none<boolean>(),
+  tailscaleServeEnabled: Option.none<boolean>(),
+  tailscaleServePort: Option.none<number>(),
 });
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
   const defaultObservabilityConfig = {
@@ -1715,6 +1730,73 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       expect(resolved.serverRuntimeStatePath).toBe(
         path.join(root, "runtime", "t3code", "server-runtime.json"),
       );
+    }),
+  );
+  it.effect("leaves a migrated legacy tree for split storage and refuses to serve it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, home, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-migrated-");
+      const legacyStateDir = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(legacyStateDir, {
+        recursive: true,
+      });
+      yield* fs.writeFileString(path.join(legacyStateDir, "settings.json"), "{}");
+      yield* fs.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+      const resolved = yield* resolveWith(xdgEnv, storageHost);
+      expect(resolved.layout).toBe("split");
+      expect(resolved.stateDir).toBe(path.join(root, "state", "t3code"));
+      for (const flags of [
+        {
+          baseDir: Option.some(path.join(home, ".t3")),
+        },
+        {
+          storageLayout: Option.some("legacy" as const),
+        },
+      ]) {
+        const error = yield* resolveWith(xdgEnv, storageHost, flags).pipe(Effect.flip);
+        expect(error).toBeInstanceOf(LegacyStorageMigratedError);
+      }
+      const error = yield* resolveWith(
+        {
+          ...xdgEnv,
+          T3CODE_HOME: path.join(home, ".t3"),
+        },
+        storageHost,
+      ).pipe(Effect.flip);
+      expect(error).toBeInstanceOf(LegacyStorageMigratedError);
+      expect(yield* fs.exists(path.join(legacyStateDir, "logs"))).toBe(false);
+    }),
+  );
+  it.effect("refuses every command that would resolve a retired legacy tree", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { home, storageHost } = yield* makeRoot("t3-cli-config-retired-");
+      const legacyStateDir = path.join(home, ".t3", "userdata");
+      yield* fs.makeDirectory(legacyStateDir, {
+        recursive: true,
+      });
+      yield* fs.writeFileString(path.join(legacyStateDir, "settings.json"), "{}");
+      yield* fs.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+      const error = yield* resolveServerStorage({
+        baseDir: Option.none(),
+        storageLayout: Option.none(),
+        isDevelopment: false,
+        host: storageHost,
+      }).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_HOME: path.join(home, ".t3"),
+              },
+            }),
+          ),
+        ),
+        Effect.flip,
+      );
+      expect(error).toBeInstanceOf(LegacyStorageMigratedError);
     }),
   );
   it.effect("lets each server location override win over its split root", () =>

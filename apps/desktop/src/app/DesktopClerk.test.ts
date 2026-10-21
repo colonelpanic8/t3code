@@ -8,7 +8,6 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
-
 const { createClerkBridgeMock, requestSingleInstanceLockMock, storageAdapter, storageMock } =
   vi.hoisted(() => ({
     createClerkBridgeMock: vi.fn(),
@@ -20,15 +19,12 @@ const { createClerkBridgeMock, requestSingleInstanceLockMock, storageAdapter, st
     },
     storageMock: vi.fn(),
   }));
-
 vi.mock("@clerk/electron", () => ({
   createClerkBridge: createClerkBridgeMock,
 }));
-
 vi.mock("@clerk/electron/storage", () => ({
   storage: storageMock,
 }));
-
 import * as Option from "effect/Option";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
@@ -39,12 +35,10 @@ import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopPreReadyFileSystem from "./DesktopPreReadyFileSystem.ts";
-
 const ignoreWebLinks = DesktopWebLinks.DesktopWebLinks.of({
   receive: () => Effect.void,
   setRendererReady: () => Effect.void,
 });
-
 const layerDesktopClerk = (
   isDevelopment = true,
   events: string[] = [],
@@ -60,12 +54,13 @@ const layerDesktopClerk = (
   listeners = new Map<string, (...args: unknown[]) => void>(),
 ) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
-    stateDir: "/tmp/t3-state",
+    clientRoots: {
+      stateDir: "/tmp/t3-state",
+    },
     isDevelopment,
     appDataDirectory: "/tmp/app-data",
     platform,
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
-
   const electronApp = {
     setPath: (name: string, value: string) =>
       Effect.sync(() => {
@@ -90,7 +85,6 @@ const layerDesktopClerk = (
           }),
       ).pipe(Effect.asVoid),
   } as unknown as ElectronApp.ElectronApp["Service"];
-
   return DesktopClerk.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -103,14 +97,12 @@ const layerDesktopClerk = (
     ),
   );
 };
-
 describe("DesktopClerk", () => {
   beforeEach(() => {
     createClerkBridgeMock.mockReset();
     requestSingleInstanceLockMock.mockReset().mockReturnValue(true);
     storageMock.mockReset();
   });
-
   it.each([
     {
       name: "packaged macOS",
@@ -143,7 +135,10 @@ describe("DesktopClerk", () => {
       storageMock.mockReturnValue(storageAdapter);
       createClerkBridgeMock.mockImplementation(() => {
         events.push("createClerkBridge");
-        return { cleanup: vi.fn(), isPrimaryInstance: true };
+        return {
+          cleanup: vi.fn(),
+          isPrimaryInstance: true,
+        };
       });
       // oxlint-disable-next-line t3code/no-manual-effect-runtime-in-tests -- The assertion IS that the layer builds synchronously; it.effect would mask a regression to async.
       Effect.runSync(
@@ -153,7 +148,6 @@ describe("DesktopClerk", () => {
           ),
         ),
       );
-
       assert.deepEqual(events, [
         `setPath:userData:${userData}`,
         "requestSingleInstanceLock",
@@ -162,16 +156,20 @@ describe("DesktopClerk", () => {
       ]);
     },
   );
-
   it.effect.each(["before configure", "after configure"] as const)(
     "reveals the running window when a second instance launches %s",
     (entry) => {
       storageMock.mockReturnValue(storageAdapter);
-      createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+      createClerkBridgeMock.mockReturnValue({
+        cleanup: vi.fn(),
+        isPrimaryInstance: true,
+      });
       const quit = vi.fn();
       const listeners = new Map<string, (...args: unknown[]) => void>();
       const revealed = Promise.withResolvers<unknown>();
-      const window = { id: 1 };
+      const window = {
+        id: 1,
+      };
       const electronApp = {
         quit: Effect.sync(quit),
         on: (eventName: string, listener: (...args: unknown[]) => void) =>
@@ -183,12 +181,10 @@ describe("DesktopClerk", () => {
         currentMainOrFirst: Effect.succeedSome(window),
         reveal: (value: unknown) => Effect.sync(() => revealed.resolve(value)),
       } as unknown as ElectronWindow.ElectronWindow["Service"];
-
       return Effect.gen(function* () {
         const clerk = yield* DesktopClerk.DesktopClerk;
         if (entry === "before configure") listeners.get("second-instance")?.({}, ["t3"]);
         yield* clerk.configure;
-
         assert.equal(quit.mock.calls.length, 0);
         if (entry === "after configure") listeners.get("second-instance")!({}, ["t3"]);
         assert.strictEqual(yield* Effect.promise(() => revealed.promise), window);
@@ -201,10 +197,12 @@ describe("DesktopClerk", () => {
       );
     },
   );
-
   it.effect("delivers queued startup links and later links once in arrival order", () => {
     storageMock.mockReturnValue(storageAdapter);
-    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    createClerkBridgeMock.mockReturnValue({
+      cleanup: vi.fn(),
+      isPrimaryInstance: true,
+    });
     const listeners = new Map<string, (...args: unknown[]) => void>();
     const received: string[] = [];
     const first = "t3code://new?prompt=first";
@@ -217,17 +215,14 @@ describe("DesktopClerk", () => {
           listeners.set(name, listener);
         }),
     } as unknown as ElectronApp.ElectronApp["Service"];
-
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
       listeners.get("second-instance")?.({}, ["t3", first]);
       listeners.get("second-instance")?.({}, ["t3", second]);
       assert.deepEqual(received, []);
-
       yield* clerk.configure;
       listeners.get("second-instance")!({}, ["t3", later]);
       yield* Effect.promise(() => delivered.promise);
-
       assert.deepEqual(received, [first, second, later]);
     }).pipe(
       Effect.scoped,
@@ -250,13 +245,15 @@ describe("DesktopClerk", () => {
       ),
     );
   });
-
   it.effect.each(["darwin", "win32", "linux"] as const)(
     "quits a second launch before initializing Clerk or the application runtime on %s",
     (platform) =>
       Effect.gen(function* () {
         requestSingleInstanceLockMock.mockReturnValueOnce(false);
-        createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+        createClerkBridgeMock.mockReturnValue({
+          cleanup: vi.fn(),
+          isPrimaryInstance: true,
+        });
         const events: string[] = [];
         const runtime = layerDesktopClerk(false, events, platform).pipe(
           Layer.flatMap(() =>
@@ -268,7 +265,6 @@ describe("DesktopClerk", () => {
           ),
         );
         const exit = yield* Effect.exit(Effect.scoped(Layer.build(runtime)));
-
         assert.isTrue(Exit.hasInterrupts(exit));
         assert.deepEqual(events, [
           "setPath:userData:/tmp/app-data/t3code-v2",
@@ -280,16 +276,20 @@ describe("DesktopClerk", () => {
       }),
   );
 });
-
 it.effect(
   "provider auth deep links navigate and reveal the running desktop without handling Clerk URLs",
   () => {
     storageMock.mockReturnValue(storageAdapter);
-    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    createClerkBridgeMock.mockReturnValue({
+      cleanup: vi.fn(),
+      isPrimaryInstance: true,
+    });
     const listeners = new Map<string, (...args: unknown[]) => void>();
     const revealed = Promise.withResolvers<void>();
     const loadURL = vi.fn(async (_url: string) => undefined);
-    const window = { loadURL };
+    const window = {
+      loadURL,
+    };
     const electronApp = {
       on: (name: string, listener: (...args: unknown[]) => void) =>
         Effect.sync(() => {
@@ -303,7 +303,9 @@ it.effect(
     return Effect.gen(function* () {
       const clerk = yield* DesktopClerk.DesktopClerk;
       yield* clerk.configure;
-      const event = { preventDefault: vi.fn() };
+      const event = {
+        preventDefault: vi.fn(),
+      };
       listeners.get("open-url")!(event, "t3code-dev://app/auth/callback?code=clerk-code");
       listeners.get("open-url")!(event, "t3code://app/welcome");
       assert.equal(loadURL.mock.calls.length, 0);
@@ -327,13 +329,15 @@ it.effect(
     );
   },
 );
-
 it.effect.each(["startup", "open-url", "early-second-instance"] as const)(
   "receives hosted web sign-in through the desktop %s handler",
   (entry) =>
     Effect.gen(function* () {
       storageMock.mockReturnValue(storageAdapter);
-      createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+      createClerkBridgeMock.mockReturnValue({
+        cleanup: vi.fn(),
+        isPrimaryInstance: true,
+      });
       const port = yield* Effect.promise(async () => {
         const server = NodeHttp.createServer();
         await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -370,7 +374,9 @@ it.effect.each(["startup", "open-url", "early-second-instance"] as const)(
               code: "test-code",
               client_id: "oaiapp_test",
             }).toString();
-            const response = await fetch(callback, { redirect: "manual" });
+            const response = await fetch(callback, {
+              redirect: "manual",
+            });
             delivered.resolve(response.headers.get("location")!);
             return true;
           }),
@@ -392,7 +398,9 @@ it.effect.each(["startup", "open-url", "early-second-instance"] as const)(
         }
         yield* clerk.configure;
         if (entry === "open-url") {
-          const event = { preventDefault: vi.fn() };
+          const event = {
+            preventDefault: vi.fn(),
+          };
           listeners.get("open-url")!(event, link);
           assert.strictEqual(event.preventDefault.mock.calls.length, 1);
         }
@@ -413,11 +421,13 @@ it.effect.each(["startup", "open-url", "early-second-instance"] as const)(
       );
     }).pipe(Effect.scoped),
 );
-
 it.effect("hands web and app links to the renderer and leaves other links alone", () =>
   Effect.gen(function* () {
     storageMock.mockReturnValue(storageAdapter);
-    createClerkBridgeMock.mockReturnValue({ cleanup: vi.fn(), isPrimaryInstance: true });
+    createClerkBridgeMock.mockReturnValue({
+      cleanup: vi.fn(),
+      isPrimaryInstance: true,
+    });
     const listeners = new Map<string, (...args: unknown[]) => void>();
     const electronApp = {
       whenReady: Effect.void,
@@ -431,7 +441,9 @@ it.effect("hands web and app links to the renderer and leaves other links alone"
       const clerk = yield* DesktopClerk.DesktopClerk;
       yield* clerk.configure;
       const open = (url: string) => {
-        const event = { preventDefault: vi.fn() };
+        const event = {
+          preventDefault: vi.fn(),
+        };
         listeners.get("open-url")!(event, url);
         return event.preventDefault.mock.calls.length;
       };

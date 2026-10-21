@@ -19,7 +19,6 @@ import * as TestClock from "effect/testing/TestClock";
 import type * as Electron from "electron";
 import type { PortalShortcutState } from "./PortalCaptureShortcut.ts";
 import { beforeEach, vi } from "vite-plus/test";
-
 beforeEach(() => {
   portalShortcutInstances.length = 0;
   nextPortalState.value = undefined;
@@ -30,7 +29,6 @@ beforeEach(() => {
   prepareCaptureRevealMock.mockReset();
   accessibilityListMock.mockReset().mockResolvedValue([]);
 });
-
 const {
   activeWindowMock,
   animationSettingsMock,
@@ -127,7 +125,9 @@ const {
   openExternalMock: vi.fn(() => Promise.resolve()),
   registerShortcutMock: vi.fn(),
   unregisterShortcutMock: vi.fn(),
-  nextPortalState: { value: undefined as PortalShortcutState | undefined },
+  nextPortalState: {
+    value: undefined as PortalShortcutState | undefined,
+  },
   portalShortcutInstances: [] as Array<{
     state: PortalShortcutState;
     onCapture: () => Promise<void>;
@@ -137,13 +137,18 @@ const {
     hasSession: boolean;
   }>,
   prepareCaptureRevealMock: vi.fn(),
-  regionCaptureMock:
-    vi.fn<
-      (region: Electron.Rectangle) => Promise<{ width: number; height: number; png: Buffer }>
-    >(),
+  regionCaptureMock: vi.fn<
+    (region: Electron.Rectangle) => Promise<{
+      width: number;
+      height: number;
+      png: Buffer;
+    }>
+  >(),
   screenToDipRectMock: vi.fn((_window: unknown, bounds: Electron.Rectangle) => bounds),
   shortcutForkArgs: [] as Array<ReadonlyArray<string>>,
-  shortcutForkOptions: [] as Array<{ env?: NodeJS.ProcessEnv }>,
+  shortcutForkOptions: [] as Array<{
+    env?: NodeJS.ProcessEnv;
+  }>,
   shortcutProcesses: [] as Array<{
     emit: (event: string, value?: unknown) => void;
     kill: ReturnType<typeof vi.fn>;
@@ -165,7 +170,6 @@ const {
   transitionShowMock: vi.fn(),
   transitionSnapshotMock: vi.fn<() => Promise<void>>(),
 }));
-
 vi.mock("./SnapShotAccessibilityProcess.ts", () => ({
   makeSnapShotAccessibilityProcessPool: () => ({
     warm: accessibilityProcessWarmMock,
@@ -174,7 +178,9 @@ vi.mock("./SnapShotAccessibilityProcess.ts", () => ({
     close: accessibilityProcessCloseMock,
   }),
 }));
-vi.mock("./ActiveWindow.ts", () => ({ activeWindow: activeWindowMock }));
+vi.mock("./ActiveWindow.ts", () => ({
+  activeWindow: activeWindowMock,
+}));
 vi.mock("./RegionSnapShot.ts", async (original) => ({
   ...(await original<typeof import("./RegionSnapShot.ts")>()),
   makeRegionSnapShotPool: () => ({
@@ -187,7 +193,9 @@ vi.mock("./RegionSnapShot.ts", async (original) => ({
 vi.mock("./WindowsCaptureFeedback.ts", () => ({
   showWindowsCaptureOverlay: (window: Electron.BaseWindow) => window.showInactive(),
 }));
-vi.mock("./MacSnapShot.ts", () => ({ captureMacWindowSnapshot: macCaptureMock }));
+vi.mock("./MacSnapShot.ts", () => ({
+  captureMacWindowSnapshot: macCaptureMock,
+}));
 vi.mock("./LinuxSnapShot.ts", () => ({
   captureLinuxWindow: linuxCaptureMock,
   getLinuxCaptureSupport: async () => ({
@@ -256,7 +264,13 @@ vi.mock("node:child_process", () => ({
     queueMicrotask(() => record.emitStderr("ready\n"));
     return child;
   },
-  fork: (_path: string, args: ReadonlyArray<string>, options: { env?: NodeJS.ProcessEnv }) => {
+  fork: (
+    _path: string,
+    args: ReadonlyArray<string>,
+    options: {
+      env?: NodeJS.ProcessEnv;
+    },
+  ) => {
     const listeners = new Map<string, Array<(value: unknown) => void>>();
     const process = {
       emit: (event: string, value?: unknown) => {
@@ -289,7 +303,6 @@ vi.mock("node:child_process", () => ({
 vi.mock("electron", () => {
   class BaseWindow {
     protected readonly state: (typeof flashWindows)[number];
-
     constructor(options: Electron.BrowserWindowConstructorOptions) {
       this.state = {
         bounds:
@@ -298,7 +311,12 @@ vi.mock("electron", () => {
           options.width === undefined ||
           options.height === undefined
             ? null
-            : { x: options.x, y: options.y, width: options.width, height: options.height },
+            : {
+                x: options.x,
+                y: options.y,
+                width: options.width,
+                height: options.height,
+              },
         destroyed: false,
         kind: "base",
         loadCount: 0,
@@ -313,52 +331,40 @@ vi.mock("electron", () => {
       };
       flashWindows.push(this.state);
     }
-
     destroy() {
       this.state.destroyed = true;
     }
-
     getBounds() {
       return this.state.bounds;
     }
-
     isDestroyed() {
       return this.state.destroyed;
     }
-
     setBounds(bounds: Electron.Rectangle) {
       this.state.resizeCount++;
       this.state.bounds = bounds;
     }
-
     setIgnoreMouseEvents() {}
-
     setOpacity(opacity: number) {
       this.state.opacities.push(opacity);
     }
-
     setAlwaysOnTop(flag: boolean, level?: string) {
       this.state.alwaysOnTopCalls.push([flag, level]);
     }
-
     showInactive() {
       const shownBounds = transitionShowMock(this.state.bounds);
       if (shownBounds !== undefined) this.state.bounds = shownBounds;
       this.state.showCount += 1;
     }
   }
-
   class BrowserWindow extends BaseWindow {
     static getFocusedWindow() {
       return focusedWindowMock();
     }
-
     static getAllWindows() {
       return allWindowsMock();
     }
-
     readonly webContents;
-
     constructor(options: Electron.BrowserWindowConstructorOptions) {
       super(options);
       this.state.kind = "browser";
@@ -382,38 +388,94 @@ vi.mock("electron", () => {
         },
       };
     }
-
     loadURL(url: string) {
       this.state.loadCount += 1;
       this.state.loadedUrls.push(url);
       return Promise.resolve();
     }
   }
-
   return {
     BaseWindow,
     BrowserWindow,
-    app: { getFileIcon: getFileIconMock },
-    desktopCapturer: { getSources: getSourcesMock },
-    nativeImage: { createThumbnailFromPath: thumbnailFromPathMock },
-    globalShortcut: { register: registerShortcutMock, unregister: unregisterShortcutMock },
+    app: {
+      getFileIcon: getFileIconMock,
+    },
+    desktopCapturer: {
+      getSources: getSourcesMock,
+    },
+    nativeImage: {
+      createThumbnailFromPath: thumbnailFromPathMock,
+    },
+    globalShortcut: {
+      register: registerShortcutMock,
+      unregister: unregisterShortcutMock,
+    },
     screen: {
       getDisplayMatching: (bounds: Electron.Rectangle) =>
         bounds.x < 0
-          ? { id: 1, bounds: { x: -1_920, y: 0, width: 1_920, height: 1_080 } }
-          : { id: 2, bounds: { x: 0, y: -200, width: 1_440, height: 900 } },
+          ? {
+              id: 1,
+              bounds: {
+                x: -1_920,
+                y: 0,
+                width: 1_920,
+                height: 1_080,
+              },
+            }
+          : {
+              id: 2,
+              bounds: {
+                x: 0,
+                y: -200,
+                width: 1_440,
+                height: 900,
+              },
+            },
       getAllDisplays: () => [
-        { id: 1, bounds: { x: -1_920, y: 0, width: 1_920, height: 1_080 } },
-        { id: 2, bounds: { x: 0, y: -200, width: 1_440, height: 900 } },
+        {
+          id: 1,
+          bounds: {
+            x: -1_920,
+            y: 0,
+            width: 1_920,
+            height: 1_080,
+          },
+        },
+        {
+          id: 2,
+          bounds: {
+            x: 0,
+            y: -200,
+            width: 1_440,
+            height: 900,
+          },
+        },
       ],
-      getCursorScreenPoint: () => ({ x: 500, y: 500 }),
-      getDisplayNearestPoint: () => ({
-        bounds: { x: 100, y: 100, width: 800, height: 600 },
+      getCursorScreenPoint: () => ({
+        x: 500,
+        y: 500,
       }),
-      getPrimaryDisplay: () => ({ bounds: { x: 0, y: 0, width: 1_440, height: 900 } }),
+      getDisplayNearestPoint: () => ({
+        bounds: {
+          x: 100,
+          y: 100,
+          width: 800,
+          height: 600,
+        },
+      }),
+      getPrimaryDisplay: () => ({
+        bounds: {
+          x: 0,
+          y: 0,
+          width: 1_440,
+          height: 900,
+        },
+      }),
       screenToDipRect: screenToDipRectMock,
     },
-    shell: { openExternal: openExternalMock },
+    shell: {
+      openExternal: openExternalMock,
+    },
     systemPreferences: {
       getAnimationSettings: () => animationSettingsMock(),
       getMediaAccessStatus: () => mediaAccessStatusMock(),
@@ -421,13 +483,11 @@ vi.mock("electron", () => {
     },
   };
 });
-
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopSnapShot from "./DesktopSnapShot.ts";
 import * as SnapShotAccessibility from "./SnapShotAccessibility.ts";
-
 const accessibilityApp = {
   byPid: accessibilityByPidMock,
   list: accessibilityListMock,
@@ -465,16 +525,17 @@ accessibilityProcessReadMock.mockImplementation((request) => ({
 vi.mock("./GnomeCaptureSetup.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./GnomeCaptureSetup.ts")>()),
   GnomeCaptureSetup: class {
-    state = async () => ({ status: "enabled" as const, message: "Extension running" });
+    state = async () => ({
+      status: "enabled" as const,
+      message: "Extension running",
+    });
     perform = async () => undefined;
     close = () => undefined;
   },
 }));
-
 const decodePendingMetadata = Schema.decodeUnknownEffect(
   Schema.fromJsonString(DesktopPendingSnapShot),
 );
-
 import { SnapShotTransition, snapShotAnimationDisplayBounds } from "./SnapShotTransition.ts";
 const layerTest = (
   platform: NodeJS.Platform,
@@ -493,7 +554,11 @@ const layerTest = (
           DesktopEnvironment.DesktopEnvironment.of({
             platform,
             displayName: "T3 Code (Dev)",
-            stateDir: "/state",
+            clientRoots: {
+              configDir: "/state",
+              stateDir: "/state",
+              cacheDir: "/state",
+            },
             linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
             appRoot: "/repo",
             linuxApplicationsDir: "/test-data/applications",
@@ -527,13 +592,11 @@ const layerTest = (
       ),
     ),
   );
-
 const enabledSettings = (overrides: Partial<ClientSettings> = {}): ClientSettings => ({
   ...DEFAULT_CLIENT_SETTINGS,
   snapShotEnabled: true,
   ...overrides,
 });
-
 function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean) {
   vi.stubEnv("XDG_SESSION_TYPE", "wayland");
   focusedWindowMock.mockReturnValue(undefined);
@@ -566,7 +629,9 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
   }));
   const [first, second, extra] = captures;
   extra!.pixels.resolve();
-  extra!.context.resolve({ accessibleText: extra!.title });
+  extra!.context.resolve({
+    accessibleText: extra!.title,
+  });
   const state = {
     snapshots: 0,
     handoffs: 0,
@@ -578,7 +643,12 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
   const metadata = new Map<string, string>();
   const readyIds: string[] = [];
   const requestedIds: string[] = [];
-  const bounds = { x: 10, y: 20, width: 800, height: 600 };
+  const bounds = {
+    x: 10,
+    y: 20,
+    width: 800,
+    height: 600,
+  };
   const takeSnapshot = async () => {
     const index = state.snapshots++;
     const capture = captures[Math.min(index, captures.length - 1)]!;
@@ -596,18 +666,30 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
       platform: platform === "darwin" ? "macos" : "windows",
       id: capture.id,
       title: capture.title,
-      owner: { name: capture.title, processId: capture.processId },
+      owner: {
+        name: capture.title,
+        processId: capture.processId,
+      },
       bounds,
     };
   });
   regionCaptureMock.mockReset().mockImplementation(async () => {
     const capture = await takeSnapshot();
-    return { width: bounds.width, height: bounds.height, png: capture.png };
+    return {
+      width: bounds.width,
+      height: bounds.height,
+      png: capture.png,
+    };
   });
   macCaptureMock.mockReset().mockImplementation(async (_active: unknown, imagePath: string) => {
     const capture = await takeSnapshot();
     images.set(imagePath, capture.png);
-    return { source: { name: capture.title }, png: capture.png };
+    return {
+      source: {
+        name: capture.title,
+      },
+      png: capture.png,
+    };
   });
   linuxCaptureMock.mockReset().mockImplementation(async () => {
     const capture = await takeSnapshot();
@@ -639,7 +721,11 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
           images.set(path, bytes);
         }),
       writeFileString: (path, text) => {
-        const pending = JSON.parse(text) as { source: { windowTitle: string } };
+        const pending = JSON.parse(text) as {
+          source: {
+            windowTitle: string;
+          };
+        };
         return state.failFirstPersistence && pending.source.windowTitle === first!.title
           ? Effect.fail(
               PlatformError.systemError({
@@ -737,7 +823,9 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
     releaseAll: () => {
       for (const capture of captures) {
         capture.pixels.resolve();
-        capture.context.resolve({ accessibleText: capture.title });
+        capture.context.resolve({
+          accessibleText: capture.title,
+        });
       }
     },
     reset: () => {
@@ -753,7 +841,6 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
     },
   };
 }
-
 it.effect.each(["darwin", "win32"] as const)(
   "drops shortcut bursts during flight and accepts a fresh capture after landing on %s",
   (platform) => {
@@ -776,17 +863,25 @@ it.effect.each(["darwin", "win32"] as const)(
         const firstId = fixture.readyIds[0]!;
         const landing = yield* service
           .setAnimationDestination(firstId, {
-            frame: { x: 100, y: 400, width: 208, height: 112 },
+            frame: {
+              x: 100,
+              y: 400,
+              width: 208,
+              height: 112,
+            },
             backgroundColor: "#fff",
             borderColor: "#ccc",
             borderWidth: 1,
             cornerRadius: 8,
             scaleFactor: 1,
           })
-          .pipe(Effect.forkChild({ startImmediately: true }));
+          .pipe(
+            Effect.forkChild({
+              startImmediately: true,
+            }),
+          );
         yield* Effect.promise(() => flying.promise);
         const overlayCount = flashWindows.length;
-
         for (let repeat = 0; repeat < 20; repeat++) {
           yield* TestClock.adjust("200 millis");
           yield* Effect.promise(fixture.trigger);
@@ -795,7 +890,6 @@ it.effect.each(["darwin", "win32"] as const)(
         assert.lengthOf(fixture.readyIds, 1);
         assert.lengthOf(flashWindows, overlayCount);
         assert.isTrue(flashWindows.every((window) => !window.destroyed));
-
         for (const finish of heldFlights) finish();
         yield* Fiber.join(landing);
         // Landing releases the guard even before the first capture is acknowledged.
@@ -816,11 +910,22 @@ it.effect.each(["darwin", "win32"] as const)(
     );
   },
 );
-
 it.effect.each([
-  { length: 1_000, suffix: "", expectedLength: 1_000 },
-  { length: 1_001, suffix: "", expectedLength: 1_000 },
-  { length: 999, suffix: "😀", expectedLength: 999 },
+  {
+    length: 1_000,
+    suffix: "",
+    expectedLength: 1_000,
+  },
+  {
+    length: 1_001,
+    suffix: "",
+    expectedLength: 1_000,
+  },
+  {
+    length: 999,
+    suffix: "😀",
+    expectedLength: 999,
+  },
 ])(
   "preserves captures with native metadata of length $length and suffix $suffix",
   ({ length, suffix, expectedLength }) => {
@@ -832,12 +937,26 @@ it.effect.each([
       platform: "macos",
       id: 42,
       title,
-      owner: { name: appName, bundleId: appIdentifier, processId: 123 },
-      bounds: { x: 10, y: 20, width: 800, height: 600 },
+      owner: {
+        name: appName,
+        bundleId: appIdentifier,
+        processId: 123,
+      },
+      bounds: {
+        x: 10,
+        y: 20,
+        width: 800,
+        height: 600,
+      },
     });
     focusedWindowMock.mockReturnValue(undefined);
     allWindowsMock.mockReturnValue([]);
-    macCaptureMock.mockReset().mockResolvedValue({ source: { name: title }, png });
+    macCaptureMock.mockReset().mockResolvedValue({
+      source: {
+        name: title,
+      },
+      png,
+    });
     accessibilityProcessReadMock.mockReturnValueOnce({
       started: Promise.resolve(),
       result: Promise.resolve(undefined),
@@ -870,11 +989,19 @@ it.effect.each([
     ).pipe(Effect.provide(layer));
   },
 );
-
 it.effect.each([
-  { platform: "win32", animations: true },
-  { platform: "darwin", animations: false },
-  { platform: "linux", animations: true },
+  {
+    platform: "win32",
+    animations: true,
+  },
+  {
+    platform: "darwin",
+    animations: false,
+  },
+  {
+    platform: "linux",
+    animations: true,
+  },
 ] as const)(
   "captures again while accessibility is pending on $platform (animations: $animations)",
   ({ platform, animations }) => {
@@ -884,7 +1011,9 @@ it.effect.each([
         const service = yield* DesktopSnapShot.make;
         yield* service.configure(fixture.settings);
         const first = yield* Effect.promise(fixture.trigger).pipe(
-          Effect.forkChild({ startImmediately: true }),
+          Effect.forkChild({
+            startImmediately: true,
+          }),
         );
         yield* Effect.promise(() => fixture.first.started.promise);
         assert.lengthOf(fixture.requestedIds, 1);
@@ -892,11 +1021,12 @@ it.effect.each([
         fixture.first.pixels.resolve();
         yield* Effect.promise(() => fixture.first.handoff.promise);
         assert.lengthOf(fixture.readyIds, 0);
-
         yield* TestClock.adjust("200 millis");
         fixture.second.pixels.resolve();
         const second = yield* Effect.promise(fixture.trigger).pipe(
-          Effect.forkChild({ startImmediately: true }),
+          Effect.forkChild({
+            startImmediately: true,
+          }),
         );
         yield* Effect.promise(() => fixture.second.handoff.promise);
         assert.equal(fixture.state.snapshots, 2);
@@ -906,11 +1036,14 @@ it.effect.each([
         if (platform === "linux") assert.isTrue(fixture.second.oldNativeFeedbackClosed);
         const secondOverlays = flashWindows.filter((window) => !window.destroyed);
         if (platform !== "linux") assert.isNotEmpty(secondOverlays);
-
-        fixture.second.context.resolve({ accessibleText: "Explorer accessibility" });
+        fixture.second.context.resolve({
+          accessibleText: "Explorer accessibility",
+        });
         yield* Fiber.join(second);
         assert.lengthOf(fixture.readyIds, 1);
-        fixture.first.context.resolve({ accessibleText: "Discord accessibility" });
+        fixture.first.context.resolve({
+          accessibleText: "Discord accessibility",
+        });
         yield* Fiber.join(first);
         assert.lengthOf(fixture.readyIds, 2);
         assert.equal(new Set(fixture.readyIds).size, 2);
@@ -929,7 +1062,6 @@ it.effect.each([
           older.dataUrl,
           `data:image/png;base64,${fixture.first.png.toString("base64")}`,
         );
-
         yield* service.acknowledge(fixture.readyIds[1]!);
         assert.isTrue(secondOverlays.every((window) => !window.destroyed));
         if (platform === "linux") {
@@ -940,7 +1072,6 @@ it.effect.each([
     ).pipe(Effect.provide(fixture.layer), Effect.ensuring(Effect.sync(fixture.reset)));
   },
 );
-
 it.effect.each(["succeeds", "fails"] as const)(
   "keeps the newer snapshot exclusive when older persistence %s",
   (outcome) => {
@@ -952,28 +1083,34 @@ it.effect.each(["succeeds", "fails"] as const)(
         yield* service.configure(fixture.settings);
         fixture.first.pixels.resolve();
         const first = yield* Effect.promise(fixture.trigger).pipe(
-          Effect.forkChild({ startImmediately: true }),
+          Effect.forkChild({
+            startImmediately: true,
+          }),
         );
         yield* Effect.promise(() => fixture.first.handoff.promise);
         yield* TestClock.adjust("200 millis");
         const second = yield* Effect.promise(fixture.trigger).pipe(
-          Effect.forkChild({ startImmediately: true }),
+          Effect.forkChild({
+            startImmediately: true,
+          }),
         );
         yield* Effect.promise(() => fixture.second.started.promise);
-
         yield* TestClock.adjust("200 millis");
         yield* Effect.promise(fixture.trigger);
         assert.equal(fixture.state.snapshots, 2);
-        fixture.first.context.resolve({ accessibleText: "Discord accessibility" });
+        fixture.first.context.resolve({
+          accessibleText: "Discord accessibility",
+        });
         yield* Fiber.join(first);
         assert.lengthOf(fixture.readyIds, outcome === "succeeds" ? 1 : 0);
         yield* TestClock.adjust("200 millis");
         yield* Effect.promise(fixture.trigger);
         assert.equal(fixture.state.snapshots, 2);
-
         fixture.second.pixels.resolve();
         yield* Effect.promise(() => fixture.second.handoff.promise);
-        fixture.second.context.resolve({ accessibleText: "Explorer accessibility" });
+        fixture.second.context.resolve({
+          accessibleText: "Explorer accessibility",
+        });
         yield* Fiber.join(second);
         assert.equal(fixture.state.handoffs, 2);
         const newer = yield* service.read(fixture.readyIds.at(-1)!);
@@ -983,20 +1120,36 @@ it.effect.each(["succeeds", "fails"] as const)(
     ).pipe(Effect.provide(fixture.layer), Effect.ensuring(Effect.sync(fixture.reset)));
   },
 );
-
 it.effect("matches Windows accessibility windows on a scaled display", () => {
   const png = Buffer.from([1, 2, 3]);
   const active = {
     platform: "windows",
     id: 42,
     title: "Editor",
-    owner: { name: "Editor", processId: 123 },
-    bounds: { x: 10, y: 20, width: 800, height: 600 },
+    owner: {
+      name: "Editor",
+      processId: 123,
+    },
+    bounds: {
+      x: 10,
+      y: 20,
+      width: 800,
+      height: 600,
+    },
   } as const;
-  const dipBounds = { x: 5, y: 10, width: 400, height: 300 };
+  const dipBounds = {
+    x: 5,
+    y: 10,
+    width: 400,
+    height: 300,
+  };
   activeWindowMock.mockReset().mockResolvedValue(active);
   screenToDipRectMock.mockImplementation(() => dipBounds);
-  regionCaptureMock.mockReset().mockResolvedValue({ width: 800, height: 600, png });
+  regionCaptureMock.mockReset().mockResolvedValue({
+    width: 800,
+    height: 600,
+    png,
+  });
   accessibilityForegroundMock.mockReset().mockResolvedValue({
     pid: 123,
     asElement: () => ({
@@ -1007,11 +1160,20 @@ it.effect("matches Windows accessibility windows on a scaled display", () => {
         {
           role: "button",
           name: "Save",
-          bounds: { x: 105, y: 110, width: 100, height: 50 },
+          bounds: {
+            x: 105,
+            y: 110,
+            width: 100,
+            height: 50,
+          },
           children: async () => [],
         },
       ],
-      tree: async () => ({ name: "Editor", value: "Scaled text", children: [] }),
+      tree: async () => ({
+        name: "Editor",
+        value: "Scaled text",
+        children: [],
+      }),
     }),
   });
   let metadata = "";
@@ -1026,7 +1188,12 @@ it.effect("matches Windows accessibility windows on a scaled display", () => {
         saved.source.accessibility?.format === "element-tree"
           ? saved.source.accessibility.root.children[0]?.bounds
           : undefined,
-        { x: 200, y: 200, width: 200, height: 100 },
+        {
+          x: 200,
+          y: 200,
+          width: 200,
+          height: 100,
+        },
       );
     }),
   ).pipe(
@@ -1048,7 +1215,6 @@ it.effect("matches Windows accessibility windows on a scaled display", () => {
     ),
   );
 });
-
 it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
   "persists %s text without inventing AT-SPI screen coordinates",
   (backend) => {
@@ -1065,10 +1231,26 @@ it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
         width: 700,
         height: backend === "kde" ? 549 : 520,
       },
-      ...(backend === "niri" ? { accessibilityBoundsReliable: false } : {}),
-      ...(backend === "kde" ? { clientBounds: { x: 479, y: 371, width: 700, height: 520 } } : {}),
+      ...(backend === "niri"
+        ? {
+            accessibilityBoundsReliable: false,
+          }
+        : {}),
+      ...(backend === "kde"
+        ? {
+            clientBounds: {
+              x: 479,
+              y: 371,
+              width: 700,
+              height: 520,
+            },
+          }
+        : {}),
     };
-    linuxCaptureMock.mockResolvedValueOnce({ png: Buffer.from([1, 2, 3]), window });
+    linuxCaptureMock.mockResolvedValueOnce({
+      png: Buffer.from([1, 2, 3]),
+      window,
+    });
     activeWindowMock.mockClear();
     getSourcesMock.mockClear();
     accessibilityByPidMock.mockReset().mockResolvedValue({
@@ -1076,19 +1258,33 @@ it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
         {
           role: "window",
           name: "Editor",
-          bounds: { x: 0, y: 0, width: 700, height: 520 },
+          bounds: {
+            x: 0,
+            y: 0,
+            width: 700,
+            height: 520,
+          },
           active: true,
           children: async () => [
             {
               role: "button",
               name: "Save",
-              bounds: { x: 10, y: 20, width: 80, height: 24 },
+              bounds: {
+                x: 10,
+                y: 20,
+                width: 80,
+                height: 24,
+              },
               focused: true,
               actions: ["press"],
               children: async () => [],
             },
           ],
-          tree: async () => ({ name: "Editor", value: "Verified text", children: [] }),
+          tree: async () => ({
+            name: "Editor",
+            value: "Verified text",
+            children: [],
+          }),
         },
       ],
     });
@@ -1100,7 +1296,14 @@ it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
         yield* service.capture;
         assert.lengthOf(activeWindowMock.mock.calls, 0);
         assert.lengthOf(getSourcesMock.mock.calls, 0);
-        assert.deepEqual(accessibilityByPidMock.mock.calls, [[123, { timeout: 0 }]]);
+        assert.deepEqual(accessibilityByPidMock.mock.calls, [
+          [
+            123,
+            {
+              timeout: 0,
+            },
+          ],
+        ]);
         const saved = yield* decodePendingMetadata(metadata);
         assert.equal(saved.source.appName, "Text Editor");
         assert.equal(saved.source.appIdentifier, window.appIdentifier);
@@ -1108,7 +1311,10 @@ it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
         assert.deepInclude(saved.source.accessibility, {
           format: "element-tree",
           coordinateSpace: "captured-image",
-          imageSize: { width: 700, height: window.bounds.height },
+          imageSize: {
+            width: 700,
+            height: window.bounds.height,
+          },
           truncated: false,
         });
         assert.deepInclude(
@@ -1118,8 +1324,15 @@ it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
           {
             role: "window",
             name: "Editor",
-            bounds: { x: 0, y: 0, width: 700, height: window.bounds.height },
-            state: { active: true },
+            bounds: {
+              x: 0,
+              y: 0,
+              width: 700,
+              height: window.bounds.height,
+            },
+            state: {
+              active: true,
+            },
           },
         );
         assert.isNull(
@@ -1145,15 +1358,47 @@ it.effect.each(["gnome", "niri", "kde", "hyprland"] as const)(
     );
   },
 );
-
 it("covers straddling captures and intervening monitors without spanning unrelated displays", () => {
   const displays = [
-    { bounds: { x: -1_920, y: 0, width: 1_920, height: 1_080 } },
-    { bounds: { x: 0, y: 0, width: 1_440, height: 900 } },
-    { bounds: { x: 1_440, y: 0, width: 1_280, height: 720 } },
-    { bounds: { x: 0, y: -1_080, width: 1_920, height: 1_080 } },
+    {
+      bounds: {
+        x: -1_920,
+        y: 0,
+        width: 1_920,
+        height: 1_080,
+      },
+    },
+    {
+      bounds: {
+        x: 0,
+        y: 0,
+        width: 1_440,
+        height: 900,
+      },
+    },
+    {
+      bounds: {
+        x: 1_440,
+        y: 0,
+        width: 1_280,
+        height: 720,
+      },
+    },
+    {
+      bounds: {
+        x: 0,
+        y: -1_080,
+        width: 1_920,
+        height: 1_080,
+      },
+    },
   ];
-  const source = { x: -200, y: 100, width: 800, height: 600 };
+  const source = {
+    x: -200,
+    y: 100,
+    width: 800,
+    height: 600,
+  };
   assert.deepEqual(
     snapShotAnimationDisplayBounds(displays, source, source),
     displays.slice(0, 2).map((display) => display.bounds),
@@ -1161,23 +1406,38 @@ it("covers straddling captures and intervening monitors without spanning unrelat
   assert.deepEqual(
     snapShotAnimationDisplayBounds(
       displays,
-      { x: -1_800, y: 100, width: 800, height: 600 },
-      { x: 1_600, y: 200, width: 200, height: 112 },
+      {
+        x: -1_800,
+        y: 100,
+        width: 800,
+        height: 600,
+      },
+      {
+        x: 1_600,
+        y: 200,
+        width: 200,
+        height: 112,
+      },
     ),
     displays.slice(0, 3).map((display) => display.bounds),
   );
 });
-
 it("cancels a late display while its snapshot is still decoding", async () => {
   flashWindows.length = 0;
-  const transition = new SnapShotTransition({ boundOverlayToCaptureDisplays: true });
+  const transition = new SnapShotTransition({
+    boundOverlayToCaptureDisplays: true,
+  });
   const decoding = Promise.withResolvers<void>();
   const decoded = Promise.withResolvers<void>();
-
   try {
     await transition.begin(
       "capture-1",
-      { x: -1_800, y: 50, width: 900, height: 600 },
+      {
+        x: -1_800,
+        y: 50,
+        width: 900,
+        height: 600,
+      },
       "data:image/png;base64,",
       false,
     );
@@ -1186,7 +1446,12 @@ it("cancels a late display while its snapshot is still decoding", async () => {
       return decoded.promise;
     });
     transition.animateTo("capture-1", {
-      frame: { x: 600, y: 400, width: 208, height: 112 },
+      frame: {
+        x: 600,
+        y: 400,
+        width: 208,
+        height: 112,
+      },
       backgroundColor: "#fff",
       borderColor: "#ccc",
       borderWidth: 1,
@@ -1195,11 +1460,9 @@ it("cancels a late display while its snapshot is still decoding", async () => {
     });
     const landing = transition.waitForLanding("capture-1");
     await decoding.promise;
-
     transition.dismiss("capture-1");
     decoded.resolve();
     await landing;
-
     assert.lengthOf(flashWindows, 2);
     assert.strictEqual(flashWindows[1]?.showCount, 0);
     for (const window of flashWindows) {
@@ -1210,21 +1473,26 @@ it("cancels a late display while its snapshot is still decoding", async () => {
     transition.dispose();
   }
 });
-
 it("does not flash a dismissed overlay after its initial compositor receipt arrives", async () => {
   flashWindows.length = 0;
-  const transition = new SnapShotTransition({ waitForCompositorFrame: true });
+  const transition = new SnapShotTransition({
+    waitForCompositorFrame: true,
+  });
   const readingFrame = Promise.withResolvers<void>();
   const frame = Promise.withResolvers<void>();
   transitionCapturePageMock.mockImplementation(() => {
     readingFrame.resolve();
     return frame.promise;
   });
-
   try {
     const begin = transition.begin(
       "capture-1",
-      { x: 100, y: 50, width: 900, height: 600 },
+      {
+        x: 100,
+        y: 50,
+        width: 900,
+        height: 600,
+      },
       "data:image/png;base64,",
       true,
     );
@@ -1234,7 +1502,6 @@ it("does not flash a dismissed overlay after its initial compositor receipt arri
     assert.isFalse(transition.isAnimating);
     frame.resolve();
     await begin;
-
     for (const window of flashWindows) {
       assert.isTrue(window.destroyed);
     }
@@ -1243,16 +1510,22 @@ it("does not flash a dismissed overlay after its initial compositor receipt arri
     transition.dispose();
   }
 });
-
 it("does not start a dismissed transition after its compositor receipt arrives", async () => {
   flashWindows.length = 0;
-  const transition = new SnapShotTransition({ waitForCompositorFrame: true });
+  const transition = new SnapShotTransition({
+    waitForCompositorFrame: true,
+  });
   const readingFrame = Promise.withResolvers<void>();
   const frame = Promise.withResolvers<void>();
   try {
     await transition.begin(
       "capture-1",
-      { x: 100, y: 50, width: 900, height: 600 },
+      {
+        x: 100,
+        y: 50,
+        width: 900,
+        height: 600,
+      },
       "data:image/png;base64,",
       false,
     );
@@ -1261,7 +1534,12 @@ it("does not start a dismissed transition after its compositor receipt arrives",
       return frame.promise;
     });
     transition.animateTo("capture-1", {
-      frame: { x: 600, y: 400, width: 208, height: 112 },
+      frame: {
+        x: 600,
+        y: 400,
+        width: 208,
+        height: 112,
+      },
       backgroundColor: "#fff",
       borderColor: "#ccc",
       borderWidth: 1,
@@ -1275,64 +1553,91 @@ it("does not start a dismissed transition after its compositor receipt arrives",
     assert.isFalse(transition.isAnimating);
     frame.resolve();
     await landing;
-
     assert.isTrue(flashWindows[0]?.destroyed);
   } finally {
     frame.resolve();
     transition.dispose();
   }
 });
-
 it("does not let a failed transition fail landing or capture completion", async () => {
   flashWindows.length = 0;
   transitionScriptState.rejectFlight = true;
   const transition = new SnapShotTransition();
-
   try {
     await transition.begin(
       "capture-1",
-      { x: 100, y: 50, width: 900, height: 600 },
+      {
+        x: 100,
+        y: 50,
+        width: 900,
+        height: 600,
+      },
       "data:image/png;base64,",
       false,
     );
     transition.animateTo("capture-1", {
-      frame: { x: 20, y: 20, width: 208, height: 112 },
+      frame: {
+        x: 20,
+        y: 20,
+        width: 208,
+        height: 112,
+      },
       backgroundColor: "#fff",
       borderColor: "#ccc",
       borderWidth: 1,
       cornerRadius: 8,
       scaleFactor: 1,
     });
-
     await transition.waitForLanding("capture-1");
     assert.isFalse(transition.isAnimating);
     await transition.complete("capture-1");
-
     assert.isTrue(flashWindows[0]?.destroyed);
   } finally {
     transitionScriptState.rejectFlight = false;
     transition.dispose();
   }
 });
-
 it.each(["client", "frame"] as const)(
   "maps KDE %s accessibility coordinates into the decorated screenshot",
   async (rootArea) => {
     vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-    const bounds = { x: 100, y: 200, width: 800, height: 600 };
-    const clientBounds = { x: 100, y: 229, width: 800, height: 571 };
+    const bounds = {
+      x: 100,
+      y: 200,
+      width: 800,
+      height: 600,
+    };
+    const clientBounds = {
+      x: 100,
+      y: 229,
+      width: 800,
+      height: 571,
+    };
     accessibilityByPidMock.mockReset().mockResolvedValue({
       children: async () => [
         {
           role: "window",
           name: "Editor",
           bounds: rootArea === "client" ? clientBounds : bounds,
-          tree: async () => ({ name: "Editor", children: [{ name: "Save", children: [] }] }),
+          tree: async () => ({
+            name: "Editor",
+            children: [
+              {
+                name: "Save",
+                children: [],
+              },
+            ],
+          }),
           children: async () => [
             {
               role: "button",
               name: "Save",
-              bounds: { x: 120, y: 249, width: 100, height: 50 },
+              bounds: {
+                x: 120,
+                y: 249,
+                width: 100,
+                height: 50,
+              },
               children: async () => [],
             },
           ],
@@ -1341,28 +1646,47 @@ it.each(["client", "frame"] as const)(
     });
     try {
       const context = await readAccessibleWindowContext(
-        { title: "Editor", bounds, clientBounds, owner: { processId: 123 } },
+        {
+          title: "Editor",
+          bounds,
+          clientBounds,
+          owner: {
+            processId: 123,
+          },
+        },
         "linux",
         "Editor",
-        { width: 1600, height: 1200 },
+        {
+          width: 1600,
+          height: 1200,
+        },
       );
       assert.equal(context?.accessibility?.format, "element-tree");
       assert.deepEqual(
         context?.accessibility?.format === "element-tree"
           ? context.accessibility.root.children[0]?.bounds
           : undefined,
-        { x: 40, y: 98, width: 200, height: 100 },
+        {
+          x: 40,
+          y: 98,
+          width: 200,
+          height: 100,
+        },
       );
     } finally {
       vi.unstubAllEnvs();
     }
   },
 );
-
 it.each(["darwin", "win32", "linux"] as const)(
   "extracts the same structured accessibility tree on %s",
   async (platform) => {
-    const bounds = { x: 100, y: 200, width: 800, height: 600 };
+    const bounds = {
+      x: 100,
+      y: 200,
+      width: 800,
+      height: 600,
+    };
     const window = {
       role: "window",
       name: "Editor",
@@ -1370,38 +1694,64 @@ it.each(["darwin", "win32", "linux"] as const)(
       tree: async () => ({
         name: "Editor",
         children: [
-          { name: "Save", children: [] },
-          { name: "Below scroll view", children: [] },
+          {
+            name: "Save",
+            children: [],
+          },
+          {
+            name: "Below scroll view",
+            children: [],
+          },
         ],
       }),
       children: async () => [
         {
           role: "button",
           name: "Save",
-          bounds: { x: 300, y: 350, width: 100, height: 50 },
+          bounds: {
+            x: 300,
+            y: 350,
+            width: 100,
+            height: 50,
+          },
           children: async () => [],
         },
         {
           role: "static_text",
           name: "Below scroll view",
-          bounds: { x: 300, y: 1_000, width: 100, height: 50 },
+          bounds: {
+            x: 300,
+            y: 1_000,
+            width: 100,
+            height: 50,
+          },
           visible: false,
           children: async () => [],
         },
       ],
     };
-    accessibilityByPidMock.mockReset().mockResolvedValue({ children: async () => [window] });
-    accessibilityForegroundMock
-      .mockReset()
-      .mockResolvedValue({ pid: 123, asElement: () => window });
-
+    accessibilityByPidMock.mockReset().mockResolvedValue({
+      children: async () => [window],
+    });
+    accessibilityForegroundMock.mockReset().mockResolvedValue({
+      pid: 123,
+      asElement: () => window,
+    });
     const result = await readAccessibleWindowContext(
-      { title: "Editor", bounds, owner: { processId: 123 } },
+      {
+        title: "Editor",
+        bounds,
+        owner: {
+          processId: 123,
+        },
+      },
       platform,
       "Editor",
-      { width: 1_600, height: 1_200 },
+      {
+        width: 1_600,
+        height: 1_200,
+      },
     );
-
     assert.equal(result?.accessibility?.format, "element-tree");
     assert.equal(
       result?.accessibility?.format === "element-tree"
@@ -1413,34 +1763,57 @@ it.each(["darwin", "win32", "linux"] as const)(
       result?.accessibility?.format === "element-tree"
         ? result.accessibility.root.children[1]
         : undefined,
-      { name: "Below scroll view", bounds: null, state: { visible: false } },
+      {
+        name: "Below scroll view",
+        bounds: null,
+        state: {
+          visible: false,
+        },
+      },
     );
     assert.lengthOf(accessibilityByPidMock.mock.calls, platform === "win32" ? 0 : 1);
     assert.lengthOf(accessibilityForegroundMock.mock.calls, platform === "win32" ? 1 : 0);
   },
 );
-
 it.each(["darwin", "win32"] as const)(
   "still requires matching accessibility screen positions on %s",
   async (platform) => {
     vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-    const tree = vi.fn(async () => ({ value: "Wrong window", children: [] }));
+    const tree = vi.fn(async () => ({
+      value: "Wrong window",
+      children: [],
+    }));
     const window = {
       name: "Editor",
-      bounds: { x: 0, y: 0, width: 700, height: 520 },
+      bounds: {
+        x: 0,
+        y: 0,
+        width: 700,
+        height: 520,
+      },
       tree,
     };
-    accessibilityByPidMock.mockReset().mockResolvedValue({ children: async () => [window] });
-    accessibilityForegroundMock
-      .mockReset()
-      .mockResolvedValue({ pid: 123, asElement: () => window });
+    accessibilityByPidMock.mockReset().mockResolvedValue({
+      children: async () => [window],
+    });
+    accessibilityForegroundMock.mockReset().mockResolvedValue({
+      pid: 123,
+      asElement: () => window,
+    });
     try {
       assert.isUndefined(
         await readAccessibleWindowText(
           {
             title: "Editor",
-            bounds: { x: 479, y: 342, width: 700, height: 520 },
-            owner: { processId: 123 },
+            bounds: {
+              x: 479,
+              y: 342,
+              width: 700,
+              height: 520,
+            },
+            owner: {
+              processId: 123,
+            },
           },
           platform,
           "Editor",
@@ -1452,7 +1825,6 @@ it.each(["darwin", "win32"] as const)(
     }
   },
 );
-
 it.each([
   ["darwin", "", "value", 650],
   ["linux", "wayland", "value", 650],
@@ -1462,23 +1834,50 @@ it.each([
   async (platform, session, field, lines) => {
     const text = `${"Document line\n".repeat(lines)}End of document`;
     vi.stubEnv("XDG_SESSION_TYPE", session);
-    const bounds = { x: 0, y: 0, width: 800, height: 600 };
+    const bounds = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+    };
     const window = {
       role: "window",
       name: "Editor",
       bounds,
-      tree: async () => ({ name: "Editor", children: [{ [field]: text, children: [] }] }),
+      tree: async () => ({
+        name: "Editor",
+        children: [
+          {
+            [field]: text,
+            children: [],
+          },
+        ],
+      }),
       children: async () => [
-        { role: "text_area", [field]: text, bounds, children: async () => [] },
+        {
+          role: "text_area",
+          [field]: text,
+          bounds,
+          children: async () => [],
+        },
       ],
     };
-    accessibilityByPidMock.mockReset().mockResolvedValue({ children: async () => [window] });
-    accessibilityForegroundMock
-      .mockReset()
-      .mockResolvedValue({ pid: 123, asElement: () => window });
+    accessibilityByPidMock.mockReset().mockResolvedValue({
+      children: async () => [window],
+    });
+    accessibilityForegroundMock.mockReset().mockResolvedValue({
+      pid: 123,
+      asElement: () => window,
+    });
     try {
       const result = await readAccessibleWindowContext(
-        { title: "Editor", bounds, owner: { processId: 123 } },
+        {
+          title: "Editor",
+          bounds,
+          owner: {
+            processId: 123,
+          },
+        },
         platform,
         "Editor",
       );
@@ -1492,18 +1891,31 @@ it.each([
     }
   },
 );
-
 it.each([
-  { names: ["⠙ t3code"], expected: "Verified text" },
-  { names: ["⠋ t3code", "⠙ t3code"], expected: undefined },
+  {
+    names: ["⠙ t3code"],
+    expected: "Verified text",
+  },
+  {
+    names: ["⠋ t3code", "⠙ t3code"],
+    expected: undefined,
+  },
 ])("reads a changing Wayland title only when unambiguous: $names", async ({ names, expected }) => {
   vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-  const tree = vi.fn(async () => ({ value: "Verified text", children: [] }));
+  const tree = vi.fn(async () => ({
+    value: "Verified text",
+    children: [],
+  }));
   accessibilityByPidMock.mockReset().mockResolvedValue({
     children: async () =>
       names.map((name) => ({
         name,
-        bounds: { x: 0, y: 0, width: 700, height: 520 },
+        bounds: {
+          x: 0,
+          y: 0,
+          width: 700,
+          height: 520,
+        },
         tree,
       })),
   });
@@ -1512,44 +1924,82 @@ it.each([
       await readAccessibleWindowText(
         {
           title: "⠋ t3code",
-          bounds: { x: 479, y: 342, width: 700, height: 520 },
-          owner: { processId: 123 },
+          bounds: {
+            x: 479,
+            y: 342,
+            width: 700,
+            height: 520,
+          },
+          owner: {
+            processId: 123,
+          },
         },
         "linux",
         "⠋ t3code",
       ),
       expected,
     );
-    assert.deepEqual(accessibilityByPidMock.mock.calls, [[123, { timeout: 0 }]]);
+    assert.deepEqual(accessibilityByPidMock.mock.calls, [
+      [
+        123,
+        {
+          timeout: 0,
+        },
+      ],
+    ]);
     assert.lengthOf(tree.mock.calls, expected ? 1 : 0);
   } finally {
     vi.unstubAllEnvs();
   }
 });
-
 it.each([
   ["com.google.Chrome", "Google Chrome – Profile"],
   ["org.chromium.Chromium", "Chromium"],
 ])("reads macOS %s page context with an accessibility title suffix", async (bundleId, suffix) => {
   const title = "Issues · pingdotgg/t3code";
-  const bounds = { x: 0, y: 33, width: 1470, height: 857 };
+  const bounds = {
+    x: 0,
+    y: 33,
+    width: 1470,
+    height: 857,
+  };
   const window = {
     role: "window",
     name: `${title} - ${suffix}`,
     bounds,
-    tree: async () => ({ name: title, children: [{ name: "New issue", children: [] }] }),
-    children: async () => [{ role: "button", name: "New issue", bounds, children: async () => [] }],
+    tree: async () => ({
+      name: title,
+      children: [
+        {
+          name: "New issue",
+          children: [],
+        },
+      ],
+    }),
+    children: async () => [
+      {
+        role: "button",
+        name: "New issue",
+        bounds,
+        children: async () => [],
+      },
+    ],
   };
   accessibilityByPidMock.mockReset().mockImplementation(async (pid: number) => ({
     children: async () => (pid === 42 ? [window] : []),
   }));
-
   const context = await readAccessibleWindowContext(
-    { title, bounds, owner: { processId: 42, bundleId } },
+    {
+      title,
+      bounds,
+      owner: {
+        processId: 42,
+        bundleId,
+      },
+    },
     "darwin",
     title,
   );
-
   assert.equal(context?.accessibleText, `${title}\nNew issue`);
   assert.equal(context?.accessibility?.format, "element-tree");
   assert.equal(
@@ -1559,17 +2009,26 @@ it.each([
     "New issue",
   );
 });
-
 it("does not borrow another Chrome process context when the captured PID has no windows", async () => {
   const title = "Issues · pingdotgg/t3code";
-  const bounds = { x: 0, y: 33, width: 1470, height: 857 };
+  const bounds = {
+    x: 0,
+    y: 33,
+    width: 1470,
+    height: 857,
+  };
   const otherWindow = {
     role: "window",
     name: `${title} - Google Chrome – Profile`,
     bounds,
     tree: async () => ({
       name: title,
-      children: [{ name: "Other process private text", children: [] }],
+      children: [
+        {
+          name: "Other process private text",
+          children: [],
+        },
+      ],
     }),
     children: async () => [],
   };
@@ -1578,24 +2037,43 @@ it("does not borrow another Chrome process context when the captured PID has no 
     children: async () => [],
   });
   accessibilityListMock.mockResolvedValue([
-    { pid: 43, bundleId: "com.google.Chrome", children: async () => [otherWindow] },
+    {
+      pid: 43,
+      bundleId: "com.google.Chrome",
+      children: async () => [otherWindow],
+    },
   ]);
-
   assert.isUndefined(
     await readAccessibleWindowContext(
-      { title, bounds, owner: { processId: 42, bundleId: "com.google.Chrome" } },
+      {
+        title,
+        bounds,
+        owner: {
+          processId: 42,
+          bundleId: "com.google.Chrome",
+        },
+      },
       "darwin",
       title,
     ),
   );
 });
-
 it("reads Flatpak app text from the AT-SPI proxy when the compositor PID misses", async () => {
   vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-  const bounds = { x: 0, y: 0, width: 1_920, height: 1_048 };
+  const bounds = {
+    x: 0,
+    y: 0,
+    width: 1_920,
+    height: 1_048,
+  };
   const tree = vi.fn(async () => ({
     name: "Issue — Zen Browser",
-    children: [{ name: "New Tab", children: [] }],
+    children: [
+      {
+        name: "New Tab",
+        children: [],
+      },
+    ],
   }));
   const proxyWindow = {
     role: "window",
@@ -1617,26 +2095,46 @@ it("reads Flatpak app text from the AT-SPI proxy when the compositor PID misses"
           role: "window",
           name: "Files",
           bounds,
-          tree: async () => ({ name: "Files", children: [] }),
+          tree: async () => ({
+            name: "Files",
+            children: [],
+          }),
         },
       ],
     },
-    { pid: 207646, children: async () => [proxyWindow] },
+    {
+      pid: 207646,
+      children: async () => [proxyWindow],
+    },
   ]);
   try {
     assert.strictEqual(
       await readAccessibleWindowText(
         {
           title: "Issue — Zen Browser",
-          bounds: { x: 0, y: 0, width: 1_920, height: 1_048 },
-          owner: { processId: 207651 },
+          bounds: {
+            x: 0,
+            y: 0,
+            width: 1_920,
+            height: 1_048,
+          },
+          owner: {
+            processId: 207651,
+          },
         },
         "linux",
         "Issue — Zen Browser",
       ),
       "Issue — Zen Browser\nNew Tab",
     );
-    assert.deepEqual(accessibilityByPidMock.mock.calls, [[207651, { timeout: 0 }]]);
+    assert.deepEqual(accessibilityByPidMock.mock.calls, [
+      [
+        207651,
+        {
+          timeout: 0,
+        },
+      ],
+    ]);
     assert.lengthOf(accessibilityListMock.mock.calls, 1);
     assert.lengthOf(tree.mock.calls, 1);
   } finally {
@@ -1644,13 +2142,22 @@ it("reads Flatpak app text from the AT-SPI proxy when the compositor PID misses"
     vi.unstubAllEnvs();
   }
 });
-
 it("reads GTK4 app text from one unnamed PID-scoped window of the captured size", async () => {
   vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-  const bounds = { x: 0, y: 0, width: 1_920, height: 1_048 };
+  const bounds = {
+    x: 0,
+    y: 0,
+    width: 1_920,
+    height: 1_048,
+  };
   const tree = vi.fn(async () => ({
     name: "System Monitor",
-    children: [{ name: "CPU", children: [] }],
+    children: [
+      {
+        name: "CPU",
+        children: [],
+      },
+    ],
   }));
   accessibilityByPidMock.mockReset().mockResolvedValue({
     children: async () => [
@@ -1660,7 +2167,12 @@ it("reads GTK4 app text from one unnamed PID-scoped window of the captured size"
         bounds,
         tree,
         children: async () => [
-          { role: "page_tab_list", name: "Processes", bounds, children: async () => [] },
+          {
+            role: "page_tab_list",
+            name: "Processes",
+            bounds,
+            children: async () => [],
+          },
         ],
       },
     ],
@@ -1671,15 +2183,29 @@ it("reads GTK4 app text from one unnamed PID-scoped window of the captured size"
       await readAccessibleWindowText(
         {
           title: "System Monitor",
-          bounds: { x: 12, y: 48, width: 1_920, height: 1_048 },
-          owner: { processId: 210600 },
+          bounds: {
+            x: 12,
+            y: 48,
+            width: 1_920,
+            height: 1_048,
+          },
+          owner: {
+            processId: 210600,
+          },
         },
         "linux",
         "System Monitor",
       ),
       "System Monitor\nCPU",
     );
-    assert.deepEqual(accessibilityByPidMock.mock.calls, [[210600, { timeout: 0 }]]);
+    assert.deepEqual(accessibilityByPidMock.mock.calls, [
+      [
+        210600,
+        {
+          timeout: 0,
+        },
+      ],
+    ]);
     assert.lengthOf(accessibilityListMock.mock.calls, 0);
     assert.lengthOf(tree.mock.calls, 1);
   } finally {
@@ -1687,21 +2213,48 @@ it("reads GTK4 app text from one unnamed PID-scoped window of the captured size"
     vi.unstubAllEnvs();
   }
 });
-
 it("does not guess GTK4 app text when two unnamed PID windows share the captured size", async () => {
   vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-  const bounds = { x: 0, y: 0, width: 1_920, height: 1_048 };
-  const tree = vi.fn(async () => ({ value: "Wrong window", children: [] }));
+  const bounds = {
+    x: 0,
+    y: 0,
+    width: 1_920,
+    height: 1_048,
+  };
+  const tree = vi.fn(async () => ({
+    value: "Wrong window",
+    children: [],
+  }));
   accessibilityByPidMock.mockReset().mockResolvedValue({
     children: async () => [
-      { role: "group", name: null, bounds, tree },
-      { role: "group", name: null, bounds: { ...bounds, x: 12 }, tree },
+      {
+        role: "group",
+        name: null,
+        bounds,
+        tree,
+      },
+      {
+        role: "group",
+        name: null,
+        bounds: {
+          ...bounds,
+          x: 12,
+        },
+        tree,
+      },
     ],
   });
   accessibilityListMock.mockReset().mockResolvedValue([
     {
       pid: 99,
-      children: async () => [{ role: "window", name: "System Monitor", bounds, tree }],
+      children: async () => [
+        {
+          role: "window",
+          name: "System Monitor",
+          bounds,
+          tree,
+        },
+      ],
     },
   ]);
   try {
@@ -1709,8 +2262,15 @@ it("does not guess GTK4 app text when two unnamed PID windows share the captured
       await readAccessibleWindowText(
         {
           title: "System Monitor",
-          bounds: { x: 12, y: 48, width: 1_920, height: 1_048 },
-          owner: { processId: 210600 },
+          bounds: {
+            x: 12,
+            y: 48,
+            width: 1_920,
+            height: 1_048,
+          },
+          owner: {
+            processId: 210600,
+          },
         },
         "linux",
         "System Monitor",
@@ -1723,9 +2283,13 @@ it("does not guess GTK4 app text when two unnamed PID windows share the captured
     vi.unstubAllEnvs();
   }
 });
-
 it("keeps a truncated element tree when the flat text read fails", async () => {
-  const bounds = { x: 0, y: 0, width: 800, height: 600 };
+  const bounds = {
+    x: 0,
+    y: 0,
+    width: 800,
+    height: 600,
+  };
   accessibilityByPidMock.mockReset().mockResolvedValue({
     children: async () => [
       {
@@ -1739,16 +2303,26 @@ it("keeps a truncated element tree when the flat text read fails", async () => {
           {
             role: "text_area",
             value: "x".repeat(8_001),
-            bounds: { x: 10, y: 50, width: 700, height: 500 },
+            bounds: {
+              x: 10,
+              y: 50,
+              width: 700,
+              height: 500,
+            },
             children: async () => [],
           },
         ],
       },
     ],
   });
-
   const result = await readAccessibleWindowContext(
-    { title: "Editor", bounds, owner: { processId: 123 } },
+    {
+      title: "Editor",
+      bounds,
+      owner: {
+        processId: 123,
+      },
+    },
     "darwin",
     "Editor",
   );
@@ -1758,29 +2332,36 @@ it("keeps a truncated element tree when the flat text read fails", async () => {
     result?.accessibility?.format === "element-tree"
       ? result.accessibility.root.children[0]?.bounds
       : undefined,
-    { x: 10, y: 50, width: 700, height: 500 },
+    {
+      x: 10,
+      y: 50,
+      width: 700,
+      height: 500,
+    },
   );
 });
-
 it.effect("flags revoked macOS permissions on read and re-registers once they return", () => {
   accessibilityTrustedMock.mockReset().mockReturnValue(true);
   mediaAccessStatusMock.mockReset().mockReturnValue("granted");
   registerShortcutMock.mockReset().mockReturnValue(true);
-
   return Effect.scoped(
     Effect.gen(function* () {
       const service = yield* DesktopSnapShot.make;
-      yield* service.configure({ ...DEFAULT_CLIENT_SETTINGS, snapShotEnabled: true });
+      yield* service.configure({
+        ...DEFAULT_CLIENT_SETTINGS,
+        snapShotEnabled: true,
+      });
       assert.isNull((yield* service.state).message);
-
       mediaAccessStatusMock.mockReturnValue("denied");
       const revoked = yield* service.state;
       assert.equal(
         revoked.message,
         "Allow Screen Recording in System Settings, then restart T3 Code.",
       );
-      assert.deepEqual(revoked.macPermissions, { screenRecording: false, accessibility: true });
-
+      assert.deepEqual(revoked.macPermissions, {
+        screenRecording: false,
+        accessibility: true,
+      });
       accessibilityTrustedMock.mockReturnValue(false);
       yield* service.configure({
         ...DEFAULT_CLIENT_SETTINGS,
@@ -1793,7 +2374,6 @@ it.effect("flags revoked macOS permissions on read and re-registers once they re
         "Allow Screen Recording in System Settings, then restart T3 Code.",
       );
       assert.isFalse(blocked.shortcutRegistered);
-
       mediaAccessStatusMock.mockReturnValue("granted");
       const recovered = yield* service.state;
       assert.isNull(recovered.message);
@@ -1801,7 +2381,6 @@ it.effect("flags revoked macOS permissions on read and re-registers once they re
     }),
   ).pipe(Effect.provide(layerTest("darwin")));
 });
-
 it.effect("an unrelated client-setting change keeps the registered shortcut", () => {
   registerShortcutMock.mockReset().mockReturnValue(true);
   unregisterShortcutMock.mockReset();
@@ -1815,7 +2394,6 @@ it.effect("an unrelated client-setting change keeps the registered shortcut", ()
       modKey: false,
     },
   });
-
   return Effect.scoped(
     Effect.gen(function* () {
       const service = yield* DesktopSnapShot.make;
@@ -1824,15 +2402,19 @@ it.effect("an unrelated client-setting change keeps the registered shortcut", ()
         registerShortcutMock.mock.calls.map(([accelerator]) => accelerator),
         ["Control+Alt+K"],
       );
-
-      yield* service.configure({ ...settings, wordWrap: !settings.wordWrap });
+      yield* service.configure({
+        ...settings,
+        wordWrap: !settings.wordWrap,
+      });
       assert.lengthOf(unregisterShortcutMock.mock.calls, 0);
       assert.lengthOf(registerShortcutMock.mock.calls, 1);
       assert.isTrue((yield* service.state).shortcutRegistered);
-
       yield* service.configure({
         ...settings,
-        snapShotShortcut: { ...settings.snapShotShortcut, key: "j" },
+        snapShotShortcut: {
+          ...settings.snapShotShortcut,
+          key: "j",
+        },
       });
       assert.deepEqual(unregisterShortcutMock.mock.calls, [["Control+Alt+K"]]);
       assert.deepEqual(
@@ -1842,16 +2424,17 @@ it.effect("an unrelated client-setting change keeps the registered shortcut", ()
     }),
   ).pipe(Effect.provide(layerTest("win32")));
 });
-
 it.effect("capture fails closed while snapshots are disabled", () => {
   activeWindowMock.mockClear();
   getSourcesMock.mockClear();
   regionCaptureMock.mockClear();
-
   return Effect.scoped(
     Effect.gen(function* () {
       const service = yield* DesktopSnapShot.make;
-      yield* service.configure({ ...DEFAULT_CLIENT_SETTINGS, snapShotEnabled: false });
+      yield* service.configure({
+        ...DEFAULT_CLIENT_SETTINGS,
+        snapShotEnabled: false,
+      });
       const failure = yield* Effect.flip(service.capture);
       assert.equal(failure.operation, "disabled");
       assert.lengthOf(activeWindowMock.mock.calls, 0);
@@ -1860,7 +2443,6 @@ it.effect("capture fails closed while snapshots are disabled", () => {
     }),
   ).pipe(Effect.provide(layerTest("win32")));
 });
-
 it.effect(
   "keeps saved preferences but rechecks access and shortcut delivery after changing desktops",
   () => {
@@ -1934,7 +2516,6 @@ it.effect(
     );
   },
 );
-
 it.effect("verifies only native shortcut delivery and captures normally", () => {
   vi.stubEnv("XDG_SESSION_TYPE", "wayland");
   vi.stubEnv("XDG_CURRENT_DESKTOP", "test-desktop");
@@ -1946,7 +2527,12 @@ it.effect("verifies only native shortcut delivery and captures normally", () => 
       appName: "Text Editor",
       appIdentifier: "org.kde.kwrite",
       processId: 123,
-      bounds: { x: 0, y: 0, width: 700, height: 520 },
+      bounds: {
+        x: 0,
+        y: 0,
+        width: 700,
+        height: 520,
+      },
     },
   });
   const settings = {
@@ -1982,7 +2568,10 @@ it.effect("verifies only native shortcut delivery and captures normally", () => 
       yield* service.setup("retry-shortcut");
       assert.equal(portalShortcutInstances.length, 1);
       assert.equal(portalShortcutInstances[0]!.configure.mock.calls.length, 1);
-      yield* service.configure({ ...settings, snapShotEnabled: false });
+      yield* service.configure({
+        ...settings,
+        snapShotEnabled: false,
+      });
       assert.isFalse((yield* service.state).shortcutVerified);
     }),
   ).pipe(
@@ -1997,7 +2586,6 @@ it.effect("verifies only native shortcut delivery and captures normally", () => 
     Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
   );
 });
-
 it.effect(
   "preserves an approved portal session for cosmetic changes and retires it when keys change",
   () => {
@@ -2030,7 +2618,10 @@ it.effect(
         assert.isTrue((yield* service.state).shortcutVerified);
         yield* service.configure({
           ...settings,
-          snapShotShortcut: { ...settings.snapShotShortcut, key: "8" },
+          snapShotShortcut: {
+            ...settings.snapShotShortcut,
+            key: "8",
+          },
         });
         assert.equal(first.close.mock.calls.length, 1);
         assert.equal(portalShortcutInstances.length, 2);
@@ -2040,7 +2631,10 @@ it.effect(
         const current = portalShortcutInstances[1]!;
         yield* Effect.promise(current.onCapture);
         assert.isTrue((yield* service.state).shortcutVerified);
-        yield* service.configure({ ...settings, snapShotEnabled: false });
+        yield* service.configure({
+          ...settings,
+          snapShotEnabled: false,
+        });
         assert.equal(current.close.mock.calls.length, 1);
         yield* Effect.promise(current.onCapture);
         assert.isFalse((yield* service.state).shortcutVerified);
@@ -2052,7 +2646,6 @@ it.effect(
     );
   },
 );
-
 it.effect(
   "keeps Hyprland's stable action with a modifier-pair preference and releases it when disabled",
   () => {
@@ -2066,7 +2659,10 @@ it.effect(
       shortcutPending: false,
       shortcutMessage: "Managed by Hyprland",
     };
-    const settings = { ...DEFAULT_CLIENT_SETTINGS, snapShotEnabled: true };
+    const settings = {
+      ...DEFAULT_CLIENT_SETTINGS,
+      snapShotEnabled: true,
+    };
     return Effect.scoped(
       Effect.gen(function* () {
         const service = yield* DesktopSnapShot.make;
@@ -2077,10 +2673,16 @@ it.effect(
         const check = yield* service.checkShortcut(settings.snapShotShortcut);
         assert.isFalse(check.available);
         assert.include(check.message, "Hyprland config");
-        yield* service.configure({ ...settings, snapShotPlaySound: false });
+        yield* service.configure({
+          ...settings,
+          snapShotPlaySound: false,
+        });
         assert.lengthOf(portalShortcutInstances, 1);
         assert.lengthOf(first.close.mock.calls, 0);
-        yield* service.configure({ ...settings, snapShotEnabled: false });
+        yield* service.configure({
+          ...settings,
+          snapShotEnabled: false,
+        });
         assert.lengthOf(first.close.mock.calls, 1);
         assert.notEqual((yield* service.state).shortcutActionRegistered, true);
       }),
@@ -2090,7 +2692,6 @@ it.effect(
     );
   },
 );
-
 it.effect("waits to apply settings while permissions are pending", () => {
   accessibilityTrustedMock.mockReturnValue(true);
   mediaAccessStatusMock.mockReturnValueOnce("not-determined").mockReturnValue("granted");
@@ -2102,29 +2703,28 @@ it.effect("waits to apply settings while permissions are pending", () => {
       }),
   );
   const layer = layerTest("darwin");
-
   return Effect.scoped(
     Effect.gen(function* () {
       const service = yield* DesktopSnapShot.make;
-      const enabled = { ...DEFAULT_CLIENT_SETTINGS, snapShotEnabled: true };
+      const enabled = {
+        ...DEFAULT_CLIENT_SETTINGS,
+        snapShotEnabled: true,
+      };
       const permissionFiber = yield* service.requestPermissions(true).pipe(Effect.forkScoped);
       yield* Effect.yieldNow;
       if (!finishPermissionRequest) throw new Error("Permission request did not start");
       const finishPermission = finishPermissionRequest;
-
       const configureFiber = yield* service.configure(enabled).pipe(Effect.forkScoped);
       yield* Effect.yieldNow;
       assert.isFalse((yield* service.state).shortcutRegistered);
       finishPermission();
       yield* Fiber.join(permissionFiber);
       yield* Fiber.join(configureFiber);
-
       const state = yield* service.state;
       assert.isTrue(state.shortcutRegistered);
     }),
   ).pipe(Effect.provide(layer));
 });
-
 it.effect.each([false, true])(
   "tests macOS capture without publishing it and cleans up, failure=%s",
   (fails) => {
@@ -2132,13 +2732,28 @@ it.effect.each([false, true])(
       platform: "macos",
       id: 42,
       title: "Setup",
-      owner: { name: "T3 Code", processId: 123, path: "/Applications/T3 Code.app" },
-      bounds: { x: 0, y: 0, width: 800, height: 600 },
+      owner: {
+        name: "T3 Code",
+        processId: 123,
+        path: "/Applications/T3 Code.app",
+      },
+      bounds: {
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 600,
+      },
     };
     activeWindowMock.mockReset().mockResolvedValue(active);
     macCaptureMock.mockReset();
     if (fails) macCaptureMock.mockRejectedValue(new Error("Capture denied"));
-    else macCaptureMock.mockResolvedValue({ source: { name: "Setup" }, png: Buffer.from("png") });
+    else
+      macCaptureMock.mockResolvedValue({
+        source: {
+          name: "Setup",
+        },
+        png: Buffer.from("png"),
+      });
     accessibilityProcessReadMock.mockClear();
     const cleanup = vi.fn();
     return Effect.scoped(

@@ -1,7 +1,5 @@
 import * as FileSystem from "effect/FileSystem";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as FileSystem from "effect/FileSystem";
-import * as HostProcess from "@t3tools/shared/HostProcess";
 // @effect-diagnostics-next-line nodeBuiltinImport:off - a stand-in for a running remote server.
 import * as NodeHttp from "node:http";
 import { assert, describe, it } from "@effect/vitest";
@@ -579,6 +577,153 @@ if (args[0] === "serve") {
           "--json",
         ]);
         assert.isFalse(yield* fs.exists(`${home}/.t3/userdata`));
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect.skipIf(windowsHost)("reuses a split install's running service", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ssh-launch-split-reuse-",
+      });
+      const home = `${root}/home`;
+      const record = `${root}/record.ndjson`;
+      const fakeT3 = `${root}/fake-t3.cjs`;
+      const runtimeDir = `${root}/run/t3code`;
+      yield* fs.makeDirectory(`${home}/.local/state/t3code`, {
+        recursive: true,
+      });
+      yield* fs.writeFileString(`${home}/.local/state/t3code/environment-id`, "env");
+      yield* fs.makeDirectory(runtimeDir, {
+        recursive: true,
+      });
+      yield* fs.writeFileString(fakeT3, FAKE_T3);
+      const service = yield* Effect.acquireRelease(
+        Effect.callback<NodeHttp.Server>((resume) => {
+          const server = NodeHttp.createServer((_request, response) => response.end("ok"));
+          server.listen(0, "127.0.0.1", () => resume(Effect.succeed(server)));
+        }),
+        (server) => Effect.sync(() => server.close()),
+      );
+      const address = service.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      yield* fs.writeFileString(
+        `${runtimeDir}/server-runtime.json`,
+        JSON.stringify({
+          pid: process.pid,
+          port,
+          origin: `http://127.0.0.1:${port}`,
+        }),
+      );
+      const launch = yield* runScript(
+        SshTunnel.buildRemoteLaunchScript({
+          nodeScriptPath: fakeT3,
+        }),
+        ["split-reuse"],
+        {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          T3_FAKE_RECORD: record,
+          XDG_RUNTIME_DIR: `${root}/run`,
+        },
+      );
+      assert.equal(launch.exitCode, 0, launch.stderr);
+      assert.deepEqual(JSON.parse(launch.stdout.trim()), {
+        remotePort: port,
+        serverKind: "external",
+      });
+      assert.isFalse(
+        (yield* readInvocations(fs, record)).some((entry) => entry.args[0] === "serve"),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect.skipIf(windowsHost)("serves a remote whose ~/.t3 was migrated as split", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ssh-launch-migrated-",
+      });
+      const home = `${root}/home`;
+      const record = `${root}/record.ndjson`;
+      const fakeT3 = `${root}/fake-t3.cjs`;
+      yield* fs.makeDirectory(`${home}/.t3/userdata`, {
+        recursive: true,
+      });
+      yield* fs.writeFileString(`${home}/.t3/userdata/statev2.sqlite`, "");
+      yield* fs.writeFileString(`${home}/.t3/userdata/storage-migration.json`, "{}");
+      yield* fs.writeFileString(fakeT3, FAKE_T3);
+      const runner = {
+        nodeScriptPath: fakeT3,
+      };
+      const stateKey = "migrated-test";
+      const env = {
+        PATH: process.env.PATH ?? "",
+        HOME: home,
+        T3_FAKE_RECORD: record,
+      };
+      yield* Effect.addFinalizer(() =>
+        fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
+          Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+          Effect.ignore,
+        ),
+      );
+      const launch = yield* runScript(SshTunnel.buildRemoteLaunchScript(runner), [stateKey], env);
+      assert.equal(launch.exitCode, 0, launch.stderr);
+      const pairing = yield* runScript(
+        SshTunnel.buildRemotePairingScript(stateKey, runner),
+        [],
+        env,
+      );
+      assert.equal(pairing.exitCode, 0, pairing.stderr);
+      const invocations = yield* readInvocations(fs, record);
+      const serve = invocations.find((entry) => entry.args[0] === "serve");
+      assert.isDefined(serve);
+      assert.notInclude(serve?.args ?? [], "--base-dir");
+      const auth = invocations.find((entry) => entry.args[0] === "auth");
+      assert.isDefined(auth);
+      assert.notInclude(auth?.args ?? [], "--base-dir");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect.skipIf(windowsHost)(
+    "keeps ~/.t3 while a migration into the split layout is unfinished",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-ssh-launch-pending-",
+        });
+        const home = `${root}/home`;
+        const record = `${root}/record.ndjson`;
+        const fakeT3 = `${root}/fake-t3.cjs`;
+        yield* fs.makeDirectory(`${home}/.t3/userdata`, {
+          recursive: true,
+        });
+        yield* fs.makeDirectory(`${home}/.local/state/t3code`, {
+          recursive: true,
+        });
+        yield* fs.writeFileString(`${home}/.t3/userdata/statev2.sqlite`, "");
+        yield* fs.writeFileString(`${home}/.t3/userdata/storage-migration.pending.json`, "{}");
+        yield* fs.writeFileString(`${home}/.local/state/t3code/statev2.sqlite`, "");
+        yield* fs.writeFileString(fakeT3, FAKE_T3);
+        const runner = {
+          nodeScriptPath: fakeT3,
+        };
+        const stateKey = "pending-test";
+        const env = {
+          PATH: process.env.PATH ?? "",
+          HOME: home,
+          T3_FAKE_RECORD: record,
+        };
+        yield* Effect.addFinalizer(() =>
+          fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
+            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.ignore,
+          ),
+        );
+        const launch = yield* runScript(SshTunnel.buildRemoteLaunchScript(runner), [stateKey], env);
+        assert.equal(launch.exitCode, 0, launch.stderr);
+        const invocations = yield* readInvocations(fs, record);
+        const serve = invocations.find((entry) => entry.args[0] === "serve");
+        assert.include(serve?.args ?? [], "--base-dir");
       }).pipe(Effect.provide(NodeServices.layer)),
   );
   it.effect.skipIf(windowsHost)("reuses a split install's running service", () =>
