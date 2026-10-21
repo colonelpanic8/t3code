@@ -1,17 +1,13 @@
 import * as Result from "effect/Result";
 import { describe, expect, it } from "vite-plus/test";
-
 import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
-
 const INVALID = Result.fail("That fleet enrollment link is not a plain https:// address.");
-
 describe("parseFleetEnrollmentUrl", () => {
   it("accepts the deep link param's https URL", () => {
     expect(
       parseFleetEnrollmentUrl(" https://example.github.io/dotfiles/t3code/fleet.age "),
     ).toEqual(Result.succeed("https://example.github.io/dotfiles/t3code/fleet.age"));
   });
-
   it.each([
     ["plain http", "http://example.test/fleet.age"],
     ["embedded credentials", "https://user:secret@example.test/fleet.age"],
@@ -23,7 +19,6 @@ describe("parseFleetEnrollmentUrl", () => {
     expect(parseFleetEnrollmentUrl(value)).toEqual(INVALID);
   });
 });
-
 describe("parseFleetEnrollmentLink", () => {
   it("reads the file URL from a scanned page URL", () => {
     expect(
@@ -32,7 +27,6 @@ describe("parseFleetEnrollmentLink", () => {
       ),
     ).toEqual(Result.succeed("https://example.github.io/dotfiles/t3code/fleet.age"));
   });
-
   it("reads the file URL from a scanned deep link", () => {
     expect(
       parseFleetEnrollmentLink(
@@ -40,7 +34,6 @@ describe("parseFleetEnrollmentLink", () => {
       ),
     ).toEqual(Result.succeed("https://example.test/fleet.age"));
   });
-
   it("rejects an enrollment link whose file URL is not https", () => {
     expect(
       parseFleetEnrollmentLink(
@@ -48,7 +41,6 @@ describe("parseFleetEnrollmentLink", () => {
       ),
     ).toEqual(INVALID);
   });
-
   it.each([
     ["a pairing URL", "https://host.example.test/#token=abc"],
     ["text that is not a URL", "AGE-SECRET-KEY-1QQQ"],

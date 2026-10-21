@@ -10,7 +10,6 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
-
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "./config.ts";
@@ -34,7 +33,6 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
-
 it.effect("parks automatic pull until activation without delaying command readiness", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -68,7 +66,10 @@ it.effect("parks automatic pull until activation without delaying command readin
         retiredEffects: 0,
         requeuedEffects: 0,
       };
-      const importSummary = { importedThreadCount: 0, importedMessageCount: 0 };
+      const importSummary = {
+        importedThreadCount: 0,
+        importedMessageCount: 0,
+      };
       const dependencies: Layer.Layer<
         Layer.Services<ReturnType<typeof ServerRuntimeStartup.layerWithOptions>>
       > = Layer.mergeAll(
@@ -107,7 +108,9 @@ it.effect("parks automatic pull until activation without delaying command readin
           startupPresentation: "browser",
           autoBootstrapProjectFromCwd: false,
         }),
-        Layer.mock(Keybindings.Keybindings)({ start: Effect.void }),
+        Layer.mock(Keybindings.Keybindings)({
+          start: Effect.void,
+        }),
         Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
           pendingThreadCount: Effect.succeed(0),
           reconcileShells: Effect.succeed(importSummary),
@@ -118,30 +121,52 @@ it.effect("parks automatic pull until activation without delaying command readin
           prepareForShutdown: Effect.void,
           reconcile: () => Effect.succeed(recovery),
         }),
-        Layer.mock(Orchestrator.OrchestratorV2)({ recoverDelegatedTasks: Effect.void }),
-        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ shutdown: Effect.void }),
-        Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({ start: () => Effect.void }),
-        Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({ runOnce: Effect.never }),
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          recoverDelegatedTasks: Effect.void,
+        }),
+        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
+          shutdown: Effect.void,
+        }),
+        Layer.mock(AgentAwarenessRelay.AgentAwarenessRelay)({
+          start: () => Effect.void,
+        }),
+        Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({
+          runOnce: Effect.never,
+        }),
         Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
-          publish: (event) => Effect.succeed({ ...event, sequence: 1 }),
+          publish: (event) =>
+            Effect.succeed({
+              ...event,
+              sequence: 1,
+            }),
         }),
         Layer.mock(ServerSettings.ServerSettingsService)({
           start: Effect.void,
-          getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, defaultAutoPull: true }),
+          getSettings: Effect.succeed({
+            ...DEFAULT_SERVER_SETTINGS,
+            defaultAutoPull: true,
+          }),
         }),
         Layer.mock(ServerEnvironment.ServerEnvironment)({
           getDescriptor: Effect.succeed({
             environmentId: EnvironmentId.make("auto-pull-environment"),
             label: "Test environment",
-            platform: { os: "darwin", arch: "arm64" },
+            platform: {
+              os: "darwin",
+              arch: "arm64",
+            },
             serverVersion: "0.0.0-test",
-            capabilities: { repositoryIdentity: true },
+            capabilities: {
+              repositoryIdentity: true,
+            },
           }),
         }),
         Layer.mock(ProjectStore.ProjectStoreV2)({
           listShells: () => Effect.succeed(snapshot.projects),
         }),
-        Layer.mock(ProjectService.ProjectService)({ snapshot: Effect.succeed(snapshot) }),
+        Layer.mock(ProjectService.ProjectService)({
+          snapshot: Effect.succeed(snapshot),
+        }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getShellSnapshot: () =>
             Effect.succeed({
@@ -166,10 +191,14 @@ it.effect("parks automatic pull until activation without delaying command readin
               Effect.onInterrupt(() => Deferred.succeed(statusInterrupted, undefined)),
             ),
         }),
-        Layer.mock(AnalyticsService.AnalyticsService)({ record: () => Effect.void }),
+        Layer.mock(AnalyticsService.AnalyticsService)({
+          record: () => Effect.void,
+        }),
         // No provider logins or Connect link, so startup records no owners.
         FileSystem.layerNoop({}),
-        Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeedNone }),
+        Layer.mock(ServerSecretStore.ServerSecretStore)({
+          get: () => Effect.succeedNone,
+        }),
         NodeCrypto.layer,
         Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
         Layer.mock(ExternalLauncher.ExternalLauncher)({}),
@@ -178,16 +207,13 @@ it.effect("parks automatic pull until activation without delaying command readin
         }),
         Path.layer,
       );
-
       yield* Effect.gen(function* () {
         const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
         yield* startup.markHttpListening;
-
         yield* Effect.raceFirst(Deferred.await(prepared), Deferred.await(statusCalled));
         expect(yield* Deferred.isDone(activation)).toBe(false);
         expect(yield* Deferred.isDone(statusCalled)).toBe(false);
         expect(yield* Deferred.isDone(prepared)).toBe(true);
-
         yield* Deferred.succeed(commitTrial, undefined);
         yield* Deferred.await(activation);
         expect(yield* Deferred.await(statusCalled)).toBe(cwd);
