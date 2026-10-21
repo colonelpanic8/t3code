@@ -74,20 +74,6 @@ const liveProcess = Effect.acquireRelease(
       await exited;
     }),
 );
-const minimalDesktopFlags = (baseDir: string) => ({
-  mode: Option.some("desktop" as const),
-  port: Option.some(4888),
-  host: Option.none<string>(),
-  baseDir: Option.some(baseDir),
-  cwd: Option.none<string>(),
-  devUrl: Option.none<URL>(),
-  noBrowser: Option.none<boolean>(),
-  bootstrapFd: Option.none<number>(),
-  autoBootstrapProjectFromCwd: Option.none<boolean>(),
-  logWebSocketEvents: Option.none<boolean>(),
-  tailscaleServeEnabled: Option.none<boolean>(),
-  tailscaleServePort: Option.none<number>(),
-});
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
   const defaultObservabilityConfig = {
     traceMinLevel: "Info",
