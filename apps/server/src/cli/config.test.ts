@@ -3,7 +3,6 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeEvents from "node:events";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
-
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
@@ -14,7 +13,6 @@ import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-
 import {
   DesktopBackendBootstrap,
   type DesktopBackendBootstrap as DesktopBackendBootstrapValue,
@@ -30,7 +28,6 @@ import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as SqlClient from "effect/sql/SqlClient";
-
 import { deriveServerPaths, layer as ServerConfigLayer } from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import {
@@ -43,28 +40,12 @@ import {
   ServerLocationSelectorConflictError,
   type StorageHost,
 } from "./config.ts";
-
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
-  deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
-
-const minimalDesktopFlags = (baseDir: string) => ({
-  mode: Option.some("desktop" as const),
-  port: Option.some(4888),
-  host: Option.none<string>(),
-  baseDir: Option.some(baseDir),
-  cwd: Option.none<string>(),
-  devUrl: Option.none<URL>(),
-  noBrowser: Option.none<boolean>(),
-  bootstrapFd: Option.none<number>(),
-  autoBootstrapProjectFromCwd: Option.none<boolean>(),
-  logWebSocketEvents: Option.none<boolean>(),
-  tailscaleServeEnabled: Option.none<boolean>(),
-  tailscaleServePort: Option.none<number>(),
-});
-
+  deriveServerPaths(baseDir, devUrl, {
+    baseDirIsExplicit: true,
+  });
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
 const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
-
 const makeDesktopBootstrap = (
   overrides: Partial<DesktopBackendBootstrapValue> = {},
 ): DesktopBackendBootstrapValue => ({
@@ -78,7 +59,6 @@ const makeDesktopBootstrap = (
   tailscaleServePort: 443,
   ...overrides,
 });
-
 const liveProcess = Effect.acquireRelease(
   Effect.promise(async () => {
     const child = NodeChildProcess.spawn(process.execPath, ["-e", "process.stdin.resume()"], {
@@ -94,10 +74,12 @@ const liveProcess = Effect.acquireRelease(
       await exited;
     }),
 );
-
 const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapValue) {
   const fs = yield* FileSystem.FileSystem;
-  const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
+  const filePath = yield* fs.makeTempFileScoped({
+    prefix: "t3-bootstrap-",
+    suffix: ".ndjson",
+  });
   const encoded = yield* encodeDesktopBootstrap(payload);
   yield* fs.writeFileString(filePath, `${encoded}\n`);
   return yield* Effect.acquireRelease(
@@ -114,7 +96,20 @@ const openBootstrapFd = Effect.fn(function* (payload: DesktopBackendBootstrapVal
       }),
   );
 });
-
+const minimalDesktopFlags = (baseDir: string) => ({
+  mode: Option.some("desktop" as const),
+  port: Option.some(4888),
+  host: Option.none<string>(),
+  baseDir: Option.some(baseDir),
+  cwd: Option.none<string>(),
+  devUrl: Option.none<URL>(),
+  noBrowser: Option.none<boolean>(),
+  bootstrapFd: Option.none<number>(),
+  autoBootstrapProjectFromCwd: Option.none<boolean>(),
+  logWebSocketEvents: Option.none<boolean>(),
+  tailscaleServeEnabled: Option.none<boolean>(),
+  tailscaleServePort: Option.none<number>(),
+});
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
   const defaultObservabilityConfig = {
     traceMinLevel: "Info",
@@ -131,12 +126,13 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otelEnvironment: OtelEnvironment.none,
     devAllowedOrigins: [],
   } as const;
-
   it.effect("keeps stale records and supervised startup out of the manual launch preflight", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-preflight-" });
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-preflight-",
+      });
       const child = yield* liveProcess;
       assert(child.pid !== undefined);
       for (const [name, pid, mode, rejectRunningServer] of [
@@ -147,7 +143,9 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       ] as const) {
         const baseDir = path.join(root, name);
         const stateDir = path.join(baseDir, "userdata");
-        yield* fs.makeDirectory(stateDir, { recursive: true });
+        yield* fs.makeDirectory(stateDir, {
+          recursive: true,
+        });
         yield* fs.writeFileString(
           path.join(stateDir, "server-runtime.json"),
           yield* encodeUnknownJson({
@@ -167,12 +165,18 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             cwd: Option.some(cwd),
           },
           Option.none(),
-          { rejectRunningServer },
+          {
+            rejectRunningServer,
+          },
         ).pipe(
           Effect.provide(
             Layer.merge(
               NetService.layer,
-              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env: {},
+                }),
+              ),
             ),
           ),
           Effect.result,
@@ -183,18 +187,21 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       }
     }),
   );
-
   it.effect(
     "refuses a manual web launch when a runtime record belongs to another live process",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-preflight-live-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-cli-preflight-live-",
+        });
         const child = yield* liveProcess;
         assert(child.pid !== undefined);
         const stateDir = path.join(baseDir, "userdata");
-        yield* fs.makeDirectory(stateDir, { recursive: true });
+        yield* fs.makeDirectory(stateDir, {
+          recursive: true,
+        });
         yield* fs.writeFileString(
           path.join(stateDir, "server-runtime.json"),
           yield* encodeUnknownJson({
@@ -207,14 +214,23 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         );
         const cwd = path.join(baseDir, "project");
         const error = yield* resolveServerConfig(
-          { ...minimalWebFlags(baseDir), cwd: Option.some(cwd) },
+          {
+            ...minimalWebFlags(baseDir),
+            cwd: Option.some(cwd),
+          },
           Option.none(),
-          { rejectRunningServer: true },
+          {
+            rejectRunningServer: true,
+          },
         ).pipe(
           Effect.provide(
             Layer.merge(
               NetService.layer,
-              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env: {},
+                }),
+              ),
             ),
           ),
           Effect.flip,
@@ -224,11 +240,14 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(yield* fs.exists(cwd)).toBe(false);
       }),
   );
-
   it.effect("enables a trimmed reusable auth token only for web dev mode", () =>
     Effect.gen(function* () {
       const baseDir = yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "t3-cli-dev-auth-" })),
+        Effect.flatMap((fs) =>
+          fs.makeTempDirectoryScoped({
+            prefix: "t3-cli-dev-auth-",
+          }),
+        ),
       );
       const flags = {
         mode: Option.some("web" as const),
@@ -255,10 +274,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         Effect.provide(Layer.mergeAll(layerConfig, NetService.layer)),
       );
       const desktop = yield* resolveServerConfig(
-        { ...flags, mode: Option.some("desktop" as const) },
+        {
+          ...flags,
+          mode: Option.some("desktop" as const),
+        },
         Option.none(),
       ).pipe(Effect.provide(Layer.mergeAll(layerConfig, NetService.layer)));
-
       expect(web.devAuthToken).toBeDefined();
       if (web.devAuthToken === undefined) {
         return yield* Effect.die("Expected reusable dev auth token.");
@@ -267,12 +288,15 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(desktop.devAuthToken).toBeUndefined();
     }),
   );
-
   it.effect("does not expose an invalid reusable auth token", () =>
     Effect.gen(function* () {
       const secret = "short-secret";
       const baseDir = yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "t3-cli-dev-auth-invalid-" })),
+        Effect.flatMap((fs) =>
+          fs.makeTempDirectoryScoped({
+            prefix: "t3-cli-dev-auth-invalid-",
+          }),
+        ),
       );
       const flags = {
         mode: Option.some("web" as const),
@@ -289,21 +313,30 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServePort: Option.none<number>(),
       };
       const layerConfig = ConfigProvider.layer(
-        ConfigProvider.fromEnv({ env: { T3CODE_DEV_AUTH_TOKEN: secret } }),
+        ConfigProvider.fromEnv({
+          env: {
+            T3CODE_DEV_AUTH_TOKEN: secret,
+          },
+        }),
       );
       const error = yield* resolveServerConfig(flags, Option.none()).pipe(
         Effect.provide(Layer.mergeAll(layerConfig, NetService.layer)),
         Effect.flip,
       );
       const desktop = yield* resolveServerConfig(
-        { ...flags, mode: Option.some("desktop" as const) },
+        {
+          ...flags,
+          mode: Option.some("desktop" as const),
+        },
         Option.none(),
       ).pipe(Effect.provide(Layer.mergeAll(layerConfig, NetService.layer)));
       const staticWeb = yield* resolveServerConfig(
-        { ...flags, devUrl: Option.none() },
+        {
+          ...flags,
+          devUrl: Option.none(),
+        },
         Option.none(),
       ).pipe(Effect.provide(Layer.mergeAll(layerConfig, NetService.layer)));
-
       expect(String(error)).not.toContain(secret);
       const serialized = yield* encodeUnknownJson(error);
       expect(serialized).not.toContain(secret);
@@ -311,152 +344,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(staticWeb.devAuthToken).toBeUndefined();
     }),
   );
-
-  it.effect("falls back to effect/config values when flags are omitted", () =>
-    Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-env-base");
-      const derivedPaths = yield* deriveExplicitServerPaths(
-        baseDir,
-        new URL("http://127.0.0.1:5173"),
-      );
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.none(),
-          port: Option.none(),
-          host: Option.none(),
-          baseDir: Option.none(),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({
-                env: {
-                  T3CODE_LOG_LEVEL: "Warn",
-                  T3CODE_MODE: "desktop",
-                  T3CODE_PORT: "4001",
-                  T3CODE_HOST: "0.0.0.0",
-                  T3CODE_HOME: baseDir,
-                  VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
-                  T3CODE_DEV_ALLOWED_ORIGINS:
-                    "https://host.example.ts.net, https://phone.example.ts.net ",
-                  T3CODE_NO_BROWSER: "true",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-                  T3CODE_LOG_WS_EVENTS: "true",
-                },
-              }),
-            ),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved).toEqual({
-        logLevel: "Warn",
-        ...defaultObservabilityConfig,
-        mode: "desktop",
-        port: 4001,
-        cwd: process.cwd(),
-        baseDir,
-        ...derivedPaths,
-        host: "0.0.0.0",
-        staticDir: undefined,
-        devUrl: new URL("http://127.0.0.1:5173"),
-        devAllowedOrigins: ["https://host.example.ts.net", "https://phone.example.ts.net"],
-        noBrowser: true,
-        startupPresentation: "browser",
-        desktopBootstrapToken: undefined,
-        autoBootstrapProjectFromCwd: false,
-        logWebSocketEvents: true,
-        tailscaleServeEnabled: false,
-        tailscaleServePort: 443,
-        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
-      });
-      assert.equal(resolved.stateDir, join(baseDir, "userdata"));
-    }),
-  );
-
-  it.effect("uses CLI flags when provided", () =>
-    Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-flags-base");
-      const derivedPaths = yield* deriveExplicitServerPaths(
-        baseDir,
-        new URL("http://127.0.0.1:4173"),
-      );
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("web"),
-          port: Option.some(8788),
-          host: Option.some("127.0.0.1"),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.some(new URL("http://127.0.0.1:4173")),
-          noBrowser: Option.some(true),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.some(true),
-          logWebSocketEvents: Option.some(true),
-          tailscaleServeEnabled: Option.some(true),
-          tailscaleServePort: Option.some(8443),
-        },
-        Option.some("Debug"),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({
-                env: {
-                  T3CODE_LOG_LEVEL: "Warn",
-                  T3CODE_MODE: "desktop",
-                  T3CODE_PORT: "4001",
-                  T3CODE_HOST: "0.0.0.0",
-                  T3CODE_HOME: join(NodeOS.tmpdir(), "ignored-base"),
-                  VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
-                  T3CODE_NO_BROWSER: "false",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-                  T3CODE_LOG_WS_EVENTS: "false",
-                },
-              }),
-            ),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved).toEqual({
-        logLevel: "Debug",
-        ...defaultObservabilityConfig,
-        mode: "web",
-        port: 8788,
-        cwd: process.cwd(),
-        baseDir,
-        ...derivedPaths,
-        host: "127.0.0.1",
-        staticDir: undefined,
-        devUrl: new URL("http://127.0.0.1:4173"),
-        noBrowser: true,
-        startupPresentation: "browser",
-        desktopBootstrapToken: undefined,
-        autoBootstrapProjectFromCwd: true,
-        logWebSocketEvents: true,
-        tailscaleServeEnabled: true,
-        tailscaleServePort: 8443,
-        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
-      });
-      assert.equal(resolved.dbPath, join(baseDir, "userdata", "statev2.sqlite"));
-    }),
-  );
-
   it.effect("preserves explicit false CLI boolean flags over env and bootstrap values", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
@@ -472,7 +359,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         baseDir,
         new URL("http://127.0.0.1:4173"),
       );
-
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.some("web"),
@@ -506,7 +392,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         ),
       );
-
       expect(resolved).toEqual({
         logLevel: "Info",
         ...defaultObservabilityConfig,
@@ -525,194 +410,41 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
-        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
-      });
-    }),
-  );
-
-  it.effect("uses bootstrap envelope values as fallbacks when flags and env are absent", () =>
-    Effect.gen(function* () {
-      const { join, resolve } = yield* Path.Path;
-      // The resolver absolutises the configured home, so the expectation must
-      // carry the host's drive on Windows.
-      const baseDir = resolve("/tmp/t3-bootstrap-home");
-      const fd = yield* openBootstrapFd(
-        makeDesktopBootstrap({
-          port: 4888,
-          host: "127.0.0.2",
-          t3Home: "/tmp/t3-bootstrap-home",
-          noBrowser: true,
-          desktopBootstrapToken: "desktop-token",
-          desktopTelemetryFd: 4,
-          desktopTelemetryControlFd: 5,
-          tailscaleServeEnabled: false,
-          tailscaleServePort: 443,
-          otlpTracesUrl: "http://localhost:4318/v1/traces",
-          otlpMetricsUrl: "http://localhost:4318/v1/metrics",
-          otlpLogsUrl: "http://localhost:4318/v1/logs",
-        }),
-      );
-      const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.none(),
-          port: Option.none(),
-          host: Option.none(),
-          baseDir: Option.none(),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
+        serverConfigFile: {
+          path: join(derivedPaths.configDir, "server.json"),
+          unknownKeys: [],
         },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({
-                env: {
-                  T3CODE_BOOTSTRAP_FD: String(fd),
-                },
-              }),
-            ),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved).toEqual({
-        logLevel: "Info",
-        ...defaultObservabilityConfig,
-        otlpTracesUrl: "http://localhost:4318/v1/traces",
-        otlpMetricsUrl: "http://localhost:4318/v1/metrics",
-        otlpLogsUrl: "http://localhost:4318/v1/logs",
-        mode: "desktop",
-        port: 4888,
-        cwd: process.cwd(),
-        baseDir,
-        ...derivedPaths,
-        host: "127.0.0.2",
-        staticDir: resolved.staticDir,
-        devUrl: undefined,
-        noBrowser: true,
-        startupPresentation: "browser",
-        desktopBootstrapToken: "desktop-token",
-        desktopTelemetryFd: 4,
-        desktopTelemetryControlFd: 5,
-        resourceMonitorPath: undefined,
-        autoBootstrapProjectFromCwd: false,
-        logWebSocketEvents: false,
-        tailscaleServeEnabled: false,
-        tailscaleServePort: 443,
-        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
       });
-      assert.equal(join(baseDir, "userdata"), resolved.stateDir);
-      assert.equal(resolved.desktopTelemetryFd, 4);
-      assert.equal(resolved.desktopTelemetryControlFd, 5);
     }),
   );
-
-  it.effect("carries the desktop's shell environment handoff only when the envelope sets it", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-shell-env-" });
-      const resolveWith = Effect.fn(function* (overrides: Partial<DesktopBackendBootstrapValue>) {
-        const fd = yield* openBootstrapFd(makeDesktopBootstrap(overrides));
-        return yield* resolveServerConfig(
-          {
-            ...minimalDesktopFlags(baseDir),
-            bootstrapFd: Option.some(fd),
-          },
-          Option.none(),
-        ).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
-              NetService.layer,
-            ),
-          ),
-        );
-      });
-
-      assert.equal((yield* resolveWith({})).shellEnvironmentPrepared, undefined);
-      assert.equal(
-        (yield* resolveWith({ shellEnvironmentPrepared: true })).shellEnvironmentPrepared,
-        true,
-      );
-    }),
-  );
-
-  it.effect("creates derived runtime directories during config resolution", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-dirs-" });
-      const customCwd = path.join(baseDir, "nested", "project");
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("desktop"),
-          port: Option.some(4888),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.some(customCwd),
-          devUrl: Option.some(new URL("http://127.0.0.1:5173")),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      for (const directory of [
-        customCwd,
-        resolved.stateDir,
-        resolved.logsDir,
-        resolved.providerLogsDir,
-        resolved.terminalLogsDir,
-        resolved.attachmentsDir,
-        resolved.worktreesDir,
-        path.dirname(resolved.serverTracePath),
-      ]) {
-        expect(yield* fs.exists(directory)).toBe(true);
-      }
-      expect(resolved.cwd).toBe(path.resolve(customCwd));
-    }),
-  );
-
   it.effect("reads settings from the config dir and opens the database in the data dir", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-locations-" });
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-locations-",
+      });
       const home = path.join(root, "home");
       const configDir = path.join(root, "config");
       const dataDir = path.join(root, "data");
       const envDataDir = path.join(root, "env-data");
       const cacheDir = path.join(root, "cache");
-      yield* fs.makeDirectory(configDir, { recursive: true });
+      yield* fs.makeDirectory(configDir, {
+        recursive: true,
+      });
       yield* fs.writeFileString(
         path.join(configDir, "settings.json"),
-        `${JSON.stringify({ observability: { otlpLogsUrl: "http://config-dir:4318/v1/logs" } })}\n`,
+        `${JSON.stringify({
+          observability: {
+            otlpLogsUrl: "http://config-dir:4318/v1/logs",
+          },
+        })}\n`,
       );
-
       const resolved = yield* resolveServerConfig(
-        { ...minimalDesktopFlags(home), serverDataDir: Option.some(dataDir) },
+        {
+          ...minimalDesktopFlags(home),
+          serverDataDir: Option.some(dataDir),
+        },
         Option.none(),
       ).pipe(
         Effect.provide(
@@ -730,13 +462,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         ),
       );
-
       expect(resolved.otlpLogsUrl).toBe("http://config-dir:4318/v1/logs");
       expect(resolved.settingsPath).toBe(path.join(root, "config", "settings.json"));
       expect(resolved.dbPath).toBe(path.join(root, "data", "statev2.sqlite"));
       expect(resolved.worktreesDir).toBe(path.join(root, "data", "worktrees"));
       expect(resolved.providerStatusCacheDir).toBe(path.join(root, "cache"));
-
       yield* Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         yield* sql`SELECT 1`;
@@ -750,17 +480,19 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(yield* fs.exists(home)).toBe(false);
     }),
   );
-
   it.effect(
     "resolves install commands from the base dir alone, like the service, creating nothing",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-install-locations-" });
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-cli-install-locations-",
+        });
         const home = path.join(root, "home");
-
-        const resolved = yield* resolveInstallLocations({ baseDir: Option.some(home) }).pipe(
+        const resolved = yield* resolveInstallLocations({
+          baseDir: Option.some(home),
+        }).pipe(
           Effect.provide(
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
@@ -773,7 +505,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ),
           ),
         );
-
         expect(resolved.logsDir).toBe(path.join(home, "userdata", "logs"));
         expect(resolved.serverRuntimeStatePath).toBe(
           path.join(home, "userdata", "server-runtime.json"),
@@ -783,7 +514,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(yield* fs.exists(home)).toBe(false);
       }),
   );
-
   it.effect("applies flag then env precedence over bootstrap envelope values", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
@@ -803,7 +533,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         baseDir,
         new URL("http://127.0.0.1:4173"),
       );
-
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.none(),
@@ -839,7 +568,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         ),
       );
-
       expect(resolved).toEqual({
         logLevel: "Debug",
         ...defaultObservabilityConfig,
@@ -858,93 +586,24 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: true,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
-        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
-      });
-    }),
-  );
-
-  it.effect("falls back to persisted observability settings when env vars are absent", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-settings-" });
-      const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
-      yield* fs.writeFileString(
-        derivedPaths.settingsPath,
-        `${JSON.stringify({
-          observability: {
-            otlpTracesUrl: "http://localhost:4318/v1/traces",
-            otlpMetricsUrl: "http://localhost:4318/v1/metrics",
-            otlpLogsUrl: "http://localhost:4318/v1/logs",
-          },
-        })}\n`,
-      );
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("desktop"),
-          port: Option.some(4888),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved.otlpTracesUrl).toBe("http://localhost:4318/v1/traces");
-      expect(resolved.otlpMetricsUrl).toBe("http://localhost:4318/v1/metrics");
-      expect(resolved.otlpLogsUrl).toBe("http://localhost:4318/v1/logs");
-      expect(resolved).toEqual({
-        logLevel: "Info",
-        ...defaultObservabilityConfig,
-        otlpTracesUrl: "http://localhost:4318/v1/traces",
-        otlpMetricsUrl: "http://localhost:4318/v1/metrics",
-        otlpLogsUrl: "http://localhost:4318/v1/logs",
-        mode: "desktop",
-        port: 4888,
-        cwd: process.cwd(),
-        baseDir,
-        ...derivedPaths,
-        host: "127.0.0.1",
-        staticDir: resolved.staticDir,
-        devUrl: undefined,
-        noBrowser: true,
-        startupPresentation: "browser",
-        desktopBootstrapToken: undefined,
-        autoBootstrapProjectFromCwd: false,
-        logWebSocketEvents: false,
-        tailscaleServeEnabled: false,
-        tailscaleServePort: 443,
         serverConfigFile: {
-          path: path.join(derivedPaths.configDir, "server.json"),
+          path: join(derivedPaths.configDir, "server.json"),
           unknownKeys: [],
         },
       });
     }),
   );
-
   it.effect("zeroes an endpoint stored in Settings when the SDK is disabled", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-otel-off-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-otel-off-",
+      });
       const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), {
+        recursive: true,
+      });
       yield* fs.writeFileString(
         derivedPaths.settingsPath,
         `${JSON.stringify({
@@ -955,55 +614,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           },
         })}\n`,
       );
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("desktop"),
-          port: Option.some(4888),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(ConfigProvider.fromEnv({ env: { OTEL_SDK_DISABLED: "true" } })),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved.otlpTracesUrl).toBeUndefined();
-      expect(resolved.otlpMetricsUrl).toBeUndefined();
-      expect(resolved.otlpLogsUrl).toBeUndefined();
-      expect(resolved.otelEnvironment.disabled).toBe(true);
-    }),
-  );
-
-  it.effect("lets T3CODE_OTEL_SDK_DISABLED=false override an ambient OTEL_SDK_DISABLED=true", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-otel-on-" });
-      const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
-      yield* fs.writeFileString(
-        derivedPaths.settingsPath,
-        `${JSON.stringify({
-          observability: {
-            otlpTracesUrl: "http://localhost:4318/v1/traces",
-          },
-        })}\n`,
-      );
-
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.some("desktop"),
@@ -1025,25 +635,80 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           Layer.mergeAll(
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
-                env: { T3CODE_OTEL_SDK_DISABLED: "false", OTEL_SDK_DISABLED: "true" },
+                env: {
+                  OTEL_SDK_DISABLED: "true",
+                },
               }),
             ),
             NetService.layer,
           ),
         ),
       );
-
+      expect(resolved.otlpTracesUrl).toBeUndefined();
+      expect(resolved.otlpMetricsUrl).toBeUndefined();
+      expect(resolved.otlpLogsUrl).toBeUndefined();
+      expect(resolved.otelEnvironment.disabled).toBe(true);
+    }),
+  );
+  it.effect("lets T3CODE_OTEL_SDK_DISABLED=false override an ambient OTEL_SDK_DISABLED=true", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-cli-config-otel-on-",
+      });
+      const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
+      yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), {
+        recursive: true,
+      });
+      yield* fs.writeFileString(
+        derivedPaths.settingsPath,
+        `${JSON.stringify({
+          observability: {
+            otlpTracesUrl: "http://localhost:4318/v1/traces",
+          },
+        })}\n`,
+      );
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("desktop"),
+          port: Option.some(4888),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  T3CODE_OTEL_SDK_DISABLED: "false",
+                  OTEL_SDK_DISABLED: "true",
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
       expect(resolved.otelEnvironment.disabled).toBe(false);
       expect(resolved.otlpTracesUrl).toBe("http://localhost:4318/v1/traces");
     }),
   );
-
   it.effect("forces noBrowser and disables auto-bootstrap for headless startup presentation", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-headless-base");
       const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.some("web"),
@@ -1078,7 +743,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         ),
       );
-
       expect(resolved).toEqual({
         logLevel: "Info",
         ...defaultObservabilityConfig,
@@ -1097,59 +761,17 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: false,
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
-        serverConfigFile: { path: join(derivedPaths.configDir, "server.json"), unknownKeys: [] },
-      });
-    }),
-  );
-
-  it.effect("decodes percent-encoded OTLP headers from env", () =>
-    Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-otlp-headers-base");
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("web"),
-          port: Option.some(3773),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
+        serverConfigFile: {
+          path: join(derivedPaths.configDir, "server.json"),
+          unknownKeys: [],
         },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({
-                env: {
-                  T3CODE_OTLP_HEADERS: "authorization=Basic%20abc%3D%3D,x-tenant=t3",
-                },
-              }),
-            ),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved.otlpTracesExport.headers).toEqual({
-        authorization: "Basic abc==",
-        "x-tenant": "t3",
       });
     }),
   );
-
   it.effect("keeps whitespace-separated pairs and literal equals signs in OTLP headers", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
       const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-otlp-headers-loose-base");
-
       const resolved = yield* resolveServerConfig(
         {
           mode: Option.some("web"),
@@ -1181,7 +803,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           ),
         ),
       );
-
       expect(resolved.otlpTracesExport.headers).toEqual({
         authorization: "Bearer abc==",
         "x-tenant": "t3",
@@ -1189,85 +810,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved.otlpTracesUrl).toBe("http://collector.internal:4318");
     }),
   );
-
-  it.effect("gives every signal the protocol named without one", () =>
-    Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-otlp-protocol-base");
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("web"),
-          port: Option.some(3773),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({ env: { T3CODE_OTLP_PROTOCOL: "http/protobuf" } }),
-            ),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect([
-        resolved.otlpTracesExport.protocol,
-        resolved.otlpMetricsExport.protocol,
-        resolved.otlpLogsExport.protocol,
-      ]).toEqual(["http/protobuf", "http/protobuf", "http/protobuf"]);
-    }),
-  );
-
-  it.effect("reads the OTLP logs URL from env", () =>
-    Effect.gen(function* () {
-      const { join } = yield* Path.Path;
-      const baseDir = join(NodeOS.tmpdir(), "t3-cli-config-otlp-logs-url-base");
-
-      const resolved = yield* resolveServerConfig(
-        {
-          mode: Option.some("web"),
-          port: Option.some(3773),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.none(),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(
-              ConfigProvider.fromEnv({
-                env: { T3CODE_OTLP_LOGS_URL: "http://collector.internal:4318/v1/logs" },
-              }),
-            ),
-            NetService.layer,
-          ),
-        ),
-      );
-
-      expect(resolved.otlpLogsUrl).toBe("http://collector.internal:4318/v1/logs");
-    }),
-  );
-
   const minimalWebFlags = (baseDir: string) => ({
     mode: Option.some("web" as const),
     port: Option.some(3773),
@@ -1282,7 +824,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     tailscaleServeEnabled: Option.none<boolean>(),
     tailscaleServePort: Option.none<number>(),
   });
-
   it.effect(
     "resolves each signal's endpoint through T3CODE_OTLP_*_URL, an OTEL endpoint, the bootstrap envelope, and persisted Settings, in that order",
     () =>
@@ -1293,19 +834,23 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           prefix: "t3-cli-config-otel-precedence-",
         });
         const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-        yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+        yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), {
+          recursive: true,
+        });
         yield* fs.writeFileString(
           derivedPaths.settingsPath,
-          `${JSON.stringify({ observability: { otlpLogsUrl: "http://settings:4318/v1/logs" } })}\n`,
+          `${JSON.stringify({
+            observability: {
+              otlpLogsUrl: "http://settings:4318/v1/logs",
+            },
+          })}\n`,
         );
-
         const fd = yield* openBootstrapFd(
           makeDesktopBootstrap({
             otlpMetricsUrl: "http://bootstrap:4318/v1/metrics",
             otlpLogsUrl: "",
           }),
         );
-
         const resolved = yield* resolveServerConfig(
           {
             ...minimalWebFlags(baseDir),
@@ -1332,20 +877,24 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ),
           ),
         );
-
         expect(resolved.otlpTracesUrl).toBe("http://t3:4318/v1/traces");
-        expect(resolved.otlpTracesExport.headers).toEqual({ "x-key": "secret" });
+        expect(resolved.otlpTracesExport.headers).toEqual({
+          "x-key": "secret",
+        });
         expect(resolved.otlpMetricsUrl).toBe("http://otel-metrics:4318/custom");
         expect(resolved.otlpMetricsExport).toEqual({
           ...DEFAULT_SIGNAL_EXPORT,
           protocol: "http/protobuf",
-          headers: { "x-key": "otel" },
+          headers: {
+            "x-key": "otel",
+          },
         });
         expect(resolved.otlpLogsUrl).toBe("http://settings:4318/v1/logs");
-        expect(resolved.otlpLogsExport.headers).toEqual({ "x-key": "secret" });
+        expect(resolved.otlpLogsExport.headers).toEqual({
+          "x-key": "secret",
+        });
       }),
   );
-
   it.effect(
     "exports nothing for a signal an OTEL endpoint claimed with a protocol or headers that do not read",
     () =>
@@ -1356,16 +905,22 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           prefix: "t3-cli-config-otel-off-",
         });
         const derivedPaths = yield* deriveExplicitServerPaths(baseDir, undefined);
-        yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
+        yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), {
+          recursive: true,
+        });
         yield* fs.writeFileString(
           derivedPaths.settingsPath,
-          `${JSON.stringify({ observability: { otlpLogsUrl: "http://settings:4318/v1/logs" } })}\n`,
+          `${JSON.stringify({
+            observability: {
+              otlpLogsUrl: "http://settings:4318/v1/logs",
+            },
+          })}\n`,
         );
-
         const fd = yield* openBootstrapFd(
-          makeDesktopBootstrap({ otlpMetricsUrl: "http://bootstrap:4318/v1/metrics" }),
+          makeDesktopBootstrap({
+            otlpMetricsUrl: "http://bootstrap:4318/v1/metrics",
+          }),
         );
-
         const resolved = yield* resolveServerConfig(
           {
             ...minimalWebFlags(baseDir),
@@ -1390,41 +945,50 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ),
           ),
         );
-
         expect(resolved.otlpTracesUrl).toBe("http://t3:4318/v1/traces");
         expect(resolved.otlpMetricsUrl).toBeUndefined();
         expect(resolved.otlpLogsUrl).toBeUndefined();
       }),
   );
-
   describe("server config file", () => {
     const resolveWith = (flags: CliServerFlags, env: Record<string, string>) =>
       resolveServerConfig(flags, Option.none()).pipe(
         Effect.provide(
-          Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env,
+              }),
+            ),
+            NetService.layer,
+          ),
         ),
       );
-
     const writeServerJson = Effect.fn(function* (filePath: string, contents: unknown) {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      yield* fs.makeDirectory(path.dirname(filePath), { recursive: true });
+      yield* fs.makeDirectory(path.dirname(filePath), {
+        recursive: true,
+      });
       yield* fs.writeFileString(
         filePath,
         typeof contents === "string" ? contents : JSON.stringify(contents),
       );
     });
-
     it.effect("ranks flag over env over bootstrap over the file over the default", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-order-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-order-",
+        });
         yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
           host: "10.0.0.4",
         });
-        const desktopFlags = { ...minimalDesktopFlags(baseDir), port: Option.none<number>() };
-
+        const desktopFlags = {
+          ...minimalDesktopFlags(baseDir),
+          port: Option.none<number>(),
+        };
         const resolveHost = Effect.fn(function* (layers: {
           readonly flag?: string;
           readonly env?: string;
@@ -1433,133 +997,156 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           const fd =
             layers.bootstrap === undefined
               ? undefined
-              : yield* openBootstrapFd(makeDesktopBootstrap({ host: layers.bootstrap }));
+              : yield* openBootstrapFd(
+                  makeDesktopBootstrap({
+                    host: layers.bootstrap,
+                  }),
+                );
           const resolved = yield* resolveWith(
             {
               ...desktopFlags,
               host: Option.fromUndefinedOr(layers.flag),
               bootstrapFd: Option.fromUndefinedOr(fd),
             },
-            layers.env === undefined ? {} : { T3CODE_HOST: layers.env },
+            layers.env === undefined
+              ? {}
+              : {
+                  T3CODE_HOST: layers.env,
+                },
           );
           return resolved.host;
         });
-
         expect(yield* resolveHost({})).toBe("10.0.0.4");
-        expect(yield* resolveHost({ bootstrap: "10.0.0.3" })).toBe("10.0.0.3");
-        expect(yield* resolveHost({ bootstrap: "10.0.0.3", env: "10.0.0.2" })).toBe("10.0.0.2");
         expect(
-          yield* resolveHost({ bootstrap: "10.0.0.3", env: "10.0.0.2", flag: "10.0.0.1" }),
+          yield* resolveHost({
+            bootstrap: "10.0.0.3",
+          }),
+        ).toBe("10.0.0.3");
+        expect(
+          yield* resolveHost({
+            bootstrap: "10.0.0.3",
+            env: "10.0.0.2",
+          }),
+        ).toBe("10.0.0.2");
+        expect(
+          yield* resolveHost({
+            bootstrap: "10.0.0.3",
+            env: "10.0.0.2",
+            flag: "10.0.0.1",
+          }),
         ).toBe("10.0.0.1");
-
         yield* fs.remove(path.join(baseDir, "userdata", "server.json"));
         expect(yield* resolveHost({})).toBe("127.0.0.1");
       }),
     );
-
     it.effect("lets an explicit false from a flag or env beat true in the file", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-bools-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-bools-",
+        });
         yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
           noBrowser: true,
           tailscaleServeEnabled: true,
           logWebSocketEvents: false,
           traceTimingEnabled: false,
         });
-
         const resolved = yield* resolveWith(
           {
             ...minimalWebFlags(baseDir),
             noBrowser: Option.some(false),
             logWebSocketEvents: Option.some(true),
           },
-          { T3CODE_TAILSCALE_SERVE: "false" },
+          {
+            T3CODE_TAILSCALE_SERVE: "false",
+          },
         );
-
         expect(resolved.noBrowser).toBe(false);
         expect(resolved.tailscaleServeEnabled).toBe(false);
         expect(resolved.logWebSocketEvents).toBe(true);
         expect(resolved.traceTimingEnabled).toBe(false);
       }),
     );
-
     it.effect("requires a named file but not the default one", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-missing-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-missing-",
+        });
         const named = path.join(baseDir, "elsewhere", "server.json");
-
         const resolved = yield* resolveWith(minimalWebFlags(baseDir), {});
         expect(resolved.logLevel).toBe("Info");
-
-        const env = { T3CODE_SERVER_CONFIG_FILE: named };
+        const env = {
+          T3CODE_SERVER_CONFIG_FILE: named,
+        };
         const error = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), env));
         expect(error.message).toBe(`Invalid server config file ${named}: the file does not exist`);
-
-        yield* writeServerJson(named, { logLevel: "Debug" });
+        yield* writeServerJson(named, {
+          logLevel: "Debug",
+        });
         expect((yield* resolveWith(minimalWebFlags(baseDir), env)).logLevel).toBe("Debug");
       }),
     );
-
     it.effect("fails startup on a malformed file, naming the file and the key", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-invalid-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-invalid-",
+        });
         const filePath = path.join(baseDir, "userdata", "server.json");
-
-        yield* writeServerJson(filePath, { port: 3773, tailscaleServePort: "443" });
+        yield* writeServerJson(filePath, {
+          port: 3773,
+          tailscaleServePort: "443",
+        });
         const badKey = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), {}));
         expect(badKey.message).toBe(
           `Invalid server config file ${filePath}: Invalid type\n  at ["tailscaleServePort"]`,
         );
-
-        yield* writeServerJson(filePath, { mode: "daemon" });
+        yield* writeServerJson(filePath, {
+          mode: "daemon",
+        });
         const badEnum = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), {}));
         expect(badEnum.message).toBe(
           `Invalid server config file ${filePath}: Invalid value\n  at ["mode"]\nmode must be one of: web, desktop`,
         );
-
         yield* writeServerJson(filePath, "[1, 2]");
         const notObject = yield* Effect.flip(resolveWith(minimalWebFlags(baseDir), {}));
         expect(notObject.message).toBe(`Invalid server config file ${filePath}: not a JSON object`);
       }),
     );
-
     it.effect("resolves relative paths against the file's directory", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-paths-" });
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-paths-",
+        });
         const configDir = path.join(root, "config");
         yield* writeServerJson(path.join(configDir, "server.json"), {
           traceFile: "traces/server.ndjson",
         });
-
         const resolved = yield* resolveWith(minimalWebFlags(path.join(root, "home")), {
           T3CODE_SERVER_CONFIG_DIR: configDir,
         });
-
         expect(resolved.serverTracePath).toBe(path.join(root, "config", "traces", "server.ndjson"));
       }),
     );
-
     it.effect("never takes server locations from the file", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-data-" });
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-data-",
+        });
         const home = path.join(root, "home");
         yield* writeServerJson(path.join(home, "userdata", "server.json"), {
           serverDataDir: path.join(root, "file-data"),
           serverCacheDir: path.join(root, "file-cache"),
         });
-
         const resolved = yield* resolveWith(minimalWebFlags(home), {});
-
         expect(resolved.dbPath).toBe(path.join(home, "userdata", "statev2.sqlite"));
         expect(resolved.serverRuntimeStatePath).toBe(
           path.join(home, "userdata", "server-runtime.json"),
@@ -1571,66 +1158,85 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         });
       }),
     );
-
     it.effect("never reads the file for the install commands", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-install-" });
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-install-",
+        });
         const home = path.join(root, "home");
         const resolveInstall = (env: Record<string, string>) =>
-          resolveInstallLocations({ baseDir: Option.some(home) }).pipe(
-            Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+          resolveInstallLocations({
+            baseDir: Option.some(home),
+          }).pipe(
+            Effect.provide(
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env,
+                }),
+              ),
+            ),
           );
-
         yield* writeServerJson(path.join(home, "userdata", "server.json"), "{ not json");
         const malformed = yield* resolveInstall({});
         expect(malformed.logsDir).toBe(path.join(home, "userdata", "logs"));
-
         const named = yield* resolveInstall({
           T3CODE_SERVER_CONFIG_FILE: path.join(root, "missing.json"),
         });
         expect(named.logsDir).toBe(path.join(home, "userdata", "logs"));
       }),
     );
-
     it.effect("exports a file URL only with the file's protocol and headers", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-otlp-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-server-json-otlp-",
+        });
         yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
           otlpTracesUrl: "http://file:4318/v1/traces",
           otlpMetricsUrl: "http://file:4318/v1/metrics",
           otlpLogsUrl: "http://file:4318/v1/logs",
           otlpProtocol: "http/protobuf",
-          otlpHeaders: { authorization: "file-secret" },
+          otlpHeaders: {
+            authorization: "file-secret",
+          },
           otlpExportIntervalMs: 5_000,
         });
         yield* writeServerJson(path.join(baseDir, "userdata", "settings.json"), {
-          observability: { otlpTracesUrl: "http://settings:4318/v1/traces" },
+          observability: {
+            otlpTracesUrl: "http://settings:4318/v1/traces",
+          },
         });
         const fd = yield* openBootstrapFd(
-          makeDesktopBootstrap({ otlpMetricsUrl: "http://bootstrap:4318/v1/metrics" }),
+          makeDesktopBootstrap({
+            otlpMetricsUrl: "http://bootstrap:4318/v1/metrics",
+          }),
         );
-
         const resolved = yield* resolveWith(
-          { ...minimalDesktopFlags(baseDir), bootstrapFd: Option.some(fd) },
+          {
+            ...minimalDesktopFlags(baseDir),
+            bootstrapFd: Option.some(fd),
+          },
           {
             T3CODE_OTLP_LOGS_URL: "http://env:4318/v1/logs",
             T3CODE_OTLP_HEADERS: "authorization=env-secret",
           },
         );
-
         const envExport = {
           protocol: "http/json",
-          headers: { authorization: "env-secret" },
+          headers: {
+            authorization: "env-secret",
+          },
           exportIntervalMs: 5_000,
         };
         expect(resolved.otlpTracesUrl).toBe("http://file:4318/v1/traces");
         expect(resolved.otlpTracesExport).toEqual({
           protocol: "http/protobuf",
-          headers: { authorization: "file-secret" },
+          headers: {
+            authorization: "file-secret",
+          },
           exportIntervalMs: 5_000,
         });
         expect(resolved.otlpMetricsUrl).toBe("http://bootstrap:4318/v1/metrics");
@@ -1639,27 +1245,30 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         expect(resolved.otlpLogsExport).toEqual(envExport);
       }),
     );
-
     it.effect(
       "ranks the file between OTEL endpoints and Settings without sharing its headers",
       () =>
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const path = yield* Path.Path;
-          const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-server-json-otel-" });
+          const baseDir = yield* fs.makeTempDirectoryScoped({
+            prefix: "t3-server-json-otel-",
+          });
           yield* writeServerJson(path.join(baseDir, "userdata", "server.json"), {
             otlpTracesUrl: "http://file:4318/v1/traces",
             otlpProtocol: "http/protobuf",
-            otlpHeaders: { authorization: "file-secret" },
+            otlpHeaders: {
+              authorization: "file-secret",
+            },
           });
           yield* writeServerJson(path.join(baseDir, "userdata", "settings.json"), {
-            observability: { otlpLogsUrl: "http://settings:4318/v1/logs" },
+            observability: {
+              otlpLogsUrl: "http://settings:4318/v1/logs",
+            },
           });
-
           const resolved = yield* resolveWith(minimalDesktopFlags(baseDir), {
             OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel:4318/v1/traces",
           });
-
           expect(resolved.otlpTracesUrl).toBe("http://otel:4318/v1/traces");
           expect(resolved.otlpTracesExport).toEqual({
             ...DEFAULT_SIGNAL_EXPORT,
@@ -1671,7 +1280,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     );
   });
 });
-
 const storageFlags = (overrides: Partial<CliServerFlags> = {}): CliServerFlags => ({
   mode: Option.some("web"),
   port: Option.some(3773),
@@ -1687,12 +1295,13 @@ const storageFlags = (overrides: Partial<CliServerFlags> = {}): CliServerFlags =
   tailscaleServePort: Option.none(),
   ...overrides,
 });
-
 it.layer(NodeServices.layer)("storage layout", (it) => {
   const makeRoot = Effect.fn(function* (prefix: string) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const root = yield* fs.makeTempDirectoryScoped({ prefix });
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix,
+    });
     return {
       root,
       home: path.join(root, "home"),
@@ -1711,25 +1320,30 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       },
     };
   });
-
   const resolveWith = (
     env: Record<string, string>,
     storageHost: StorageHost,
     flags: Partial<CliServerFlags> = {},
   ) =>
-    resolveServerConfig(storageFlags(flags), Option.none(), { storageHost }).pipe(
+    resolveServerConfig(storageFlags(flags), Option.none(), {
+      storageHost,
+    }).pipe(
       Effect.provide(
-        Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+        Layer.mergeAll(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env,
+            }),
+          ),
+          NetService.layer,
+        ),
       ),
     );
-
   it.effect("uses all five XDG roots for a new installation", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const { root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-xdg-");
-
       const resolved = yield* resolveWith(xdgEnv, storageHost);
-
       expect(resolved.layout).toBe("split");
       expect(resolved.baseDir).toBe(path.join(root, "data", "t3code"));
       expect(resolved.configDir).toBe(path.join(root, "config", "t3code"));
@@ -1750,7 +1364,6 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       );
     }),
   );
-
   it.effect("lets each server location override win over its split root", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
@@ -1758,7 +1371,6 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       const configDir = path.join(root, "server-config");
       const dataDir = path.join(root, "server-data");
       const cacheDir = path.join(root, "server-cache");
-
       const resolved = yield* resolveWith(
         {
           ...xdgEnv,
@@ -1768,7 +1380,6 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         },
         storageHost,
       );
-
       expect(resolved.layout).toBe("split");
       expect(resolved.baseDir).toBe(path.join(root, "data", "t3code"));
       expect(resolved.settingsPath).toBe(path.join(configDir, "settings.json"));
@@ -1782,51 +1393,51 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       expect(resolved.serverRuntimeStatePath).toBe(path.join(dataDir, "server-runtime.json"));
     }),
   );
-
   it.effect("rejects a location override and a selector naming different directories", () =>
     Effect.gen(function* () {
       const { storageHost } = yield* makeRoot("t3-cli-config-selector-conflict-");
-
       const error = yield* resolveWith(
-        { T3CODE_SERVER_DATA_DIR: "/tmp/t3-data", T3CODE_STATE_DIR: "/tmp/t3-state" },
+        {
+          T3CODE_SERVER_DATA_DIR: "/tmp/t3-data",
+          T3CODE_STATE_DIR: "/tmp/t3-state",
+        },
         storageHost,
       ).pipe(Effect.flip);
-
       expect(error).toBeInstanceOf(ServerLocationSelectorConflictError);
       expect(error.message).toBe(
         "--server-data-dir/T3CODE_SERVER_DATA_DIR names '/tmp/t3-data' but T3CODE_STATE_DIR names '/tmp/t3-state' for the same files. Unset one, or point both at the same directory.",
       );
     }),
   );
-
   it.effect("accepts a location override and a selector naming the same directory", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const { root, storageHost } = yield* makeRoot("t3-cli-config-selector-agree-");
       const configDir = path.join(root, "shared-config");
-
       const resolved = yield* resolveWith(
-        { T3CODE_SERVER_CONFIG_DIR: configDir, T3CODE_CONFIG_DIR: configDir },
+        {
+          T3CODE_SERVER_CONFIG_DIR: configDir,
+          T3CODE_CONFIG_DIR: configDir,
+        },
         storageHost,
       );
-
       expect(resolved.layout).toBe("split");
       expect(resolved.settingsPath).toBe(path.join(configDir, "settings.json"));
     }),
   );
-
   it.effect("allows T3CODE_HOME with server location overrides in the legacy layout", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const { root, storageHost } = yield* makeRoot("t3-cli-config-home-override-");
       const t3Home = path.join(root, "t3");
       const configDir = path.join(root, "server-config");
-
       const resolved = yield* resolveWith(
-        { T3CODE_HOME: t3Home, T3CODE_SERVER_CONFIG_DIR: configDir },
+        {
+          T3CODE_HOME: t3Home,
+          T3CODE_SERVER_CONFIG_DIR: configDir,
+        },
         storageHost,
       );
-
       expect(resolved.layout).toBe("legacy");
       expect(resolved.baseDir).toBe(t3Home);
       expect(resolved.settingsPath).toBe(path.join(configDir, "settings.json"));
@@ -1836,71 +1447,85 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       );
     }),
   );
-
   it.effect("rejects T3CODE_HOME with a storage selector", () =>
     Effect.gen(function* () {
       const { storageHost } = yield* makeRoot("t3-cli-config-home-selector-");
-
       const error = yield* resolveWith(
-        { T3CODE_HOME: "/tmp/legacy-t3", T3CODE_STATE_DIR: "/tmp/t3-state" },
+        {
+          T3CODE_HOME: "/tmp/legacy-t3",
+          T3CODE_STATE_DIR: "/tmp/t3-state",
+        },
         storageHost,
       ).pipe(Effect.flip);
-
       expect(error).toBeInstanceOf(T3StorageConfigurationError);
       expect(error.message).toBe(
         "T3CODE_HOME/--base-dir cannot be combined with T3CODE_CONFIG_DIR, T3CODE_DATA_DIR, T3CODE_STATE_DIR, T3CODE_CACHE_DIR, or T3CODE_RUNTIME_DIR.",
       );
     }),
   );
-
   it.effect.each([
-    { artifact: "state.sqlite" },
-    { artifact: "statev2.sqlite" },
-    { artifact: "settings.json" },
-    { artifact: "desktop-settings.json" },
-    { artifact: "client-settings.json" },
-    { artifact: "saved-environments.json" },
-    { artifact: "secrets" },
+    {
+      artifact: "state.sqlite",
+    },
+    {
+      artifact: "statev2.sqlite",
+    },
+    {
+      artifact: "settings.json",
+    },
+    {
+      artifact: "desktop-settings.json",
+    },
+    {
+      artifact: "client-settings.json",
+    },
+    {
+      artifact: "saved-environments.json",
+    },
+    {
+      artifact: "secrets",
+    },
   ])("keeps the legacy layout when ~/.t3 holds only $artifact", ({ artifact }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { home, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-legacy-artifact-");
       const userdata = path.join(home, ".t3", "userdata");
-      yield* fs.makeDirectory(userdata, { recursive: true });
+      yield* fs.makeDirectory(userdata, {
+        recursive: true,
+      });
       if (artifact === "secrets") {
         yield* fs.makeDirectory(path.join(userdata, artifact));
       } else {
         yield* fs.writeFileString(path.join(userdata, artifact), "{}");
       }
-
       const resolved = yield* resolveWith(xdgEnv, storageHost);
       const legacy = yield* deriveServerPaths(path.join(home, ".t3"), undefined);
-
       expect(resolved.layout).toBe("legacy");
       expect(resolved.baseDir).toBe(path.join(home, ".t3"));
-      expect({ ...resolved, ...legacy }).toEqual(resolved);
+      expect({
+        ...resolved,
+        ...legacy,
+      }).toEqual(resolved);
     }),
   );
-
   it.effect("does not chmod the legacy state directory as a runtime directory", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { root, storageHost } = yield* makeRoot("t3-cli-config-legacy-mode-");
       const userdata = path.join(root, "t3", "userdata");
-      yield* fs.makeDirectory(userdata, { recursive: true });
+      yield* fs.makeDirectory(userdata, {
+        recursive: true,
+      });
       yield* fs.chmod(userdata, 0o750);
-
       const resolved = yield* resolveWith({}, storageHost, {
         baseDir: Option.some(path.join(root, "t3")),
       });
-
       expect(resolved.layout).toBe("legacy");
       expect((yield* fs.stat(userdata)).mode & 0o777).toBe(0o750);
     }),
   );
-
   it.effect("rejects a split runtime directory symlink without chmodding its target", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -1908,101 +1533,105 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       const { root, storageHost } = yield* makeRoot("t3-cli-config-runtime-symlink-");
       const runtimeHome = path.join(root, "runtime");
       const targetDir = path.join(root, "target");
-      yield* fs.makeDirectory(runtimeHome, { recursive: true });
-      yield* fs.makeDirectory(targetDir, { recursive: true });
+      yield* fs.makeDirectory(runtimeHome, {
+        recursive: true,
+      });
+      yield* fs.makeDirectory(targetDir, {
+        recursive: true,
+      });
       yield* fs.chmod(targetDir, 0o750);
       yield* fs.symlink(targetDir, path.join(runtimeHome, "t3code"));
-
-      const error = yield* resolveWith({ XDG_RUNTIME_DIR: runtimeHome }, storageHost).pipe(
-        Effect.flip,
-      );
-
+      const error = yield* resolveWith(
+        {
+          XDG_RUNTIME_DIR: runtimeHome,
+        },
+        storageHost,
+      ).pipe(Effect.flip);
       expect(error).toBeInstanceOf(RuntimeDirectoryOpenError);
       expect((yield* fs.stat(targetDir)).mode & 0o777).toBe(0o750);
     }),
   );
-
   it.effect("rejects a split runtime directory owned by another user", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { root, storageHost } = yield* makeRoot("t3-cli-config-runtime-owner-");
       const runtimeHome = path.join(root, "runtime");
-      yield* fs.makeDirectory(path.join(runtimeHome, "t3code"), { recursive: true });
-
+      yield* fs.makeDirectory(path.join(runtimeHome, "t3code"), {
+        recursive: true,
+      });
       const error = yield* resolveWith(
-        { XDG_RUNTIME_DIR: runtimeHome },
-        { ...storageHost, userId: storageHost.userId + 1 },
+        {
+          XDG_RUNTIME_DIR: runtimeHome,
+        },
+        {
+          ...storageHost,
+          userId: storageHost.userId + 1,
+        },
       ).pipe(Effect.flip);
-
       expect(error).toBeInstanceOf(RuntimeDirectoryOwnerMismatchError);
     }),
   );
-
   it.effect("keeps initialized legacy storage even when split directories contain debris", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { home, root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-debris-");
       const userdata = path.join(home, ".t3", "userdata");
-      yield* fs.makeDirectory(userdata, { recursive: true });
-      yield* fs.makeDirectory(path.join(root, "state", "t3code"), { recursive: true });
+      yield* fs.makeDirectory(userdata, {
+        recursive: true,
+      });
+      yield* fs.makeDirectory(path.join(root, "state", "t3code"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(userdata, "state.sqlite"), "legacy");
-      yield* fs.makeDirectory(path.join(root, "state", "t3code", "logs"), { recursive: true });
-
+      yield* fs.makeDirectory(path.join(root, "state", "t3code", "logs"), {
+        recursive: true,
+      });
       const resolved = yield* resolveWith(xdgEnv, storageHost);
-
       expect(resolved.layout).toBe("legacy");
       expect(resolved.dbPath).toBe(path.join(userdata, "statev2.sqlite"));
     }),
   );
-
   it.effect("forces the XDG layout even when legacy storage is initialized", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { home, storageHost } = yield* makeRoot("t3-cli-config-forced-xdg-");
       const userdata = path.join(home, ".t3", "userdata");
-      yield* fs.makeDirectory(userdata, { recursive: true });
+      yield* fs.makeDirectory(userdata, {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(userdata, "state.sqlite"), "legacy");
-
       const resolved = yield* resolveWith({}, storageHost, {
         storageLayout: Option.some("xdg"),
       });
-
       expect(resolved.layout).toBe("split");
       expect(resolved.stateDir).toBe(path.join(home, ".local", "state", "t3code"));
     }),
   );
-
   it.effect("forces the legacy layout when no legacy artifacts exist", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const { home, storageHost } = yield* makeRoot("t3-cli-config-forced-legacy-");
-
       const resolved = yield* resolveWith({}, storageHost, {
         storageLayout: Option.some("legacy"),
       });
-
       expect(resolved.layout).toBe("legacy");
       expect(resolved.stateDir).toBe(path.join(home, ".t3", "userdata"));
     }),
   );
-
   it.effect("rejects forced XDG storage with a --base-dir", () =>
     Effect.gen(function* () {
       const { storageHost } = yield* makeRoot("t3-cli-config-forced-xdg-home-");
-
       const error = yield* resolveWith({}, storageHost, {
         baseDir: Option.some("/tmp/legacy-t3"),
         storageLayout: Option.some("xdg"),
       }).pipe(Effect.flip);
-
       expect(error).toBeInstanceOf(T3StorageConfigurationError);
       expect(error.message).toBe("--storage-layout xdg cannot be combined with --base-dir.");
     }),
   );
-
   it.effect(
     "lets --base-dir and --storage-layout outrank a split service's inherited selectors",
     () =>
@@ -2018,14 +1647,12 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
           T3CODE_SERVER_DATA_DIR: path.join(root, "scratch-data"),
         };
         const scratch = path.join(root, "scratch");
-
         const byBaseDir = yield* resolveWith(inherited, storageHost, {
           baseDir: Option.some(scratch),
         });
         expect(byBaseDir.layout).toBe("legacy");
         expect(byBaseDir.settingsPath).toBe(path.join(scratch, "userdata", "settings.json"));
         expect(byBaseDir.dbPath).toBe(path.join(root, "scratch-data", "statev2.sqlite"));
-
         const byLayout = yield* resolveWith(inherited, storageHost, {
           storageLayout: Option.some("legacy"),
         });
@@ -2034,7 +1661,6 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         expect(yield* fs.exists(path.join(root, "real-state"))).toBe(false);
       }),
   );
-
   it.effect("uses the desktop's split roots and keeps location overrides on top", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
@@ -2048,15 +1674,20 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         runtimeDir: path.join(root, "r"),
       };
       const fd = yield* openBootstrapFd(
-        makeDesktopBootstrap({ t3Home: undefined, storageRoots: roots }),
+        makeDesktopBootstrap({
+          t3Home: undefined,
+          storageRoots: roots,
+        }),
       );
-
       const resolved = yield* resolveWith(
-        { T3CODE_SERVER_CACHE_DIR: path.join(root, "override-cache") },
+        {
+          T3CODE_SERVER_CACHE_DIR: path.join(root, "override-cache"),
+        },
         storageHost,
-        { bootstrapFd: Option.some(fd) },
+        {
+          bootstrapFd: Option.some(fd),
+        },
       );
-
       expect(resolved.layout).toBe("split");
       expect(resolved.settingsPath).toBe(path.join(roots.configDir, "settings.json"));
       expect(resolved.dbPath).toBe(path.join(roots.stateDir, "statev2.sqlite"));
@@ -2068,12 +1699,10 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       );
     }),
   );
-
   it.effect("gives install commands the split roots without location overrides", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const { root, xdgEnv } = yield* makeRoot("t3-cli-config-install-split-");
-
       const locations = yield* resolveInstallLocations({
         baseDir: Option.none(),
         storageLayout: Option.some("xdg"),
@@ -2081,62 +1710,83 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         Effect.provide(
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
-              env: { ...xdgEnv, T3CODE_SERVER_DATA_DIR: path.join(root, "override") },
+              env: {
+                ...xdgEnv,
+                T3CODE_SERVER_DATA_DIR: path.join(root, "override"),
+              },
             }),
           ),
         ),
       );
-
       expect(locations.storage.roots.layout).toBe("split");
       expect(locations.dbPath).toBe(path.join(root, "state", "t3code", "statev2.sqlite"));
     }),
   );
-
   it.effect("keeps an initialized split install when ~/.t3 is initialized later", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { home, root, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-split-sticky-");
       const splitState = path.join(root, "state", "t3code");
-      yield* fs.makeDirectory(splitState, { recursive: true });
+      yield* fs.makeDirectory(splitState, {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(splitState, "statev2.sqlite"), "");
       // What `--base-dir ~/.t3` from the SSH launcher or an older build leaves behind.
-      yield* fs.makeDirectory(path.join(home, ".t3", "userdata"), { recursive: true });
+      yield* fs.makeDirectory(path.join(home, ".t3", "userdata"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(home, ".t3", "userdata", "statev2.sqlite"), "");
-
       const resolved = yield* resolveWith(xdgEnv, storageHost);
-
       expect(resolved.layout).toBe("split");
       expect(resolved.dbPath).toBe(path.join(splitState, "statev2.sqlite"));
       expect(resolved.shadowedLegacyStateDir).toBe(path.join(home, ".t3", "userdata"));
     }),
   );
-
   it.effect("refuses to pick a layout when ~/.t3 cannot be checked", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { home, storageHost, xdgEnv } = yield* makeRoot("t3-cli-config-unreadable-");
-      yield* fs.makeDirectory(path.join(home, ".t3"), { recursive: true });
+      yield* fs.makeDirectory(path.join(home, ".t3"), {
+        recursive: true,
+      });
       yield* fs.chmod(path.join(home, ".t3"), 0o000);
       yield* Effect.addFinalizer(() => fs.chmod(path.join(home, ".t3"), 0o700).pipe(Effect.ignore));
-
       const error = yield* resolveWith(xdgEnv, storageHost).pipe(Effect.flip);
-
       expect(error).toBeInstanceOf(T3StorageProbeError);
     }),
   );
-
   it.effect.each([
-    { name: "a new install", files: [], env: {} },
-    { name: "an initialized ~/.t3", files: [".t3/userdata/settings.json"], env: {} },
+    {
+      name: "a new install",
+      files: [],
+      env: {},
+    },
+    {
+      name: "an initialized ~/.t3",
+      files: [".t3/userdata/settings.json"],
+      env: {},
+    },
     {
       name: "a split install beside a later ~/.t3",
       files: [".t3/userdata/statev2.sqlite", "state/t3code/statev2.sqlite"],
       env: {},
     },
-    { name: "selectors", files: [], env: { T3CODE_CONFIG_DIR: "~/dotfiles/t3code" } },
-    { name: "T3CODE_HOME", files: [], env: { T3CODE_HOME: "~/t3" } },
+    {
+      name: "selectors",
+      files: [],
+      env: {
+        T3CODE_CONFIG_DIR: "~/dotfiles/t3code",
+      },
+    },
+    {
+      name: "T3CODE_HOME",
+      files: [],
+      env: {
+        T3CODE_HOME: "~/t3",
+      },
+    },
   ])("picks the shared selector's roots for $name", ({ files, env }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -2147,17 +1797,27 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         XDG_CONFIG_HOME: path.join(home, "config"),
       };
       for (const file of files) {
-        yield* fs.makeDirectory(path.dirname(path.join(home, file)), { recursive: true });
+        yield* fs.makeDirectory(path.dirname(path.join(home, file)), {
+          recursive: true,
+        });
         yield* fs.writeFileString(path.join(home, file), "");
       }
-
       const storage = yield* resolveServerStorage({
         baseDir: Option.none(),
         storageLayout: Option.none(),
         isDevelopment: false,
         host: storageHost,
       }).pipe(
-        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: { ...xdg, ...env } }))),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                ...xdg,
+                ...env,
+              },
+            }),
+          ),
+        ),
       );
       const selection = selectT3Storage({
         platform: "linux",
@@ -2165,11 +1825,13 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         temporaryDirectory: root,
         userId: storageHost.userId,
         isDevelopment: false,
-        environment: { ...xdg, ...env },
+        environment: {
+          ...xdg,
+          ...env,
+        },
         path,
         exists: t3StoragePathExists,
       });
-
       expect(selection._tag === "Selected" && selection.roots).toEqual(storage.roots);
     }),
   );
