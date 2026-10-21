@@ -4,7 +4,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
-
 const {
   appendSwitchMock,
   getSwitchValueMock,
@@ -28,7 +27,6 @@ const {
   execFileSyncMock: vi.fn(),
   readFileSyncMock: vi.fn(),
 }));
-
 vi.mock("electron", () => ({
   app: {
     setDesktopName: setDesktopNameMock,
@@ -45,25 +43,21 @@ vi.mock("electron", () => ({
     registerSchemesAsPrivileged: registerSchemesMock,
   },
 }));
-
 vi.mock("node:fs", () => ({
   readFileSync: readFileSyncMock,
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
   copyFileSync: copyFileSyncMock,
 }));
-
 vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
 }));
-
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
-
 describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
     appendSwitchMock.mockReset();
     getSwitchValueMock.mockReset();
-    hasSwitchMock.mockReset();
+    hasSwitchMock.mockReset().mockReturnValue(false);
     registerSchemesMock.mockReset();
     setDesktopNameMock.mockReset();
     mkdirSyncMock.mockReset();
@@ -72,7 +66,6 @@ describe("DesktopPreReadyPlatform", () => {
     execFileSyncMock.mockReset();
     readFileSyncMock.mockReset().mockReturnValue("{}");
   });
-
   it.effect("persists Linux scaling synchronously across relaunches and settings rewrites", () => {
     vi.stubEnv("T3CODE_HOME", "/isolated");
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
@@ -97,7 +90,6 @@ describe("DesktopPreReadyPlatform", () => {
       yield* DesktopPreReadyPlatform.make;
       return yield* Effect.promise(() => startup);
     });
-
     return Effect.gen(function* () {
       for (const explicitScale of ["1.75", "1"]) {
         commandLine.clear();
@@ -109,7 +101,12 @@ describe("DesktopPreReadyPlatform", () => {
         );
 
         // The settings service discards fields it does not own when rewriting its document.
-        files.set(settingsPath, JSON.stringify({ linuxPasswordStore: "basic" }));
+        files.set(
+          settingsPath,
+          JSON.stringify({
+            linuxPasswordStore: "basic",
+          }),
+        );
         commandLine.clear();
         assert.equal(yield* launch, explicitScale);
       }
@@ -118,10 +115,29 @@ describe("DesktopPreReadyPlatform", () => {
       Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
     );
   });
-
+  it.effect("flags a --client-dir switch whose value went to the next argument", () => {
+    hasSwitchMock.mockImplementation((switchName) => switchName === "client-dir");
+    getSwitchValueMock.mockReturnValue("");
+    return Effect.gen(function* () {
+      const options = yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
+      assert.isTrue(options.clientDirSwitchMissingValue);
+    }).pipe(
+      Effect.provide(
+        DesktopPreReadyPlatform.layer.pipe(
+          Layer.provide(Layer.succeed(HostProcess.Platform, "darwin")),
+        ),
+      ),
+    );
+  });
   it.effect.each([
-    { previousEntry: undefined, label: "missing" },
-    { previousEntry: 'Exec="/Applications/deleted-previous.AppImage" %U', label: "stale" },
+    {
+      previousEntry: undefined,
+      label: "missing",
+    },
+    {
+      previousEntry: 'Exec="/Applications/deleted-previous.AppImage" %U',
+      label: "stale",
+    },
   ])("prepares a $label Linux desktop entry before startup yields", ({ previousEntry }) => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
     vi.stubEnv("XDG_DATA_HOME", "/xdg");
@@ -139,7 +155,6 @@ describe("DesktopPreReadyPlatform", () => {
     writeFileSyncMock.mockImplementation((path: string, contents: string) => {
       if (path === "/xdg/applications/com.t3tools.T3Code.desktop") desktopEntry = contents;
     });
-
     return Effect.scoped(
       Effect.gen(function* () {
         const portalIdentity = Promise.resolve().then(() => ({
@@ -165,49 +180,50 @@ describe("DesktopPreReadyPlatform", () => {
       }),
     ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
   });
-
   it.effect(
     "acquires a synchronous pre-ready layer before an asynchronous Clerk-shaped layer",
     () =>
       Effect.gen(function* () {
-        class ClerkShaped extends Context.Service<ClerkShaped, { readonly ready: true }>()(
-          "@t3tools/desktop/app/DesktopPreReadyPlatform.test/ClerkShaped",
-        ) {}
-
+        class ClerkShaped extends Context.Service<
+          ClerkShaped,
+          {
+            readonly ready: true;
+          }
+        >()("@t3tools/desktop/app/DesktopPreReadyPlatform.test/ClerkShaped") {}
         const events: Array<string> = [];
         registerSchemesMock.mockImplementation(() => {
           events.push("pre-ready");
         });
-
         const layerPreReady = DesktopPreReadyPlatform.layer.pipe(
           Layer.provide(Layer.succeed(HostProcess.Platform, "darwin")),
         );
-
         const layerClerkShaped = Layer.effect(
           ClerkShaped,
           Effect.promise(() => Promise.resolve()).pipe(
             Effect.map(() => {
               events.push("clerk");
-              return { ready: true as const };
+              return {
+                ready: true as const,
+              };
             }),
           ),
         );
-
         const layerRuntime = layerClerkShaped.pipe(
           Layer.flatMap((clerkContext) => Layer.succeedContext(clerkContext)),
           Layer.provideMerge(layerPreReady),
         );
-
         const result = yield* Effect.all({
           clerk: ClerkShaped,
           preReady: DesktopPreReadyPlatform.DesktopPreReadyElectronOptions,
         }).pipe(Effect.provide(layerRuntime));
-
         assert.deepEqual(result, {
-          clerk: { ready: true },
+          clerk: {
+            ready: true,
+          },
           preReady: {
             linux: null,
             linuxPasswordStoreCommandLine: null,
+            clientDirSwitchMissingValue: false,
           },
         });
         assert.deepEqual(events, ["pre-ready", "clerk"]);
