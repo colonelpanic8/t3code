@@ -1,4 +1,5 @@
 import { Atom } from "effect/reactivity";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import { SessionPermissions } from "./SessionPermissions";
 import {
   ChevronRightIcon,
@@ -2308,6 +2309,7 @@ export function ConnectionsSettings() {
   );
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {primarySettings}
       {renderAccessManagement()}
       {localServerPairingCandidates.length > 0 || localServerDiscoveryError !== null ? (

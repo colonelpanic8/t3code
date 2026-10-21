@@ -1,3 +1,4 @@
+import { layerEnvironmentGroups } from "./environmentGroups";
 import {
   ClientCapabilities,
   PlatformConnectionSource,
@@ -278,6 +279,7 @@ const layerEnvironmentOwnedDataCleanup = Layer.succeed(
 );
 
 type ConnectionPlatformLayerSource =
+  | typeof layerEnvironmentGroups
   | typeof layerProvidedConnectionStorage
   | typeof Runtime.layer
   | typeof layerConnectivity
@@ -291,6 +293,7 @@ export const layer: Layer.Layer<
   Layer.Error<ConnectionPlatformLayerSource>,
   Layer.Services<ConnectionPlatformLayerSource>
 > = Layer.mergeAll(
+  layerEnvironmentGroups,
   layerProvidedConnectionStorage,
   Runtime.layer,
   layerConnectivity,
