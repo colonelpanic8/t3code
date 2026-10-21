@@ -23,9 +23,11 @@ import {
   reasoningEffortFromCommand,
   resolveChatShortcutCommand,
   resolveShortcutCommand,
+  shouldShowComposerControlHintsForModifiers,
   shouldShowThreadJumpHintsForModifiers,
   shortcutLabelForCommand,
   type ShortcutEventLike,
+  composerControlHintLabel,
 } from "./keybindings";
 describe("direct model and reasoning commands", () => {
   it("parses a provider instance and dotted model slug", () => {
@@ -521,6 +523,109 @@ describe("thread navigation helpers", () => {
             terminalFocus: false,
           },
         },
+      ),
+    );
+  });
+  it("reveals composer control hints only for the held binding modifiers", () => {
+    const linux = {
+      platform: "Linux",
+    };
+    const ctrlShift = event({
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    assert.isTrue(
+      shouldShowComposerControlHintsForModifiers(ctrlShift, DEFAULT_RESOLVED_KEYBINDINGS, linux),
+    );
+    assert.strictEqual(
+      composerControlHintLabel(
+        "modelPicker.toggle",
+        ctrlShift,
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+      ),
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "modelPicker.toggle", linux),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({
+          ctrlKey: true,
+        }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+      ),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(ctrlShift, DEFAULT_RESOLVED_KEYBINDINGS, {
+        ...linux,
+        context: {
+          terminalFocus: true,
+        },
+      }),
+    );
+    const withAltModel = [
+      ...DEFAULT_RESOLVED_KEYBINDINGS,
+      ...compile([
+        {
+          shortcut: modShortcut("m", {
+            modKey: false,
+            altKey: true,
+          }),
+          command: "modelPicker.toggle",
+        },
+      ]),
+    ];
+    const alt = event({
+      altKey: true,
+    });
+    assert.strictEqual(
+      composerControlHintLabel("modelPicker.toggle", alt, withAltModel, linux),
+      shortcutLabelForCommand(withAltModel, "modelPicker.toggle", linux),
+    );
+    assert.isNull(composerControlHintLabel("composer.effort", alt, withAltModel, linux));
+  });
+  it("reveals every composer control hint on a lone Alt hold with the alt trigger", () => {
+    const linux = {
+      platform: "Linux",
+    };
+    const alt = event({
+      altKey: true,
+    });
+    assert.strictEqual(
+      composerControlHintLabel("composer.effort", alt, DEFAULT_RESOLVED_KEYBINDINGS, linux, "alt"),
+      shortcutLabelForCommand(DEFAULT_RESOLVED_KEYBINDINGS, "composer.effort", linux),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+        "alt",
+      ),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({
+          altKey: true,
+          shiftKey: true,
+        }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+        "alt",
+      ),
+    );
+    assert.isFalse(
+      shouldShowComposerControlHintsForModifiers(
+        event({
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        linux,
+        "off",
       ),
     );
   });

@@ -28,6 +28,14 @@ Use `mod+shift+e` for effort, `mod+shift+a` for access mode, `mod+shift+x` for t
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
+**Composer: Interaction Mode** toggles Plan and Build like Shift+Tab in the
+composer, from anywhere outside the terminal. It has no default shortcut.
+
+Hold the modifiers of any of these composer shortcuts (`mod+shift` by default)
+for a moment to reveal each control's shortcut in a callout above it. The
+callouts hide once you press a shortcut. **Settings > General > Shortcut hints**
+can instead show every control's shortcut while you hold Alt (Option on macOS)
+alone, which suits Alt-based bindings, or turn the callouts off.
 
 To change effort one step without opening the picker, bind
 **Composer: Increase Effort** and **Composer: Decrease Effort** in Keybindings.
