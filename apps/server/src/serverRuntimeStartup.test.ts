@@ -113,6 +113,9 @@ it.effect.each([
         Layer.mock(Keybindings.Keybindings)({
           start: Effect.void,
         }),
+        Layer.mock(Keybindings.Keybindings)({
+          start: Effect.void,
+        }),
         Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({
           pendingThreadCount: Effect.succeed(0),
           reconcileShells: Effect.succeed(imports),
