@@ -41,7 +41,11 @@ import {
   readPersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { type CliAuthLocationFlags, serverLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import {
+  type CliAuthLocationFlags,
+  serverConfigFileFlags,
+  resolveCliAuthConfig,
+} from "./config.ts";
 
 type ProjectMutationTarget = {
   readonly id: ProjectId;
@@ -455,7 +459,7 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
 });
 
 const projectAddCommand = Command.make("add", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   workspaceRoot: Argument.String("path").pipe(
     Argument.withDescription("Workspace root to add as a project."),
   ),
@@ -502,7 +506,7 @@ const projectAddCommand = Command.make("add", {
 );
 
 const projectRemoveCommand = Command.make("remove", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to remove."),
   ),
@@ -541,7 +545,7 @@ const projectRemoveCommand = Command.make("remove", {
 );
 
 const projectRenameCommand = Command.make("rename", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to rename."),
   ),
