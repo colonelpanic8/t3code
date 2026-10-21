@@ -434,6 +434,18 @@
     "./state/environment-groups": {
       "types": "./src/state/environmentGroups.ts",
       "default": "./src/state/environmentGroups.ts"
+    },
+    "./workspace-basename-lookup": {
+      "types": "./src/workspaceBasenameLookup.ts",
+      "default": "./src/workspaceBasenameLookup.ts"
+    },
+    "./state/thread-undo": {
+      "types": "./src/state/threadUndo.ts",
+      "default": "./src/state/threadUndo.ts"
+    },
+    "./model-traits": {
+      "types": "./src/modelTraits.ts",
+      "default": "./src/modelTraits.ts"
     }
   },
   "scripts": {
