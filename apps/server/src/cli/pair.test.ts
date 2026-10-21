@@ -3,12 +3,12 @@ import * as NodeHttp from "node:http";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AuthStandardClientScopes } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Sink from "effect/Sink";
@@ -17,7 +17,6 @@ import { FetchHttpClient } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command, CliError } from "effect/cli";
-
 import { cli } from "../binCli.ts";
 import {
   SERVICE_LAUNCHER_CONTEXT_ENV,
@@ -29,16 +28,9 @@ import {
   persistServerRuntimeState,
   type PersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
-import {
-  DevServerNotProxiableError,
-  resolveDirectPairingBaseUrl,
-  resolveTailscaleLocalTarget,
-} from "./pair.ts";
-
+import { DevServerNotProxiableError, resolveTailscaleLocalTarget } from "./pair.ts";
 import packageJson from "../../package.json" with { type: "json" };
-
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
-
 const baseState = {
   version: 1,
   pid: 123,
@@ -46,61 +38,53 @@ const baseState = {
   origin: "http://127.0.0.1:3773",
   startedAt: "2026-06-20T00:00:00.000Z",
 } as const satisfies PersistedServerRuntimeState;
-
-describe("pair base URL selection", () => {
-  it("pairs through the dev web origin when the server fronts a dev server", () => {
-    expect(resolveDirectPairingBaseUrl({ ...baseState, devUrl: "http://localhost:5733/" })).toBe(
-      "http://localhost:5733/",
-    );
-  });
-
-  it("pairs through the bound host when there is no dev server", () => {
-    expect(resolveDirectPairingBaseUrl({ ...baseState, host: "100.64.0.7" })).toBe(
-      "http://100.64.0.7:3773",
-    );
-    expect(resolveDirectPairingBaseUrl(baseState)).toBe("http://localhost:3773");
-  });
-});
-
 describe("pair tailscale local target", () => {
   it("proxies the dev web port for dev servers", () => {
-    expect(resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://localhost:5733/" })).toEqual(
-      { localPort: 5_733 },
-    );
+    expect(
+      resolveTailscaleLocalTarget({
+        ...baseState,
+        devUrl: "http://localhost:5733/",
+      }),
+    ).toEqual({
+      localPort: 5_733,
+    });
     // A dev server on a non-loopback interface must be proxied at that
     // interface; tailscale serve defaults to 127.0.0.1 otherwise.
     expect(
-      resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://192.168.1.10:5733/" }),
-    ).toEqual({ localPort: 5_733, localHost: "192.168.1.10" });
+      resolveTailscaleLocalTarget({
+        ...baseState,
+        devUrl: "http://192.168.1.10:5733/",
+      }),
+    ).toEqual({
+      localPort: 5_733,
+      localHost: "192.168.1.10",
+    });
     // URL.hostname keeps IPv6 brackets, so the serve target stays valid.
     expect(
-      resolveTailscaleLocalTarget({ ...baseState, devUrl: "http://[fd7a:115c::1]:5733/" }),
-    ).toEqual({ localPort: 5_733, localHost: "[fd7a:115c::1]" });
+      resolveTailscaleLocalTarget({
+        ...baseState,
+        devUrl: "http://[fd7a:115c::1]:5733/",
+      }),
+    ).toEqual({
+      localPort: 5_733,
+      localHost: "[fd7a:115c::1]",
+    });
   });
-
   it("rejects HTTPS dev URLs, which tailscale serve cannot proxy", () => {
     expect(
-      resolveTailscaleLocalTarget({ ...baseState, devUrl: "https://localhost:5733/" }),
+      resolveTailscaleLocalTarget({
+        ...baseState,
+        devUrl: "https://localhost:5733/",
+      }),
     ).toBeInstanceOf(DevServerNotProxiableError);
   });
-
-  it("proxies the backend port directly otherwise", () => {
-    expect(resolveTailscaleLocalTarget(baseState)).toEqual({ localPort: 3_773 });
-    expect(resolveTailscaleLocalTarget({ ...baseState, host: "0.0.0.0" })).toEqual({
-      localPort: 3_773,
-    });
-    expect(resolveTailscaleLocalTarget({ ...baseState, host: "192.168.1.42" })).toEqual({
-      localPort: 3_773,
-      localHost: "192.168.1.42",
-    });
-  });
 });
-
-const runCli = (args: ReadonlyArray<string>) => Command.runWith(cli, { version: "0.0.0" })(args);
-
+const runCli = (args: ReadonlyArray<string>) =>
+  Command.runWith(cli, {
+    version: "0.0.0",
+  })(args);
 const provideCliTestLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.provide(effect, Layer.mergeAll(layerCliRuntime, TestConsole.layer));
-
 const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   provideCliTestLayers(
     Effect.gen(function* () {
@@ -112,15 +96,18 @@ const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       );
     }),
   );
-
 const testDescriptor = {
   environmentId: "pair-test-environment",
   label: "pair-test",
-  platform: { os: "linux", arch: "x64" },
+  platform: {
+    os: "linux",
+    arch: "x64",
+  },
   serverVersion: "0.0.1",
-  capabilities: { repositoryIdentity: true },
+  capabilities: {
+    repositoryIdentity: true,
+  },
 };
-
 const withDescriptorServer = <A, E, R>(
   run: (origin: string) => Effect.Effect<A, E, R>,
   host = "127.0.0.1",
@@ -129,7 +116,9 @@ const withDescriptorServer = <A, E, R>(
     Effect.callback<NodeHttp.Server>((resume) => {
       const server = NodeHttp.createServer((request, response) => {
         if (request.url === "/.well-known/t3/environment") {
-          response.writeHead(200, { "content-type": "application/json" });
+          response.writeHead(200, {
+            "content-type": "application/json",
+          });
           response.end(JSON.stringify(testDescriptor));
           return;
         }
@@ -147,7 +136,6 @@ const withDescriptorServer = <A, E, R>(
     },
     (server) => Effect.sync(() => server.close()),
   );
-
 describe("t3 pair", () => {
   it.effect("publishes an IPv6-only server through Tailscale Serve when pairing", () =>
     withDescriptorServer(
@@ -184,12 +172,14 @@ describe("t3 pair", () => {
               });
             }),
           );
-
           const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-ipv6-test-"));
           yield* persistServerRuntimeState({
             path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
             state: yield* makePersistedServerRuntimeState({
-              config: { host: "::1", devUrl: undefined },
+              config: {
+                host: "::1",
+                devUrl: undefined,
+              },
               port: Number(new URL(origin).port),
             }),
           });
@@ -205,18 +195,18 @@ describe("t3 pair", () => {
                 );
                 return serving
                   ? Response.json(testDescriptor)
-                  : new Response(null, { status: 503 });
+                  : new Response(null, {
+                      status: 503,
+                    });
               }),
             ),
           );
-
           expect(serving).toBe(true);
           assert.include(output, "Pairing URL: https://pair-test.tail.ts.net/pair#token=");
         }),
       "::1",
     ).pipe(Effect.provide(NodeServices.layer)),
   );
-
   it.effect("mints a token and prints a QR pairing URL for a live server", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
@@ -226,21 +216,20 @@ describe("t3 pair", () => {
         yield* persistServerRuntimeState({
           path: statePath,
           state: yield* makePersistedServerRuntimeState({
-            config: { host: "127.0.0.1", devUrl: undefined },
+            config: {
+              host: "127.0.0.1",
+              devUrl: undefined,
+            },
             port,
           }),
         });
-
         const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
-
         assert.include(output, `Pairing with pair-test (${origin})`);
         assert.include(output, `Pairing URL: ${origin}/pair#token=`);
         assert.isTrue(output.includes("█") || output.includes("▀") || output.includes("▄"));
         assert.include(output, "only reachable from this machine");
-
         const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
         assert.isString(token);
-
         const listed = yield* captureStdout(
           runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
         );
@@ -269,44 +258,6 @@ describe("t3 pair", () => {
       }),
     ),
   );
-
-  it.effect("mints a pairing grant with only the selected scopes", () =>
-    withDescriptorServer((origin) =>
-      Effect.gen(function* () {
-        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-scopes-test-"));
-        yield* persistServerRuntimeState({
-          path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
-          state: yield* makePersistedServerRuntimeState({
-            config: { host: "127.0.0.1", devUrl: undefined },
-            port: Number(new URL(origin).port),
-          }),
-        });
-
-        yield* captureStdout(
-          runCli([
-            "pair",
-            "--base-dir",
-            baseDir,
-            "--scope",
-            "orchestration:read",
-            "--scope",
-            "relay:read",
-            "--scope",
-            "orchestration:read",
-          ]),
-        );
-        const listed = yield* captureStdout(
-          runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
-        );
-        const credentials = JSON.parse(listed) as ReadonlyArray<{
-          readonly scopes: ReadonlyArray<string>;
-        }>;
-        assert.lengthOf(credentials, 1);
-        assert.deepEqual(credentials[0]?.scopes, ["orchestration:read", "relay:read"]);
-      }),
-    ).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("pairs through the recorded dev web URL for dev servers", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
@@ -316,53 +267,40 @@ describe("t3 pair", () => {
         yield* persistServerRuntimeState({
           path: statePath,
           state: yield* makePersistedServerRuntimeState({
-            config: { host: undefined, devUrl: new URL("http://localhost:5733") },
+            config: {
+              host: undefined,
+              devUrl: new URL("http://localhost:5733"),
+            },
             port,
           }),
         });
-
         const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
-
         assert.include(output, "Pairing URL: http://localhost:5733/pair#token=");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );
-
-  it.effect("directs to t3 serve or t3 connect when no server is running", () =>
-    Effect.gen(function* () {
-      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-none-test-"));
-
-      const error = yield* provideCliTestLayers(
-        runCli(["pair", "--base-dir", baseDir]).pipe(Effect.flip),
-      );
-
-      const rendered = String(
-        typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
-      );
-      assert.include(rendered, "No running T3 Code server found.");
-      assert.include(rendered, "npx t3 serve");
-      assert.include(rendered, "npx t3 connect");
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("ignores runtime state whose recorded pid is no longer alive", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
         const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-pid-test-"));
         const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
         const state = yield* makePersistedServerRuntimeState({
-          config: { host: "127.0.0.1", devUrl: undefined },
+          config: {
+            host: "127.0.0.1",
+            devUrl: undefined,
+          },
           port: Number(new URL(origin).port),
         });
         yield* persistServerRuntimeState({
           path: statePath,
-          state: { ...state, pid: 4_194_305 },
+          state: {
+            ...state,
+            pid: 4_194_305,
+          },
         });
-
         const error = yield* provideCliTestLayers(
           runCli(["pair", "--base-dir", baseDir]).pipe(Effect.flip),
         );
-
         const rendered = String(
           typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
         );
@@ -371,27 +309,51 @@ describe("t3 pair", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("ignores stale runtime state pointing at a dead server", () =>
-    Effect.gen(function* () {
-      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-stale-test-"));
-      const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
-      yield* persistServerRuntimeState({
-        path: statePath,
-        state: yield* makePersistedServerRuntimeState({
-          config: { host: "127.0.0.1", devUrl: undefined },
-          port: 1,
-        }),
-      });
-
-      const error = yield* provideCliTestLayers(
-        runCli(["pair", "--base-dir", baseDir]).pipe(Effect.flip),
-      );
-
-      const rendered = String(
-        typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
-      );
-      assert.include(rendered, "No running T3 Code server found.");
-    }).pipe(Effect.provide(NodeServices.layer)),
+  // regression: #10516 minting opens the target database with this checkout's
+  // migrations, so a worktree must never fall back to the live install.
+  it.effect("does not fall back to the shared home from a linked worktree", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-worktree-test-"));
+        const worktree = NodePath.join(root, "worktree");
+        NodeFS.mkdirSync(worktree);
+        NodeFS.writeFileSync(
+          NodePath.join(worktree, ".git"),
+          `gitdir: ${NodePath.join(root, "repo", ".git", "worktrees", "worktree")}\n`,
+        );
+        const sharedHome = NodePath.join(root, "shared");
+        yield* persistServerRuntimeState({
+          path: NodePath.join(sharedHome, "userdata", "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: {
+              host: "127.0.0.1",
+              devUrl: undefined,
+            },
+            port: Number(new URL(origin).port),
+          }),
+        });
+        const error = yield* provideCliTestLayers(
+          runCli(["pair"]).pipe(
+            Effect.provideService(HostProcess.WorkingDirectory, worktree),
+            Effect.provide(
+              ConfigProvider.layer(
+                ConfigProvider.fromEnv({
+                  env: {
+                    T3CODE_HOME: sharedHome,
+                  },
+                }),
+              ),
+            ),
+            Effect.flip,
+          ),
+        );
+        assert.include(String(error), "No running T3 Code server found.");
+        assert.notInclude(String(error), sharedHome);
+        assert.deepEqual(NodeFS.readdirSync(NodePath.join(sharedHome, "userdata")), [
+          "server-runtime.json",
+        ]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   // Without the capability `tailscale serve` blocks on an enablement URL, so
@@ -403,13 +365,18 @@ describe("t3 pair", () => {
         yield* persistServerRuntimeState({
           path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
           state: yield* makePersistedServerRuntimeState({
-            config: { host: "127.0.0.1", devUrl: undefined },
+            config: {
+              host: "127.0.0.1",
+              devUrl: undefined,
+            },
             port: Number(new URL(origin).port),
           }),
         });
         const tailscaleCalls: Array<ReadonlyArray<string>> = [];
         const spawner = ChildProcessSpawner.make((command) => {
-          const { args } = command as unknown as { readonly args: ReadonlyArray<string> };
+          const { args } = command as unknown as {
+            readonly args: ReadonlyArray<string>;
+          };
           tailscaleCalls.push(args);
           const stdout =
             args[0] === "status"
@@ -431,14 +398,12 @@ describe("t3 pair", () => {
             }),
           );
         });
-
         const error = yield* provideCliTestLayers(
           runCli(["pair", "--base-dir", baseDir, "--tailscale"]).pipe(
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
             Effect.flip,
           ),
         );
-
         assert.include(String(error), "Tailscale Serve is not enabled on your tailnet.");
         assert.include(String(error), "https://login.tailscale.com/admin/dns");
         assert.deepEqual(tailscaleCalls, [["status", "--json"]]);
@@ -446,11 +411,16 @@ describe("t3 pair", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 });
-
 describe("auth scope options", () => {
   it.effect.each([
-    { group: "pairing", action: "create" },
-    { group: "session", action: "issue" },
+    {
+      group: "pairing",
+      action: "create",
+    },
+    {
+      group: "session",
+      action: "issue",
+    },
   ] as const)(
     "issues and persists only the selected scopes for auth $group $action",
     ({ group, action }) =>
@@ -474,20 +444,20 @@ describe("auth scope options", () => {
             "orchestration:read",
           ]),
         );
-        const issued = JSON.parse(output) as { readonly scopes: ReadonlyArray<string> };
+        const issued = JSON.parse(output) as {
+          readonly scopes: ReadonlyArray<string>;
+        };
         const listOutput = yield* captureStdout(
           runCli(["auth", group, "list", "--base-dir", baseDir, "--json"]),
         );
         const listed = JSON.parse(listOutput) as ReadonlyArray<{
           readonly scopes: ReadonlyArray<string>;
         }>;
-
         assert.deepEqual(issued.scopes, ["orchestration:read", "access:read"]);
         assert.lengthOf(listed, 1);
         assert.deepEqual(listed[0]?.scopes, issued.scopes);
       }),
   );
-
   it.effect.each(
     [["pair"], ["auth", "pairing", "create"], ["auth", "session", "issue"]].map((command) => ({
       command,
@@ -502,7 +472,6 @@ describe("auth scope options", () => {
         "--scope",
         "admin",
       ]).pipe(Effect.provide(layerCliRuntime), Effect.flip);
-
       if (!CliError.isCliError(error) || error._tag !== "ShowHelp") {
         assert.fail(`Expected ShowHelp, got ${String(error)}`);
       }

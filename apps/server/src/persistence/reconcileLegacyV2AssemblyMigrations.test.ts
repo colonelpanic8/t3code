@@ -3,10 +3,8 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as SqlClient from "effect/sql/SqlClient";
-
 import { migrationEntries, migrationManifest, runMigrations } from "./Migrations.ts";
 import OrchestrationV2 from "./Migrations/055_OrchestrationV2.ts";
-
 const V2_NAMES = [
   "OrchestrationV2",
   "OrchestrationV2Subagents",
@@ -23,14 +21,15 @@ const V2_NAMES = [
 ] as const;
 const COMPATIBILITY = "ProjectionThreadSchemaCompatibility";
 const RECORDED_AT = "2026-08-10 18:03:28";
-
 const migrationNamed = (name: string) => migrationEntries.find(([, entry]) => entry === name)![2];
 
 /** Applies and records `names` from `startId`, the way pre-merge assemblies did. */
 const seedAssembly = (startId: number, names: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* runMigrations({ toMigrationInclusive: startId - 1 });
+    yield* runMigrations({
+      toMigrationInclusive: startId - 1,
+    });
     for (const [index, name] of names.entries()) {
       if (name === "OrchestrationV2") {
         yield* OrchestrationV2;
@@ -68,25 +67,35 @@ const earlyAssemblyNames = [
   "ProjectionThreadLinkedPullRequest",
   "ProjectionThreadsUnsettledAt",
 ] as const;
-
 const readLedger = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const rows = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+  const rows = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`
     SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id
   `;
   return rows.map((row) => [row.migration_id, row.name] as const);
 });
-
 const assertCanonicalUpgrade = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   assert.deepStrictEqual(yield* readLedger, migrationManifest);
   assert.deepStrictEqual(
     yield* sql`SELECT thread_id, imported_message_count FROM orchestration_v2_legacy_imports`,
-    [{ thread_id: "thread:preserved", imported_message_count: 27 }],
+    [
+      {
+        thread_id: "thread:preserved",
+        imported_message_count: 27,
+      },
+    ],
   );
   assert.deepStrictEqual(
     yield* sql`SELECT created_at FROM effect_sql_migrations WHERE migration_id = 55`,
-    [{ created_at: RECORDED_AT }],
+    [
+      {
+        created_at: RECORDED_AT,
+      },
+    ],
   );
   const threadColumns = yield* sql<{
     readonly name: string;
@@ -104,7 +113,6 @@ const assertCanonicalUpgrade = Effect.gen(function* () {
   assert.strictEqual((yield* sql`SELECT * FROM pull_request_files_viewed`).length, 0);
   assert.deepStrictEqual(yield* runMigrations(), []);
 });
-
 describe("pre-merge V2 assembly upgrade", () => {
   it.effect("re-keys the repaired assembly ledger and runs only main's missing migrations", () =>
     Effect.gen(function* () {
@@ -119,9 +127,14 @@ describe("pre-merge V2 assembly upgrade", () => {
         ...migrationManifest.filter(([id]) => id > 55),
       ]);
       yield* assertCanonicalUpgrade;
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({
+          filename: ":memory:",
+        }),
+      ),
+    ),
   );
-
   it.effect("re-keys the early assembly ledger that numbered V2 from 39", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -129,12 +142,19 @@ describe("pre-merge V2 assembly upgrade", () => {
       const executed = yield* runMigrations();
       assert.ok(executed.some(([id]) => id === 41));
       assert.ok(!executed.some(([id]) => id === 39 || id === 42 || id === 55));
-      const authColumns = yield* sql<{ readonly name: string }>`PRAGMA table_info(auth_sessions)`;
+      const authColumns = yield* sql<{
+        readonly name: string;
+      }>`PRAGMA table_info(auth_sessions)`;
       assert.ok(authColumns.some(({ name }) => name === "client_surface"));
       yield* assertCanonicalUpgrade;
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({
+          filename: ":memory:",
+        }),
+      ),
+    ),
   );
-
   it.effect("finishes V2 setup steps an older assembly never recorded", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -152,9 +172,14 @@ describe("pre-merge V2 assembly upgrade", () => {
       `;
       assert.strictEqual(indexes.length, 1);
       yield* assertCanonicalUpgrade;
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({
+          filename: ":memory:",
+        }),
+      ),
+    ),
   );
-
   it.effect("rolls back the ledger and schema when a replayed migration fails", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -171,9 +196,14 @@ describe("pre-merge V2 assembly upgrade", () => {
         SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_thread_pull_requests'
       `;
       assert.strictEqual(tables.length, 0);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({
+          filename: ":memory:",
+        }),
+      ),
+    ),
   );
-
   it.effect("refuses to re-key a ledger with migrations this build does not know", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -187,6 +217,12 @@ describe("pre-merge V2 assembly upgrade", () => {
         yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`,
         before,
       );
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({
+          filename: ":memory:",
+        }),
+      ),
+    ),
   );
 });
