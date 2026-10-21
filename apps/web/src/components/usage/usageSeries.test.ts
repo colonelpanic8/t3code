@@ -125,3 +125,19 @@ describe("usageRowSeriesColor", () => {
     expect(series.colors.get("[]")).toBe("var(--contrast-foreground)");
   });
 });
+it("names host and account splits in the chart and matches their table colors", () => {
+  const entries = [
+    {
+      ...entry("claude", "opus", 3),
+      host: "laptop",
+      accountId: "work",
+      accountLabel: "Work (laptop)",
+    },
+  ];
+  const series = buildUsageChartSeries(entries, ["host", "account"], "day", periods, "cost");
+  expect(usageSeriesLabels(series.stack.series, ["host", "account"], context)).toEqual([
+    "laptop · Work (laptop)",
+  ]);
+  const row = pivotUsage(entries, ["host", "account", "model"], "day")[0]!;
+  expect(usageRowSeriesColor(series, row)).toBe(series.colors.get(series.stack.series[0]!.key));
+});
