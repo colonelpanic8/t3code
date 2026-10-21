@@ -1,7 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import { describe, expect, it } from "@effect/vitest";
 import * as NodePath from "node:path";
-
 import {
   applyT3StorageDirectoryOverrides,
   resolveDefaultT3StorageRoots,
@@ -11,13 +10,11 @@ import {
   selectT3Storage,
   t3StorageEnvironment,
 } from "./storagePaths.ts";
-
 const path = {
   join: NodePath.posix.join,
   resolve: NodePath.posix.resolve,
   isAbsolute: NodePath.posix.isAbsolute,
 };
-
 const linuxDefaults = (environment: Readonly<Record<string, string | undefined>> = {}) =>
   resolveDefaultT3StorageRoots({
     platform: "linux",
@@ -28,7 +25,6 @@ const linuxDefaults = (environment: Readonly<Record<string, string | undefined>>
     environment,
     path,
   });
-
 describe("T3 storage paths", () => {
   it("resolves all five Linux XDG roots independently", () => {
     expect(
@@ -48,7 +44,6 @@ describe("T3 storage paths", () => {
       runtimeDir: "/run/user/1000/t3code",
     });
   });
-
   it("uses the XDG defaults and a per-user temporary runtime fallback", () => {
     expect(linuxDefaults()).toEqual({
       layout: "split",
@@ -59,7 +54,6 @@ describe("T3 storage paths", () => {
       runtimeDir: "/tmp/t3code-1000",
     });
   });
-
   it("ignores XDG variables on macOS, where a Finder-launched app never sees them", () => {
     expect(
       resolveDefaultT3StorageRoots({
@@ -68,7 +62,10 @@ describe("T3 storage paths", () => {
         temporaryDirectory: "/tmp",
         userId: 501,
         isDevelopment: false,
-        environment: { XDG_CACHE_HOME: "/custom/cache", XDG_CONFIG_HOME: "/custom/config" },
+        environment: {
+          XDG_CACHE_HOME: "/custom/cache",
+          XDG_CONFIG_HOME: "/custom/config",
+        },
         path,
       }),
     ).toEqual({
@@ -80,7 +77,6 @@ describe("T3 storage paths", () => {
       runtimeDir: "/Users/alice/Library/Application Support/t3code/runtime",
     });
   });
-
   it("ignores relative XDG base directories", () => {
     expect(
       linuxDefaults({
@@ -92,7 +88,6 @@ describe("T3 storage paths", () => {
       runtimeDir: "/tmp/t3code-1000",
     });
   });
-
   it("applies granular T3 overrides without collapsing the other roots", () => {
     const overrides = resolveT3StorageDirectoryOverrides({
       environment: {
@@ -102,7 +97,6 @@ describe("T3 storage paths", () => {
       homeDirectory: "/home/alice",
       path,
     });
-
     expect(applyT3StorageDirectoryOverrides(linuxDefaults(), overrides)).toEqual({
       layout: "split",
       configDir: "/home/alice/dotfiles/t3code",
@@ -112,7 +106,6 @@ describe("T3 storage paths", () => {
       runtimeDir: "/tmp/t3code-1000",
     });
   });
-
   it("models the legacy tree without pretending it has five independent roots", () => {
     const roots = resolveLegacyT3StorageRoots({
       baseDir: "/home/alice/.t3",
@@ -128,9 +121,10 @@ describe("T3 storage paths", () => {
       runtimeDir: "/home/alice/.t3/userdata",
       legacyBaseDir: "/home/alice/.t3",
     });
-    expect(t3StorageEnvironment(roots)).toEqual({ T3CODE_HOME: "/home/alice/.t3" });
+    expect(t3StorageEnvironment(roots)).toEqual({
+      T3CODE_HOME: "/home/alice/.t3",
+    });
   });
-
   describe("resolveT3ClientStorageRoots", () => {
     const clientRoots = (
       input: {
@@ -149,7 +143,6 @@ describe("T3 storage paths", () => {
         path,
         serverRoots: input.serverRoots ?? linuxDefaults(input.environment),
       });
-
     it("gives the client its own split roots that server selectors do not move", () => {
       expect(
         clientRoots({
@@ -165,21 +158,26 @@ describe("T3 storage paths", () => {
         cacheDir: "/home/alice/client-cache",
       });
     });
-
     it("ignores XDG variables on macOS", () => {
       expect(
-        clientRoots({ platform: "darwin", environment: { XDG_CONFIG_HOME: "/custom/config" } }),
+        clientRoots({
+          platform: "darwin",
+          environment: {
+            XDG_CONFIG_HOME: "/custom/config",
+          },
+        }),
       ).toEqual({
         configDir: "/home/alice/Library/Application Support/t3code-client/config",
         stateDir: "/home/alice/Library/Application Support/t3code-client/state",
         cacheDir: "/home/alice/Library/Caches/t3code-client",
       });
     });
-
     it("keeps client files in the legacy tree's userdata", () => {
       expect(
         clientRoots({
-          environment: { T3CODE_CLIENT_STATE_DIR: "/ignored" },
+          environment: {
+            T3CODE_CLIENT_STATE_DIR: "/ignored",
+          },
           serverRoots: resolveLegacyT3StorageRoots({
             baseDir: "/home/alice/.t3",
             stateDirectoryName: "userdata",
@@ -193,7 +191,6 @@ describe("T3 storage paths", () => {
       });
     });
   });
-
   describe("selectT3Storage", () => {
     const select = (
       input: {
@@ -218,8 +215,11 @@ describe("T3 storage paths", () => {
         exists: input.exists ?? ((candidate) => (input.existing ?? []).includes(candidate)),
       });
     const legacy = (stateDirectoryName: "userdata" | "dev" = "userdata") =>
-      resolveLegacyT3StorageRoots({ baseDir: "/home/alice/.t3", stateDirectoryName, path });
-
+      resolveLegacyT3StorageRoots({
+        baseDir: "/home/alice/.t3",
+        stateDirectoryName,
+        path,
+      });
     it("uses the split defaults for a new installation", () => {
       expect(select()).toEqual({
         _tag: "Selected",
@@ -227,20 +227,27 @@ describe("T3 storage paths", () => {
         baseDirIsExplicit: false,
       });
     });
-
     it("keeps an initialized ~/.t3", () => {
-      expect(select({ existing: ["/home/alice/.t3/userdata/statev2.sqlite"] })).toEqual({
+      expect(
+        select({
+          existing: ["/home/alice/.t3/userdata/statev2.sqlite"],
+        }),
+      ).toEqual({
         _tag: "Selected",
         roots: legacy(),
         baseDirIsExplicit: false,
       });
     });
-
     it("keeps ~/.t3 when only its caches show a legacy server ran there", () => {
       // A server whose config and data dirs are both overridden leaves nothing in userdata.
-      expect(select({ existing: ["/home/alice/.t3/caches"] })).toMatchObject({ roots: legacy() });
+      expect(
+        select({
+          existing: ["/home/alice/.t3/caches"],
+        }),
+      ).toMatchObject({
+        roots: legacy(),
+      });
     });
-
     it("keeps an initialized split install when something later initializes ~/.t3", () => {
       expect(
         select({
@@ -256,7 +263,6 @@ describe("T3 storage paths", () => {
         shadowedLegacyStateDir: "/home/alice/.t3/userdata",
       });
     });
-
     it("leaves a migrated ~/.t3 for the split layout", () => {
       expect(
         select({
@@ -265,7 +271,11 @@ describe("T3 storage paths", () => {
             "/home/alice/.t3/userdata/storage-migration.json",
           ],
         }),
-      ).toEqual({ _tag: "Selected", roots: linuxDefaults(), baseDirIsExplicit: false });
+      ).toEqual({
+        _tag: "Selected",
+        roots: linuxDefaults(),
+        baseDirIsExplicit: false,
+      });
       expect(
         select({
           existing: [
@@ -274,7 +284,11 @@ describe("T3 storage paths", () => {
             "/home/alice/.t3/userdata/storage-migration.json",
           ],
         }),
-      ).toEqual({ _tag: "Selected", roots: linuxDefaults(), baseDirIsExplicit: false });
+      ).toEqual({
+        _tag: "Selected",
+        roots: linuxDefaults(),
+        baseDirIsExplicit: false,
+      });
       // A migration that never finished leaves the legacy tree in use.
       expect(
         select({
@@ -284,13 +298,28 @@ describe("T3 storage paths", () => {
             "/home/alice/.t3/userdata/storage-migration.pending.json",
           ],
         }),
-      ).toMatchObject({ roots: legacy() });
+      ).toMatchObject({
+        roots: legacy(),
+      });
     });
-
     it.each([
-      [{ forcedLayout: "legacy" as const }],
-      [{ environment: { T3CODE_HOME: "~/.t3" } }],
-      [{ baseDir: "/home/alice/.t3" }],
+      [
+        {
+          forcedLayout: "legacy" as const,
+        },
+      ],
+      [
+        {
+          environment: {
+            T3CODE_HOME: "~/.t3",
+          },
+        },
+      ],
+      [
+        {
+          baseDir: "/home/alice/.t3",
+        },
+      ],
     ])("refuses a retired ~/.t3 that is named explicitly %#", (input) => {
       const selection = select({
         ...input,
@@ -301,9 +330,15 @@ describe("T3 storage paths", () => {
         "/home/alice/.t3/userdata",
       );
     });
-
     it("names an explicit home's userdata even in development", () => {
-      expect(select({ environment: { T3CODE_HOME: "~/t3" }, isDevelopment: true })).toEqual({
+      expect(
+        select({
+          environment: {
+            T3CODE_HOME: "~/t3",
+          },
+          isDevelopment: true,
+        }),
+      ).toEqual({
         _tag: "Selected",
         roots: resolveLegacyT3StorageRoots({
           baseDir: "/home/alice/t3",
@@ -312,46 +347,112 @@ describe("T3 storage paths", () => {
         }),
         baseDirIsExplicit: true,
       });
-      expect(select({ forcedLayout: "legacy", isDevelopment: true })).toMatchObject({
+      expect(
+        select({
+          forcedLayout: "legacy",
+          isDevelopment: true,
+        }),
+      ).toMatchObject({
         roots: legacy("dev"),
         baseDirIsExplicit: false,
       });
     });
-
     it("lets selectors or a forced layout skip detection", () => {
       const existing = ["/home/alice/.t3/userdata/statev2.sqlite"];
-      expect(select({ existing, forcedLayout: "xdg" })).toMatchObject({ roots: linuxDefaults() });
-      expect(select({ existing, environment: { T3CODE_STATE_DIR: "/state" } })).toMatchObject({
-        roots: { ...linuxDefaults(), stateDir: "/state" },
+      expect(
+        select({
+          existing,
+          forcedLayout: "xdg",
+        }),
+      ).toMatchObject({
+        roots: linuxDefaults(),
+      });
+      expect(
+        select({
+          existing,
+          environment: {
+            T3CODE_STATE_DIR: "/state",
+          },
+        }),
+      ).toMatchObject({
+        roots: {
+          ...linuxDefaults(),
+          stateDir: "/state",
+        },
       });
     });
-
     it.each([
-      [{ environment: { T3CODE_HOME: "/t3", T3CODE_CACHE_DIR: "/c" } }, "home-with-selectors"],
-      [{ baseDir: "/t3", forcedLayout: "xdg" as const }, "xdg-with-home"],
+      [
+        {
+          environment: {
+            T3CODE_HOME: "/t3",
+            T3CODE_CACHE_DIR: "/c",
+          },
+        },
+        "home-with-selectors",
+      ],
+      [
+        {
+          baseDir: "/t3",
+          forcedLayout: "xdg" as const,
+        },
+        "xdg-with-home",
+      ],
     ])("reports conflicting controls %#", (input, conflict) => {
       const selection = select(input);
       expect(selection._tag === "Conflict" && selection.error.conflict).toBe(conflict);
     });
-
     it("lets command-line controls outrank inherited variables", () => {
       // A split service exports the selectors into every shell it starts.
-      const inherited = { T3CODE_CONFIG_DIR: "/c", T3CODE_STATE_DIR: "/s" };
-      expect(select({ baseDir: "/scratch", environment: inherited })).toMatchObject({
-        roots: { layout: "legacy", legacyBaseDir: "/scratch" },
+      const inherited = {
+        T3CODE_CONFIG_DIR: "/c",
+        T3CODE_STATE_DIR: "/s",
+      };
+      expect(
+        select({
+          baseDir: "/scratch",
+          environment: inherited,
+        }),
+      ).toMatchObject({
+        roots: {
+          layout: "legacy",
+          legacyBaseDir: "/scratch",
+        },
         baseDirIsExplicit: true,
       });
-      expect(select({ forcedLayout: "legacy", environment: inherited })).toMatchObject({
+      expect(
+        select({
+          forcedLayout: "legacy",
+          environment: inherited,
+        }),
+      ).toMatchObject({
         roots: legacy(),
       });
       expect(
-        select({ forcedLayout: "legacy", environment: { ...inherited, T3CODE_HOME: "/t3" } }),
-      ).toMatchObject({ roots: { legacyBaseDir: "/t3" }, baseDirIsExplicit: true });
-      expect(select({ forcedLayout: "xdg", environment: { T3CODE_HOME: "/t3" } })).toMatchObject({
+        select({
+          forcedLayout: "legacy",
+          environment: {
+            ...inherited,
+            T3CODE_HOME: "/t3",
+          },
+        }),
+      ).toMatchObject({
+        roots: {
+          legacyBaseDir: "/t3",
+        },
+        baseDirIsExplicit: true,
+      });
+      expect(
+        select({
+          forcedLayout: "xdg",
+          environment: {
+            T3CODE_HOME: "/t3",
+          },
+        }),
+      ).toMatchObject({
         roots: linuxDefaults(),
       });
     });
-
     it("fails rather than guess when a marker cannot be checked", () => {
       const selection = select({
         exists: (candidate) => {

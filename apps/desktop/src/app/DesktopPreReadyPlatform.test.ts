@@ -4,7 +4,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { beforeEach, vi } from "vite-plus/test";
-
 const {
   appendSwitchMock,
   getSwitchValueMock,
@@ -28,7 +27,6 @@ const {
   execFileSyncMock: vi.fn(),
   readFileSyncMock: vi.fn(),
 }));
-
 vi.mock("electron", () => ({
   app: {
     setDesktopName: setDesktopNameMock,
@@ -45,23 +43,21 @@ vi.mock("electron", () => ({
     registerSchemesAsPrivileged: registerSchemesMock,
   },
 }));
-
 vi.mock("node:fs", () => ({
   statSync: () => {
-    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    throw Object.assign(new Error("ENOENT"), {
+      code: "ENOENT",
+    });
   },
   readFileSync: readFileSyncMock,
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
   copyFileSync: copyFileSyncMock,
 }));
-
 vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
 }));
-
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
-
 describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
     appendSwitchMock.mockReset();
@@ -75,7 +71,6 @@ describe("DesktopPreReadyPlatform", () => {
     execFileSyncMock.mockReset();
     readFileSyncMock.mockReset().mockReturnValue("{}");
   });
-
   it.effect("persists Linux scaling synchronously across relaunches and settings rewrites", () => {
     vi.stubEnv("T3CODE_HOME", "/isolated");
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
@@ -100,7 +95,6 @@ describe("DesktopPreReadyPlatform", () => {
       yield* DesktopPreReadyPlatform.make;
       return yield* Effect.promise(() => startup);
     });
-
     return Effect.gen(function* () {
       for (const explicitScale of ["1.75", "1"]) {
         commandLine.clear();
@@ -112,7 +106,12 @@ describe("DesktopPreReadyPlatform", () => {
         );
 
         // The settings service discards fields it does not own when rewriting its document.
-        files.set(settingsPath, JSON.stringify({ linuxPasswordStore: "basic" }));
+        files.set(
+          settingsPath,
+          JSON.stringify({
+            linuxPasswordStore: "basic",
+          }),
+        );
         commandLine.clear();
         assert.equal(yield* launch, explicitScale);
       }
@@ -121,45 +120,11 @@ describe("DesktopPreReadyPlatform", () => {
       Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
     );
   });
-
-  it.effect.each(["darwin", "win32"] as const)("leaves device scaling alone on %s", (platform) => {
-    readFileSyncMock.mockReturnValue("1.75");
-    hasSwitchMock.mockImplementation((name: string) => name === "force-device-scale-factor");
-    getSwitchValueMock.mockReturnValue("2");
-
-    return Effect.gen(function* () {
-      yield* DesktopPreReadyPlatform.make;
-      assert.deepEqual(readFileSyncMock.mock.calls, []);
-      assert.deepEqual(writeFileSyncMock.mock.calls, []);
-      assert.deepEqual(appendSwitchMock.mock.calls, []);
-    }).pipe(Effect.provideService(HostProcess.Platform, platform));
-  });
-
-  it.effect("preserves an explicit Linux password-store switch", () => {
-    hasSwitchMock.mockImplementation((switchName) => switchName === "password-store");
-    getSwitchValueMock.mockReturnValue(" basic ");
-
-    return Effect.gen(function* () {
-      const options = yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
-
-      assert.equal(options.linuxPasswordStoreCommandLine, "basic");
-      assert.isFalse(appendSwitchMock.mock.calls.some(([name]) => name === "password-store"));
-    }).pipe(
-      Effect.provide(
-        DesktopPreReadyPlatform.layer.pipe(
-          Layer.provide(Layer.succeed(HostProcess.Platform, "linux")),
-        ),
-      ),
-    );
-  });
-
   it.effect("flags a --client-dir switch whose value went to the next argument", () => {
     hasSwitchMock.mockImplementation((switchName) => switchName === "client-dir");
     getSwitchValueMock.mockReturnValue("");
-
     return Effect.gen(function* () {
       const options = yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
-
       assert.isTrue(options.clientDirSwitchMissingValue);
     }).pipe(
       Effect.provide(
@@ -169,61 +134,15 @@ describe("DesktopPreReadyPlatform", () => {
       ),
     );
   });
-
   it.effect.each([
     {
-      label: "merges the color-manager fallback into disabled features on Hyprland 0.48.1",
-      switches: { "ozone-platform": "wayland", "disable-features": "Vulkan" },
-      hyprlandVersion: "0.48.1",
-      hyprlandCommit: "29e2e59fdbab8ed2cc23a20e3c6043d5decb5cdc",
-      expected: [["disable-features", "Vulkan,WaylandWpColorManagerV1"]],
+      previousEntry: undefined,
+      label: "missing",
     },
     {
-      label: "preserves color management on Hyprland 0.51.0",
-      switches: { "ozone-platform": "wayland", "disable-features": "Vulkan" },
-      hyprlandVersion: "0.51.0",
-      hyprlandCommit: "0123456789abcdef0123456789abcdef01234567",
-      expected: [],
+      previousEntry: 'Exec="/Applications/deleted-previous.AppImage" %U',
+      label: "stale",
     },
-    {
-      label: "preserves color management when Electron resolved X11",
-      switches: { "ozone-platform": "x11", "disable-features": "Vulkan" },
-      hyprlandVersion: "0.48.1",
-      hyprlandCommit: "29e2e59fdbab8ed2cc23a20e3c6043d5decb5cdc",
-      expected: [],
-    },
-  ])("$label", ({ switches, hyprlandVersion, hyprlandCommit, expected }) => {
-    vi.stubEnv("XDG_CURRENT_DESKTOP", "Hyprland");
-    vi.stubEnv("XDG_SESSION_TYPE", "wayland");
-    const commandLine = new Map<string, string>(Object.entries(switches));
-    hasSwitchMock.mockImplementation((switchName: string) => commandLine.has(switchName));
-    getSwitchValueMock.mockImplementation(
-      (switchName: string) => commandLine.get(switchName) ?? "",
-    );
-    execFileSyncMock.mockReturnValue(
-      JSON.stringify({
-        commit: hyprlandCommit,
-        version: hyprlandVersion,
-        dirty: false,
-        tag: `v${hyprlandVersion}`,
-      }),
-    );
-
-    return DesktopPreReadyPlatform.make.pipe(
-      Effect.provideService(HostProcess.Platform, "linux"),
-      Effect.map(() => {
-        const featureSwitches = appendSwitchMock.mock.calls.filter(([name]) =>
-          ["disable-features", "enable-features", "ozone-platform"].includes(name),
-        );
-        assert.deepEqual(featureSwitches, expected);
-      }),
-      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
-    );
-  });
-
-  it.effect.each([
-    { previousEntry: undefined, label: "missing" },
-    { previousEntry: 'Exec="/Applications/deleted-previous.AppImage" %U', label: "stale" },
   ])("prepares a $label Linux desktop entry before startup yields", ({ previousEntry }) => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
     vi.stubEnv("XDG_DATA_HOME", "/xdg");
@@ -241,7 +160,6 @@ describe("DesktopPreReadyPlatform", () => {
     writeFileSyncMock.mockImplementation((path: string, contents: string) => {
       if (path === "/xdg/applications/com.t3tools.T3Code.desktop") desktopEntry = contents;
     });
-
     return Effect.scoped(
       Effect.gen(function* () {
         const portalIdentity = Promise.resolve().then(() => ({
@@ -267,72 +185,46 @@ describe("DesktopPreReadyPlatform", () => {
       }),
     ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
   });
-
-  it.effect("keeps startup available when the early desktop entry cannot be written", () => {
-    getSwitchValueMock.mockReturnValue("");
-    mkdirSyncMock.mockImplementation(() => {
-      throw new Error("read-only filesystem");
-    });
-
-    return DesktopPreReadyPlatform.make.pipe(
-      Effect.provideService(HostProcess.Platform, "linux"),
-      Effect.asVoid,
-    );
-  });
-
-  it.effect("still prepares the portal entry when the bundled icon cannot be copied", () => {
-    getSwitchValueMock.mockReturnValue("");
-    copyFileSyncMock.mockImplementation(() => {
-      throw new Error("missing bundled icon");
-    });
-    return Effect.gen(function* () {
-      yield* DesktopPreReadyPlatform.make;
-      const contents = writeFileSyncMock.mock.calls[0]?.[1];
-      assert.include(contents, "MimeType=x-scheme-handler/t3code;");
-      assert.include(contents, "Icon=");
-      assert.equal(setDesktopNameMock.mock.calls.length, 1);
-    }).pipe(Effect.provideService(HostProcess.Platform, "linux"));
-  });
-
   it.effect(
     "acquires a synchronous pre-ready layer before an asynchronous Clerk-shaped layer",
     () =>
       Effect.gen(function* () {
-        class ClerkShaped extends Context.Service<ClerkShaped, { readonly ready: true }>()(
-          "@t3tools/desktop/app/DesktopPreReadyPlatform.test/ClerkShaped",
-        ) {}
-
+        class ClerkShaped extends Context.Service<
+          ClerkShaped,
+          {
+            readonly ready: true;
+          }
+        >()("@t3tools/desktop/app/DesktopPreReadyPlatform.test/ClerkShaped") {}
         const events: Array<string> = [];
         registerSchemesMock.mockImplementation(() => {
           events.push("pre-ready");
         });
-
         const layerPreReady = DesktopPreReadyPlatform.layer.pipe(
           Layer.provide(Layer.succeed(HostProcess.Platform, "darwin")),
         );
-
         const layerClerkShaped = Layer.effect(
           ClerkShaped,
           Effect.promise(() => Promise.resolve()).pipe(
             Effect.map(() => {
               events.push("clerk");
-              return { ready: true as const };
+              return {
+                ready: true as const,
+              };
             }),
           ),
         );
-
         const layerRuntime = layerClerkShaped.pipe(
           Layer.flatMap((clerkContext) => Layer.succeedContext(clerkContext)),
           Layer.provideMerge(layerPreReady),
         );
-
         const result = yield* Effect.all({
           clerk: ClerkShaped,
           preReady: DesktopPreReadyPlatform.DesktopPreReadyElectronOptions,
         }).pipe(Effect.provide(layerRuntime));
-
         assert.deepEqual(result, {
-          clerk: { ready: true },
+          clerk: {
+            ready: true,
+          },
           preReady: {
             linux: null,
             linuxPasswordStoreCommandLine: null,

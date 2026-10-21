@@ -4,7 +4,6 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 import * as NodeURL from "node:url";
-
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -18,7 +17,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-
 import {
   planStorageMigration,
   rollbackStorageMigration,
@@ -31,7 +29,6 @@ import {
   StorageMigrationVerificationError,
 } from "./storageMigration.ts";
 import { StorageMigrationReadError } from "./storageMigrationFiles.ts";
-
 const DEAD_PID = 2 ** 22 + 1;
 
 /**
@@ -42,7 +39,9 @@ const DEAD_PID = 2 ** 22 + 1;
 const makeFixture = Effect.fn(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-storage-migration-" });
+  const root = yield* fs.makeTempDirectoryScoped({
+    prefix: "t3-storage-migration-",
+  });
   const home = path.join(root, "home");
   const legacyRoots = resolveLegacyT3StorageRoots({
     baseDir: path.join(home, ".t3"),
@@ -50,11 +49,21 @@ const makeFixture = Effect.fn(function* () {
     path,
   });
   const state = legacyRoots.stateDir;
-  yield* fs.makeDirectory(path.join(state, "secrets"), { recursive: true });
-  yield* fs.makeDirectory(path.join(state, "attachments"), { recursive: true });
-  yield* fs.makeDirectory(path.join(state, "logs"), { recursive: true });
-  yield* fs.makeDirectory(path.join(state, "bin"), { recursive: true });
-  yield* fs.makeDirectory(path.join(home, ".t3", "worktrees"), { recursive: true });
+  yield* fs.makeDirectory(path.join(state, "secrets"), {
+    recursive: true,
+  });
+  yield* fs.makeDirectory(path.join(state, "attachments"), {
+    recursive: true,
+  });
+  yield* fs.makeDirectory(path.join(state, "logs"), {
+    recursive: true,
+  });
+  yield* fs.makeDirectory(path.join(state, "bin"), {
+    recursive: true,
+  });
+  yield* fs.makeDirectory(path.join(home, ".t3", "worktrees"), {
+    recursive: true,
+  });
   const database = new NodeSqlite.DatabaseSync(path.join(state, "statev2.sqlite"));
   database.exec("PRAGMA journal_mode = WAL");
   database.exec("CREATE TABLE threads (id TEXT); INSERT INTO threads VALUES ('a'), ('b'), ('c')");
@@ -66,7 +75,9 @@ const makeFixture = Effect.fn(function* () {
   yield* fs.writeFileString(path.join(state, "desktop-window-state.json"), '{"x":1}');
   yield* fs.writeFileString(path.join(state, "clerk-tokens.json"), "{}");
   yield* fs.writeFileString(path.join(state, "bin", "t3"), "#!/bin/sh\n");
-  yield* fs.makeDirectory(path.join(state, "themes"), { recursive: true });
+  yield* fs.makeDirectory(path.join(state, "themes"), {
+    recursive: true,
+  });
   yield* fs.writeFileString(path.join(state, "themes", "dusk.json"), "{}");
   yield* fs.writeFileString(path.join(state, "secrets", "server-signing-key.bin"), "key");
   yield* fs.chmod(path.join(state, "secrets", "server-signing-key.bin"), 0o600);
@@ -83,9 +94,15 @@ const makeFixture = Effect.fn(function* () {
     }),
   );
   const legacyProfile = path.join(home, ".config", "t3code-v2");
-  yield* fs.makeDirectory(path.join(legacyProfile, "Local Storage"), { recursive: true });
-  yield* fs.makeDirectory(path.join(legacyProfile, "Cache", "Cache_Data"), { recursive: true });
-  yield* fs.makeDirectory(path.join(legacyProfile, "GPUCache"), { recursive: true });
+  yield* fs.makeDirectory(path.join(legacyProfile, "Local Storage"), {
+    recursive: true,
+  });
+  yield* fs.makeDirectory(path.join(legacyProfile, "Cache", "Cache_Data"), {
+    recursive: true,
+  });
+  yield* fs.makeDirectory(path.join(legacyProfile, "GPUCache"), {
+    recursive: true,
+  });
   yield* fs.writeFileString(path.join(legacyProfile, "Local State"), "{}");
   yield* fs.writeFileString(path.join(legacyProfile, "Local Storage", "CURRENT"), "x");
   yield* fs.writeFileString(path.join(legacyProfile, "Cache", "Cache_Data", "index"), "c");
@@ -94,7 +111,6 @@ const makeFixture = Effect.fn(function* () {
     `${NodeOS.hostname()}-${String(DEAD_PID)}`,
     path.join(legacyProfile, "SingletonLock"),
   );
-
   const storageHost = {
     platform: "linux" as const,
     homeDirectory: home,
@@ -104,7 +120,10 @@ const makeFixture = Effect.fn(function* () {
     path,
   };
   const serverRoots = resolveDefaultT3StorageRoots(storageHost);
-  const clientRoots = resolveT3ClientStorageRoots({ ...storageHost, serverRoots });
+  const clientRoots = resolveT3ClientStorageRoots({
+    ...storageHost,
+    serverRoots,
+  });
   const split = (name: "config" | "data" | "state" | "runtime") => serverRoots[`${name}Dir`];
   const client = (name: "config" | "state") => clientRoots[`${name}Dir`];
   const input: StorageMigrationInput = {
@@ -117,14 +136,27 @@ const makeFixture = Effect.fn(function* () {
   };
   /** The layout a T3 process started now would use. */
   const selectedLayout = () => {
-    const selection = selectT3Storage({ ...storageHost, exists: t3StoragePathExists });
+    const selection = selectT3Storage({
+      ...storageHost,
+      exists: t3StoragePathExists,
+    });
     return selection._tag === "Selected" ? selection.roots.layout : selection._tag;
   };
-  return { root, home, input, state, split, client, legacyProfile, selectedLayout };
+  return {
+    root,
+    home,
+    input,
+    state,
+    split,
+    client,
+    legacyProfile,
+    selectedLayout,
+  };
 });
-
 const countThreads = (databasePath: string) => {
-  const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
+  const database = new NodeSqlite.DatabaseSync(databasePath, {
+    readOnly: true,
+  });
   try {
     return Number(database.prepare("SELECT count(*) AS count FROM threads").get()?.count);
   } finally {
@@ -165,7 +197,10 @@ process.exit(0);
   return NodeChildProcess.spawnSync(
     process.execPath,
     ["--input-type=module", "-e", script, JSON.stringify([input, killAt])],
-    { cwd: NodePath.join(import.meta.dirname, "..", ".."), encoding: "utf8" },
+    {
+      cwd: NodePath.join(import.meta.dirname, "..", ".."),
+      encoding: "utf8",
+    },
   );
 };
 
@@ -173,9 +208,11 @@ process.exit(0);
 const sabotage = (overrides: (fs: FileSystem.FileSystem) => Partial<FileSystem.FileSystem>) =>
   Layer.effect(
     FileSystem.FileSystem,
-    Effect.map(FileSystem.FileSystem, (fs) => ({ ...fs, ...overrides(fs) })),
+    Effect.map(FileSystem.FileSystem, (fs) => ({
+      ...fs,
+      ...overrides(fs),
+    })),
   ).pipe(Layer.provide(NodeServices.layer));
-
 describe("storage migration", () => {
   it.effect("copies each file to its owner's split root and retires the legacy tree", () =>
     Effect.gen(function* () {
@@ -183,7 +220,6 @@ describe("storage migration", () => {
       const path = yield* Path.Path;
       const { input, state, split, client, selectedLayout } = yield* makeFixture();
       assert.equal(selectedLayout(), "legacy");
-
       const plan = yield* planStorageMigration(input);
       assert.isFalse(yield* fs.exists(split("state")));
       assert.deepInclude(plan.skipped, {
@@ -191,8 +227,9 @@ describe("storage migration", () => {
         reason: "log history stays in the legacy tree",
       });
       assert.isUndefined(plan.entries.find((entry) => entry.source.endsWith("bin")));
-
-      const result = yield* runStorageMigration(input, { replaceExisting: false });
+      const result = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      });
       assert.isTrue(result.migrated);
       assert.equal(selectedLayout(), "split");
       assert.equal(countThreads(path.join(split("state"), "statev2.sqlite")), 3);
@@ -226,13 +263,13 @@ describe("storage migration", () => {
       assert.isTrue(yield* fs.exists(path.join(state, "settings.json")));
       assert.isTrue(yield* fs.exists(path.join(state, "storage-migration.json")));
       assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.pending.json")));
-
-      const again = yield* runStorageMigration(input, { replaceExisting: false });
+      const again = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      });
       assert.isFalse(again.migrated);
       assert.isDefined(again.plan.migratedAt);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("snapshots writes still in an uncheckpointed WAL", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
@@ -241,13 +278,12 @@ describe("storage migration", () => {
       yield* Effect.addFinalizer(() => Effect.sync(() => writer.close()));
       writer.exec("PRAGMA wal_autocheckpoint = 0");
       writer.exec("INSERT INTO threads VALUES ('d'), ('e')");
-
-      yield* runStorageMigration(input, { replaceExisting: false });
-
+      yield* runStorageMigration(input, {
+        replaceExisting: false,
+      });
       assert.equal(countThreads(path.join(split("state"), "statev2.sqlite")), 5);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect.each([
     ["while copying the desktop profile", "electronProfile"],
     ["while placing the database", "database"],
@@ -265,13 +301,13 @@ describe("storage migration", () => {
             : crashPoint === "database"
               ? path.join(split("state"), "statev2.sqlite")
               : path.join(state, "storage-migration.json");
-
         const child = migrateUntilKilled(input, killAt);
         assert.equal(child.signal, "SIGKILL", child.stderr);
         assert.equal(selectedLayout(), "legacy");
         assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.json")));
-
-        const result = yield* runStorageMigration(input, { replaceExisting: false });
+        const result = yield* runStorageMigration(input, {
+          replaceExisting: false,
+        });
         assert.isTrue(result.migrated);
         assert.equal(selectedLayout(), "split");
         assert.equal(countThreads(path.join(split("state"), "statev2.sqlite")), 3);
@@ -281,9 +317,7 @@ describe("storage migration", () => {
         );
         assert.deepEqual(leftovers, []);
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-    60_000,
   );
-
   it.effect("recreates top-level symlinks instead of copying through them", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -292,20 +326,23 @@ describe("storage migration", () => {
       const dotfiles = path.join(root, "dotfiles");
       const otherDisk = path.join(root, "other-disk", "attachments");
       yield* fs.makeDirectory(dotfiles);
-      yield* fs.makeDirectory(otherDisk, { recursive: true });
+      yield* fs.makeDirectory(otherDisk, {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(dotfiles, "keybindings.json"), "[]");
       yield* fs.writeFileString(path.join(otherDisk, "big.png"), "png");
       yield* fs.symlink("../../../dotfiles/keybindings.json", path.join(state, "keybindings.json"));
-      yield* fs.remove(path.join(state, "attachments"), { recursive: true });
+      yield* fs.remove(path.join(state, "attachments"), {
+        recursive: true,
+      });
       yield* fs.symlink(otherDisk, path.join(state, "attachments"));
-
       const plan = yield* planStorageMigration(input);
       const link = plan.entries.find((entry) => entry.source.endsWith("keybindings.json"));
       assert.equal(link?.kind, "symlink");
       assert.equal(link?.linkTarget, path.join(dotfiles, "keybindings.json"));
-
-      yield* runStorageMigration(input, { replaceExisting: false });
-
+      yield* runStorageMigration(input, {
+        replaceExisting: false,
+      });
       assert.equal(
         yield* fs.readLink(path.join(split("config"), "keybindings.json")),
         path.join(dotfiles, "keybindings.json"),
@@ -314,7 +351,6 @@ describe("storage migration", () => {
       assert.deepEqual(yield* fs.readDirectory(otherDisk), ["big.png"]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("points a link inside the legacy tree at the migrated copy", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -323,9 +359,9 @@ describe("storage migration", () => {
       yield* fs.writeFileString(path.join(state, "kb-real.json"), "[]");
       yield* fs.symlink("kb-real.json", path.join(state, "keybindings.json"));
       yield* fs.symlink(path.join(state, "attachments"), path.join(state, "browser-artifacts"));
-
-      yield* runStorageMigration(input, { replaceExisting: false });
-
+      yield* runStorageMigration(input, {
+        replaceExisting: false,
+      });
       const keybindings = path.join(split("config"), "keybindings.json");
       assert.equal(
         yield* fs.readLink(keybindings),
@@ -338,7 +374,6 @@ describe("storage migration", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("drops temporary files an interrupted record write left behind", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -348,9 +383,9 @@ describe("storage migration", () => {
         yield* fs.makeDirectory(path.join(state, name));
         yield* fs.writeFileString(path.join(state, name, "contents.tmp"), "{");
       }
-
-      const result = yield* runStorageMigration(input, { replaceExisting: false });
-
+      const result = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      });
       assert.isUndefined(result.plan.entries.find((entry) => entry.source.includes(".json.")));
       const leftovers = (yield* fs.readDirectory(state)).filter((name) => name.includes(".json."));
       assert.deepEqual(leftovers, []);
@@ -359,7 +394,6 @@ describe("storage migration", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("lets only one migration or rollback run at a time", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -367,10 +401,9 @@ describe("storage migration", () => {
       const { input, state, split } = yield* makeFixture();
       const lock = path.join(state, "storage-migration.lock");
       yield* fs.writeFileString(lock, `${String(process.pid)}\n`);
-
-      const migrating = yield* runStorageMigration(input, { replaceExisting: false }).pipe(
-        Effect.flip,
-      );
+      const migrating = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      }).pipe(Effect.flip);
       const rollingBack = yield* rollbackStorageMigration(input).pipe(Effect.flip);
       for (const error of [migrating, rollingBack]) {
         assert.instanceOf(error, StorageMigrationBlockedError);
@@ -380,11 +413,14 @@ describe("storage migration", () => {
 
       // A lock whose owner died is taken over, and released afterwards.
       yield* fs.writeFileString(lock, `${String(DEAD_PID)}\n`);
-      assert.isTrue((yield* runStorageMigration(input, { replaceExisting: false })).migrated);
+      assert.isTrue(
+        (yield* runStorageMigration(input, {
+          replaceExisting: false,
+        })).migrated,
+      );
       assert.isFalse(yield* fs.exists(lock));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("fails instead of verifying a tree it could not fully read", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -395,26 +431,27 @@ describe("storage migration", () => {
       yield* fs.writeFileString(path.join(locked, "secret.png"), "png");
       yield* fs.chmod(locked, 0o000);
       yield* Effect.addFinalizer(() => fs.chmod(locked, 0o700).pipe(Effect.ignore));
-
-      const error = yield* runStorageMigration(input, { replaceExisting: false }).pipe(Effect.flip);
-
+      const error = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      }).pipe(Effect.flip);
       assert.instanceOf(error, StorageMigrationReadError);
       assert.isFalse(yield* fs.exists(path.join(split("data"), "attachments")));
       assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.json")));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("places nothing when a copy cannot be written", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { input, state, split, client } = yield* makeFixture();
-      yield* fs.makeDirectory(client("config"), { recursive: true });
+      yield* fs.makeDirectory(client("config"), {
+        recursive: true,
+      });
       yield* fs.chmod(client("config"), 0o500);
       yield* Effect.addFinalizer(() => fs.chmod(client("config"), 0o700).pipe(Effect.ignore));
-
-      const error = yield* runStorageMigration(input, { replaceExisting: false }).pipe(Effect.flip);
-
+      const error = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      }).pipe(Effect.flip);
       assert.instanceOf(error, StorageMigrationCopyError);
       for (const directory of [split("config"), split("state"), split("data"), client("state")]) {
         const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
@@ -423,7 +460,6 @@ describe("storage migration", () => {
       assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.pending.json")));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("places nothing when a copy fails verification", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -441,12 +477,9 @@ describe("storage migration", () => {
               ),
             ),
       }));
-
-      const error = yield* runStorageMigration(input, { replaceExisting: false }).pipe(
-        Effect.provide(corrupting),
-        Effect.flip,
-      );
-
+      const error = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      }).pipe(Effect.provide(corrupting), Effect.flip);
       assert.instanceOf(error, StorageMigrationVerificationError);
       for (const directory of [split("config"), split("state"), split("data"), client("state")]) {
         const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
@@ -456,7 +489,6 @@ describe("storage migration", () => {
       assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.pending.json")));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("compares large files in chunks and catches a difference in the last one", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -464,12 +496,13 @@ describe("storage migration", () => {
       const { input, state, split } = yield* makeFixture();
       const large = new Uint8Array(3 * 1024 * 1024 + 7).fill(7);
       yield* fs.writeFile(path.join(state, "attachments", "large.bin"), large);
-      yield* fs.makeDirectory(path.join(split("data"), "attachments"), { recursive: true });
+      yield* fs.makeDirectory(path.join(split("data"), "attachments"), {
+        recursive: true,
+      });
       yield* fs.writeFile(path.join(split("data"), "attachments", "image.png"), Buffer.from("png"));
       const changed = large.slice();
       changed[changed.length - 1] = 8;
       yield* fs.writeFile(path.join(split("data"), "attachments", "large.bin"), changed);
-
       const plan = yield* planStorageMigration(input);
       assert.equal(
         plan.entries.find((entry) => entry.source.endsWith("attachments"))?.status,
@@ -483,7 +516,6 @@ describe("storage migration", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("leaves files that a client dir or server override already holds", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -494,12 +526,19 @@ describe("storage migration", () => {
       const dataDir = path.join(root, "server-data");
       yield* fs.makeDirectory(clientDir);
       yield* fs.writeFileString(path.join(clientDir, "client-settings.json"), '{"live":true}');
-
       const result = yield* runStorageMigration(
-        { ...input, clientDir, serverOverrides: { configDir, dataDir } },
-        { replaceExisting: false },
+        {
+          ...input,
+          clientDir,
+          serverOverrides: {
+            configDir,
+            dataDir,
+          },
+        },
+        {
+          replaceExisting: false,
+        },
       );
-
       assert.isTrue(result.migrated);
       assert.deepEqual(result.plan.entries.map((entry) => path.basename(entry.source)).toSorted(), [
         "clerk-tokens.json",
@@ -526,37 +565,42 @@ describe("storage migration", () => {
       assert.isTrue(yield* fs.exists(path.join(state, "storage-migration.json")));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("retires a legacy tree whose only trace is its caches, copying nothing", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-storage-migration-caches-" });
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-storage-migration-caches-",
+      });
       const { input } = yield* makeFixture();
       const legacyRoots = resolveLegacyT3StorageRoots({
         baseDir: path.join(root, ".t3"),
         stateDirectoryName: "userdata",
         path,
       });
-      yield* fs.makeDirectory(legacyRoots.cacheDir, { recursive: true });
+      yield* fs.makeDirectory(legacyRoots.cacheDir, {
+        recursive: true,
+      });
       const cachesOnly = {
         ...input,
         legacyRoots,
         legacyElectronProfile: path.join(root, "missing"),
       };
-
-      const result = yield* runStorageMigration(cachesOnly, { replaceExisting: false });
-
+      const result = yield* runStorageMigration(cachesOnly, {
+        replaceExisting: false,
+      });
       assert.isTrue(result.migrated);
       assert.lengthOf(result.plan.entries, 0);
       assert.deepEqual(result.plan.skipped, [
-        { path: legacyRoots.cacheDir, reason: `regenerated under ${input.serverRoots.cacheDir}` },
+        {
+          path: legacyRoots.cacheDir,
+          reason: `regenerated under ${input.serverRoots.cacheDir}`,
+        },
       ]);
       assert.isTrue(yield* fs.exists(path.join(legacyRoots.stateDir, "storage-migration.json")));
       assert.deepEqual(yield* fs.readDirectory(legacyRoots.cacheDir), []);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("refuses while a server still runs from the legacy tree", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -572,14 +616,14 @@ describe("storage migration", () => {
           startedAt: "2026-10-01T00:00:00.000Z",
         }),
       );
-
-      const error = yield* runStorageMigration(input, { replaceExisting: false }).pipe(Effect.flip);
+      const error = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      }).pipe(Effect.flip);
       assert.instanceOf(error, StorageMigrationBlockedError);
       assert.isFalse(yield* fs.exists(split("state")));
       assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.json")));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("refuses while the desktop app runs with the legacy profile", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -590,7 +634,6 @@ describe("storage migration", () => {
         `${NodeOS.hostname()}-${String(process.pid)}`,
         path.join(legacyProfile, "SingletonLock"),
       );
-
       const plan = yield* planStorageMigration(input);
       assert.lengthOf(
         plan.blockers.filter((blocker) => blocker.includes("desktop app is running")),
@@ -598,7 +641,6 @@ describe("storage migration", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("refuses while a background service still serves the legacy tree", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -609,36 +651,41 @@ describe("storage migration", () => {
         serviceUnitPath,
         `[Service]\nEnvironment=T3CODE_HOME=${input.legacyRoots.legacyBaseDir}\n`,
       );
-
-      const plan = yield* planStorageMigration({ ...input, serviceUnitPath });
+      const plan = yield* planStorageMigration({
+        ...input,
+        serviceUnitPath,
+      });
       const blocker = plan.blockers.find((entry) => entry.includes(serviceUnitPath));
       assert.include(blocker, "t3 service uninstall");
-
       yield* fs.writeFileString(
         serviceUnitPath,
         `[Service]\nEnvironment=T3CODE_DATA_DIR=${input.serverRoots.dataDir}\n`,
       );
       assert.isUndefined(
-        (yield* planStorageMigration({ ...input, serviceUnitPath })).blockers.find((entry) =>
-          entry.includes(serviceUnitPath),
-        ),
+        (yield* planStorageMigration({
+          ...input,
+          serviceUnitPath,
+        })).blockers.find((entry) => entry.includes(serviceUnitPath)),
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("moves conflicting destinations aside only when asked", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { input, split } = yield* makeFixture();
-      yield* fs.makeDirectory(split("config"), { recursive: true });
+      yield* fs.makeDirectory(split("config"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(split("config"), "settings.json"), '{"stale":true}');
-
-      const error = yield* runStorageMigration(input, { replaceExisting: false }).pipe(Effect.flip);
+      const error = yield* runStorageMigration(input, {
+        replaceExisting: false,
+      }).pipe(Effect.flip);
       assert.instanceOf(error, StorageMigrationConflictError);
       assert.isFalse(yield* fs.exists(split("state")));
-
-      const result = yield* runStorageMigration(input, { replaceExisting: true });
+      const result = yield* runStorageMigration(input, {
+        replaceExisting: true,
+      });
       assert.lengthOf(result.replaced, 1);
       assert.equal(yield* fs.readFileString(result.replaced[0]!), '{"stale":true}');
       assert.equal(
@@ -647,25 +694,23 @@ describe("storage migration", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("removes its copies and restores what it moved aside when placing fails", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { input, state, split, selectedLayout } = yield* makeFixture();
-      yield* fs.makeDirectory(path.join(split("data"), "attachments"), { recursive: true });
+      yield* fs.makeDirectory(path.join(split("data"), "attachments"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(split("data"), "attachments", "old.png"), "old");
       const settings = path.join(split("config"), "settings.json");
       const failingSettings = sabotage((real) => ({
         rename: (from, to) =>
           to === settings ? real.rename(`${from}.missing`, to) : real.rename(from, to),
       }));
-
-      const error = yield* runStorageMigration(input, { replaceExisting: true }).pipe(
-        Effect.provide(failingSettings),
-        Effect.flip,
-      );
-
+      const error = yield* runStorageMigration(input, {
+        replaceExisting: true,
+      }).pipe(Effect.provide(failingSettings), Effect.flip);
       assert.instanceOf(error, StorageMigrationMoveError);
       assert.deepEqual(yield* fs.readDirectory(path.join(split("data"), "attachments")), [
         "old.png",
@@ -677,18 +722,20 @@ describe("storage migration", () => {
       assert.equal(selectedLayout(), "legacy");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("rolls back to the legacy tree without deleting newer data", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { input, state, split, selectedLayout } = yield* makeFixture();
-      yield* fs.makeDirectory(split("config"), { recursive: true });
+      yield* fs.makeDirectory(split("config"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(split("config"), "settings.json"), '{"stale":true}');
-      yield* runStorageMigration(input, { replaceExisting: true });
+      yield* runStorageMigration(input, {
+        replaceExisting: true,
+      });
       // A server that ran on the split layout may leave an uncheckpointed WAL.
       yield* fs.writeFileString(path.join(split("state"), "statev2.sqlite-wal"), "newer writes");
-
       const { rolledBack } = yield* rollbackStorageMigration(input);
       assert.isFalse(yield* fs.exists(path.join(state, "storage-migration.json")));
       assert.equal(selectedLayout(), "legacy");
@@ -701,39 +748,44 @@ describe("storage migration", () => {
       assert.equal(yield* fs.readFileString(`${databaseAside!}-wal`), "newer writes");
       assert.isFalse(yield* fs.exists(path.join(split("state"), "statev2.sqlite-wal")));
       assert.isUndefined((yield* planStorageMigration(input)).migratedAt);
-
       const again = yield* rollbackStorageMigration(input);
       assert.lengthOf(again.rolledBack, 0);
       // The legacy tree can be migrated again from scratch.
-      assert.isTrue((yield* runStorageMigration(input, { replaceExisting: true })).migrated);
+      assert.isTrue(
+        (yield* runStorageMigration(input, {
+          replaceExisting: true,
+        })).migrated,
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
-
   it.effect("finishes an interrupted rollback without moving restored data aside again", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const { input, state, split } = yield* makeFixture();
-      yield* fs.makeDirectory(path.join(split("data"), "attachments"), { recursive: true });
+      yield* fs.makeDirectory(path.join(split("data"), "attachments"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(split("data"), "attachments", "old.png"), "old");
-      yield* fs.makeDirectory(split("config"), { recursive: true });
+      yield* fs.makeDirectory(split("config"), {
+        recursive: true,
+      });
       yield* fs.writeFileString(path.join(split("config"), "settings.json"), '{"stale":true}');
-      yield* runStorageMigration(input, { replaceExisting: true });
+      yield* runStorageMigration(input, {
+        replaceExisting: true,
+      });
       const settings = path.join(split("config"), "settings.json");
       const failingSettings = sabotage((real) => ({
         rename: (from, to) =>
           from === settings ? Effect.die(new Error("disk went away")) : real.rename(from, to),
       }));
-
       const failure = yield* rollbackStorageMigration(input).pipe(
         Effect.provide(failingSettings),
         Effect.exit,
       );
       assert.isTrue(failure._tag === "Failure");
       assert.isTrue(yield* fs.exists(path.join(state, "storage-migration.json")));
-
       yield* rollbackStorageMigration(input);
-
       assert.deepEqual(yield* fs.readDirectory(path.join(split("data"), "attachments")), [
         "old.png",
       ]);

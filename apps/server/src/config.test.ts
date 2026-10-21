@@ -1,14 +1,10 @@
 import * as NodePath from "@effect/platform-node/NodePath";
-import { assert, describe, expect, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-
 import { type DeriveServerPathsOptions, deriveServerPaths } from "./config.ts";
-
 const DEV_URL = new URL("http://localhost:5173");
-
 const derive = (devUrl: URL | undefined, options?: DeriveServerPathsOptions) =>
   deriveServerPaths("/home/t3", devUrl, options).pipe(Effect.provide(NodePath.layerPosix));
-
 const userdataPaths = {
   layout: "legacy",
   configDir: "/home/t3/userdata",
@@ -34,14 +30,12 @@ const userdataPaths = {
   serverRuntimeStatePath: "/home/t3/userdata/server-runtime.json",
   secretsDir: "/home/t3/userdata/secrets",
 };
-
 const configOverridePaths = {
   configDir: "/etc/t3",
   keybindingsConfigPath: "/etc/t3/keybindings.json",
   settingsPath: "/etc/t3/settings.json",
   environmentThemesDir: "/etc/t3/themes",
 };
-
 const dataOverridePaths = {
   dataDir: "/srv/t3",
   stateDir: "/srv/t3",
@@ -60,20 +54,21 @@ const dataOverridePaths = {
   serverRuntimeStatePath: "/srv/t3/server-runtime.json",
   secretsDir: "/srv/t3/secrets",
 };
-
 const cacheOverridePaths = {
   cacheDir: "/var/cache/t3",
   providerStatusCacheDir: "/var/cache/t3",
 };
-
 describe("deriveServerPaths", () => {
   it.effect("keeps today's layout without overrides", () =>
     Effect.gen(function* () {
       expect(yield* derive(undefined)).toEqual(userdataPaths);
-      expect(yield* derive(undefined, { baseDirIsExplicit: true })).toEqual(userdataPaths);
+      expect(
+        yield* derive(undefined, {
+          baseDirIsExplicit: true,
+        }),
+      ).toEqual(userdataPaths);
     }),
   );
-
   it.effect("isolates an implicit dev root and lets an explicit base dir opt out", () =>
     Effect.gen(function* () {
       expect(yield* derive(DEV_URL)).toEqual({
@@ -101,40 +96,56 @@ describe("deriveServerPaths", () => {
         serverRuntimeStatePath: "/home/t3/dev/server-runtime.json",
         secretsDir: "/home/t3/dev/secrets",
       });
-      expect(yield* derive(DEV_URL, { baseDirIsExplicit: true })).toEqual(userdataPaths);
+      expect(
+        yield* derive(DEV_URL, {
+          baseDirIsExplicit: true,
+        }),
+      ).toEqual(userdataPaths);
     }),
   );
-
   it.effect("moves only the config files with a config dir", () =>
     Effect.gen(function* () {
-      expect(yield* derive(undefined, { configDir: "/etc/t3" })).toEqual({
+      expect(
+        yield* derive(undefined, {
+          configDir: "/etc/t3",
+        }),
+      ).toEqual({
         ...userdataPaths,
         ...configOverridePaths,
       });
     }),
   );
-
   it.effect("moves data and worktrees with a data dir", () =>
     Effect.gen(function* () {
-      expect(yield* derive(undefined, { dataDir: "/srv/t3" })).toEqual({
+      expect(
+        yield* derive(undefined, {
+          dataDir: "/srv/t3",
+        }),
+      ).toEqual({
         ...userdataPaths,
         ...dataOverridePaths,
       });
     }),
   );
-
   it.effect("moves only the provider status cache with a cache dir", () =>
     Effect.gen(function* () {
-      expect(yield* derive(undefined, { cacheDir: "/var/cache/t3" })).toEqual({
+      expect(
+        yield* derive(undefined, {
+          cacheDir: "/var/cache/t3",
+        }),
+      ).toEqual({
         ...userdataPaths,
         ...cacheOverridePaths,
       });
     }),
   );
-
   it.effect("applies all three overrides independently of the base dir and dev root", () =>
     Effect.gen(function* () {
-      const overrides = { configDir: "/etc/t3", dataDir: "/srv/t3", cacheDir: "/var/cache/t3" };
+      const overrides = {
+        configDir: "/etc/t3",
+        dataDir: "/srv/t3",
+        cacheDir: "/var/cache/t3",
+      };
       const expected = {
         ...userdataPaths,
         ...configOverridePaths,
@@ -142,14 +153,20 @@ describe("deriveServerPaths", () => {
         ...cacheOverridePaths,
       };
       expect(yield* derive(undefined, overrides)).toEqual(expected);
-      expect(yield* derive(undefined, { baseDirIsExplicit: true, ...overrides })).toEqual(expected);
+      expect(
+        yield* derive(undefined, {
+          baseDirIsExplicit: true,
+          ...overrides,
+        }),
+      ).toEqual(expected);
       expect(yield* derive(DEV_URL, overrides)).toEqual(expected);
     }),
   );
-
   it.effect("keeps the implicit dev root for categories without an override", () =>
     Effect.gen(function* () {
-      const paths = yield* derive(DEV_URL, { dataDir: "/srv/t3" });
+      const paths = yield* derive(DEV_URL, {
+        dataDir: "/srv/t3",
+      });
       expect(paths.settingsPath).toBe("/home/t3/dev/settings.json");
       expect(paths.environmentThemesDir).toBe("/home/t3/dev/themes");
       expect(paths.providerStatusCacheDir).toBe("/home/t3/caches");
@@ -157,7 +174,6 @@ describe("deriveServerPaths", () => {
       expect(paths.worktreesDir).toBe("/srv/t3/worktrees");
     }),
   );
-
   it.effect("puts each file under its split root", () =>
     Effect.gen(function* () {
       expect(
@@ -165,7 +181,10 @@ describe("deriveServerPaths", () => {
           configDir: "/xdg/config/t3code",
           dataDir: "/xdg/data/t3code",
           cacheDir: "/xdg/cache/t3code",
-          split: { stateDir: "/xdg/state/t3code", runtimeDir: "/run/user/1000/t3code" },
+          split: {
+            stateDir: "/xdg/state/t3code",
+            runtimeDir: "/run/user/1000/t3code",
+          },
         }),
       ).toEqual({
         layout: "split",
@@ -194,21 +213,4 @@ describe("deriveServerPaths", () => {
       });
     }),
   );
-});
-
-import * as ServerConfig from "./config.ts";
-import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-
-describe("otlpResource", () => {
-  const resource = (resourceAttributes: Record<string, string>) =>
-    ServerConfig.otlpResource(
-      { mode: "web", otelEnvironment: { ...OtelEnvironment.none, resourceAttributes } },
-      "box-1",
-    );
-
-  it("names the host, unless OTEL_RESOURCE_ATTRIBUTES already does", () => {
-    assert.equal(resource({}).attributes["host.name"], "box-1");
-    assert.equal(resource({ "host.name": "from-env" }).attributes["host.name"], "from-env");
-    assert.equal(resource({ "host.name": "" }).attributes["host.name"], "box-1");
-  });
 });

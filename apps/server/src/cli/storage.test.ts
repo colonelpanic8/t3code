@@ -5,9 +5,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-
 import { resolveMigrationInput } from "./storage.ts";
-
 const noFlags = {
   baseDir: Option.none<string>(),
   clientDir: Option.none<string>(),
@@ -15,13 +13,19 @@ const noFlags = {
   serverDataDir: Option.none<string>(),
   serverConfigFile: Option.none<string>(),
 };
-
 const inputFor = (platform: NodeJS.Platform, env: Record<string, string>) =>
   resolveMigrationInput(noFlags).pipe(
     Effect.provideService(HostProcess.Platform, platform),
     Effect.provideService(HostProcess.HomeDirectory, "/home/alice"),
     Effect.provide(
-      Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NodeServices.layer),
+      Layer.mergeAll(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env,
+          }),
+        ),
+        NodeServices.layer,
+      ),
     ),
   );
 
@@ -41,10 +45,11 @@ describe("t3 storage migrate locations", () => {
       assert.equal(input.serviceUnitPath, "/home/alice/.config/systemd/user/t3code.service");
     }),
   );
-
   it.effect("ignores XDG variables on macOS, as the desktop does", () =>
     Effect.gen(function* () {
-      const input = yield* inputFor("darwin", { XDG_STATE_HOME: "/xdg/state" });
+      const input = yield* inputFor("darwin", {
+        XDG_STATE_HOME: "/xdg/state",
+      });
       assert.equal(
         input.legacyElectronProfile,
         "/home/alice/Library/Application Support/t3code-v2",
@@ -55,7 +60,6 @@ describe("t3 storage migrate locations", () => {
       );
     }),
   );
-
   it.effect("uses APPDATA and LOCALAPPDATA on Windows", () =>
     Effect.gen(function* () {
       const input = yield* inputFor("win32", {
@@ -67,7 +71,6 @@ describe("t3 storage migrate locations", () => {
       assert.isUndefined(input.serviceUnitPath);
     }),
   );
-
   it.effect("names the legacy tree from T3CODE_HOME and the client dir from its variable", () =>
     Effect.gen(function* () {
       const input = yield* inputFor("linux", {
