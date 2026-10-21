@@ -2,7 +2,6 @@
 import { describe, it } from "@effect/vitest";
 import { afterAll, expect } from "vite-plus/test";
 import * as NodeChildProcess from "node:child_process";
-
 import {
   buildWslRuntimeInstallScript,
   buildWslRuntimeInvalidateScript,
@@ -17,11 +16,16 @@ import {
 // the WSL distro on a Windows dev box, where Git Bash ships no flock. Anywhere
 // else the executed suite skips and the generated-text assertions stand alone.
 const REQUIRED_SHELL_TOOLS = ["flock", "sha256sum", "tar", "mktemp"] as const;
-
 const posixShellRunner = (() => {
   const candidates = [
-    { file: "bash", args: [] as ReadonlyArray<string> },
-    { file: "wsl.exe", args: ["-e", "bash"] as ReadonlyArray<string> },
+    {
+      file: "bash",
+      args: [] as ReadonlyArray<string>,
+    },
+    {
+      file: "wsl.exe",
+      args: ["-e", "bash"] as ReadonlyArray<string>,
+    },
   ];
   const probe = [
     "[ -d /proc/1 ] || exit 1",
@@ -36,7 +40,6 @@ const posixShellRunner = (() => {
     }) ?? null
   );
 })();
-
 const runShell = (script: string) => {
   if (posixShellRunner === null) throw new Error("no POSIX shell runner available");
   // The install script arrives on stdin in production too, which is what lets
@@ -44,13 +47,18 @@ const runShell = (script: string) => {
   const result = NodeChildProcess.spawnSync(
     posixShellRunner.file,
     [...posixShellRunner.args, "-s"],
-    { input: script, encoding: "utf8" },
+    {
+      input: script,
+      encoding: "utf8",
+    },
   );
-  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
 };
-
 const sh = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-
 const awaitHolder = (condition: string) =>
   `i=0; until ${condition}; do i=$((i + 1)); [ "$i" -lt 500 ] || exit 1; sleep 0.01; done`;
 
@@ -63,20 +71,23 @@ const holdRuntimeBusy = (entry: string) =>
     `exec 7> >(exec -a ${entry} cat >/dev/null 2>&1)`,
     awaitHolder(`grep -qF -- ${entry} /proc/[0-9]*/cmdline 2>/dev/null`),
   ].join("\n");
-
 const holdInstallLock = (lock: string) =>
   [
     `exec 6> >(exec 9> ${lock}; flock -x 9; cat >/dev/null 2>&1)`,
     awaitHolder(`! flock -n ${lock} true`),
   ].join("\n");
-
 const readField = (stdout: string, field: string) => {
   const line = stdout.split("\n").find((candidate) => candidate.startsWith(`${field}:`));
   if (line === undefined) throw new Error(`missing ${field} in fixture output: ${stdout}`);
   return line.slice(field.length + 1).trim();
 };
-
 const SERVER_ENTRY_SOURCE = '#!/bin/sh\necho "t3code wsl runtime test server 0.0.0"\n';
+const encoder = new TextEncoder();
+
+// The install script only fails the way this file cares about when a real shell
+// runs it, so find one that has the tools it needs: bash directly on Linux, and
+// the WSL distro on a Windows dev box, where Git Bash ships no flock. Anywhere
+// else the executed suite skips and the generated-text assertions stand alone.
 
 describe("WSL runtime cache", () => {
   it.each([
@@ -93,15 +104,12 @@ describe("WSL runtime cache", () => {
     expect(script).not.toContain(runtimeId);
   });
 });
-
 describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed)", () => {
   const fixtures: Array<string> = [];
-
   afterAll(() => {
     for (const work of fixtures) runShell(`set -eu\nrm -rf ${sh(work)}`);
     fixtures.length = 0;
   });
-
   const createFixture = (serverEntry = SERVER_ENTRY_SOURCE) => {
     const result = runShell(
       [
@@ -118,7 +126,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
       ].join("\n"),
     );
     expect(result.status, result.stderr).toBe(0);
-
     const work = readField(result.stdout, "work");
     fixtures.push(work);
     const archivePath = `${work}/wsl-runtime.tar.gz`;
@@ -144,7 +151,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
       install: (archive?: string, sha?: string) => runShell(installScript(archive, sha)),
     };
   };
-
   const probeFixture = (fixture: ReturnType<typeof createFixture>) =>
     runShell(
       [
@@ -162,7 +168,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         buildWslRuntimeProbeScript(fixture.runtimeRoot),
       ].join("\n"),
     );
-
   it("discovers version-managed Node for providers with a standalone runtime", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
@@ -176,9 +181,7 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
       ].join("\n"),
     );
     expect(setup.status, setup.stderr).toBe(0);
-
     const probe = probeFixture(fixture);
-
     expect(probe.status, probe.stderr).toBe(0);
     const resolvedPath = parseResolvedPath(probe.stdout);
     expect(resolvedPath?.split(":")).toContain(nodeBin);
@@ -186,7 +189,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     expect(provider.status, provider.stderr).toBe(0);
     expect(provider.stdout).toBe("linux-node-provider\n");
   });
-
   it("keeps the inherited PATH when bash is unavailable", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
@@ -197,47 +199,36 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         buildWslRuntimeProbeScript(fixture.runtimeRoot),
       ].join("\n"),
     );
-
     expect(probe.status, probe.stderr).toBe(0);
     expect(parseResolvedPath(probe.stdout)).toBe("/fixture/bin:/usr/bin:/bin");
   });
-
   it("reuses a warm cache without touching the archive", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
     expect(runShell(`set -eu\nrm ${sh(fixture.archivePath)}`).status).toBe(0);
-
     const warm = fixture.install();
-
     expect(warm.status, warm.stderr).toBe(0);
     expect(parseWslRuntimeRoot(warm.stdout)).toBe(fixture.runtimeRoot);
   });
-
   it("retains the loader error when a bundled executable needs a missing system library", () => {
     const fixture = createFixture(
       '#!/bin/sh\nprintf "error while loading shared libraries: libatomic.so.1: cannot open shared object file\\n" >&2\nexit 127\n',
     );
-
     const result = fixture.install();
-
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("libatomic.so.1");
     expect(parseWslRuntimeRoot(result.stdout)).toBeNull();
   });
-
   it("reinstalls a cache whose executable was truncated", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
     expect(runShell(`set -eu\n: > ${sh(fixture.serverEntry)}`).status).toBe(0);
-
     const repaired = fixture.install();
-
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(parseWslRuntimeRoot(repaired.stdout)).toBe(fixture.runtimeRoot);
     const restored = runShell(`set -eu\ncat ${sh(fixture.serverEntry)}`);
     expect(restored.stdout).toBe(SERVER_ENTRY_SOURCE);
   });
-
   it("reinstalls an executable that fails --version despite a matching recorded digest", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
@@ -252,26 +243,21 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     );
     expect(corrupt.status, corrupt.stderr).toBe(0);
     expect(runShell(`${sh(fixture.serverEntry)} --version`).status).toBe(42);
-
     const repaired = fixture.install();
     expect(repaired.status, repaired.stderr).toBe(0);
     expect(parseWslRuntimeRoot(repaired.stdout)).toBe(fixture.runtimeRoot);
     expect(runShell(`cat ${sh(fixture.serverEntry)}`).stdout).toBe(SERVER_ENTRY_SOURCE);
     expect(runShell(`${sh(fixture.serverEntry)} --version`).status).toBe(0);
   });
-
   it("falls back instead of launching a corrupted cache it cannot reinstall", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
     expect(runShell(`set -eu\n: > ${sh(fixture.serverEntry)}`).status).toBe(0);
     expect(runShell(`set -eu\nrm ${sh(fixture.archivePath)}`).status).toBe(0);
-
     const broken = fixture.install();
-
     expect(broken.status).not.toBe(0);
     expect(parseWslRuntimeRoot(broken.stdout)).toBeNull();
   });
-
   it("extracts once when two installs race for the same cache", () => {
     const fixture = createFixture();
     const raced = runShell(
@@ -303,7 +289,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         `printf 'secondRoot:%s\\n' "$(sed -n 's/^runtimeRoot://p' "$work/second.out")"`,
       ].join("\n"),
     );
-
     expect(raced.status, raced.stderr).toBe(0);
     expect(readField(raced.stdout, "firstStatus")).toBe("0");
     expect(readField(raced.stdout, "secondStatus")).toBe("0");
@@ -311,7 +296,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     expect(readField(raced.stdout, "firstRoot")).toBe(fixture.runtimeRoot);
     expect(readField(raced.stdout, "secondRoot")).toBe(fixture.runtimeRoot);
   });
-
   it("leaves no half-built cache when extraction fails", () => {
     const fixture = createFixture();
     const truncated = runShell(
@@ -324,12 +308,10 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
       ].join("\n"),
     );
     expect(truncated.status, truncated.stderr).toBe(0);
-
     const failed = fixture.install(
       `${fixture.work}/truncated.tar.gz`,
       readField(truncated.stdout, "sha"),
     );
-
     expect(failed.status).not.toBe(0);
     expect(parseWslRuntimeRoot(failed.stdout)).toBeNull();
     const leftovers = runShell(
@@ -337,12 +319,9 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     );
     expect(leftovers.stdout.trim()).toBe("");
   });
-
   it("refuses an archive whose bytes do not match the digest recorded for it", () => {
     const fixture = createFixture();
-
     const refused = fixture.install(fixture.archivePath, "e".repeat(64));
-
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toContain("does not match its recorded SHA-256");
     expect(parseWslRuntimeRoot(refused.stdout)).toBeNull();
@@ -351,7 +330,6 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
     );
     expect(leftovers.stdout.trim()).toBe("");
   });
-
   it("leases a warm cache across the prepare-to-spawn handoff", () => {
     const fixture = createFixture();
     expect(fixture.install().status).toBe(0);
@@ -374,10 +352,8 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         `test -d ${sh(fixture.runtimeRoot)}`,
       ].join("\n"),
     );
-
     expect(selected.status, `${selected.stdout}\n${selected.stderr}`).toBe(0);
   });
-
   it("prunes old and markerless caches without touching retained, active, locked, or unrelated roots", () => {
     const result = runShell(
       [
@@ -412,11 +388,9 @@ describe.skipIf(posixShellRunner === null)("WSL runtime install script (executed
         'rm -rf "$work"',
       ].join("\n"),
     );
-
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
   });
 });
-
 describe("parseResolvedPath", () => {
   it("preserves spaces and apostrophes in the resolved login-shell PATH", () => {
     const resolvedPath = "/home/test user/bin:/opt/test's tools/bin:/usr/bin:/bin";
@@ -424,7 +398,6 @@ describe("parseResolvedPath", () => {
       resolvedPath,
     );
   });
-
   it("accepts CRLF output without retaining the carriage return", () => {
     expect(parseResolvedPath("resolvedPath:/usr/local/bin:/usr/bin\r\n")).toBe(
       "/usr/local/bin:/usr/bin",

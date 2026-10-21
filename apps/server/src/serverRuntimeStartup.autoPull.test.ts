@@ -94,6 +94,8 @@ it.effect("parks automatic pull until activation without delaying command readin
           staticDir: undefined,
           devAllowedOrigins: [],
           desktopBootstrapToken: undefined,
+          managedAccessToken: undefined,
+          environmentIdOverride: undefined,
           logWebSocketEvents: false,
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
@@ -106,6 +108,9 @@ it.effect("parks automatic pull until activation without delaying command readin
           startupPresentation: "browser",
           autoBootstrapProjectFromCwd: false,
           serverConfigFile: undefined,
+        }),
+        Layer.mock(Keybindings.Keybindings)({
+          start: Effect.void,
         }),
         Layer.mock(Keybindings.Keybindings)({
           start: Effect.void,
