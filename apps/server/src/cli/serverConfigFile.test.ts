@@ -12,21 +12,18 @@ const withHome = async (run: (root: string, home: string) => Promise<void>) => {
   const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-server-json-cli-"));
   const home = NodePath.join(root, "home");
   await NodeFSP.mkdir(NodePath.join(home, "userdata"), {
-    recursive: true,
+    recursive: true
   });
-  await NodeFSP.writeFile(
-    NodePath.join(home, "userdata", "server.json"),
-    JSON.stringify({
-      logLevel: "Info",
-      futureOption: true,
-    }),
-  );
+  await NodeFSP.writeFile(NodePath.join(home, "userdata", "server.json"), JSON.stringify({
+    logLevel: "Info",
+    futureOption: true
+  }));
   try {
     await run(root, home);
   } finally {
     await NodeFSP.rm(root, {
       recursive: true,
-      force: true,
+      force: true
     });
   }
 };
@@ -36,33 +33,24 @@ const cliEnv = (root: string, home: string) => ({
   HOME: root,
   PATH: NodePath.dirname(process.execPath),
   T3CODE_HOME: home,
-  T3CODE_TELEMETRY_ENABLED: "false",
+  T3CODE_TELEMETRY_ENABLED: "false"
 });
-const freePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const server = NodeNet.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      server.close(() =>
-        typeof address === "object" && address !== null
-          ? resolve(address.port)
-          : reject(new Error("no port")),
-      );
-    });
+const freePort = () => new Promise<number>((resolve, reject) => {
+  const server = NodeNet.createServer();
+  server.once("error", reject);
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    server.close(() => typeof address === "object" && address !== null ? resolve(address.port) : reject(new Error("no port")));
   });
+});
 it("keeps `auth pairing create --json` stdout a single JSON document", async () => {
   await withHome(async (root, home) => {
-    const result = NodeChildProcess.spawnSync(
-      process.execPath,
-      [binPath, "auth", "pairing", "create", "--json", "--base-dir", home],
-      {
-        cwd: root,
-        env: cliEnv(root, home),
-        encoding: "utf8",
-        timeout: 60_000,
-      },
-    );
+    const result = NodeChildProcess.spawnSync(process.execPath, [binPath, "auth", "pairing", "create", "--json", "--base-dir", home], {
+      cwd: root,
+      env: cliEnv(root, home),
+      encoding: "utf8",
+      timeout: 60_000
+    });
     assert.equal(result.status, 0, result.stderr);
     const pairing = JSON.parse(result.stdout) as {
       readonly credential?: unknown;
@@ -74,25 +62,18 @@ it("keeps `auth pairing create --json` stdout a single JSON document", async () 
 it("warns about unknown keys in the server log when `serve` starts", async () => {
   await withHome(async (root, home) => {
     const port = await freePort();
-    const child = NodeChildProcess.spawn(
-      process.execPath,
-      [binPath, "serve", "--base-dir", home, "--host", "127.0.0.1", "--port", String(port)],
-      {
-        cwd: root,
-        env: cliEnv(root, home),
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    const child = NodeChildProcess.spawn(process.execPath, [binPath, "serve", "--base-dir", home, "--host", "127.0.0.1", "--port", String(port)], {
+      cwd: root,
+      env: cliEnv(root, home),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const exited = new Promise<void>(resolve => child.once("exit", () => resolve()));
     try {
       const stdout = await new Promise<string>((resolve, reject) => {
         let output = "";
         // Rejects well inside the test timeout so the finally below always stops serve.
         // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- This deadline only rejects; stdout drives success.
-        const timeout = setTimeout(
-          () => reject(new Error(`no warning within 45s:\n${output}`)),
-          45_000,
-        );
+        const timeout = setTimeout(() => reject(new Error(`no warning within 45s:\n${output}`)), 45_000);
         child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
           output += chunk;
           if (unknownKeyWarning.test(output)) {

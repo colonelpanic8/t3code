@@ -10,7 +10,7 @@ afterEach(() => {
   for (const directory of directories.splice(0)) {
     NodeFS.rmSync(directory, {
       recursive: true,
-      force: true,
+      force: true
     });
   }
 });
@@ -21,76 +21,59 @@ const tempRoot = () => {
 };
 const writeExecutable = (path: string, content: string) => {
   NodeFS.mkdirSync(NodePath.dirname(path), {
-    recursive: true,
+    recursive: true
   });
   NodeFS.writeFileSync(path, content, {
-    mode: 0o755,
+    mode: 0o755
   });
 };
 const writeShim = (root: string, target: CliShimTarget) => {
   const shim = NodePath.join(root, "bin", "t3");
-  writeExecutable(
-    shim,
-    renderCliShim({
-      target,
-      shimPath: shim,
-      storageEnvironment: {
-        T3CODE_HOME: `${root}/home`,
-      },
-    }),
-  );
+  writeExecutable(shim, renderCliShim({
+    target,
+    shimPath: shim,
+    storageEnvironment: {
+      T3CODE_HOME: `${root}/home`
+    }
+  }));
   return shim;
 };
-const run = (shim: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) =>
-  NodeChildProcess.spawnSync(shim, args, {
-    encoding: "utf8",
-    env: {
-      PATH: process.env.PATH,
-      ...env,
-    },
-  });
-const REPORTER =
-  '#!/bin/sh\necho "node=$ELECTRON_RUN_AS_NODE cli=$T3CODE_CLI_PATH home=$T3CODE_HOME state=$T3CODE_STATE_DIR"\nprintf "%s\\n" "$@"\nexit 3\n';
+const run = (shim: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv = {}) => NodeChildProcess.spawnSync(shim, args, {
+  encoding: "utf8",
+  env: {
+    PATH: process.env.PATH,
+    ...env
+  }
+});
+const REPORTER = '#!/bin/sh\necho "node=$ELECTRON_RUN_AS_NODE cli=$T3CODE_CLI_PATH home=$T3CODE_HOME state=$T3CODE_STATE_DIR"\nprintf "%s\\n" "$@"\nexit 3\n';
 const fakeAppImage = (canMount = true) => {
   const root = tempRoot();
   const image = NodePath.join(root, "image");
   writeExecutable(NodePath.join(image, "t3code"), REPORTER);
   const appImage = NodePath.join(root, "T3 Code.AppImage");
-  writeExecutable(
-    appImage,
-    [
-      "#!/bin/sh",
-      `if [ "$1" = --appimage-extract ]; then cp -R '${image}' squashfs-root; exit 0; fi`,
-      '[ "$1" = --appimage-mount ] || exit 9',
-      '[ -n "$APPIMAGE_EXTRACT_AND_RUN" ] && exit 8',
-      canMount ? `echo '${image}'` : 'echo "Cannot mount AppImage"; exit 1',
-      `trap 'touch "${root}/unmounted"; exit 0' TERM`,
-      "while :; do sleep 0.05; done",
-      "",
-    ].join("\n"),
-  );
+  writeExecutable(appImage, ["#!/bin/sh", `if [ "$1" = --appimage-extract ]; then cp -R '${image}' squashfs-root; exit 0; fi`, '[ "$1" = --appimage-mount ] || exit 9', '[ -n "$APPIMAGE_EXTRACT_AND_RUN" ] && exit 8', canMount ? `echo '${image}'` : 'echo "Cannot mount AppImage"; exit 1', `trap 'touch "${root}/unmounted"; exit 0' TERM`, "while :; do sleep 0.05; done", ""].join("\n"));
   const shim = writeShim(root, {
     kind: "appimage",
     appImage,
-    executableName: "t3code",
+    executableName: "t3code"
   });
   return {
     root,
     image,
     appImage,
-    shim,
+    shim
   };
 };
 describe("renderCliShim", () => {
   it("extracts the AppImage where it cannot be mounted", () => {
-    const { shim } = fakeAppImage(false);
+    const {
+      shim
+    } = fakeAppImage(false);
     const result = run(shim, ["--version"], {
-      APPIMAGE_EXTRACT_AND_RUN: "1",
+      APPIMAGE_EXTRACT_AND_RUN: "1"
     });
     expect(result.status).toBe(3);
-    expect(result.stdout).toMatch(
-      /squashfs-root\/resources\/app\.asar\/apps\/server\/dist\/bin\.mjs/,
-    );
+    expect(result.stdout).toMatch(/squashfs-root\/resources\/app\.asar\/apps\/server\/dist\/bin\.mjs/);
   });
   it("keeps the install's T3 home under sudo, unless one is set", () => {
     const root = tempRoot();
@@ -98,23 +81,19 @@ describe("renderCliShim", () => {
     const shim = writeShim(root, {
       kind: "direct",
       executable: NodePath.join(root, "app"),
-      entry: "/bin.mjs",
+      entry: "/bin.mjs"
     });
     // sudo clears the environment, so the launcher supplies its own.
     expect(run(shim, []).stdout).toContain(`home=${root}/home`);
-    expect(
-      run(shim, [], {
-        T3CODE_HOME: "/elsewhere",
-      }).stdout,
-    ).toContain("home=/elsewhere");
-    expect(
-      run(shim, [], {
-        T3CODE_STATE_DIR: "/state",
-      }).stdout,
-    ).toContain("home= state=/state");
+    expect(run(shim, [], {
+      T3CODE_HOME: "/elsewhere"
+    }).stdout).toContain("home=/elsewhere");
+    expect(run(shim, [], {
+      T3CODE_STATE_DIR: "/state"
+    }).stdout).toContain("home= state=/state");
     const relative = NodeChildProcess.spawnSync("./bin/t3", [], {
       cwd: root,
-      encoding: "utf8",
+      encoding: "utf8"
     });
     expect(relative.stdout).toContain(`cli=${shim}`);
   });
@@ -122,28 +101,23 @@ describe("renderCliShim", () => {
     const root = tempRoot();
     writeExecutable(NodePath.join(root, "app"), REPORTER);
     const shim = NodePath.join(root, "bin", "t3");
-    writeExecutable(
-      shim,
-      renderCliShim({
-        target: {
-          kind: "direct",
-          executable: NodePath.join(root, "app"),
-          entry: "/bin.mjs",
-        },
-        shimPath: shim,
-        storageEnvironment: {
-          T3CODE_CONFIG_DIR: "/config",
-          T3CODE_STATE_DIR: "/state",
-        },
-      }),
-    );
+    writeExecutable(shim, renderCliShim({
+      target: {
+        kind: "direct",
+        executable: NodePath.join(root, "app"),
+        entry: "/bin.mjs"
+      },
+      shimPath: shim,
+      storageEnvironment: {
+        T3CODE_CONFIG_DIR: "/config",
+        T3CODE_STATE_DIR: "/state"
+      }
+    }));
     expect(run(shim, []).stdout).toContain("home= state=/state");
     // A caller's own server location override would conflict with pinned split roots.
-    expect(
-      run(shim, [], {
-        T3CODE_SERVER_DATA_DIR: "/data",
-      }).stdout,
-    ).toContain("home= state=\n");
+    expect(run(shim, [], {
+      T3CODE_SERVER_DATA_DIR: "/data"
+    }).stdout).toContain("home= state=\n");
   });
   it("runs an installed app's server directly", () => {
     const root = tempRoot();
@@ -152,14 +126,9 @@ describe("renderCliShim", () => {
     const shim = writeShim(root, {
       kind: "direct",
       executable,
-      entry: "/opt/T3's/app.asar/bin.mjs",
+      entry: "/opt/T3's/app.asar/bin.mjs"
     });
-    expect(run(shim, ["browser", "setup"]).stdout.split("\n").slice(1)).toEqual([
-      "/opt/T3's/app.asar/bin.mjs",
-      "browser",
-      "setup",
-      "",
-    ]);
+    expect(run(shim, ["browser", "setup"]).stdout.split("\n").slice(1)).toEqual(["/opt/T3's/app.asar/bin.mjs", "browser", "setup", ""]);
   });
   it("writes a Windows launcher that keeps cmd from reinterpreting paths", () => {
     const executable = "C:\\Apps\\R&whoami&X 100%\\!CHANNEL!\\T3 Code.exe";
@@ -167,22 +136,18 @@ describe("renderCliShim", () => {
       target: {
         kind: "windows",
         executable,
-        entry: "C:\\Apps\\server.asar\\bin.mjs",
+        entry: "C:\\Apps\\server.asar\\bin.mjs"
       },
       shimPath: "C:\\Users\\José\\.t3\\bin\\t3.cmd",
       storageEnvironment: {
-        T3CODE_HOME: "C:\\Users\\José\\.t3",
-      },
+        T3CODE_HOME: "C:\\Users\\José\\.t3"
+      }
     });
     const lines = script.split("\r\n");
     expect(lines).toContain("setlocal EnableExtensions DisableDelayedExpansion");
     expect(lines).toContain("chcp 65001 >nul");
-    expect(lines).toContain(
-      'if exist "C:\\Apps\\R&whoami&X 100%%\\!CHANNEL!\\T3 Code.exe" goto run',
-    );
-    const bare = lines.filter(
-      (line) => line.includes("whoami") && !/"[^"]*whoami[^"]*"/.test(line),
-    );
+    expect(lines).toContain('if exist "C:\\Apps\\R&whoami&X 100%%\\!CHANNEL!\\T3 Code.exe" goto run');
+    const bare = lines.filter(line => line.includes("whoami") && !/"[^"]*whoami[^"]*"/.test(line));
     expect(bare).toEqual([]);
     expect(lines).toContain('set "T3CODE_CLI_PATH=C:\\Users\\José\\.t3\\bin\\t3.cmd"');
   });
