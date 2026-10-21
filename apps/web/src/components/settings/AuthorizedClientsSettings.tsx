@@ -10,21 +10,21 @@ import {
   AuthTerminalReadScope,
   type AuthEnvironmentScope,
   type AuthGrantScope,
-  type AuthPairingCredentialResult,
   type AdvertisedEndpoint,
+  type EnvironmentId,
 } from "@t3tools/contracts";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
-
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
-import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   canRevokeOtherClients,
   isQrShareableEndpoint,
   selectQrEndpointOption,
   togglePairingScopeSelection,
+  resolveFallbackPairingUrl,
+  isLoopbackUrl,
 } from "./ConnectionsSettings.logic";
 import { useRelativeTimeTick } from "./settingsLayout";
 import { Input } from "../ui/input";
@@ -46,13 +46,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import {
-  createServerPairingCredential,
-  isLoopbackHostname,
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
 import { readEnvironmentScope } from "~/state/session";
-import { usePrimaryEnvironmentId } from "~/state/environments";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
 import {
@@ -61,11 +58,9 @@ import {
   isTailscaleHttpsEndpoint,
   endpointDefaultPreferenceKey,
   resolveAdvertisedEndpointPairingUrl,
-  resolveCurrentOriginPairingUrl,
   isHostedAppPairingUrl,
   endpointShareHint,
 } from "./ConnectionsSettings.logic";
-
 function AccessScopeSummary({
   scopes,
   label,
@@ -74,7 +69,6 @@ function AccessScopeSummary({
   readonly label: string;
 }) {
   const scopeCountLabel = `${scopes.length} ${scopes.length === 1 ? "scope" : "scopes"}`;
-
   return (
     <Popover>
       <PopoverTrigger
@@ -109,15 +103,11 @@ function AccessScopeSummary({
     </Popover>
   );
 }
-
 const ENDPOINT_ROW_CLASSNAME = "first:rounded-t-xl last:rounded-b-xl px-3 py-2.5 sm:px-4";
-
 export type AccessSectionPresentation = "current" | "endpoint-rail";
-
 export function accessRowClassName(_presentation: AccessSectionPresentation) {
   return ITEM_ROW_CLASSNAME;
 }
-
 function endpointRowClassName(presentation: AccessSectionPresentation, isAvailable: boolean) {
   if (presentation === "endpoint-rail") {
     return cn(
@@ -125,14 +115,14 @@ function endpointRowClassName(presentation: AccessSectionPresentation, isAvailab
       !isAvailable && "bg-muted/15",
     );
   }
-
   return cn(ENDPOINT_ROW_CLASSNAME, !isAvailable && "bg-muted/24");
 }
-
 type PairingLinkListRowProps = {
   pairingLink: ServerPairingLinkRecord;
   credential: string | undefined;
   endpointUrl: string | null | undefined;
+  /** Whether this page's own origin reaches the environment when it has no endpoint URL. */
+  shareCurrentOrigin: boolean;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
   defaultEndpointKey: string | null;
   presentation?: AccessSectionPresentation;
@@ -140,11 +130,11 @@ type PairingLinkListRowProps = {
   onRevoke: (id: string) => void;
   canRevoke: boolean;
 };
-
 const PairingLinkListRow = memo(function PairingLinkListRow({
   pairingLink,
   credential,
   endpointUrl,
+  shareCurrentOrigin,
   endpoints,
   defaultEndpointKey,
   presentation = "current",
@@ -158,12 +148,13 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   const [isQrPanelOpen, setIsQrPanelOpen] = useState(false);
   const [qrEndpointId, setQrEndpointId] = useState<string | null>(null);
   const qrPanelId = useId();
-
-  const currentOriginPairingUrl = credential ? resolveCurrentOriginPairingUrl(credential) : null;
-  const hostedPairingUrl =
-    credential && endpointUrl != null && endpointUrl !== ""
-      ? resolveHostedPairingUrl(endpointUrl, credential)
-      : null;
+  const fallbackPairingUrl = credential
+    ? resolveFallbackPairingUrl({
+        credential,
+        endpointUrl,
+        pageUrl: shareCurrentOrigin ? window.location.href : null,
+      })
+    : null;
   const endpointPairingUrl = (() => {
     const endpoint = selectPairingEndpoint(endpoints, defaultEndpointKey);
     return endpoint && credential
@@ -196,24 +187,18 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     }
     return options;
   })();
-  const shareablePairingUrl =
-    endpointPairingUrl ??
-    (credential && endpointUrl != null && endpointUrl !== ""
-      ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, credential))
-      : isLoopbackHostname(window.location.hostname)
-        ? null
-        : currentOriginPairingUrl);
+  const shareablePairingUrl = endpointPairingUrl ?? fallbackPairingUrl;
   const [failedCopyValue, setFailedCopyValue] = useState<string | null>(null);
   const revealValue = failedCopyValue ?? shareablePairingUrl ?? credential ?? "";
   const isRevealValueUrl = revealValue !== credential;
   const isRevealValueHostedAppPairingUrl = isRevealValueUrl && isHostedAppPairingUrl(revealValue);
   const isRevealValueQrShareable =
-    endpointCopyOptions.find((option) => option.url === revealValue)?.qrShareable ?? true;
+    endpointCopyOptions.find((option) => option.url === revealValue)?.qrShareable ??
+    !isLoopbackUrl(revealValue);
   const canCopyToClipboard =
     typeof window !== "undefined" &&
     window.isSecureContext &&
     navigator.clipboard?.writeText != null;
-
   const { copyToClipboard } = useCopyToClipboard<{
     value: string;
     kind: "code" | "hosted-link" | "link";
@@ -255,20 +240,18 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
       );
     },
   });
-
   const copyPairingValue = (value: string, kind: "code" | "hosted-link" | "link") => {
-    copyToClipboard(value, { value, kind });
+    copyToClipboard(value, {
+      value,
+      kind,
+    });
   };
-
   const copyKindForUrl = (url: string): "hosted-link" | "link" =>
     isHostedAppPairingUrl(url) ? "hosted-link" : "link";
-
   const handleCopyCode = () => {
     if (credential) copyPairingValue(credential, "code");
   };
-
   const expiresAbsolute = formatAccessTimestamp(pairingLink.expiresAt);
-
   const primaryLabel = pairingLink.label ?? "Pairing link";
   const selectedQrOption = selectQrEndpointOption(
     endpointCopyOptions,
@@ -276,11 +259,11 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     defaultEndpointKey,
   );
   const qrPairingUrl = selectedQrOption?.url ?? shareablePairingUrl;
-  const canRenderQrForSelection = selectedQrOption?.qrShareable ?? true;
+  const canRenderQrForSelection =
+    selectedQrOption?.qrShareable ?? (qrPairingUrl !== null && !isLoopbackUrl(qrPairingUrl));
   if (expiresAtMs <= nowMs) {
     return null;
   }
-
   return (
     <div className={accessRowClassName(presentation)}>
       <div className={ITEM_ROW_INNER_CLASSNAME}>
@@ -494,7 +477,6 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     </div>
   );
 });
-
 type ConnectedClientListRowProps = {
   clientSession: ServerClientSessionRecord;
   presentation?: AccessSectionPresentation;
@@ -502,7 +484,6 @@ type ConnectedClientListRowProps = {
   onRevokeSession: (sessionId: ServerClientSessionRecord["sessionId"]) => void;
   canRevoke: boolean;
 };
-
 const ConnectedClientListRow = memo(function ConnectedClientListRow({
   clientSession,
   presentation = "current",
@@ -532,7 +513,6 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
     clientSession.client.label ??
     ([clientSession.client.os, clientSession.client.browser].filter(Boolean).join(" · ") ||
       clientSession.subject);
-
   return (
     <div className={accessRowClassName(presentation)}>
       <div className={ITEM_ROW_INNER_CLASSNAME}>
@@ -576,23 +556,25 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
     </div>
   );
 });
-
 type AuthorizedClientsHeaderActionProps = {
-  onPairingLinkCreated: (result: AuthPairingCredentialResult) => void;
   clientSessions: ReadonlyArray<ServerClientSessionRecord> | null;
   isRevokingOtherClients: boolean;
   onRevokeOtherClients: () => void;
+  environmentId: EnvironmentId;
   delegatableScopes: ReadonlyArray<AuthEnvironmentScope>;
+  onCreatePairingLink: (input: {
+    readonly label: string;
+    readonly scopes: ReadonlyArray<AuthGrantScope>;
+  }) => Promise<void>;
 };
-
 export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
-  onPairingLinkCreated,
   clientSessions,
   isRevokingOtherClients,
   onRevokeOtherClients,
+  environmentId,
   delegatableScopes,
+  onCreatePairingLink,
 }: AuthorizedClientsHeaderActionProps) {
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
   const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthGrantScope>>([
@@ -600,22 +582,19 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
   ]);
   const selectedScopes = pairingScopes.filter((scope) => delegatableScopes.includes(scope));
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
-
   const handleCreatePairingLink = async () => {
     if (
-      primaryEnvironmentId === null ||
       selectedScopes.length === 0 ||
-      !readEnvironmentScope(primaryEnvironmentId, AuthAccessWriteScope) ||
-      !selectedScopes.every((scope) => readEnvironmentScope(primaryEnvironmentId, scope))
+      !readEnvironmentScope(environmentId, AuthAccessWriteScope) ||
+      !selectedScopes.every((scope) => readEnvironmentScope(environmentId, scope))
     )
       return;
     setIsCreatingPairingLink(true);
     const settled = await settlePromise(async () => {
-      const created = await createServerPairingCredential({
+      await onCreatePairingLink({
         label: pairingLabel,
         scopes: selectedScopes,
       });
-      onPairingLinkCreated(created);
       setPairingLabel("");
       setPairingScopes(
         AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
@@ -635,11 +614,9 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
     }
     setIsCreatingPairingLink(false);
   };
-
   const togglePairingScope = (scope: AuthGrantScope, checked: boolean) => {
     setPairingScopes((current) => togglePairingScopeSelection(current, scope, checked));
   };
-
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -785,9 +762,9 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
     </div>
   );
 });
-
 type PairingClientsListProps = {
   endpointUrl: string | null | undefined;
+  shareCurrentOrigin: boolean;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
   defaultEndpointKey: string | null;
   presentation?: AccessSectionPresentation;
@@ -801,9 +778,9 @@ type PairingClientsListProps = {
   onRevokeClientSession: (sessionId: ServerClientSessionRecord["sessionId"]) => void;
   canRevoke: boolean;
 };
-
 export const PairingClientsList = memo(function PairingClientsList({
   endpointUrl,
+  shareCurrentOrigin,
   endpoints,
   defaultEndpointKey,
   presentation = "current",
@@ -825,6 +802,7 @@ export const PairingClientsList = memo(function PairingClientsList({
           pairingLink={pairingLink}
           credential={createdPairingCredentials.get(pairingLink.id)}
           endpointUrl={endpointUrl}
+          shareCurrentOrigin={shareCurrentOrigin}
           endpoints={endpoints}
           defaultEndpointKey={defaultEndpointKey}
           presentation={presentation}
@@ -853,7 +831,6 @@ export const PairingClientsList = memo(function PairingClientsList({
     </>
   );
 });
-
 type AdvertisedEndpointListRowProps = {
   endpoint: AdvertisedEndpoint;
   isDefault: boolean;
@@ -863,7 +840,6 @@ type AdvertisedEndpointListRowProps = {
   onDisableTailscaleServe: (endpoint: AdvertisedEndpoint) => void;
   isUpdatingTailscaleServe: boolean;
 };
-
 export const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow({
   endpoint,
   isDefault,
@@ -943,7 +919,6 @@ export const AdvertisedEndpointListRow = memo(function AdvertisedEndpointListRow
     </div>
   );
 });
-
 export function NetworkAccessDescription({
   endpoint,
   hiddenEndpointCount,
@@ -960,7 +935,6 @@ export function NetworkAccessDescription({
   if (!endpoint) {
     return fallback;
   }
-
   const summary = (
     <>
       <span className="min-w-0 truncate">{endpoint.httpBaseUrl}</span>
@@ -971,7 +945,6 @@ export function NetworkAccessDescription({
       ) : null}
     </>
   );
-
   return (
     <span className="inline-flex min-w-0 max-w-full items-baseline gap-1">
       <span className="shrink-0">Reachable at</span>

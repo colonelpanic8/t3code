@@ -3,9 +3,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-
 import * as NetService from "@t3tools/shared/Net";
-
 import * as DesktopBackendConfiguration from "../backend/DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import type {
@@ -14,9 +12,9 @@ import type {
 } from "../backend/DesktopBackendManager.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../app/DesktopBackendMode.ts";
 import * as DesktopWslEnvironment from "./DesktopWslEnvironment.ts";
 import * as DesktopWslBackend from "./DesktopWslBackend.ts";
-
 function makeStubInstance(input: {
   readonly id: DesktopBackendPool.BackendInstanceId;
   readonly label: string;
@@ -33,7 +31,6 @@ function makeStubInstance(input: {
     waitForReady: (_timeout: Duration.Duration) => Effect.succeed(false),
   };
 }
-
 const idleSnapshot: DesktopBackendSnapshot = {
   desiredRunning: false,
   ready: false,
@@ -41,7 +38,6 @@ const idleSnapshot: DesktopBackendSnapshot = {
   restartAttempt: 5,
   restartScheduled: false,
 };
-
 const primarySnapshot: DesktopBackendSnapshot = {
   desiredRunning: true,
   ready: true,
@@ -49,7 +45,6 @@ const primarySnapshot: DesktopBackendSnapshot = {
   restartAttempt: 0,
   restartScheduled: false,
 };
-
 const layerServerExposure = Layer.succeed(DesktopServerExposure.DesktopServerExposure, {
   getState: Effect.die("unexpected getState"),
   backendConfig: Effect.succeed({
@@ -64,7 +59,6 @@ const layerServerExposure = Layer.succeed(DesktopServerExposure.DesktopServerExp
   setTailscaleServeEnabled: () => Effect.die("unexpected setTailscaleServeEnabled"),
   getAdvertisedEndpoints: Effect.succeed([]),
 } satisfies DesktopServerExposure.DesktopServerExposure["Service"]);
-
 const layerBackendConfiguration = Layer.succeed(
   DesktopBackendConfiguration.DesktopBackendConfiguration,
   {
@@ -74,7 +68,6 @@ const layerBackendConfiguration = Layer.succeed(
     currentBootstrapToken: Effect.die("unexpected currentBootstrapToken"),
   } satisfies DesktopBackendConfiguration.DesktopBackendConfiguration["Service"],
 );
-
 const layerNet = Layer.succeed(NetService.NetService, {
   canListenOnHost: () => Effect.succeed(true),
   isPortAvailableOnLoopback: () => Effect.succeed(true),
@@ -82,7 +75,6 @@ const layerNet = Layer.succeed(NetService.NetService, {
   reserveLoopbackPort: () => Effect.succeed(41773),
   findAvailablePort: (preferred) => Effect.succeed(preferred),
 } satisfies NetService.NetService["Service"]);
-
 describe("DesktopWslBackend", () => {
   it.effect("clears the stored preflight error when a registered WSL backend becomes ready", () => {
     let registeredSpec: DesktopBackendPool.BackendInstanceSpec | undefined;
@@ -120,10 +112,8 @@ describe("DesktopWslBackend", () => {
           registeredWsl = undefined;
         }),
     } satisfies DesktopBackendPool.DesktopBackendPool["Service"]);
-
     return Effect.gen(function* () {
       const backend = yield* DesktopWslBackend.DesktopWslBackend;
-
       yield* backend.reconcile;
       const spec = registeredSpec;
       assert.isDefined(spec);
@@ -143,17 +133,19 @@ describe("DesktopWslBackend", () => {
       ) {
         throw new Error("Expected WSL backend callbacks");
       }
-
-      assert.isFalse(yield* recordFailure({ reason: "Node.js not found", fatal: true }));
+      assert.isFalse(
+        yield* recordFailure({
+          reason: "Node.js not found",
+          fatal: true,
+        }),
+      );
       assert.deepEqual(yield* backend.lastPreflightError, Option.some("Node.js not found"));
-
       yield* recordOwnershipFailure();
       const refusal = yield* backend.lastPreflightError;
       assert.include(Option.getOrThrow(refusal), "Another T3 Code server");
       yield* backend.reconcile;
       assert.equal(startCount, 1);
       assert.deepEqual(yield* backend.lastPreflightError, refusal);
-
       yield* clearFailure(new URL("http://127.0.0.1:41773"));
       assert.deepEqual(yield* backend.lastPreflightError, Option.none());
       yield* recordOwnershipFailure();
@@ -179,14 +171,22 @@ describe("DesktopWslBackend", () => {
           Layer.provideMerge(layerServerExposure),
           Layer.provideMerge(layerNet),
           Layer.provideMerge(
-            DesktopAppSettings.layerTest({
-              ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-              wslBackendEnabled: true,
-              wslDistro: "Ubuntu",
-              wslOnly: false,
+            DesktopBackendMode.layerTest().pipe(
+              Layer.provideMerge(
+                DesktopAppSettings.layerTest({
+                  ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+                  wslBackendEnabled: true,
+                  wslDistro: "Ubuntu",
+                  wslOnly: false,
+                }),
+              ),
+            ),
+          ),
+          Layer.provideMerge(
+            DesktopWslEnvironment.layerTest({
+              isAvailable: true,
             }),
           ),
-          Layer.provideMerge(DesktopWslEnvironment.layerTest({ isAvailable: true })),
         ),
       ),
     );

@@ -4,12 +4,15 @@ import {
   type ProjectId,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
-
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useClientSettings } from "../hooks/useSettings";
 import { getProjectOrderKey } from "../logicalProject";
 import { useProjects, useThreadShells } from "../state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useEnvironments,
+  usePrimaryEnvironmentId,
+  appOwnsLocalEnvironment,
+} from "../state/environments";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
@@ -36,9 +39,11 @@ export function useEnvironmentLookups() {
       ] as const;
     }),
   );
-  return { environmentLabelById, projectEnvironmentLocationById };
+  return {
+    environmentLabelById,
+    projectEnvironmentLocationById,
+  };
 }
-
 export function useProjectLookups() {
   const projects = useProjects();
   const projectCwdById = new Map<ProjectId, string>(
@@ -50,16 +55,18 @@ export function useProjectLookups() {
   const projectTitleById = new Map<ProjectId, string>(
     projects.map((project) => [project.id, project.title]),
   );
-  return { projectCwdById, projectByKey, projectTitleById };
+  return {
+    projectCwdById,
+    projectByKey,
+    projectTitleById,
+  };
 }
-
 export const selectCommandPaletteClientSettings = (settings: ClientSettings) => ({
   sidebarProjectGroupingMode: settings.sidebarProjectGroupingMode,
   sidebarProjectGroupingOverrides: settings.sidebarProjectGroupingOverrides,
   sidebarProjectSortOrder: settings.sidebarProjectSortOrder,
   sidebarThreadSortOrder: settings.sidebarThreadSortOrder,
 });
-
 export function useSortedProjectGroups(environmentLabelById: ReadonlyMap<EnvironmentId, string>) {
   const projects = useProjects();
   const threads = useThreadShells();
@@ -83,6 +90,7 @@ export function useSortedProjectGroups(environmentLabelById: ReadonlyMap<Environ
     projects: clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
     settings: projectGroupingSettings,
     primaryEnvironmentId,
+    ownsLocalEnvironment: appOwnsLocalEnvironment(),
     resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
   });
   return sortLogicalProjectsForSidebar(
