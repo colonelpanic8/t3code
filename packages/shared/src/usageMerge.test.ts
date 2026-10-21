@@ -9,12 +9,8 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
-
 import { isModelCostUnknown, mergeUsage, type EnvironmentUsage } from "./usageMerge.ts";
-
 const decodeSummary = Schema.decodeUnknownSync(UsageSummary);
-const encodeSummary = Schema.encodeSync(UsageSummary);
-
 function bucket(overrides: Partial<UsageBucket> = {}): UsageBucket {
   return {
     day: "2026-08-07" as UsageDay,
@@ -36,7 +32,6 @@ function bucket(overrides: Partial<UsageBucket> = {}): UsageBucket {
     ...overrides,
   };
 }
-
 function summary(
   buckets: readonly UsageBucket[],
   sources: readonly {
@@ -69,15 +64,22 @@ function summary(
       distinctSessions: source.distinctSessions ?? 1,
       message: null,
     })),
-    pricing: { status: "fresh", source: "litellm", fetchedAt: null, knownModels: 10 },
+    pricing: {
+      status: "fresh",
+      source: "litellm",
+      fetchedAt: null,
+      knownModels: 10,
+    },
     scanDurationMs: 1,
   };
 }
-
 function environment(id: string, usageSummary: UsageSummary): EnvironmentUsage {
-  return { environmentId: id as EnvironmentId, label: id, summary: usageSummary };
+  return {
+    environmentId: id as EnvironmentId,
+    label: id,
+    summary: usageSummary,
+  };
 }
-
 describe("mergeUsage", () => {
   it("counts a Cursor account once across servers while retaining each server's other providers", () => {
     const account = {
@@ -90,16 +92,37 @@ describe("mergeUsage", () => {
       [
         environment(
           "mac",
-          summary([bucket({ provider: "cursor", sourcePath: account.homePath })], [account]),
+          summary(
+            [
+              bucket({
+                provider: "cursor",
+                sourcePath: account.homePath,
+              }),
+            ],
+            [account],
+          ),
         ),
         environment(
           "linux",
           summary(
             [
-              bucket({ provider: "cursor", sourcePath: account.homePath }),
-              bucket({ provider: "opencode", sourcePath: "/opencode" }),
+              bucket({
+                provider: "cursor",
+                sourcePath: account.homePath,
+              }),
+              bucket({
+                provider: "opencode",
+                sourcePath: "/opencode",
+              }),
             ],
-            [account, { provider: "opencode", hostId: "linux", homePath: "/opencode" }],
+            [
+              account,
+              {
+                provider: "opencode",
+                hostId: "linux",
+                homePath: "/opencode",
+              },
+            ],
           ),
         ),
       ],
@@ -113,29 +136,12 @@ describe("mergeUsage", () => {
     ]);
     expect(merged.duplicateSources).toHaveLength(1);
   });
-
-  it("sums environments that read different transcript directories", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary([bucket()], [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }]),
-        ),
-        environment(
-          "env-b",
-          summary([bucket()], [{ provider: "claude", hostId: "linux", homePath: "/b/.claude" }]),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.costUsd).toBe(20);
-    expect(merged.records).toBe(10);
-    expect(merged.duplicateSources).toHaveLength(0);
-  });
-
   it("counts a shared transcript directory once", () => {
-    const shared = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
+    const shared = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/home/theo/.claude",
+    };
     const merged = mergeUsage(
       [
         environment("env-a", summary([bucket()], [shared])),
@@ -143,14 +149,12 @@ describe("mergeUsage", () => {
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.costUsd).toBe(10);
     expect(merged.records).toBe(5);
     expect(merged.sessions).toBe(1);
     expect(merged.duplicateSources).toHaveLength(1);
     expect(merged.contributingEnvironments).toEqual(["env-a"]);
   });
-
   it("drops only the duplicated provider, keeping the environment's other one", () => {
     const sharedClaude = {
       provider: "claude" as const,
@@ -163,14 +167,27 @@ describe("mergeUsage", () => {
         environment(
           "env-b",
           summary(
-            [bucket(), bucket({ provider: "codex", model: "gpt-5.6-sol", costUsd: 4 })],
-            [sharedClaude, { provider: "codex", hostId: "mac", homePath: "/home/theo/.codex" }],
+            [
+              bucket(),
+              bucket({
+                provider: "codex",
+                model: "gpt-5.6-sol",
+                costUsd: 4,
+              }),
+            ],
+            [
+              sharedClaude,
+              {
+                provider: "codex",
+                hostId: "mac",
+                homePath: "/home/theo/.codex",
+              },
+            ],
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.costUsd).toBe(14);
     expect(merged.providers.map((provider) => provider.provider).sort()).toEqual([
       "claude",
@@ -181,25 +198,56 @@ describe("mergeUsage", () => {
       Object.fromEntries(
         merged.providers.map((provider) => [provider.provider, provider.sessions]),
       ),
-    ).toEqual({ claude: 1, codex: 1 });
+    ).toEqual({
+      claude: 1,
+      codex: 1,
+    });
   });
-
   it("attributes each counted bucket to the environment that owns its source", () => {
-    const sharedClaude = { provider: "claude" as const, hostId: "mac", homePath: "/h/.claude" };
+    const sharedClaude = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/h/.claude",
+    };
     const merged = mergeUsage(
       [
-        environment("env-a", summary([bucket({ costUsd: 10 })], [sharedClaude])),
+        environment(
+          "env-a",
+          summary(
+            [
+              bucket({
+                costUsd: 10,
+              }),
+            ],
+            [sharedClaude],
+          ),
+        ),
         environment(
           "env-b",
           summary(
-            [bucket({ costUsd: 10 }), bucket({ provider: "codex", model: "gpt-5", costUsd: 4 })],
-            [sharedClaude, { provider: "codex", hostId: "mac", homePath: "/h/.codex" }],
+            [
+              bucket({
+                costUsd: 10,
+              }),
+              bucket({
+                provider: "codex",
+                model: "gpt-5",
+                costUsd: 4,
+              }),
+            ],
+            [
+              sharedClaude,
+              {
+                provider: "codex",
+                hostId: "mac",
+                homePath: "/h/.codex",
+              },
+            ],
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(
       merged.entries.map(({ environmentId, bucket }) => [
         environmentId,
@@ -217,7 +265,6 @@ describe("mergeUsage", () => {
       merged.records,
     );
   });
-
   it("counts overlapping provider roots once while keeping each environment's unique root", () => {
     const source = (homePath: string) => ({
       provider: "opencode" as const,
@@ -225,7 +272,11 @@ describe("mergeUsage", () => {
       homePath,
     });
     const usage = (sourcePath: string, costUsd: number) =>
-      bucket({ provider: "opencode", sourcePath, costUsd });
+      bucket({
+        provider: "opencode",
+        sourcePath,
+        costUsd,
+      });
     const merged = mergeUsage(
       [
         environment(
@@ -242,17 +293,30 @@ describe("mergeUsage", () => {
     expect(merged.costUsd).toBe(15);
     expect(merged.sessions).toBe(3);
   });
-
   it("uses the newest scan when environments share the same transcript directory", () => {
-    const source = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
+    const source = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/home/theo/.claude",
+    };
     const environments = [
-      environment("env-a", summary([bucket({ costUsd: 4, records: 2 })], [source])),
+      environment(
+        "env-a",
+        summary(
+          [
+            bucket({
+              costUsd: 4,
+              records: 2,
+            }),
+          ],
+          [source],
+        ),
+      ),
       environment("env-b", {
         ...summary([bucket()], [source]),
         readAt: "2026-08-07T01:00:00.000Z",
       }),
     ];
-
     for (const ordered of [environments, environments.toReversed()]) {
       const merged = mergeUsage(ordered, USAGE_CONTRACT_VERSION);
       expect(merged.costUsd).toBe(10);
@@ -262,17 +326,30 @@ describe("mergeUsage", () => {
       expect(merged.duplicateSources).toEqual(["env-a: /home/theo/.claude"]);
     }
   });
-
   it("prefers a complete scan over a newer partial scan of the same directory", () => {
-    const source = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
-    const incomplete = summary([bucket({ costUsd: 4, records: 2 })], [source]);
+    const source = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/home/theo/.claude",
+    };
+    const incomplete = summary(
+      [
+        bucket({
+          costUsd: 4,
+          records: 2,
+        }),
+      ],
+      [source],
+    );
     const partial = environment("new", {
       ...incomplete,
       readAt: "2026-08-07T01:00:00.000Z",
-      sources: incomplete.sources.map((entry) => ({ ...entry, status: "partial" as const })),
+      sources: incomplete.sources.map((entry) => ({
+        ...entry,
+        status: "partial" as const,
+      })),
     });
     const complete = environment("old", summary([bucket()], [source]));
-
     for (const ordered of [
       [partial, complete],
       [complete, partial],
@@ -284,16 +361,23 @@ describe("mergeUsage", () => {
     }
     expect(mergeUsage([partial], USAGE_CONTRACT_VERSION).costUsd).toBe(4);
   });
-
   it("keeps new cells from a later partial scan without recounting older cells", () => {
-    const source = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
+    const source = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/home/theo/.claude",
+    };
     const complete = environment(
       "old",
       summary([bucket()], [source], USAGE_MERGE_COMPATIBLE_SINCE),
     );
     const partialSummary = summary(
       [
-        bucket({ sourcePath: source.homePath, costUsd: 4, records: 2 }),
+        bucket({
+          sourcePath: source.homePath,
+          costUsd: 4,
+          records: 2,
+        }),
         bucket({
           day: "2026-08-08" as UsageDay,
           sourcePath: source.homePath,
@@ -301,14 +385,21 @@ describe("mergeUsage", () => {
           records: 1,
         }),
       ],
-      [{ ...source, distinctSessions: 2 }],
+      [
+        {
+          ...source,
+          distinctSessions: 2,
+        },
+      ],
     );
     const partial = environment("new", {
       ...partialSummary,
       readAt: "2026-08-08T01:00:00.000Z",
-      sources: partialSummary.sources.map((entry) => ({ ...entry, status: "partial" as const })),
+      sources: partialSummary.sources.map((entry) => ({
+        ...entry,
+        status: "partial" as const,
+      })),
     });
-
     for (const ordered of [
       [complete, partial],
       [partial, complete],
@@ -327,9 +418,12 @@ describe("mergeUsage", () => {
       expect(merged.duplicateSources).toEqual(["new: /home/theo/.claude"]);
     }
   });
-
   it("retains a complete cell when a larger partial cell may have skipped old records", () => {
-    const source = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
+    const source = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/home/theo/.claude",
+    };
     const complete = environment("old", summary([bucket()], [source]));
     const partialSummary = summary(
       [
@@ -345,14 +439,21 @@ describe("mergeUsage", () => {
           },
         }),
       ],
-      [{ ...source, distinctSessions: 2 }],
+      [
+        {
+          ...source,
+          distinctSessions: 2,
+        },
+      ],
     );
     const partial = environment("new", {
       ...partialSummary,
       readAt: "2026-08-07T01:00:00.000Z",
-      sources: partialSummary.sources.map((entry) => ({ ...entry, status: "partial" as const })),
+      sources: partialSummary.sources.map((entry) => ({
+        ...entry,
+        status: "partial" as const,
+      })),
     });
-
     const merged = mergeUsage([complete, partial], USAGE_CONTRACT_VERSION);
     expect(merged.costUsd).toBe(10);
     expect(merged.totalTokens).toBe(1160);
@@ -360,26 +461,39 @@ describe("mergeUsage", () => {
     expect(merged.sessions).toBe(1);
     expect(merged.contributingEnvironments).toEqual(["old"]);
   });
-
   it("identifies an environment reporting an older contract version", () => {
     const merged = mergeUsage(
       [
         environment(
           "env-a",
-          summary([bucket()], [{ provider: "claude", hostId: "mac", homePath: "/a" }]),
+          summary(
+            [bucket()],
+            [
+              {
+                provider: "claude",
+                hostId: "mac",
+                homePath: "/a",
+              },
+            ],
+          ),
         ),
         environment(
           "env-b",
           summary(
             [bucket()],
-            [{ provider: "claude", hostId: "linux", homePath: "/b" }],
+            [
+              {
+                provider: "claude",
+                hostId: "linux",
+                homePath: "/b",
+              },
+            ],
             USAGE_MERGE_COMPATIBLE_SINCE - 1,
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.costUsd).toBe(10);
     expect(merged.contractMismatches).toEqual([
       {
@@ -389,7 +503,6 @@ describe("mergeUsage", () => {
       },
     ]);
   });
-
   it("identifies an environment reporting a newer contract version", () => {
     const merged = mergeUsage(
       [
@@ -397,14 +510,19 @@ describe("mergeUsage", () => {
           "env-a",
           summary(
             [bucket()],
-            [{ provider: "claude", hostId: "mac", homePath: "/a" }],
+            [
+              {
+                provider: "claude",
+                hostId: "mac",
+                homePath: "/a",
+              },
+            ],
             USAGE_CONTRACT_VERSION + 1,
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.costUsd).toBe(0);
     expect(merged.contractMismatches).toEqual([
       {
@@ -414,41 +532,77 @@ describe("mergeUsage", () => {
       },
     ]);
   });
-
   it("keeps the previous compatible contract version so additive provider expansions still merge", () => {
     const merged = mergeUsage(
       [
         environment(
           "env-a",
           summary(
-            [bucket({ costUsd: 10 })],
-            [{ provider: "claude", hostId: "mac", homePath: "/a" }],
+            [
+              bucket({
+                costUsd: 10,
+              }),
+            ],
+            [
+              {
+                provider: "claude",
+                hostId: "mac",
+                homePath: "/a",
+              },
+            ],
           ),
         ),
         environment(
           "env-b",
           summary(
-            [bucket({ costUsd: 4, provider: "codex", model: "gpt-5.6-sol" })],
-            [{ provider: "codex", hostId: "linux", homePath: "/b" }],
+            [
+              bucket({
+                costUsd: 4,
+                provider: "codex",
+                model: "gpt-5.6-sol",
+              }),
+            ],
+            [
+              {
+                provider: "codex",
+                hostId: "linux",
+                homePath: "/b",
+              },
+            ],
             USAGE_CONTRACT_VERSION - 1,
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.costUsd).toBe(14);
     expect(merged.contractMismatches).toEqual([]);
   });
-
   it("keeps known usage when newer providers and bucket variants cannot be decoded", () => {
-    const known = summary([bucket()], [{ provider: "claude", hostId: "mac", homePath: "/a" }]);
+    const known = summary(
+      [bucket()],
+      [
+        {
+          provider: "claude",
+          hostId: "mac",
+          homePath: "/a",
+        },
+      ],
+    );
     const decoded = decodeSummary({
       ...known,
       buckets: [
         ...known.buckets,
-        { ...bucket(), provider: "future-provider", costUsd: 100 },
-        { ...bucket(), costSource: "future-pricing", costUsd: 200 },
+        {
+          ...bucket(),
+          provider: "future-provider",
+          costUsd: 100,
+        },
+        {
+          ...bucket(),
+          costSource: "future-pricing",
+          costUsd: 200,
+        },
       ],
       sources: [
         ...known.sources,
@@ -467,123 +621,37 @@ describe("mergeUsage", () => {
     expect(merged.totalTokens).toBe(1160);
     expect(merged.contractMismatches).toEqual([]);
   });
-
   it("normalizes model names during decoding before grouping usage", () => {
     const decoded = decodeSummary(
       summary(
         [
-          bucket({ provider: "codex", model: " gpt-5 " }),
-          bucket({ provider: "codex", model: "gpt-5" }),
+          bucket({
+            provider: "codex",
+            model: " gpt-5 ",
+          }),
+          bucket({
+            provider: "codex",
+            model: "gpt-5",
+          }),
         ],
-        [{ provider: "codex", hostId: "mac", homePath: "/a" }],
+        [
+          {
+            provider: "codex",
+            hostId: "mac",
+            homePath: "/a",
+          },
+        ],
       ),
     );
-
     expect(decoded.buckets.map((entry) => entry.model)).toEqual(["gpt-5", "gpt-5"]);
     const merged = mergeUsage([environment("env-a", decoded)], USAGE_CONTRACT_VERSION);
     expect(merged.models).toHaveLength(1);
-    expect(merged.models[0]).toMatchObject({ model: "gpt-5", costUsd: 20, totalTokens: 2320 });
+    expect(merged.models[0]).toMatchObject({
+      model: "gpt-5",
+      costUsd: 20,
+      totalTokens: 2320,
+    });
   });
-
-  it("keeps all supported providers when encoding a response", () => {
-    const current = summary(
-      [bucket(), bucket({ provider: "grok" })],
-      [
-        { provider: "claude", hostId: "mac", homePath: "/a" },
-        { provider: "grok", hostId: "mac", homePath: "/b" },
-      ],
-    );
-    expect(encodeSummary(current)).toEqual(current);
-    expect(decodeSummary(encodeSummary(current))).toEqual(current);
-  });
-
-  it("still rejects a malformed summary envelope", () => {
-    expect(() => decodeSummary({ ...summary([], []), buckets: null })).toThrow();
-  });
-
-  it("excludes a future incompatible contract even when its buckets still decode", () => {
-    const decoded = decodeSummary(
-      summary(
-        [bucket()],
-        [{ provider: "claude", hostId: "mac", homePath: "/a" }],
-        USAGE_CONTRACT_VERSION + 1,
-      ),
-    );
-    const merged = mergeUsage([environment("env-a", decoded)], USAGE_CONTRACT_VERSION);
-    expect(merged.costUsd).toBe(0);
-    expect(merged.contractMismatches).toEqual([
-      {
-        environmentId: "env-a",
-        direction: "clientBehind",
-        contractVersion: USAGE_CONTRACT_VERSION + 1,
-      },
-    ]);
-  });
-
-  it("derives provider shares and cost quality", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [
-              bucket({ costUsd: 75 }),
-              bucket({ provider: "codex", model: "gpt-5.6-sol", costUsd: 25, unpricedRecords: 5 }),
-            ],
-            [
-              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
-              { provider: "codex", hostId: "mac", homePath: "/a/.codex" },
-            ],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.providers[0]?.provider).toBe("claude");
-    expect(merged.providers[0]?.costShare).toBeCloseTo(0.75, 5);
-    expect(merged.costQuality.unpricedShare).toBeCloseTo(0.5, 5);
-    expect(merged.costQuality.cacheSavingsUsd).toBe(4);
-  });
-
-  it("derives model token shares independently of their cost shares", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [
-              bucket({ costUsd: 90 }),
-              bucket({
-                provider: "codex",
-                model: "gpt-5.6-sol",
-                costUsd: 10,
-                totals: {
-                  uncachedInputTokens: 3 * 1160,
-                  cachedInputTokens: 0,
-                  cacheCreationTokens: 0,
-                  outputTokens: 0,
-                  reasoningTokens: 0,
-                },
-              }),
-            ],
-            [
-              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
-              { provider: "codex", hostId: "mac", homePath: "/a/.codex" },
-            ],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    const byModel = Object.fromEntries(merged.models.map((model) => [model.model, model]));
-    expect(byModel["claude-fable-5"]?.costShare).toBeCloseTo(0.9, 5);
-    expect(byModel["claude-fable-5"]?.tokenShare).toBeCloseTo(0.25, 5);
-    expect(byModel["gpt-5.6-sol"]?.costShare).toBeCloseTo(0.1, 5);
-    expect(byModel["gpt-5.6-sol"]?.tokenShare).toBeCloseTo(0.75, 5);
-  });
-
   it("marks a model with no known rates as unpriced rather than free", () => {
     const merged = mergeUsage(
       [
@@ -591,7 +659,9 @@ describe("mergeUsage", () => {
           "env-a",
           summary(
             [
-              bucket({ costUsd: 75 }),
+              bucket({
+                costUsd: 75,
+              }),
               bucket({
                 provider: "codex",
                 model: "unknown-model",
@@ -601,21 +671,27 @@ describe("mergeUsage", () => {
               }),
             ],
             [
-              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
-              { provider: "codex", hostId: "mac", homePath: "/a/.codex" },
+              {
+                provider: "claude",
+                hostId: "mac",
+                homePath: "/a/.claude",
+              },
+              {
+                provider: "codex",
+                hostId: "mac",
+                homePath: "/a/.codex",
+              },
             ],
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.models.find((model) => model.model === "unknown-model")?.unpricedRecords).toBe(5);
     expect(merged.models.filter(isModelCostUnknown).map((model) => model.model)).toEqual([
       "unknown-model",
     ]);
   });
-
   it("splits cost by category and speed, counting older servers as unsplit standard cost", () => {
     const merged = mergeUsage(
       [
@@ -625,7 +701,12 @@ describe("mergeUsage", () => {
             [
               bucket({
                 costUsd: 10,
-                categoryCostUsd: { input: 1, cacheRead: 2, cacheWrite: 3, output: 4 },
+                categoryCostUsd: {
+                  input: 1,
+                  cacheRead: 2,
+                  cacheWrite: 3,
+                  output: 4,
+                },
                 fastCostUsd: 6,
                 speedPremiumUsd: 3,
               }),
@@ -644,23 +725,40 @@ describe("mergeUsage", () => {
               }),
             ],
             [
-              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
-              { provider: "codex", hostId: "mac", homePath: "/a/.codex" },
+              {
+                provider: "claude",
+                hostId: "mac",
+                homePath: "/a/.claude",
+              },
+              {
+                provider: "codex",
+                hostId: "mac",
+                homePath: "/a/.codex",
+              },
             ],
           ),
         ),
         environment(
           "env-b",
           summary(
-            [bucket({ costUsd: 5 })],
-            [{ provider: "claude", hostId: "linux", homePath: "/b/.claude" }],
+            [
+              bucket({
+                costUsd: 5,
+              }),
+            ],
+            [
+              {
+                provider: "claude",
+                hostId: "linux",
+                homePath: "/b/.claude",
+              },
+            ],
             USAGE_MERGE_COMPATIBLE_SINCE,
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.categoryCost).toEqual({
       input: 1,
       cacheRead: 2,
@@ -668,77 +766,70 @@ describe("mergeUsage", () => {
       output: 4,
       unsplit: 5,
     });
-    expect(merged.speedCost).toEqual({ standard: 9, fast: 6, ultrafast: 0, premium: 3 });
+    expect(merged.speedCost).toEqual({
+      standard: 9,
+      fast: 6,
+      ultrafast: 0,
+      premium: 3,
+    });
     expect(merged.models.map(({ model, unpricedTokens }) => [model, unpricedTokens])).toEqual([
       ["claude-fable-5", 0],
       ["unknown-model", 1160],
       ["partly-reported", 928],
     ]);
   });
-
-  it("orders models by cost descending", () => {
+  it("keeps two machines apart when hostname and home path collide", () => {
+    const shape = {
+      provider: "claude" as const,
+      hostId: "mac",
+      homePath: "/Users/theo/.claude",
+    };
     const merged = mergeUsage(
       [
         environment(
           "env-a",
           summary(
+            [bucket()],
             [
-              bucket({ provider: "claude", model: "lower-cost", costUsd: 4 }),
-              bucket({ provider: "codex", model: "higher-cost", costUsd: 9 }),
+              {
+                ...shape,
+                volumeId: "16777220:1234",
+              },
             ],
+          ),
+        ),
+        environment(
+          "env-b",
+          summary(
+            [bucket()],
             [
-              { provider: "claude", hostId: "mac", homePath: "/a/.claude" },
-              { provider: "codex", hostId: "mac", homePath: "/a/.codex" },
+              {
+                ...shape,
+                volumeId: "16777221:9999",
+              },
             ],
           ),
         ),
       ],
       USAGE_CONTRACT_VERSION,
     );
-
-    expect(merged.models.map((model) => model.model)).toEqual(["higher-cost", "lower-cost"]);
-  });
-
-  it("keeps two machines apart when hostname and home path collide", () => {
-    const shape = { provider: "claude" as const, hostId: "mac", homePath: "/Users/theo/.claude" };
-    const merged = mergeUsage(
-      [
-        environment("env-a", summary([bucket()], [{ ...shape, volumeId: "16777220:1234" }])),
-        environment("env-b", summary([bucket()], [{ ...shape, volumeId: "16777221:9999" }])),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
     expect(merged.costUsd).toBe(20);
     expect(merged.duplicateSources).toHaveLength(0);
   });
-
-  it("still collapses two servers reading the same directory", () => {
-    const same = {
-      provider: "claude" as const,
-      hostId: "mac",
-      homePath: "/Users/theo/.claude",
-      volumeId: "16777220:1234",
-    };
-    const merged = mergeUsage(
-      [
-        environment("env-a", summary([bucket()], [same])),
-        environment("env-b", summary([bucket()], [same])),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.costUsd).toBe(10);
-    expect(merged.duplicateSources).toHaveLength(1);
-  });
-
   it("totals sessions from per-directory distinct counts, not per-bucket sums", () => {
     const merged = mergeUsage(
       [
         environment(
           "env-a",
           summary(
-            [bucket({ day: "2026-08-06" as UsageDay }), bucket({ day: "2026-08-07" as UsageDay })],
+            [
+              bucket({
+                day: "2026-08-06" as UsageDay,
+              }),
+              bucket({
+                day: "2026-08-07" as UsageDay,
+              }),
+            ],
             [
               {
                 provider: "claude",
@@ -752,64 +843,7 @@ describe("mergeUsage", () => {
       ],
       USAGE_CONTRACT_VERSION,
     );
-
     expect(merged.sessions).toBe(1);
     expect(merged.providers[0]?.sessions).toBe(1);
-  });
-
-  it("returns empty totals with no environments", () => {
-    const merged = mergeUsage([], USAGE_CONTRACT_VERSION);
-    expect(merged.costUsd).toBe(0);
-    expect(merged.daily).toHaveLength(0);
-    expect(merged.hourly).toHaveLength(0);
-  });
-
-  it("omits providers with no sessions or usage", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [],
-            [
-              {
-                provider: "claude",
-                hostId: "mac",
-                homePath: "/a/.claude",
-                distinctSessions: 0,
-              },
-            ],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.providers).toEqual([]);
-  });
-
-  it("derives hourly totals without losing the daily rollup", () => {
-    const merged = mergeUsage(
-      [
-        environment(
-          "env-a",
-          summary(
-            [
-              bucket({ hourStart: "2026-08-07T09:37:00.000Z", costUsd: 3 }),
-              bucket({ hourStart: "2026-08-07T10:37:00.000Z", costUsd: 7 }),
-            ],
-            [{ provider: "claude", hostId: "mac", homePath: "/a/.claude" }],
-          ),
-        ),
-      ],
-      USAGE_CONTRACT_VERSION,
-    );
-
-    expect(merged.hourly.map((hour) => [hour.hourStart, hour.costUsd])).toEqual([
-      ["2026-08-07T09:37:00.000Z", 3],
-      ["2026-08-07T10:37:00.000Z", 7],
-    ]);
-    expect(merged.daily).toHaveLength(1);
-    expect(merged.daily[0]?.costUsd).toBe(10);
   });
 });

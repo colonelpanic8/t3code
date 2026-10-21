@@ -2,7 +2,6 @@ import type { EnvironmentId, UsageDay, UsageProviderKind } from "@t3tools/contra
 import type { UsageEntry } from "@t3tools/shared/usageMerge";
 import { buildStackedColumns, pivotUsage } from "@t3tools/shared/usagePivot";
 import { describe, expect, it } from "vite-plus/test";
-
 import {
   buildUsageChartSeries,
   formatPeriod,
@@ -10,7 +9,6 @@ import {
   usageRowSeriesColor,
   usageSeriesLabels,
 } from "./usageSeries";
-
 function entry(provider: UsageProviderKind, model: string, costUsd: number): UsageEntry {
   return {
     environmentId: "mac" as EnvironmentId,
@@ -34,7 +32,6 @@ function entry(provider: UsageProviderKind, model: string, costUsd: number): Usa
     },
   };
 }
-
 const context = {
   environmentLabels: new Map([["mac" as EnvironmentId, "MacBook"]]),
   grouping: "day" as const,
@@ -42,7 +39,6 @@ const context = {
   hour12: true,
 };
 const periods = ["2026-08-07"];
-
 it.each([
   [false, "14:00"],
   [true, "2 PM"],
@@ -54,27 +50,22 @@ it.each([
     expect(formatPeriod(instant, "hour", "UTC", instant, hour12)).toBe(`${expected} today`);
   },
 );
-
 describe("usageSeriesLabels", () => {
   const entries = [
     entry("opencode", "gpt-a", 3),
     entry("codex", "gpt-a", 2),
     entry("claude", "opus", 1),
   ];
-
   it("names a model several providers serve with its provider", () => {
     const stack = buildStackedColumns(entries, ["environment", "model"], "day", periods, "cost");
-
     expect(usageSeriesLabels(stack.series, ["environment", "model"], context)).toEqual([
       "MacBook · OpenCode · gpt-a",
       "MacBook · Codex · gpt-a",
       "MacBook · opus",
     ]);
   });
-
   it("leaves model names alone when providers are split anyway", () => {
     const stack = buildStackedColumns(entries, ["provider", "model"], "day", periods, "cost");
-
     expect(usageSeriesLabels(stack.series, ["provider", "model"], context)).toEqual([
       "OpenCode · gpt-a",
       "Codex · gpt-a",
@@ -82,10 +73,8 @@ describe("usageSeriesLabels", () => {
     ]);
   });
 });
-
 describe("usageRowSeriesColor", () => {
   const other = "color-mix(in oklab, var(--foreground) 40%, var(--background))";
-
   it("colors a row like the chart band it falls in", () => {
     const entries = [entry("claude", "opus", 3), entry("codex", "gpt", 2)];
     const series = buildUsageChartSeries(entries, ["provider"], "day", periods, "cost");
@@ -94,20 +83,20 @@ describe("usageRowSeriesColor", () => {
         row.model ?? row.environmentId,
         usageRowSeriesColor(series, row),
       ]);
-
     expect(colorsBy(["model"])).toEqual([
       ["opus", "#d97757"],
       ["gpt", "var(--contrast-foreground)"],
     ]);
     expect(colorsBy(["environment"])).toEqual([["mac", undefined]]);
   });
-
   it("gives series folded into Other the Other color", () => {
-    const entries = Array.from({ length: 11 }, (_, index) =>
-      entry("claude", `m${String(index).padStart(2, "0")}`, 11 - index),
+    const entries = Array.from(
+      {
+        length: 11,
+      },
+      (_, index) => entry("claude", `m${String(index).padStart(2, "0")}`, 11 - index),
     );
     const series = buildUsageChartSeries(entries, ["model"], "day", periods, "cost");
-
     expect(
       pivotUsage(entries, ["model", "period"], "day").map((row) => [
         row.model,
@@ -127,11 +116,9 @@ describe("usageRowSeriesColor", () => {
       ["m10", other],
     ]);
   });
-
   it("marks nothing against a single total", () => {
     const entries = [entry("claude", "opus", 3)];
     const series = buildUsageChartSeries(entries, [], "day", periods, "cost");
-
     expect(
       pivotUsage(entries, ["model"], "day").map((row) => usageRowSeriesColor(series, row)),
     ).toEqual([undefined]);
