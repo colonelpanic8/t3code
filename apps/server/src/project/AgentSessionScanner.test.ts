@@ -44,7 +44,7 @@ interface ScannerTestInput {
   readonly codexHomePath: string;
   readonly importedWorkspaceRoots?: ReadonlyArray<string>;
   readonly configBaseDir?: string;
-  readonly serverLocationOverrides?: ServerConfig.ServerLocationOverrides;
+  readonly serverLocationOverrides?: ServerConfig.DeriveServerPathsOptions;
   readonly providerInstances?: ContractServerSettings["providerInstances"];
 }
 const layerScannerTest = (input: ScannerTestInput) =>
@@ -756,6 +756,54 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
         });
         expect(result.candidates.map((candidate) => candidate.path)).toEqual([workspace]);
       }),
+    );
+    it.effect(
+      "excludes the configured server config, data, state, cache, and runtime directories",
+      () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
+          const codexHomePath = yield* makeTempDir("t3code-codex-home-");
+          const configDir = yield* makeTempDir("t3code-server-config-");
+          const dataDir = yield* makeTempDir("t3code-server-data-");
+          const stateDir = yield* makeTempDir("t3code-server-state-");
+          const cacheDir = yield* makeTempDir("t3code-server-cache-");
+          const runtimeDir = yield* makeTempDir("t3code-server-runtime-");
+          const triageDir = path.join(stateDir, "triage", "2026-01-01T00-00-00-000Z");
+          const workspace = yield* makeTempDir("t3code-workspace-");
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.makeDirectory(triageDir, {
+            recursive: true,
+          });
+          for (const [index, cwd] of [
+            configDir,
+            dataDir,
+            triageDir,
+            cacheDir,
+            runtimeDir,
+            workspace,
+          ].entries()) {
+            yield* writeTranscript({
+              filePath: path.join(claudeHomePath, "projects", `-slug-${index}`, "session.jsonl"),
+              contents: claudeSessionLine(cwd),
+              mtimeMs: Date.parse("2026-01-01T00:00:00.000Z") + index,
+            });
+          }
+          const result = yield* runScan({
+            claudeHomePath,
+            codexHomePath,
+            serverLocationOverrides: {
+              configDir,
+              dataDir,
+              cacheDir,
+              split: {
+                stateDir,
+                runtimeDir,
+              },
+            },
+          });
+          expect(result.candidates.map((candidate) => candidate.path)).toEqual([workspace]);
+        }),
     );
     it.effect("excludes T3-managed worktree sandboxes", () =>
       Effect.gen(function* () {

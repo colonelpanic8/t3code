@@ -6,15 +6,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
-
 import type * as Electron from "electron";
-
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
-
 const defaultEnvironmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
   homeDirectory: "/Users/alice",
@@ -26,17 +23,14 @@ const defaultEnvironmentInput = {
   resourcesPath: "/Applications/T3 Code.app/Contents/Resources",
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
-
 type TestEnvironmentInput = Partial<DesktopEnvironment.MakeDesktopEnvironmentInput> & {
   readonly env?: Record<string, string | undefined>;
 };
-
 interface ElectronAppCalls {
   readonly setAboutPanelOptions: Array<Electron.AboutPanelOptionsOptions>;
   readonly setDockIcon: string[];
   readonly setName: string[];
 }
-
 const layerElectronApp = (calls: ElectronAppCalls) =>
   Layer.succeed(ElectronApp.ElectronApp, {
     metadata: Effect.die("unexpected metadata read"),
@@ -69,7 +63,6 @@ const layerElectronApp = (calls: ElectronAppCalls) =>
     removeCommandLineSwitch: () => Effect.void,
     on: () => Effect.void,
   } satisfies ElectronApp.ElectronApp["Service"]);
-
 const layerAssets = (png: Option.Option<string>) =>
   Layer.succeed(DesktopAssets.DesktopAssets, {
     iconPaths: Effect.succeed({
@@ -79,7 +72,6 @@ const layerAssets = (png: Option.Option<string>) =>
     }),
     resolveResourcePath: () => Effect.succeedNone,
   } satisfies DesktopAssets.DesktopAssets["Service"]);
-
 const layerEnvironment = (overrides: TestEnvironmentInput = {}) => {
   const { env, ...environmentOverrides } = overrides;
   return DesktopEnvironment.layer({
@@ -97,7 +89,6 @@ const layerEnvironment = (overrides: TestEnvironmentInput = {}) => {
     ),
   );
 };
-
 const withIdentity = <A, E, R>(
   effect: Effect.Effect<
     A,
@@ -121,7 +112,6 @@ const withIdentity = <A, E, R>(
     setDockIcon: [],
     setName: [],
   };
-
   return effect.pipe(
     Effect.provide(
       DesktopAppIdentity.layer.pipe(
@@ -145,20 +135,24 @@ const withIdentity = <A, E, R>(
     ),
   );
 };
-
 describe("DesktopAppIdentity", () => {
   it.effect("isolates the V2 profile even when the legacy V1 profile exists", () =>
     withIdentity(
       Effect.gen(function* () {
         const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
         const userDataPath = yield* identity.resolveUserDataPath;
-
         assert.equal(userDataPath, "/Users/alice/Library/Application Support/t3code-v2");
       }),
-      { legacyPathExists: true },
+      {
+        legacyPathExists: true,
+        environment: {
+          env: {
+            T3CODE_HOME: "/Users/alice/.t3",
+          },
+        },
+      },
     ),
   );
-
   it.effect("keeps using the legacy development profile", () =>
     withIdentity(
       Effect.gen(function* () {
@@ -170,20 +164,33 @@ describe("DesktopAppIdentity", () => {
       }),
       {
         legacyPathExists: true,
-        environment: { env: { VITE_DEV_SERVER_URL: "http://localhost:5173" } },
+        environment: {
+          env: {
+            VITE_DEV_SERVER_URL: "http://localhost:5173",
+            T3CODE_HOME: "/Users/alice/.t3",
+          },
+        },
       },
     ),
   );
-
   it.effect.each([
-    { stage: "Beta", environment: {} },
+    {
+      stage: "Beta",
+      environment: {},
+    },
     {
       stage: "Nightly",
-      environment: { appVersion: "0.0.43-nightly.20260929.2428" },
+      environment: {
+        appVersion: "0.0.43-nightly.20260929.2428",
+      },
     },
     {
       stage: "Dev",
-      environment: { env: { VITE_DEV_SERVER_URL: "http://localhost:5173" } },
+      environment: {
+        env: {
+          VITE_DEV_SERVER_URL: "http://localhost:5173",
+        },
+      },
     },
   ])("uses a valid native User-Agent product name for $stage", ({ stage, environment }) => {
     const calls: ElectronAppCalls = {
@@ -191,19 +198,20 @@ describe("DesktopAppIdentity", () => {
       setDockIcon: [],
       setName: [],
     };
-
     return withIdentity(
       Effect.gen(function* () {
         const identity = yield* DesktopAppIdentity.DesktopAppIdentity;
         yield* identity.configure;
-
         const runtimeName = calls.setName[0];
         assert.isDefined(runtimeName);
         assert.equal(runtimeName, `T3 Code ${stage}`);
         assert.match(runtimeName.replaceAll(" ", ""), /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/);
         assert.equal(calls.setAboutPanelOptions[0]?.applicationName, `T3 Code (${stage})`);
       }),
-      { calls, environment },
+      {
+        calls,
+        environment,
+      },
     );
   });
 });
