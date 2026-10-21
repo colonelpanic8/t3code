@@ -21,13 +21,6 @@ import {
   SERVICE_RESTART_PENDING_FILE,
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
-const linuxRuntime = "/home/theo/.t3/runtime/versions/1.2.3/t3";
-const linuxPlan = {
-  program: [linuxRuntime, "__service-launcher"],
-  baseDir: "/home/theo/.t3",
-  logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
-  unitPath: "/home/theo/.config/systemd/user/t3code.service",
-};
 const legacyRoots = (baseDir: string) =>
   resolveLegacyT3StorageRoots({
     baseDir,
