@@ -1331,6 +1331,10 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
+  blankSlate: boolean;
+  /** Only drafts can change it; see OrchestrationV2AppThread.blankSlate. */
+  onToggleBlankSlate: (() => void) | undefined;
+
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
   setThreadError: (threadId: ThreadId | null, error: string | null) => void;
@@ -1681,6 +1685,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     toggleInteractionMode,
     handleRuntimeModeChange,
     handleInteractionModeChange,
+    blankSlate,
+    onToggleBlankSlate,
     focusComposer,
     scheduleComposerFocus,
     setThreadError,
@@ -4569,10 +4575,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           interactionMode={interactionMode}
           runtimeMode={compatibleRuntimeMode}
           runtimeModeOptions={compatibleRuntimeModeOptions}
+          blankSlate={blankSlate}
           size={composerControlsCollapsed ? "xs" : "sm"}
           hidden={composerControlsHidden || restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}
           onRuntimeModeChange={handleRuntimeModeChange}
+          onToggleBlankSlate={onToggleBlankSlate}
         />
       ),
     },
@@ -4710,6 +4718,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             }
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
+            {...(hiddenRestingBlockIds.includes("mode") ? { blankSlate, onToggleBlankSlate } : {})}
           />
         </div>
       </>
