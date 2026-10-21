@@ -224,7 +224,12 @@ import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { shortcutLabelForCommand } from "../keybindings";
+import {
+  shortcutLabelForCommand,
+  modelSelectTargetFromCommand,
+  reasoningEffortFromCommand,
+  applyComposerSelectionShortcut,
+} from "../keybindings";
 import {
   AlarmClockIcon,
   CheckCircle2Icon,
@@ -4440,6 +4445,9 @@ export default function ChatView(props: ChatViewProps) {
       },
     },
     fallback: (command) => {
+      if (modelSelectTargetFromCommand(command) || reasoningEffortFromCommand(command)) {
+        return () => void applyComposerSelectionShortcut(command, composerRef.current);
+      }
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject || !canOperateTerminal) return undefined;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);

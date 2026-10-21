@@ -10,55 +10,84 @@ import {
   getComposerProviderState,
   getComposerReasoningStep,
   withImplicitFastModeDefault,
+  selectComposerReasoningEffort,
 } from "./composerProviderState";
-
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
 const MODEL = "test-model";
-
 function selectDescriptor(
   id: string,
-  options: ReadonlyArray<{ id: string; label: string; isDefault?: boolean }>,
+  options: ReadonlyArray<{
+    id: string;
+    label: string;
+    isDefault?: boolean;
+  }>,
   promptInjectedValues?: ReadonlyArray<string>,
-): Extract<ProviderOptionDescriptor, { type: "select" }> {
+): Extract<
+  ProviderOptionDescriptor,
+  {
+    type: "select";
+  }
+> {
   const defaultId = options.find((option) => option.isDefault)?.id;
   return {
     id,
     label: id,
     type: "select",
     options: [...options],
-    ...(defaultId ? { currentValue: defaultId } : {}),
+    ...(defaultId
+      ? {
+          currentValue: defaultId,
+        }
+      : {}),
     ...(promptInjectedValues && promptInjectedValues.length > 0
-      ? { promptInjectedValues: [...promptInjectedValues] }
+      ? {
+          promptInjectedValues: [...promptInjectedValues],
+        }
       : {}),
   };
 }
-
 function booleanDescriptor(
   id: string,
   currentValue?: boolean,
-): Extract<ProviderOptionDescriptor, { type: "boolean" }> {
+): Extract<
+  ProviderOptionDescriptor,
+  {
+    type: "boolean";
+  }
+> {
   return {
     id,
     label: id,
     type: "boolean",
-    ...(typeof currentValue === "boolean" ? { currentValue } : {}),
+    ...(typeof currentValue === "boolean"
+      ? {
+          currentValue,
+        }
+      : {}),
   };
 }
-
 function modelWith(
   descriptors: ReadonlyArray<ProviderOptionDescriptor>,
 ): ReadonlyArray<ServerProviderModel> {
   return [
-    { slug: MODEL, name: MODEL, isCustom: false, capabilities: { optionDescriptors: descriptors } },
+    {
+      slug: MODEL,
+      name: MODEL,
+      isCustom: false,
+      capabilities: {
+        optionDescriptors: descriptors,
+      },
+    },
   ];
 }
-
 function selections(
   ...entries: Array<[string, string | boolean]>
 ): ReadonlyArray<ProviderOptionSelection> {
-  return entries.map(([id, value]) => ({ id, value }));
+  return entries.map(([id, value]) => ({
+    id,
+    value,
+  }));
 }
-
 describe("getComposerProviderState", () => {
   it("uses descriptor defaults for display without dispatching them as overrides", () => {
     const state = getComposerProviderState({
@@ -66,38 +95,47 @@ describe("getComposerProviderState", () => {
       model: MODEL,
       models: modelWith([
         selectDescriptor("effort", [
-          { id: "low", label: "Low" },
-          { id: "high", label: "High", isDefault: true },
+          {
+            id: "low",
+            label: "Low",
+          },
+          {
+            id: "high",
+            label: "High",
+            isDefault: true,
+          },
         ]),
       ]),
       modelOptions: undefined,
       planModeEnabled: true,
     });
-
     expect(state).toEqual({
       provider: PROVIDER,
       promptEffort: "high",
       modelOptionsForDispatch: undefined,
     });
   });
-
   it("preserves selections that match defaults so deepMerge can overwrite prior state", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,
       model: MODEL,
       models: modelWith([
-        selectDescriptor("effort", [{ id: "high", label: "High", isDefault: true }]),
+        selectDescriptor("effort", [
+          {
+            id: "high",
+            label: "High",
+            isDefault: true,
+          },
+        ]),
         booleanDescriptor("fastMode"),
       ]),
       modelOptions: selections(["effort", "high"], ["fastMode", false]),
       planModeEnabled: true,
     });
-
     expect(state.modelOptionsForDispatch).toEqual(
       selections(["effort", "high"], ["fastMode", false]),
     );
   });
-
   it("drops selections for descriptors the model does not declare", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,
@@ -106,54 +144,75 @@ describe("getComposerProviderState", () => {
       modelOptions: selections(["effort", "max"], ["thinking", false]),
       planModeEnabled: true,
     });
-
     expect(state).toEqual({
       provider: PROVIDER,
       promptEffort: null,
       modelOptionsForDispatch: selections(["thinking", false]),
     });
   });
-
   it("derives promptEffort from the first select descriptor and preserves all others for dispatch", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,
       model: MODEL,
       models: modelWith([
-        selectDescriptor("effort", [{ id: "high", label: "High", isDefault: true }]),
+        selectDescriptor("effort", [
+          {
+            id: "high",
+            label: "High",
+            isDefault: true,
+          },
+        ]),
         selectDescriptor("contextWindow", [
-          { id: "200k", label: "200k", isDefault: true },
-          { id: "1m", label: "1M" },
+          {
+            id: "200k",
+            label: "200k",
+            isDefault: true,
+          },
+          {
+            id: "1m",
+            label: "1M",
+          },
         ]),
         selectDescriptor("agent", [
-          { id: "build", label: "Build", isDefault: true },
-          { id: "plan", label: "Plan" },
+          {
+            id: "build",
+            label: "Build",
+            isDefault: true,
+          },
+          {
+            id: "plan",
+            label: "Plan",
+          },
         ]),
       ]),
       modelOptions: selections(["agent", "plan"]),
       planModeEnabled: true,
     });
-
     expect(state.promptEffort).toBe("high");
     expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "plan"]));
   });
-
   it("drops the plan agent from dispatch when legacy plan mode is disabled", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,
       model: MODEL,
       models: modelWith([
         selectDescriptor("agent", [
-          { id: "build", label: "Build", isDefault: true },
-          { id: "plan", label: "Plan" },
+          {
+            id: "build",
+            label: "Build",
+            isDefault: true,
+          },
+          {
+            id: "plan",
+            label: "Plan",
+          },
         ]),
       ]),
       modelOptions: selections(["agent", "plan"]),
       planModeEnabled: false,
     });
-
     expect(state.modelOptionsForDispatch).toEqual(selections(["agent", "build"]));
   });
-
   it("preserves explicit options when the selected model is absent from the catalog", () => {
     const state = getComposerProviderState({
       provider: ProviderDriverKind.make("opencode"),
@@ -169,12 +228,10 @@ describe("getComposerProviderState", () => {
       modelOptions: selections(["variant", "max"], ["agent", "build"]),
       planModeEnabled: false,
     });
-
     expect(state.modelOptionsForDispatch).toEqual(
       selections(["variant", "max"], ["agent", "build"]),
     );
   });
-
   it("validates options for a known model selected through a legacy alias", () => {
     const state = getComposerProviderState({
       provider: ProviderDriverKind.make("claudeAgent"),
@@ -188,8 +245,15 @@ describe("getComposerProviderState", () => {
           capabilities: {
             optionDescriptors: [
               selectDescriptor("effort", [
-                { id: "low", label: "Low" },
-                { id: "high", label: "High", isDefault: true },
+                {
+                  id: "low",
+                  label: "Low",
+                },
+                {
+                  id: "high",
+                  label: "High",
+                  isDefault: true,
+                },
               ]),
             ],
           },
@@ -198,10 +262,8 @@ describe("getComposerProviderState", () => {
       modelOptions: selections(["effort", "low"], ["unknown", "value"]),
       planModeEnabled: false,
     });
-
     expect(state.modelOptionsForDispatch).toEqual(selections(["effort", "low"]));
   });
-
   it("defaults fastMode to false when the provider reports true but the user has not selected it", () => {
     const state = getComposerProviderState({
       provider: ProviderDriverKind.make("cursor"),
@@ -210,11 +272,9 @@ describe("getComposerProviderState", () => {
       modelOptions: undefined,
       planModeEnabled: true,
     });
-
     expect(state.modelOptionsForDispatch).toEqual(selections(["fastMode", false]));
   });
 });
-
 describe("withImplicitFastModeDefault", () => {
   // regression: #2981 a remembered Fast mode choice must survive the implicit default on new chats
   it("injects fastMode false only when the model exposes fastMode and no selection exists", () => {
@@ -226,7 +286,6 @@ describe("withImplicitFastModeDefault", () => {
         undefined,
       ),
     ).toEqual(selections(["fastMode", false]));
-
     expect(
       withImplicitFastModeDefault(
         {
@@ -237,12 +296,94 @@ describe("withImplicitFastModeDefault", () => {
     ).toEqual(selections(["fastMode", true]));
   });
 });
-
+describe("selectComposerReasoningEffort", () => {
+  const models = modelWith([
+    selectDescriptor(
+      "effort",
+      [
+        {
+          id: "low",
+          label: "Low",
+        },
+        {
+          id: "medium",
+          label: "Medium",
+          isDefault: true,
+        },
+        {
+          id: "high",
+          label: "High",
+        },
+        {
+          id: "ultrathink",
+          label: "Ultrathink",
+        },
+      ],
+      ["ultrathink"],
+    ),
+    booleanDescriptor("fastMode"),
+  ]);
+  function select(
+    effort: string,
+    prompt: string,
+    modelOptions?: ReadonlyArray<ProviderOptionSelection>,
+  ) {
+    const change = selectComposerReasoningEffort({
+      provider: PROVIDER,
+      model: MODEL,
+      models,
+      modelOptions,
+      prompt,
+      planModeEnabled: false,
+      effort,
+    });
+    return (
+      change && {
+        prompt: change.prompt,
+        options: change.modelOptions ?? null,
+      }
+    );
+  }
+  it("changes the primary select option and preserves other options", () => {
+    expect(select("high", "Fix it", selections(["effort", "medium"], ["fastMode", true]))).toEqual({
+      prompt: "Fix it",
+      options: selections(["effort", "high"], ["fastMode", true]),
+    });
+  });
+  it("rejects effort values the selected model does not support", () => {
+    expect(select("xhigh", "Fix it")).toBeNull();
+  });
+  it("enables ultrathink through the prompt prefix instead of the options", () => {
+    expect(select("ultrathink", "Fix it", selections(["effort", "high"]))).toEqual({
+      prompt: "Ultrathink:\nFix it",
+      options: null,
+    });
+  });
+  it("strips the ultrathink prefix when switching to another effort", () => {
+    expect(select("low", "Ultrathink:\nFix it")).toEqual({
+      prompt: "Fix it",
+      options: selections(["effort", "low"], ["fastMode", false]),
+    });
+  });
+  it("keeps ultrathink when the prompt body itself asks for it", () => {
+    expect(select("low", "Ultrathink:\nPlease ultrathink about this")).toBeNull();
+  });
+});
 describe("getComposerReasoningStep", () => {
   const LEVELS = [
-    { id: "low", label: "Low" },
-    { id: "medium", label: "Medium", isDefault: true },
-    { id: "high", label: "High" },
+    {
+      id: "low",
+      label: "Low",
+    },
+    {
+      id: "medium",
+      label: "Medium",
+      isDefault: true,
+    },
+    {
+      id: "high",
+      label: "High",
+    },
   ];
   const INSTANCE = ProviderInstanceId.make("codex");
   const CLAUDE = {
@@ -252,15 +393,24 @@ describe("getComposerReasoningStep", () => {
       selectDescriptor(
         "effort",
         [
-          { id: "medium", label: "Medium" },
-          { id: "high", label: "High", isDefault: true },
-          { id: "ultrathink", label: "Ultrathink" },
+          {
+            id: "medium",
+            label: "Medium",
+          },
+          {
+            id: "high",
+            label: "High",
+            isDefault: true,
+          },
+          {
+            id: "ultrathink",
+            label: "Ultrathink",
+          },
         ],
         ["ultrathink"],
       ),
     ]),
   };
-
   function step(input: Partial<Parameters<typeof getComposerReasoningStep>[0]>) {
     return getComposerReasoningStep({
       provider: PROVIDER,
@@ -275,12 +425,18 @@ describe("getComposerReasoningStep", () => {
       ...input,
     });
   }
-
   it("walks the catalog order, wrapping at both ends and keeping the other traits", () => {
     const models = modelWith([
       selectDescriptor("contextWindow", [
-        { id: "200k", label: "200k", isDefault: true },
-        { id: "1m", label: "1M" },
+        {
+          id: "200k",
+          label: "200k",
+          isDefault: true,
+        },
+        {
+          id: "1m",
+          label: "1M",
+        },
       ]),
       selectDescriptor("reasoningEffort", LEVELS),
     ]);
@@ -304,14 +460,16 @@ describe("getComposerReasoningStep", () => {
       });
     }
   });
-
   it("adds and strips the Ultrathink prefix while the caret stays on the same character", () => {
     for (const { prompt, modelOptions, direction, expected } of [
       {
         prompt: "  Fix the bug \n",
         modelOptions: selections(["effort", "high"]),
         direction: 1,
-        expected: { prompt: "Ultrathink:\nFix the bug", cursor: 20 },
+        expected: {
+          prompt: "Ultrathink:\nFix the bug",
+          cursor: 20,
+        },
       },
       {
         // The prefix, not the draft's Medium, is the current level.
@@ -337,13 +495,20 @@ describe("getComposerReasoningStep", () => {
     }
     // A caret in leading whitespace must not land inside the new prefix.
     expect(
-      step({ ...CLAUDE, prompt: "   Fix", modelOptions: selections(["effort", "high"]) })?.cursor,
+      step({
+        ...CLAUDE,
+        prompt: "   Fix",
+        modelOptions: selections(["effort", "high"]),
+      })?.cursor,
     ).toBe("Ultrathink:\n".length);
   });
-
   it("skips Ultrathink for slash commands and does nothing when the prompt locks it", () => {
     expect(
-      step({ ...CLAUDE, prompt: "/review", modelOptions: selections(["effort", "high"]) }),
+      step({
+        ...CLAUDE,
+        prompt: "/review",
+        modelOptions: selections(["effort", "high"]),
+      }),
     ).toStrictEqual({
       prompt: "/review",
       cursor: 0,
@@ -354,12 +519,16 @@ describe("getComposerReasoningStep", () => {
       ["Ultrathink:\nPlease ultrathink harder", -1],
     ] as const) {
       expect(
-        step({ ...CLAUDE, prompt, modelOptions: selections(["effort", "high"]), direction }),
+        step({
+          ...CLAUDE,
+          prompt,
+          modelOptions: selections(["effort", "high"]),
+          direction,
+        }),
         prompt,
       ).toBeNull();
     }
   });
-
   it("keeps a provider-default Fast mode off unless the user chose it", () => {
     const cursor = {
       provider: ProviderDriverKind.make("cursor"),
@@ -369,15 +538,19 @@ describe("getComposerReasoningStep", () => {
         booleanDescriptor("fastMode", true),
       ]),
     };
-
-    expect(step({ ...cursor, modelOptions: undefined })?.modelOptions).toStrictEqual(
-      selections(["reasoning_effort", "high"], ["fastMode", false]),
-    );
     expect(
-      step({ ...cursor, modelOptions: selections(["fastMode", true]) })?.modelOptions,
+      step({
+        ...cursor,
+        modelOptions: undefined,
+      })?.modelOptions,
+    ).toStrictEqual(selections(["reasoning_effort", "high"], ["fastMode", false]));
+    expect(
+      step({
+        ...cursor,
+        modelOptions: selections(["fastMode", true]),
+      })?.modelOptions,
     ).toStrictEqual(selections(["reasoning_effort", "high"], ["fastMode", true]));
   });
-
   it("steps from the provider-reported level for the same instance and model", () => {
     const reported = {
       instanceId: INSTANCE,
@@ -385,17 +558,28 @@ describe("getComposerReasoningStep", () => {
       options: selections(["reasoningEffort", "high"]),
     };
     for (const { label, modelOptions, reportedModelSelection, to } of [
-      { label: "reported", modelOptions: undefined, reportedModelSelection: reported, to: "low" },
+      {
+        label: "reported",
+        modelOptions: undefined,
+        reportedModelSelection: reported,
+        to: "low",
+      },
       {
         label: "other instance",
         modelOptions: undefined,
-        reportedModelSelection: { ...reported, instanceId: ProviderInstanceId.make("codex-work") },
+        reportedModelSelection: {
+          ...reported,
+          instanceId: ProviderInstanceId.make("codex-work"),
+        },
         to: "high",
       },
       {
         label: "other model",
         modelOptions: undefined,
-        reportedModelSelection: { ...reported, model: "other-model" },
+        reportedModelSelection: {
+          ...reported,
+          model: "other-model",
+        },
         to: "high",
       },
       {
@@ -415,9 +599,13 @@ describe("getComposerReasoningStep", () => {
         to: "high",
       },
     ]) {
-      expect(step({ modelOptions, reportedModelSelection })?.modelOptions, label).toStrictEqual(
-        selections(["reasoningEffort", to]),
-      );
+      expect(
+        step({
+          modelOptions,
+          reportedModelSelection,
+        })?.modelOptions,
+        label,
+      ).toStrictEqual(selections(["reasoningEffort", to]));
     }
   });
 });
