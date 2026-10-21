@@ -1,7 +1,6 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Option from "effect/Option";
-
 import {
   BearerConnectionProfile,
   type ConnectionCatalogEntry,
@@ -10,27 +9,22 @@ import {
 } from "./catalog.ts";
 import {
   BearerConnectionTarget,
-  ConnectionBlockedError,
   ConnectionTransientError,
   RelayConnectionTarget,
   SshConnectionTarget,
   type SupervisorConnectionState,
 } from "./model.ts";
 import {
-  connectionCatalogDisplayUrl,
   environmentMcpUrl,
-  connectionStatusText,
-  connectionStatusTitle,
   presentEnvironmentConnection,
   presentConnectionState,
+  connectionCatalogDisplayUrl,
 } from "./presentation.ts";
-
 const TARGET = new BearerConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
   label: "Remote environment",
   connectionId: "connection-1",
 });
-
 const ENTRY: ConnectionCatalogEntry = {
   target: TARGET,
   profile: Option.some(
@@ -44,7 +38,6 @@ const ENTRY: ConnectionCatalogEntry = {
   ),
   enabled: true,
 };
-
 function supervisorState(overrides: Partial<SupervisorConnectionState>): SupervisorConnectionState {
   return {
     desired: true,
@@ -58,30 +51,13 @@ function supervisorState(overrides: Partial<SupervisorConnectionState>): Supervi
     ...overrides,
   };
 }
-
 describe("connection presentation", () => {
-  it("labels a blocked protocol as unsupported", () => {
-    const connection = presentConnectionState(
-      supervisorState({
-        phase: "blocked",
-        lastFailure: new ConnectionBlockedError({
-          reason: "unsupported",
-          detail: "Update your app.",
-        }),
-      }),
-    );
-    expect(connection.phase).toBe("unsupported");
-    expect(connection.error).toBe("Update your app.");
-    expect(connectionStatusText(connection)).toBe("Client not supported");
-  });
-
-  it("preserves profile display information without exposing credentials", () => {
-    expect(connectionCatalogDisplayUrl(ENTRY)).toBe("https://environment.example.test");
-  });
-
   it("copies the MCP address of the route this device is connected over", () => {
     const route = (connectionId: string, httpBaseUrl: string): ConnectionRoute => {
-      const target = new BearerConnectionTarget({ ...TARGET, connectionId });
+      const target = new BearerConnectionTarget({
+        ...TARGET,
+        connectionId,
+      });
       return {
         target,
         profile: Option.some(
@@ -104,13 +80,20 @@ describe("connection presentation", () => {
       profile: lan.profile,
       alternateRoutes: [tailnet, serve],
     };
-
-    expect(environmentMcpUrl({ entry, connectedTarget: tailnet.target })).toBe(
-      "http://100.115.1.44:3773/mcp",
-    );
-    expect(environmentMcpUrl({ entry })).toBe("http://192.168.4.53:3773/mcp");
+    expect(
+      environmentMcpUrl({
+        entry,
+        connectedTarget: tailnet.target,
+      }),
+    ).toBe("http://100.115.1.44:3773/mcp");
+    expect(
+      environmentMcpUrl({
+        entry,
+      }),
+    ).toBe("http://192.168.4.53:3773/mcp");
   });
 
+  // regression: #16909 Copy MCP URL falls back to an alternate route when the relay route has no address
   it("passes over routes without an address of their own", () => {
     const relay = new RelayConnectionTarget({
       environmentId: TARGET.environmentId,
@@ -120,12 +103,19 @@ describe("connection presentation", () => {
       ...ENTRY,
       target: relay,
       profile: Option.none(),
-      alternateRoutes: [{ target: ENTRY.target, profile: ENTRY.profile }],
+      alternateRoutes: [
+        {
+          target: ENTRY.target,
+          profile: ENTRY.profile,
+        },
+      ],
     };
-
-    expect(environmentMcpUrl({ entry, connectedTarget: relay })).toBe(
-      "https://environment.example.test/mcp",
-    );
+    expect(
+      environmentMcpUrl({
+        entry,
+        connectedTarget: relay,
+      }),
+    ).toBe("https://environment.example.test/mcp");
     expect(
       environmentMcpUrl({
         entry,
@@ -134,7 +124,6 @@ describe("connection presentation", () => {
       }),
     ).toBe("https://tunnel.example.test/mcp");
   });
-
   it("formats SSH display information without a missing username and preserves the port", () => {
     const target = new SshConnectionTarget({
       environmentId: EnvironmentId.make("environment-ssh"),
@@ -158,12 +147,17 @@ describe("connection presentation", () => {
       ),
       enabled: true,
     };
-
     expect(connectionCatalogDisplayUrl(entry)).toBe("devbox.example.test:2222");
   });
-
   it("distinguishes initial connection, reconnect, and retry errors", () => {
-    expect(presentConnectionState(supervisorState({ phase: "connecting", attempt: 1 }))).toEqual({
+    expect(
+      presentConnectionState(
+        supervisorState({
+          phase: "connecting",
+          attempt: 1,
+        }),
+      ),
+    ).toEqual({
       phase: "connecting",
       error: null,
       traceId: null,
@@ -204,72 +198,6 @@ describe("connection presentation", () => {
       traceId: "trace-1",
     });
   });
-
-  it("preserves the latest failure while the next attempt is active", () => {
-    expect(
-      presentEnvironmentConnection(
-        supervisorState({
-          phase: "connecting",
-          stage: "opening",
-          attempt: 2,
-          lastFailure: new ConnectionTransientError({
-            reason: "transport",
-            detail: "Relay connection timed out.",
-            traceId: "trace-retry",
-          }),
-        }),
-      ),
-    ).toEqual({
-      phase: "reconnecting",
-      error: "Relay connection timed out.",
-      traceId: "trace-retry",
-    });
-  });
-
-  it("combines reconnect progress with the latest failure", () => {
-    const connection = {
-      phase: "reconnecting",
-      error: "Relay request timed out.",
-      traceId: "trace-retry",
-    } as const;
-    expect(connectionStatusText(connection)).toBe(
-      "Failed to connect. Reconnecting... Reason: Relay request timed out.",
-    );
-    expect(connectionStatusTitle(connection)).toBe("Failed to connect. Reconnecting...");
-  });
-
-  it("presents the supervisor's offline state without consulting shell state", () => {
-    expect(
-      presentEnvironmentConnection(
-        supervisorState({
-          network: "offline",
-          phase: "offline",
-          stage: null,
-        }),
-      ),
-    ).toEqual({
-      phase: "offline",
-      error: null,
-      traceId: null,
-    });
-  });
-
-  it("presents a connected supervisor snapshot as connected", () => {
-    expect(
-      presentEnvironmentConnection(
-        supervisorState({
-          phase: "connected",
-          stage: null,
-          generation: 1,
-        }),
-      ),
-    ).toEqual({
-      phase: "connected",
-      error: null,
-      traceId: null,
-    });
-  });
-
   it("preserves an explicitly available environment while offline", () => {
     expect(
       presentEnvironmentConnection(

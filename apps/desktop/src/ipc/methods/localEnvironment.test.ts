@@ -1,7 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-
 import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
@@ -12,7 +11,6 @@ import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import { getLocalEnvironmentEnabled, setLocalEnvironmentEnabled } from "./localEnvironment.ts";
-
 const layerUnusedLifecycleRuntime = Layer.mergeAll(
   DesktopShutdown.layer,
   DesktopState.layer,
@@ -26,7 +24,6 @@ const layerUnusedLifecycleRuntime = Layer.mergeAll(
   Layer.mock(ElectronApp.ElectronApp, {}),
   Layer.mock(ElectronTheme.ElectronTheme, {}),
 );
-
 describe("local environment IPC", () => {
   it.effect("relaunches only when the setting changes and keeps other settings", () => {
     const relaunchReasons: Array<string> = [];
@@ -52,7 +49,6 @@ describe("local environment IPC", () => {
       assert.isFalse(yield* getLocalEnvironmentEnabled.handler());
       yield* setLocalEnvironmentEnabled.handler(false);
       assert.deepEqual(relaunchReasons, ["localEnvironmentEnabled=false"]);
-
       yield* setLocalEnvironmentEnabled.handler(true);
       assert.isTrue(yield* getLocalEnvironmentEnabled.handler());
       const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
@@ -63,7 +59,6 @@ describe("local environment IPC", () => {
       ]);
     }).pipe(Effect.provide(layer));
   });
-
   it.effect("relaunches when turned on while attached to an existing server", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
@@ -83,7 +78,6 @@ describe("local environment IPC", () => {
       assert.deepEqual(relaunchReasons, ["localEnvironmentEnabled=true"]);
     }).pipe(Effect.provide(layer));
   });
-
   it.effect("saves without relaunching when the launch set --backend-mode", () => {
     const relaunchReasons: Array<string> = [];
     const layer = Layer.mergeAll(
