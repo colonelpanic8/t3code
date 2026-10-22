@@ -10,7 +10,7 @@ import {
 } from "./ChatView.logic";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
-import { deriveProviderInstanceEntries } from "../providerInstances";
+import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import { ensureInlineContextReferences } from "../lib/composerContextReferences";
 import { terminalContextReference } from "../lib/composerContextRecords";
 import {
@@ -34,10 +34,10 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
-
 import type { Thread } from "../types";
 import { makeThreadFixture, makeThreadProjectionFixture } from "../test-fixtures";
 import {
+  buildLocalDraftThread,
   getAntigravitySendBlockReason,
   resolveComposerProviderSelection,
   resolveWorktreeSetupProgress,
@@ -55,12 +55,10 @@ import {
   resolveDraftPromotionNavigationTarget,
   waitForRevertedMessage,
 } from "./ChatView.logic";
-
 const environmentId = EnvironmentId.make("environment-local");
 const projectId = ProjectId.make("project-1");
 const threadId = ThreadId.make("thread-1");
 const now = "2026-03-29T00:00:00.000Z";
-
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return makeThreadFixture({
     id: threadId,
@@ -86,7 +84,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     ...overrides,
   });
 }
-
 const completedTurn = {
   runId: RunId.make("turn-1"),
   status: "completed" as const,
@@ -95,7 +92,6 @@ const completedTurn = {
   completedAt: "2026-03-29T00:00:10.000Z",
   assistantMessageId: null,
 };
-
 const readySession = {
   status: "completed" as const,
   providerName: "codex",
@@ -104,21 +100,54 @@ const readySession = {
   lastError: null,
   updatedAt: "2026-03-29T00:00:10.000Z",
 };
-
+describe("buildLocalDraftThread", () => {
+  it("shows a draft's blank slate before the thread exists", () => {
+    const draft = {
+      threadId: ThreadId.make("thread-draft-blank-slate"),
+      environmentId: EnvironmentId.make("environment-local"),
+      projectId: ProjectId.make("project-1"),
+      logicalProjectKey: "project-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      runtimeMode: "full-access" as const,
+      interactionMode: "default" as const,
+      branch: null,
+      worktreePath: null,
+      envMode: "local" as const,
+      startFromOrigin: false,
+    };
+    const build = (blankSlate: boolean) =>
+      buildLocalDraftThread(
+        draft.threadId,
+        blankSlate
+          ? {
+              ...draft,
+              blankSlate,
+            }
+          : draft,
+        NO_PROVIDER_MODEL_SELECTION,
+      ).blankSlate;
+    expect(build(true)).toBe(true);
+    expect(build(false)).toBeUndefined();
+  });
+});
 describe("resolveDraftPromotionNavigationTarget", () => {
-  const serverThreadRef = { environmentId, threadId };
+  const serverThreadRef = {
+    environmentId,
+    threadId,
+  };
   const preparingRun = {
     ...completedTurn,
     status: "preparing" as const,
     startedAt: null,
     completedAt: null,
   };
-
   it("stays on the draft until the server owns the send", () => {
     expect(
       resolveDraftPromotionNavigationTarget({
         serverThreadRef,
-        serverThread: makeThread({ latestRun: preparingRun }),
+        serverThread: makeThread({
+          latestRun: preparingRun,
+        }),
         backgroundSubmissionPending: false,
       }),
     ).toBeNull();
@@ -130,9 +159,11 @@ describe("resolveDraftPromotionNavigationTarget", () => {
       }),
     ).toBeNull();
   });
-
   it("promotes a persisted send while its worktree is still preparing", () => {
-    const serverThread = makeThread({ latestRun: preparingRun, latestUserMessageAt: now });
+    const serverThread = makeThread({
+      latestRun: preparingRun,
+      latestUserMessageAt: now,
+    });
     expect(
       resolveDraftPromotionNavigationTarget({
         serverThreadRef,
@@ -149,7 +180,6 @@ describe("resolveDraftPromotionNavigationTarget", () => {
     ).toBeNull();
   });
 });
-
 describe("deriveComposerSendState", () => {
   it("keeps text sendable while excluding expired terminal pills", () => {
     const state = deriveComposerSendState({
@@ -168,18 +198,21 @@ describe("deriveComposerSendState", () => {
         },
       ],
     });
-
     expect(state.trimmedPrompt).toBe("yoo  waddup");
     expect(state.expiredTerminalContextCount).toBe(1);
     expect(state.hasSendableContent).toBe(true);
   });
 });
-
 describe("hasServerAcknowledgedLocalDispatch", () => {
   it("acknowledges a settled newer background turn", () => {
     const localDispatch = createLocalDispatchSnapshot(
-      makeThread({ latestRun: completedTurn, runtime: readySession }),
-      { submissionIntent: "background" },
+      makeThread({
+        latestRun: completedTurn,
+        runtime: readySession,
+      }),
+      {
+        submissionIntent: "background",
+      },
     );
     const newerTurn = {
       ...completedTurn,
@@ -188,20 +221,21 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       startedAt: "2026-03-29T00:01:01.000Z",
       completedAt: "2026-03-29T00:01:30.000Z",
     };
-
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
         phase: "ready",
         latestRun: newerTurn,
-        runtime: { ...readySession, updatedAt: newerTurn.completedAt },
+        runtime: {
+          ...readySession,
+          updatedAt: newerTurn.completedAt,
+        },
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
       }),
     ).toBe(true);
   });
-
   it("holds a first send while the thread shell still reports a preparing run", () => {
     const localDispatch = createLocalDispatchSnapshot(makeThread());
     const preparingRun = {
@@ -210,23 +244,28 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       startedAt: null,
       completedAt: null,
     };
-
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
         phase: "disconnected",
         latestRun: preparingRun,
-        runtime: { ...readySession, status: "preparing", activeRunId: preparingRun.runId },
+        runtime: {
+          ...readySession,
+          status: "preparing",
+          activeRunId: preparingRun.runId,
+        },
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
       }),
     ).toBe(false);
   });
-
   it("waits for the matching running turn before acknowledging", () => {
     const localDispatch = createLocalDispatchSnapshot(
-      makeThread({ latestRun: completedTurn, runtime: readySession }),
+      makeThread({
+        latestRun: completedTurn,
+        runtime: readySession,
+      }),
     );
     const runningTurn = {
       ...completedTurn,
@@ -236,7 +275,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       startedAt: "2026-03-29T00:01:01.000Z",
       completedAt: null,
     };
-
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
@@ -268,7 +306,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       }),
     ).toBe(true);
   });
-
   it("acknowledges a steering message projected onto the current running run", () => {
     const runningRun = {
       ...completedTurn,
@@ -281,10 +318,14 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       activeRunId: runningRun.runId,
     };
     const localDispatch = createLocalDispatchSnapshot(
-      makeThread({ latestRun: runningRun, runtime: runningRuntime }),
-      { latestUserMessageId: MessageId.make("message-before-steer") },
+      makeThread({
+        latestRun: runningRun,
+        runtime: runningRuntime,
+      }),
+      {
+        latestUserMessageId: MessageId.make("message-before-steer"),
+      },
     );
-
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch,
@@ -299,7 +340,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(true);
   });
 });
-
 describe("deriveCommittedServerUserMessageIds", () => {
   it("tracks only committed user turn items, not assistant rows or projection-only messages", () => {
     const turnStartId = MessageId.make("message-turn-start");
@@ -393,23 +433,25 @@ describe("deriveCommittedServerUserMessageIds", () => {
         },
       },
     ];
-
     expect(deriveCommittedServerUserMessageIds(visibleTurnItems)).toEqual(
       new Set([turnStartId, steerId]),
     );
   });
 });
-
 describe("resolveThreadSwitchTimeline", () => {
   afterEach(() => {
     resetHeldThreadTimeline();
   });
-
-  const held = { threadKey: "env-1:thread-a", entries: ["a1", "a2"] };
-
+  const held = {
+    threadKey: "env-1:thread-a",
+    entries: ["a1", "a2"],
+  };
   it("paints a remembered destination instead of the last-viewed thread", () => {
     rememberReadyThreadTimeline(held);
-    rememberReadyThreadTimeline({ threadKey: "env-1:thread-b", entries: ["b1", "b2"] });
+    rememberReadyThreadTimeline({
+      threadKey: "env-1:thread-b",
+      entries: ["b1", "b2"],
+    });
     expect(peekRememberedThreadTimeline<string[]>("env-1:thread-a")).toEqual(["a1", "a2"]);
     expect(
       resolveThreadSwitchTimeline({
@@ -417,9 +459,11 @@ describe("resolveThreadSwitchTimeline", () => {
         activeThreadKey: "env-1:thread-a",
         nextEntries: [],
       }),
-    ).toEqual({ entries: ["a1", "a2"], displayThreadKey: "env-1:thread-a" });
+    ).toEqual({
+      entries: ["a1", "a2"],
+      displayThreadKey: "env-1:thread-a",
+    });
   });
-
   it("does not hold another environment's timeline across a jump", () => {
     expect(threadKeysShareEnvironment("env-1:thread-a", "env-2:thread-b")).toBe(false);
     expect(
@@ -429,9 +473,11 @@ describe("resolveThreadSwitchTimeline", () => {
         nextEntries: [],
         lastReady: held,
       }),
-    ).toEqual({ entries: [], displayThreadKey: "env-2:thread-b" });
+    ).toEqual({
+      entries: [],
+      displayThreadKey: "env-2:thread-b",
+    });
   });
-
   it("does not remember a timeline that still has handoff blob previews", () => {
     expect(
       timelineHasEphemeralPreviewUrls([
@@ -487,12 +533,15 @@ describe("resolveThreadSwitchTimeline", () => {
     ).toBe(false);
   });
 });
-
 describe("resolveComposerProviderSelection", () => {
   const catalogModels: ServerProvider["models"] = [
-    { slug: "gemini-pro", name: "Gemini Pro", isCustom: false, capabilities: null },
+    {
+      slug: "gemini-pro",
+      name: "Gemini Pro",
+      isCustom: false,
+      capabilities: null,
+    },
   ];
-
   function entry(driver: string, instanceId = driver, overrides: Partial<ServerProvider> = {}) {
     return deriveProviderInstanceEntries([
       {
@@ -501,7 +550,9 @@ describe("resolveComposerProviderSelection", () => {
         enabled: true,
         installed: true,
         status: "ready",
-        auth: { status: "authenticated" },
+        auth: {
+          status: "authenticated",
+        },
         version: null,
         checkedAt: now,
         models: [],
@@ -511,14 +562,15 @@ describe("resolveComposerProviderSelection", () => {
       },
     ])[0]!;
   }
-
   function importedThread(instanceId: ProviderInstanceId) {
     return makeThread({
-      modelSelection: { instanceId, model: "default" },
+      modelSelection: {
+        instanceId,
+        model: "default",
+      },
       itemCount: 1,
     });
   }
-
   it.each([
     ["claudeAgent", "claude_work"],
     ["codex", "codex_work"],
@@ -533,7 +585,6 @@ describe("resolveComposerProviderSelection", () => {
       threadProvider: thread.modelSelection.instanceId,
       providers: entries.map((entry) => entry.snapshot),
     });
-
     expect(thread.runtime).toBeNull();
     expect(lockedProvider).toBe(driver);
     expect(
@@ -545,12 +596,10 @@ describe("resolveComposerProviderSelection", () => {
       }).selectedProviderEntry?.instanceId,
     ).toBe(importedEntry.instanceId);
   });
-
   it("keeps the session driver authoritative over instance and draft selections", () => {
     const selected = entry("claudeAgent", "claude_work");
     const sessionEntry = entry("ollama", "local_models");
     const thread = importedThread(selected.instanceId);
-
     expect(
       deriveLockedProvider({
         thread: {
@@ -567,11 +616,12 @@ describe("resolveComposerProviderSelection", () => {
       }),
     ).toBe(sessionEntry.driverKind);
   });
-
   it.each(["missing", "disabled"] as const)(
     "does not move imported history to another driver when its instance is %s",
     (state) => {
-      const imported = entry("claudeAgent", "claude_work", { enabled: false });
+      const imported = entry("claudeAgent", "claude_work", {
+        enabled: false,
+      });
       const other = entry("codex");
       const entries = state === "missing" ? [other] : [other, imported];
       const thread = importedThread(imported.instanceId);
@@ -581,7 +631,6 @@ describe("resolveComposerProviderSelection", () => {
         threadProvider: thread.modelSelection.instanceId,
         providers: entries.map((entry) => entry.snapshot),
       });
-
       expect(lockedProvider).not.toBeNull();
       expect(
         resolveComposerProviderSelection({
@@ -593,11 +642,12 @@ describe("resolveComposerProviderSelection", () => {
       ).toBeUndefined();
     },
   );
-
   it("keeps a signed-out selection instead of silently switching providers", () => {
     const signedOutEntry = entry("antigravity", "google_work", {
       status: "error",
-      auth: { status: "unauthenticated" },
+      auth: {
+        status: "unauthenticated",
+      },
       models: catalogModels,
     });
     const selection = resolveComposerProviderSelection({
@@ -606,36 +656,30 @@ describe("resolveComposerProviderSelection", () => {
       lockedProvider: null,
       lockedInstanceId: null,
     });
-
     expect(selection.selectedProviderEntry?.instanceId).toBe(signedOutEntry.instanceId);
     expect(
       getAntigravitySendBlockReason(selection.selectedProviderEntry?.snapshot, "gemini-pro"),
     ).toBe("Sign in to Antigravity in provider settings before sending.");
   });
-
   it("blocks a saved model that a ready catalog no longer lists", () => {
     const provider = entry("antigravity", "google_work", {
       status: "ready",
       models: catalogModels,
     }).snapshot;
-
     expect(getAntigravitySendBlockReason(provider, "saved-model-not-in-current-catalog")).toBe(
       "That Antigravity model is no longer available. Choose another model.",
     );
     expect(getAntigravitySendBlockReason(provider, "gemini-pro")).toBeNull();
   });
-
   it("allows a saved native model to retry after a provider error without changing it", () => {
     const provider = entry("antigravity", "google_work", {
       status: "error",
       models: catalogModels,
     }).snapshot;
-
     expect(
       getAntigravitySendBlockReason(provider, "saved-model-not-in-current-catalog"),
     ).toBeNull();
   });
-
   it("does not continue an existing Antigravity thread in another profile after deletion", () => {
     const missingInstanceId = ProviderInstanceId.make("google_work");
     const selection = resolveComposerProviderSelection({
@@ -644,18 +688,20 @@ describe("resolveComposerProviderSelection", () => {
       lockedProvider: ProviderDriverKind.make("antigravity"),
       lockedInstanceId: missingInstanceId,
     });
-
     expect(selection.selectedProviderEntry).toBeUndefined();
     expect(selection.unavailableProviderInstanceId).toBe(missingInstanceId);
   });
-
   it("keeps the session's continuation group when another instance was selected", () => {
     const sessionEntry = entry("antigravity", "google_work", {
       enabled: false,
-      continuation: { groupKey: "work-profile" },
+      continuation: {
+        groupKey: "work-profile",
+      },
     });
     const anotherEntry = entry("antigravity", "google_personal", {
-      continuation: { groupKey: "personal-profile" },
+      continuation: {
+        groupKey: "personal-profile",
+      },
     });
     const selection = resolveComposerProviderSelection({
       entries: [sessionEntry, anotherEntry],
@@ -663,18 +709,15 @@ describe("resolveComposerProviderSelection", () => {
       lockedProvider: ProviderDriverKind.make("antigravity"),
       lockedInstanceId: sessionEntry.instanceId,
     });
-
     expect(selection.selectedProviderEntry).toBeUndefined();
   });
 });
-
 describe("checkout Git memory", () => {
   it("does not confuse an environment id containing the separator with a path", () => {
     rememberCheckoutIsRepo(EnvironmentId.make("env"), "a:b", false);
     expect(recallCheckoutIsRepo(EnvironmentId.make("env:a"), "b")).toBeUndefined();
   });
 });
-
 describe("worktree setup visibility", () => {
   const stage = (
     id: "fetch" | "checkout" | "submodules" | "setup-script" | "agent",
@@ -707,9 +750,11 @@ describe("worktree setup visibility", () => {
     endedAt: now,
     stages: [stage("checkout", "done"), stage("setup-script", "done"), stage("agent", "done")],
   };
-
   it("uses streamed setup progress immediately without reverting to an older held snapshot", () => {
-    const newest = { ...settledDone, sequence: 9 };
+    const newest = {
+      ...settledDone,
+      sequence: 9,
+    };
     const resolve = (latest: WorktreeSetupSnapshot | null, held: WorktreeSetupSnapshot | null) =>
       resolveWorktreeSetupProgress({
         threadId,
@@ -718,34 +763,60 @@ describe("worktree setup visibility", () => {
         latest,
         held,
       });
-    expect(resolve(newest, base)).toEqual({ snapshot: newest, isPreparingWorktree: false });
-    expect(resolve(base, newest)).toEqual({ snapshot: newest, isPreparingWorktree: false });
-    const other = { ...base, threadId: ThreadId.make("another-thread") };
-    expect(resolve(other, other)).toEqual({ snapshot: null, isPreparingWorktree: false });
+    expect(resolve(newest, base)).toEqual({
+      snapshot: newest,
+      isPreparingWorktree: false,
+    });
+    expect(resolve(base, newest)).toEqual({
+      snapshot: newest,
+      isPreparingWorktree: false,
+    });
+    const other = {
+      ...base,
+      threadId: ThreadId.make("another-thread"),
+    };
+    expect(resolve(other, other)).toEqual({
+      snapshot: null,
+      isPreparingWorktree: false,
+    });
   });
-
   it("reads the settled snapshot back from the thread's activities", () => {
     const activities = [
-      { kind: "setup-script.started", payload: {} },
-      { kind: "worktree-setup", payload: settledDone },
-      { kind: "worktree-setup", payload: { not: "a snapshot" } },
+      {
+        kind: "setup-script.started",
+        payload: {},
+      },
+      {
+        kind: "worktree-setup",
+        payload: settledDone,
+      },
+      {
+        kind: "worktree-setup",
+        payload: {
+          not: "a snapshot",
+        },
+      },
     ];
     expect(findRecordedWorktreeSetup(activities, threadId)).toEqual(settledDone);
     expect(findRecordedWorktreeSetup(activities, ThreadId.make("other"))).toBeNull();
   });
 });
-
 describe("waitForRevertedMessage", () => {
-  const threadRef = { environmentId: EnvironmentId.make("env-1"), threadId: ThreadId.make("t") };
+  const threadRef = {
+    environmentId: EnvironmentId.make("env-1"),
+    threadId: ThreadId.make("t"),
+  };
   const messageId = MessageId.make("message-2");
   const requestId = CommandId.make("rollback-1");
-
   function projectionAtom() {
     const base = makeThreadProjectionFixture();
     const providerThreadId = ProviderThreadId.make("provider-thread");
     const projection = {
       ...base,
-      thread: { ...base.thread, activeProviderThreadId: providerThreadId },
+      thread: {
+        ...base.thread,
+        activeProviderThreadId: providerThreadId,
+      },
       providerThreads: [
         {
           id: providerThreadId,
@@ -797,13 +868,16 @@ describe("waitForRevertedMessage", () => {
         },
       ],
     } as unknown as ReturnType<typeof makeThreadProjectionFixture>;
-    const state = Atom.make({ data: Option.some(projection) });
+    const state = Atom.make({
+      data: Option.some(projection),
+    });
     vi.spyOn(environmentThreadDetails, "stateAtom").mockReturnValue(state as never);
-    return { state, projection };
+    return {
+      state,
+      projection,
+    };
   }
-
   afterEach(() => vi.restoreAllMocks());
-
   it("rejects with the projected reason when the rollback fails for good", async () => {
     const { state, projection } = projectionAtom();
     const waiting = waitForRevertedMessage(threadRef, 1, requestId, async () => {});
@@ -813,14 +887,15 @@ describe("waitForRevertedMessage", () => {
         ...projection,
         thread: {
           ...projection.thread,
-          rollbackFailure: { requestId, message: "The provider could not roll back." },
+          rollbackFailure: {
+            requestId,
+            message: "The provider could not roll back.",
+          },
         },
       }),
     });
-
     await expect(waiting).rejects.toThrow("The provider could not roll back.");
   });
-
   it.each([
     ["same", "streamed"],
     ["replacement", "streamed"],
@@ -860,11 +935,16 @@ describe("waitForRevertedMessage", () => {
       const completedProviderThread = {
         ...oldProviderThread,
         ...(providerIdentity === "replacement"
-          ? { id: ProviderThreadId.make("replacement-provider-thread"), firstRunOrdinal: null }
+          ? {
+              id: ProviderThreadId.make("replacement-provider-thread"),
+              firstRunOrdinal: null,
+            }
           : {}),
         lastRunOrdinal: null,
       };
-      appAtomRegistry.set(state, { data: Option.some(bounded) });
+      appAtomRegistry.set(state, {
+        data: Option.some(bounded),
+      });
       let outcome = "pending";
       const waiting = waitForRevertedMessage(threadRef, 0, requestId, async () => {}).then(
         () => {
@@ -874,11 +954,9 @@ describe("waitForRevertedMessage", () => {
           outcome = error.message;
         },
       );
-
       try {
         await vi.advanceTimersByTimeAsync(0);
         expect(outcome).toBe("pending");
-
         appAtomRegistry.set(state, {
           data: Option.some({
             ...bounded,
@@ -894,7 +972,12 @@ describe("waitForRevertedMessage", () => {
                 ? [oldProviderThread, completedProviderThread]
                 : [completedProviderThread],
             runs: bounded.runs.map((run) =>
-              run.id === latestRunId ? { ...run, status: "rolled_back" as const } : run,
+              run.id === latestRunId
+                ? {
+                    ...run,
+                    status: "rolled_back" as const,
+                  }
+                : run,
             ),
           }),
         });
@@ -907,7 +990,6 @@ describe("waitForRevertedMessage", () => {
       }
     },
   );
-
   it("waits for the requested target when another client finishes a shallower rewind", async () => {
     vi.useFakeTimers();
     const { state, projection } = projectionAtom();
@@ -920,7 +1002,6 @@ describe("waitForRevertedMessage", () => {
         outcome = error.message;
       },
     );
-
     try {
       await vi.advanceTimersByTimeAsync(0);
       expect(outcome).toBe("pending");
@@ -928,19 +1009,29 @@ describe("waitForRevertedMessage", () => {
       // Our command is accepted while the earlier target-3 effect is still running.
       const shallowerRewind = {
         ...projection,
-        thread: { ...projection.thread, rollbackRequestId: requestId, rollbackFailure: null },
+        thread: {
+          ...projection.thread,
+          rollbackRequestId: requestId,
+          rollbackFailure: null,
+        },
         providerThreads: projection.providerThreads.map((thread) => ({
           ...thread,
           lastRunOrdinal: 3,
         })),
         runs: projection.runs.map((run) =>
-          run.ordinal > 3 ? { ...run, status: "rolled_back" as const } : run,
+          run.ordinal > 3
+            ? {
+                ...run,
+                status: "rolled_back" as const,
+              }
+            : run,
         ),
       };
-      appAtomRegistry.set(state, { data: Option.some(shallowerRewind) });
+      appAtomRegistry.set(state, {
+        data: Option.some(shallowerRewind),
+      });
       await vi.advanceTimersByTimeAsync(0);
       expect(outcome).toBe("pending");
-
       appAtomRegistry.set(state, {
         data: Option.some({
           ...shallowerRewind,
@@ -949,7 +1040,12 @@ describe("waitForRevertedMessage", () => {
             lastRunOrdinal: 1,
           })),
           runs: shallowerRewind.runs.map((run) =>
-            run.ordinal > 1 ? { ...run, status: "rolled_back" as const } : run,
+            run.ordinal > 1
+              ? {
+                  ...run,
+                  status: "rolled_back" as const,
+                }
+              : run,
           ),
         }),
       });
@@ -961,21 +1057,28 @@ describe("waitForRevertedMessage", () => {
       vi.useRealTimers();
     }
   });
-
   it("rejects a stale edit already rewound by another client during attachment preparation", async () => {
     vi.useFakeTimers();
     const { state, projection } = projectionAtom();
     appAtomRegistry.set(state, {
       data: Option.some({
         ...projection,
-        thread: { ...projection.thread, rollbackRequestId: CommandId.make("other-client-rewind") },
+        thread: {
+          ...projection.thread,
+          rollbackRequestId: CommandId.make("other-client-rewind"),
+        },
         messages: [],
         providerThreads: projection.providerThreads.map((thread) => ({
           ...thread,
           lastRunOrdinal: 1,
         })),
         runs: projection.runs.map((run) =>
-          run.ordinal > 1 ? { ...run, status: "rolled_back" as const } : run,
+          run.ordinal > 1
+            ? {
+                ...run,
+                status: "rolled_back" as const,
+              }
+            : run,
         ),
       }),
     });
@@ -989,7 +1092,6 @@ describe("waitForRevertedMessage", () => {
         outcome = "rejected";
       },
     );
-
     try {
       await vi.advanceTimersByTimeAsync(0);
       expect(outcome).toBe("rejected");
@@ -1001,7 +1103,6 @@ describe("waitForRevertedMessage", () => {
     }
   });
 });
-
 describe("mergeDirectPreviewAnnotation", () => {
   const annotation = (id: string) =>
     ({
@@ -1017,25 +1118,37 @@ describe("mergeDirectPreviewAnnotation", () => {
         dataUrl: "data:image/png;base64,AAAA",
         width: 10,
         height: 10,
-        cropRect: { x: 0, y: 0, width: 10, height: 10 },
+        cropRect: {
+          x: 0,
+          y: 0,
+          width: 10,
+          height: 10,
+        },
       },
       createdAt: "2026-10-16T00:00:00.000Z",
     }) as const;
   const image = (id: string) =>
-    ({ id, type: "image", name: `${id}.png`, mimeType: "image/png", sizeBytes: 1 }) as never;
-
+    ({
+      id,
+      type: "image",
+      name: `${id}.png`,
+      mimeType: "image/png",
+      sizeBytes: 1,
+    }) as never;
   it("drops the screenshot claim when the attachment cap is full", () => {
     const result = mergeDirectPreviewAnnotation({
       images: [],
       fileCount: PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
       previewAnnotations: [],
-      direct: { annotation: annotation("a"), image: image("crop") },
+      direct: {
+        annotation: annotation("a"),
+        image: image("crop"),
+      },
     });
     expect(result.images).toEqual([]);
     expect(result.previewAnnotations[0]?.screenshot).toBeNull();
   });
 });
-
 describe("snapshotComposerSend", () => {
   const expired = {
     id: "ctx-expired",
@@ -1047,8 +1160,13 @@ describe("snapshotComposerSend", () => {
     text: "",
     createdAt: now,
   };
-  const live = { ...expired, id: "ctx-live", text: "pnpm test", lineStart: 9, lineEnd: 9 };
-
+  const live = {
+    ...expired,
+    id: "ctx-live",
+    text: "pnpm test",
+    lineStart: 9,
+    lineEnd: 9,
+  };
   it("drops expired terminal contexts from the contexts and from the prompt", () => {
     const snapshot = snapshotComposerSend({
       prompt: ensureInlineContextReferences("run", [
@@ -1063,14 +1181,12 @@ describe("snapshotComposerSend", () => {
       reviewComments: [],
       threadContexts: [],
     });
-
     expect(snapshot.terminalContexts).toEqual([live]);
     expect(snapshot.messageText).toBe(
       ensureInlineContextReferences("run", [terminalContextReference(live)]).trim(),
     );
   });
 });
-
 describe("planComposerTurn", () => {
   const base = {
     messageText: "hello",
@@ -1085,7 +1201,6 @@ describe("planComposerTurn", () => {
     phase: "ready" as const,
     dispatchMode: "auto" as const,
   };
-
   it("prepares a worktree from the selected branch on a new thread", () => {
     expect(planComposerTurn(base)).toMatchObject({
       missingWorktreeBaseBranch: false,
@@ -1093,25 +1208,39 @@ describe("planComposerTurn", () => {
       shouldQueueBehindActiveRun: false,
     });
   });
-
   it("refuses a new worktree without a base branch", () => {
-    expect(planComposerTurn({ ...base, activeThreadBranch: null })).toMatchObject({
+    expect(
+      planComposerTurn({
+        ...base,
+        activeThreadBranch: null,
+      }),
+    ).toMatchObject({
       missingWorktreeBaseBranch: true,
       baseBranchForWorktree: null,
     });
   });
-
   it("queues behind a compaction of a stale session, except for /compact itself", () => {
-    expect(planComposerTurn({ ...base, resumeCompactionTokens: 120_000 })).toMatchObject({
+    expect(
+      planComposerTurn({
+        ...base,
+        resumeCompactionTokens: 120_000,
+      }),
+    ).toMatchObject({
       compactBeforeSend: true,
       turnDispatchMode: "queue",
       shouldQueueBehindActiveRun: true,
     });
     expect(
-      planComposerTurn({ ...base, resumeCompactionTokens: 120_000, messageText: "/COMPACT" }),
-    ).toMatchObject({ compactBeforeSend: false, turnDispatchMode: "auto" });
+      planComposerTurn({
+        ...base,
+        resumeCompactionTokens: 120_000,
+        messageText: "/COMPACT",
+      }),
+    ).toMatchObject({
+      compactBeforeSend: false,
+      turnDispatchMode: "auto",
+    });
   });
-
   it("queues behind a running turn only when asked to", () => {
     const running = {
       ...base,
@@ -1119,44 +1248,79 @@ describe("planComposerTurn", () => {
       activeMessageCount: 3,
       phase: "running" as const,
     };
-    expect(planComposerTurn({ ...running, dispatchMode: "queue" }).shouldQueueBehindActiveRun).toBe(
-      true,
-    );
-    expect(planComposerTurn({ ...running, dispatchMode: "steer" })).toMatchObject({
+    expect(
+      planComposerTurn({
+        ...running,
+        dispatchMode: "queue",
+      }).shouldQueueBehindActiveRun,
+    ).toBe(true);
+    expect(
+      planComposerTurn({
+        ...running,
+        dispatchMode: "steer",
+      }),
+    ).toMatchObject({
       shouldQueueBehindActiveRun: false,
       baseBranchForWorktree: null,
     });
   });
 });
-
 describe("withMessageContext", () => {
-  const context = { records: [] } as unknown as NonNullable<
-    Parameters<typeof withMessageContext>[0]["context"]
-  >;
-
+  const context = {
+    records: [],
+  } as unknown as NonNullable<Parameters<typeof withMessageContext>[0]["context"]>;
   it("sends the context inline when the server supports it", () => {
-    expect(withMessageContext({ text: "hi", context, supportsInlineMessageContext: true })).toEqual(
-      { text: "hi", context },
-    );
+    expect(
+      withMessageContext({
+        text: "hi",
+        context,
+        supportsInlineMessageContext: true,
+      }),
+    ).toEqual({
+      text: "hi",
+      context,
+    });
   });
-
   it("folds the context into the text for older servers", () => {
-    const result = withMessageContext({ text: "hi", context, supportsInlineMessageContext: false });
+    const result = withMessageContext({
+      text: "hi",
+      context,
+      supportsInlineMessageContext: false,
+    });
     expect(result.context).toBeUndefined();
     expect(result.text).toContain("hi");
   });
-
   it("sends the text alone without context", () => {
     expect(
-      withMessageContext({ text: "hi", context: undefined, supportsInlineMessageContext: false }),
-    ).toEqual({ text: "hi" });
+      withMessageContext({
+        text: "hi",
+        context: undefined,
+        supportsInlineMessageContext: false,
+      }),
+    ).toEqual({
+      text: "hi",
+    });
   });
 });
-
 describe("boundAttachmentIds", () => {
   it("prefers the uploaded id and falls back to the local one", () => {
     expect(
-      boundAttachmentIds([{ id: "upload-1" }, {}], [{ id: "local-1" }, { id: "local-2" }]),
+      boundAttachmentIds(
+        [
+          {
+            id: "upload-1",
+          },
+          {},
+        ],
+        [
+          {
+            id: "local-1",
+          },
+          {
+            id: "local-2",
+          },
+        ],
+      ),
     ).toEqual(["upload-1", "local-2"]);
   });
 });
