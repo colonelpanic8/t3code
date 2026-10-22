@@ -1,3 +1,4 @@
+import { usePromptLinkResolver } from "../prompt-links/usePromptLinkResolver";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import {
   StackActions,
@@ -36,6 +37,7 @@ type NewTaskEnvironmentRouteParams = {
 export function NewTaskEnvironmentRouteScreen({
   route,
 }: StaticScreenProps<NewTaskEnvironmentRouteParams | undefined>) {
+  usePromptLinkResolver(route.params);
   const projects = useProjects();
   const threads = useThreadShells();
   const serverConfigs = useServerConfigs();
