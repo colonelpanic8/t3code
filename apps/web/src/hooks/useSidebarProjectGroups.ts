@@ -1,7 +1,11 @@
 import { orderItemsByPreferredIds, sortSidebarV2ProjectGroups } from "../components/Sidebar.logic";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
-import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  appOwnsLocalEnvironment,
+  useEnvironmentIdentities,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import { useProjects, useQuietThreadShells } from "../state/entities";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
@@ -33,6 +37,7 @@ export function useSidebarProjectGroups() {
     groupScratchProjects: true,
     settings: groupingSettings,
     primaryEnvironmentId,
+    ownsLocalEnvironment: appOwnsLocalEnvironment(),
     resolveEnvironmentLabel: (environmentId) => labels.get(environmentId) ?? null,
   });
   return sortSidebarV2ProjectGroups(unsortedGroups, threads, sortOrder);

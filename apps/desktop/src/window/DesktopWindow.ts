@@ -30,6 +30,7 @@ import { PASSKEY_BRIDGE_ARGUMENT } from "../preview/GuestProtocol.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../app/DesktopBackendMode.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
@@ -300,6 +301,7 @@ export const make = Effect.gen(function* () {
   const previewManager = yield* PreviewManager.PreviewManager;
   const previewPasskeys = yield* PreviewPasskeys.PreviewPasskeys;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const windowState = yield* DesktopWindowState.DesktopWindowState;
   const electronApp = yield* ElectronApp.ElectronApp;
@@ -885,7 +887,7 @@ export const make = Effect.gen(function* () {
 
   const waitingForBackend = Effect.gen(function* () {
     if (yield* Ref.get(backendReadyRef)) return false;
-    return (yield* desktopSettings.get).localEnvironmentEnabled;
+    return yield* backendMode.localEnvironmentEnabled;
   });
 
   const createMainIfBackendReady = Effect.gen(function* () {
