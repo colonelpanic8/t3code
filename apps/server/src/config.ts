@@ -102,10 +102,16 @@ export class ServerConfig extends Context.Service<
     readonly desktopBrowserFd?: number | undefined;
     readonly desktopBrowserControlFd?: number | undefined;
     readonly resourceMonitorPath?: string | undefined;
+    /** Read-only settings.json-shaped file whose values win over the user's. */
+    readonly managedSettingsPath?: string | undefined;
+    /** Read-only keybindings.json-shaped file whose rules win over the user's. */
+    readonly managedKeybindingsPath?: string | undefined;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** Read-only settings layered beneath `settingsPath`; never written. */
+    readonly sharedSettingsPath?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (
