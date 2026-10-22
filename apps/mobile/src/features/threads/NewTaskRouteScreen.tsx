@@ -218,10 +218,10 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
       ? navigation
       : navigation.getParent();
     const rootState = root?.getState();
-    const threadRoute = rootState?.routes[rootState.index - 1];
-    if (isDraftThreadRoute(threadRoute)) {
+    const threadRoute = rootState?.routes.slice(0, rootState.index).findLast(isDraftThreadRoute);
+    if (threadRoute && isDraftThreadRoute(threadRoute)) {
       setProject(project);
-      root?.goBack();
+      root?.dispatch(StackActions.popTo("Thread", threadRoute.params));
       return;
     }
     root?.navigate("Thread", {
