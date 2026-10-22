@@ -1,6 +1,7 @@
+import type { Thread } from "../types";
+import type { CommandPaletteUiState } from "./CommandPalette.logic";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import type { Thread } from "../types";
 import { makeThreadFixture } from "../test-fixtures";
 import {
   buildThreadActionItems,
@@ -10,9 +11,8 @@ import {
   reduceCommandPaletteUiState,
   createCommandPaletteSearchState,
   reduceCommandPaletteSearchState,
-  type CommandPaletteUiState,
+  resolveBrowseTabCompletion,
 } from "./CommandPalette.logic";
-
 describe("linked pull request thread navigation", () => {
   it("keeps archived relations searchable and routes them through the PR environment", async () => {
     const environmentId = EnvironmentId.make("remote");
@@ -31,15 +31,28 @@ describe("linked pull request thread navigation", () => {
       ],
     };
     const state = reduceCommandPaletteUiState(
-      { open: false, mode: "command", openIntent: null },
+      {
+        open: false,
+        mode: "command",
+        openIntent: null,
+      },
       {
         _tag: "OpenSearch",
         query,
         linkedThreads,
       },
     );
-    expect(state.openIntent).toEqual({ kind: "search", query, linkedThreads });
-    const items = buildLinkedThreadActionItems({ ...linkedThreads, query, icon: null, runThread });
+    expect(state.openIntent).toEqual({
+      kind: "search",
+      query,
+      linkedThreads,
+    });
+    const items = buildLinkedThreadActionItems({
+      ...linkedThreads,
+      query,
+      icon: null,
+      runThread,
+    });
     const groups = filterCommandPaletteGroups({
       activeGroups: [],
       query,
@@ -51,14 +64,20 @@ describe("linked pull request thread navigation", () => {
     expect(groups.flatMap((group) => group.items)).toEqual(items);
     expect(items[0]?.description).toBe("Archived thread");
     await items[0]?.run();
-    expect(runThread).toHaveBeenCalledWith({ environmentId, id });
+    expect(runThread).toHaveBeenCalledWith({
+      environmentId,
+      id,
+    });
   });
 });
-
 describe("reduceCommandPaletteUiState", () => {
   it("opens PR search from another overlay and replaces an earlier search", () => {
     const first = reduceCommandPaletteUiState(
-      { open: true, mode: "files", openIntent: null },
+      {
+        open: true,
+        mode: "files",
+        openIntent: null,
+      },
       {
         _tag: "OpenSearch",
         query: "https://github.com/acme/web/pull/7",
@@ -67,7 +86,10 @@ describe("reduceCommandPaletteUiState", () => {
     expect(first).toEqual({
       open: true,
       mode: "command",
-      openIntent: { kind: "search", query: "https://github.com/acme/web/pull/7" },
+      openIntent: {
+        kind: "search",
+        query: "https://github.com/acme/web/pull/7",
+      },
     });
     const second = reduceCommandPaletteUiState(first, {
       _tag: "OpenSearch",
@@ -78,21 +100,157 @@ describe("reduceCommandPaletteUiState", () => {
       query: "https://github.com/acme/web/pull/8",
     });
     expect(
-      reduceCommandPaletteUiState(second, { _tag: "SetOpen", open: false }).openIntent,
+      reduceCommandPaletteUiState(second, {
+        _tag: "SetOpen",
+        open: false,
+      }).openIntent,
     ).toBeNull();
   });
 });
-
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
 const PROJECT_ID = ProjectId.make("project-1");
-
+describe("resolveBrowseTabCompletion", () => {
+  const entries = [
+    {
+      name: "alpha",
+      fullPath: "/workspace/alpha",
+    },
+    {
+      name: "alpine",
+      fullPath: "/workspace/alpine",
+    },
+  ];
+  it("uses the highlighted directory", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: "browse:/workspace/alpine",
+      }),
+    ).toEqual({
+      kind: "entry",
+      entry: entries[1],
+    });
+  });
+  it("uses the first directory when none is highlighted", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: null,
+      }),
+    ).toEqual({
+      kind: "entry",
+      entry: entries[0],
+    });
+  });
+  it("preserves the highlighted parent-directory action", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: "browse:up",
+      }),
+    ).toEqual({
+      kind: "up",
+    });
+  });
+  it("returns null when there are no matching directories", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: null,
+        filteredEntries: [],
+        highlightedItemValue: null,
+      }),
+    ).toBeNull();
+  });
+  it("does not enter the first child when the completed path has no leaf filter", () => {
+    expect(
+      resolveBrowseTabCompletion({
+        allowFirstEntryFallback: false,
+        exactEntry: null,
+        filteredEntries: entries,
+        highlightedItemValue: null,
+      }),
+    ).toBeNull();
+  });
+  it("uses the case-sensitive exact entry before the first prefix match", () => {
+    const caseVariants = [
+      {
+        name: "Docs",
+        fullPath: "/workspace/Docs",
+      },
+      {
+        name: "docs",
+        fullPath: "/workspace/docs",
+      },
+    ];
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: null,
+      }),
+    ).toEqual({
+      kind: "entry",
+      entry: caseVariants[1],
+    });
+  });
+  it("keeps a highlighted row ahead of a different exact entry", () => {
+    const caseVariants = [
+      {
+        name: "Docs",
+        fullPath: "/workspace/Docs",
+      },
+      {
+        name: "docs",
+        fullPath: "/workspace/docs",
+      },
+    ];
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: "browse:/workspace/Docs",
+      }),
+    ).toEqual({
+      kind: "entry",
+      entry: caseVariants[0],
+    });
+  });
+  it("uses an exact entry when a stored highlight no longer resolves", () => {
+    const caseVariants = [
+      {
+        name: "Docs",
+        fullPath: "/workspace/Docs",
+      },
+      {
+        name: "docs",
+        fullPath: "/workspace/docs",
+      },
+    ];
+    expect(
+      resolveBrowseTabCompletion({
+        exactEntry: caseVariants[1] ?? null,
+        filteredEntries: caseVariants,
+        highlightedItemValue: "browse:/workspace/removed",
+      }),
+    ).toEqual({
+      kind: "entry",
+      entry: caseVariants[1],
+    });
+  });
+});
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return makeThreadFixture({
     id: ThreadId.make("thread-1"),
     environmentId: LOCAL_ENVIRONMENT_ID,
     projectId: PROJECT_ID,
     title: "Thread",
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+    modelSelection: {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5",
+    },
     runtimeMode: "full-access",
     interactionMode: "default",
     runtime: null,
@@ -110,7 +268,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     ...overrides,
   });
 }
-
 describe("buildThreadActionItems", () => {
   it("ranks thread title matches ahead of contextual project-name matches", () => {
     const threadItems = buildThreadActionItems({
@@ -132,7 +289,6 @@ describe("buildThreadActionItems", () => {
       icon: null,
       runThread: async (_thread) => undefined,
     });
-
     const groups = filterCommandPaletteGroups({
       activeGroups: [],
       query: "project",
@@ -140,7 +296,6 @@ describe("buildThreadActionItems", () => {
       projectSearchItems: [],
       threadSearchItems: threadItems,
     });
-
     expect(groups).toHaveLength(1);
     expect(groups[0]?.value).toBe("threads-search");
     expect(groups[0]?.items.map((item) => item.value)).toEqual([
@@ -148,7 +303,6 @@ describe("buildThreadActionItems", () => {
       "thread:thread-context-match",
     ]);
   });
-
   it("orders title matches by recent activity before older prefix matches", () => {
     const threads = [
       makeThread({
@@ -177,11 +331,14 @@ describe("buildThreadActionItems", () => {
       icon: null,
       getContentMatch: (thread) =>
         thread.id === ThreadId.make("recent-content")
-          ? { source: "user", snippet: "Please check Convex", query: "convex" }
+          ? {
+              source: "user",
+              snippet: "Please check Convex",
+              query: "convex",
+            }
           : undefined,
       runThread: async () => undefined,
     });
-
     const groups = filterCommandPaletteGroups({
       activeGroups: [],
       query: "convex",
@@ -189,14 +346,12 @@ describe("buildThreadActionItems", () => {
       projectSearchItems: [],
       threadSearchItems: items,
     });
-
     expect(groups[0]?.items.map((item) => item.value)).toEqual([
       "thread:recent-title",
       "thread:old-prefix",
       "thread:recent-content",
     ]);
   });
-
   it("ranks an order-independent setting title match above a split context match", () => {
     const settingsSearchItems = [
       {
@@ -216,7 +371,6 @@ describe("buildThreadActionItems", () => {
         run: async () => undefined,
       },
     ];
-
     const groups = filterCommandPaletteGroups({
       activeGroups: [],
       query: "pairing remote",
@@ -225,7 +379,6 @@ describe("buildThreadActionItems", () => {
       settingsSearchItems,
       threadSearchItems: [],
     });
-
     expect(groups).toHaveLength(1);
     expect(groups[0]?.value).toBe("settings-search");
     expect(groups[0]?.items.map((item) => item.value)).toEqual([
@@ -233,7 +386,6 @@ describe("buildThreadActionItems", () => {
       "setting:context-match",
     ]);
   });
-
   it("normalizes case independently of the host locale", () => {
     const toLocaleLowerCase = String.prototype.toLocaleLowerCase;
     const localeLowerCase = vi
@@ -266,7 +418,6 @@ describe("buildThreadActionItems", () => {
       localeLowerCase.mockRestore();
     }
   });
-
   it("surfaces threads when the query is their ID, without outranking title matches", () => {
     const idThread = makeThread({
       id: ThreadId.make("thread-alpha-1234"),
@@ -285,7 +436,6 @@ describe("buildThreadActionItems", () => {
       icon: null,
       runThread: async (_thread) => undefined,
     });
-
     const groups = filterCommandPaletteGroups({
       activeGroups: [],
       query: "  THREAD-ALPHA-1234  ",
@@ -294,19 +444,27 @@ describe("buildThreadActionItems", () => {
       settingsSearchItems: [],
       threadSearchItems: items,
     });
-
     expect(groups.flatMap((group) => group.items)).toEqual([
-      expect.objectContaining({ value: `thread:${titleThread.id}` }),
-      expect.objectContaining({ value: `thread:${idThread.id}` }),
+      expect.objectContaining({
+        value: `thread:${titleThread.id}`,
+      }),
+      expect.objectContaining({
+        value: `thread:${idThread.id}`,
+      }),
     ]);
   });
 });
-
 describe("filterPinnedBrowseEntries", () => {
   it("matches an existing pinned destination without Windows casing", () => {
     const windowsEntries = [
-      { name: "Repo", fullPath: "C:\\projects\\Repo" },
-      { name: "work", fullPath: "C:\\projects\\work" },
+      {
+        name: "Repo",
+        fullPath: "C:\\projects\\Repo",
+      },
+      {
+        name: "work",
+        fullPath: "C:\\projects\\work",
+      },
     ];
     expect(
       filterPinnedBrowseEntries({
@@ -321,7 +479,6 @@ describe("filterPinnedBrowseEntries", () => {
     });
   });
 });
-
 it.each([
   "#10839",
   "10839",
@@ -345,7 +502,10 @@ it.each([
           },
         ],
       }),
-      makeThread({ id: ThreadId.make("unrelated"), title: "Other work" }),
+      makeThread({
+        id: ThreadId.make("unrelated"),
+        title: "Other work",
+      }),
     ],
     projectTitleById: new Map(),
     sortOrder: "updated_at",
@@ -363,44 +523,67 @@ it.each([
     "Implementation",
   ]);
 });
-
 describe("command palette search return", () => {
-  const picker = { addonIcon: null, groups: [] };
-
+  const picker = {
+    addonIcon: null,
+    groups: [],
+  };
   it("restores each parent query when backing out of nested pickers", () => {
     let state = createCommandPaletteSearchState(">new thread");
-    state = reduceCommandPaletteSearchState(state, { type: "push", view: picker });
-    expect(state.query).toBe("");
-    state = reduceCommandPaletteSearchState(state, { type: "query", query: "remote project" });
     state = reduceCommandPaletteSearchState(state, {
       type: "push",
-      view: { ...picker, initialQuery: "~/" },
+      view: picker,
+    });
+    expect(state.query).toBe("");
+    state = reduceCommandPaletteSearchState(state, {
+      type: "query",
+      query: "remote project",
+    });
+    state = reduceCommandPaletteSearchState(state, {
+      type: "push",
+      view: {
+        ...picker,
+        initialQuery: "~/",
+      },
     });
     expect(state.query).toBe("~/");
-
-    state = reduceCommandPaletteSearchState(state, { type: "query", query: "" });
-    state = reduceCommandPaletteSearchState(state, { type: "back" });
+    state = reduceCommandPaletteSearchState(state, {
+      type: "query",
+      query: "",
+    });
+    state = reduceCommandPaletteSearchState(state, {
+      type: "back",
+    });
     expect(state.query).toBe("remote project");
     expect(state.views).toHaveLength(1);
-    state = reduceCommandPaletteSearchState(state, { type: "back" });
+    state = reduceCommandPaletteSearchState(state, {
+      type: "back",
+    });
     expect(state.query).toBe(">new thread");
     expect(state.views).toHaveLength(0);
   });
-
   it("cannot return to an old picker after a new search replaces it", () => {
     let state = reduceCommandPaletteSearchState(createCommandPaletteSearchState("old"), {
       type: "push",
       view: picker,
     });
-    state = reduceCommandPaletteSearchState(state, { type: "reset", query: "fresh" });
-    state = reduceCommandPaletteSearchState(state, { type: "back" });
+    state = reduceCommandPaletteSearchState(state, {
+      type: "reset",
+      query: "fresh",
+    });
+    state = reduceCommandPaletteSearchState(state, {
+      type: "back",
+    });
     expect(state.query).toBe("fresh");
     expect(state.views).toHaveLength(0);
   });
 });
-
 describe("returning from file and content search", () => {
-  const root: CommandPaletteUiState = { open: true, mode: "command", openIntent: null };
+  const root: CommandPaletteUiState = {
+    open: true,
+    mode: "command",
+    openIntent: null,
+  };
   const query = "https://github.com/acme/web/pull/7";
   const context = {
     query,
@@ -420,23 +603,54 @@ describe("returning from file and content search", () => {
       },
     },
   };
-
   it.each(["files", "content"] as const)(
     "Escape from %s restores the query and linked-thread results",
     (mode) => {
-      const child = reduceCommandPaletteUiState(root, { _tag: "OpenChildSearch", mode, context });
+      const child = reduceCommandPaletteUiState(root, {
+        _tag: "OpenChildSearch",
+        mode,
+        context,
+      });
       expect(child.mode).toBe(mode);
-      const returned = reduceCommandPaletteUiState(child, { _tag: "BackToCommand" });
-      expect(returned).toEqual({ ...root, restoredSearch: context });
-      expect(reduceCommandPaletteUiState(returned, { _tag: "BackToCommand" })).toEqual(returned);
+      const returned = reduceCommandPaletteUiState(child, {
+        _tag: "BackToCommand",
+      });
+      expect(returned).toEqual({
+        ...root,
+        restoredSearch: context,
+      });
+      expect(
+        reduceCommandPaletteUiState(returned, {
+          _tag: "BackToCommand",
+        }),
+      ).toEqual(returned);
     },
   );
-
   it("closing a child search discards its return context before reopening", () => {
-    const child: CommandPaletteUiState = { ...root, mode: "files", parentSearch: context };
-    const closed = reduceCommandPaletteUiState(child, { _tag: "SetOpen", open: false });
-    expect(closed).toEqual({ open: false, mode: "files", openIntent: null });
-    expect(reduceCommandPaletteUiState(closed, { _tag: "BackToCommand" })).toEqual(closed);
-    expect(reduceCommandPaletteUiState(closed, { _tag: "SetOpen", open: true })).toEqual(root);
+    const child: CommandPaletteUiState = {
+      ...root,
+      mode: "files",
+      parentSearch: context,
+    };
+    const closed = reduceCommandPaletteUiState(child, {
+      _tag: "SetOpen",
+      open: false,
+    });
+    expect(closed).toEqual({
+      open: false,
+      mode: "files",
+      openIntent: null,
+    });
+    expect(
+      reduceCommandPaletteUiState(closed, {
+        _tag: "BackToCommand",
+      }),
+    ).toEqual(closed);
+    expect(
+      reduceCommandPaletteUiState(closed, {
+        _tag: "SetOpen",
+        open: true,
+      }),
+    ).toEqual(root);
   });
 });
