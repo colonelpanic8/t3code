@@ -2,7 +2,6 @@ import * as NodePath from "@effect/platform-node/NodePath";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeOS from "node:os";
 import * as NodeUtil from "node:util";
-
 import { ExternalLauncherBrowserSpawnError } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
@@ -15,10 +14,8 @@ import * as Tracer from "effect/Tracer";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as TestConsole from "effect/testing/TestConsole";
-
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-
 import * as ServerConfig from "./config.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ServerLogger from "./serverLogger.ts";
@@ -27,13 +24,11 @@ import {
   logBrowserAutoOpenUnavailable,
   maybeOpenBrowser,
 } from "./serverRuntimeStartup.ts";
-
 interface ExportedRequest {
   readonly url: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string;
 }
-
 const layerCollector = (requests: Array<ExportedRequest>) =>
   Layer.succeed(
     HttpClient.HttpClient,
@@ -45,11 +40,15 @@ const layerCollector = (requests: Array<ExportedRequest>) =>
           body:
             request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "",
         });
-        return HttpClientResponse.fromWeb(request, new Response(null, { status: 200 }));
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response(null, {
+            status: 200,
+          }),
+        );
       }),
     ),
   );
-
 const layerConfig = (overrides: Partial<ServerConfig.ServerConfig["Service"]>) =>
   Layer.effect(
     ServerConfig.ServerConfig,
@@ -82,6 +81,8 @@ const layerConfig = (overrides: Partial<ServerConfig.ServerConfig["Service"]>) =
         port: 0,
         host: undefined,
         desktopBootstrapToken: undefined,
+        managedAccessToken: undefined,
+        environmentIdOverride: undefined,
         desktopTelemetryFd: undefined,
         desktopTelemetryControlFd: undefined,
         resourceMonitorPath: undefined,
@@ -129,7 +130,10 @@ const logInSpanThrough = (
         ),
       ),
     );
-    return { requests, spans };
+    return {
+      requests,
+      spans,
+    };
   });
 
 /** Logs one warning through the server logger and returns what its console printed. */
@@ -150,7 +154,6 @@ const printThroughConsole = (fields: object) =>
     );
     return printed.join("\n");
   });
-
 describe("ServerLoggerLive", () => {
   it.effect("prints a cause passed as a log field instead of collapsing it", () =>
     Effect.gen(function* () {
@@ -158,7 +161,6 @@ describe("ServerLoggerLive", () => {
         threadId: "thread-1",
         cause: Cause.fail(new Error("gh: HTTP 502 from api.github.com")),
       });
-
       assert.include(output, "threadId: 'thread-1'");
       assert.include(output, "gh: HTTP 502 from api.github.com");
       assert.notInclude(output, "[Object]");
@@ -174,42 +176,41 @@ describe("ServerLoggerLive", () => {
           throw new Error("getter must not run");
         },
       });
-
       assert.include(output, "upstream refused");
       assert.notInclude(output, "getter must not run");
     }),
   );
-
   it.effect("leaves a message with its own redaction hook to that hook", () =>
     Effect.gen(function* () {
       const output = yield* printThroughConsole({
         token: "secret-token-value",
         cause: Cause.fail(new Error("upstream refused")),
         [Redactable.symbolRedactable](this: { readonly cause: unknown }) {
-          return { token: "<redacted>", cause: Cause.isCause(this.cause) ? "cause" : "missing" };
+          return {
+            token: "<redacted>",
+            cause: Cause.isCause(this.cause) ? "cause" : "missing",
+          };
         },
       });
-
       assert.include(output, "token: '<redacted>'");
       assert.include(output, "cause: 'cause'");
       assert.notInclude(output, "secret-token-value");
     }),
   );
-
   describe("startup pairing URL", () => {
     const pairingToken = "PAIRTOKEN7Q4K9";
     const pairingUrl = `http://localhost:3773/pair#token=${pairingToken}`;
     const announce = announceStartupPairingUrl(pairingUrl).pipe(
       Effect.andThen(logBrowserAutoOpenUnavailable),
     );
-
     it.effect("prints the full URL but keeps its token out of exported log records", () =>
       Effect.gen(function* () {
         const { requests } = yield* logInSpanThrough(
-          { otlpLogsUrl: "https://collector.example.com/v1/logs" },
+          {
+            otlpLogsUrl: "https://collector.example.com/v1/logs",
+          },
           announce,
         );
-
         const body = requests.map((request) => request.body).join("\n");
         assert.include(body, "Authentication required");
         assert.notInclude(body, pairingToken);
@@ -219,11 +220,9 @@ describe("ServerLoggerLive", () => {
         assert.isTrue(printed.some((line) => line.includes(`pairingUrl: ${pairingUrl}`)));
       }).pipe(Effect.provide(TestConsole.layer)),
     );
-
     it.effect("keeps the token off the span events the trace file records", () =>
       Effect.gen(function* () {
         const { spans } = yield* logInSpanThrough({}, announce);
-
         const events = JSON.stringify(
           spans.flatMap((span) => span.events.map(([name, , attributes]) => [name, attributes])),
         );
@@ -231,14 +230,15 @@ describe("ServerLoggerLive", () => {
         assert.notInclude(events, pairingToken);
       }).pipe(Effect.provide(TestConsole.layer)),
     );
-
     it.effect("keeps the token out of traces when the browser fails to open", () =>
       Effect.gen(function* () {
         // A failed launch records its error, which names the target, on its span.
         const failingLaunch = maybeOpenBrowser(pairingUrl).pipe(
           Effect.provide(
             Layer.mergeAll(
-              layerConfig({ noBrowser: false }),
+              layerConfig({
+                noBrowser: false,
+              }),
               Layer.mock(ExternalLauncher.ExternalLauncher)({
                 launchBrowser: (target) =>
                   Effect.fail(
@@ -254,7 +254,6 @@ describe("ServerLoggerLive", () => {
           ),
         );
         const { spans } = yield* logInSpanThrough({}, failingLaunch);
-
         const recorded = JSON.stringify(
           spans.map((span) => ({
             name: span.name,

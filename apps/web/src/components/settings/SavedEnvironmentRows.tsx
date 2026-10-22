@@ -19,9 +19,9 @@ import {
   hasSavedBearerRoute,
   connectionStatusText,
   environmentMcpUrl,
+  isManagedConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
-
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { SettingsRow } from "./settingsLayout";
@@ -65,7 +65,6 @@ import {
   ServerUpdateProgress,
 } from "../ServerUpdateAction";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
-
 type SavedBackendListRowProps = {
   environment: EnvironmentPresentation;
   removingEnvironmentId: EnvironmentId | null;
@@ -73,38 +72,54 @@ type SavedBackendListRowProps = {
   onRemove: (environment: EnvironmentPresentation) => void;
   onAddRoute: (environment: EnvironmentPresentation) => void;
 };
-
 function savedBackendStatus(environment: EnvironmentPresentation): {
   readonly text: string;
   readonly tone: "muted" | "error";
 } {
   if (!environment.entry.enabled && environment.connection.phase !== "unsupported")
-    return { text: "Off", tone: "muted" };
+    return {
+      text: "Off",
+      tone: "muted",
+    };
   const { connection } = environment;
   switch (connection.phase) {
     case "connected":
-      return { text: "Connected", tone: "muted" };
+      return {
+        text: "Connected",
+        tone: "muted",
+      };
     case "connecting":
-      return { text: "Connecting", tone: "muted" };
+      return {
+        text: "Connecting",
+        tone: "muted",
+      };
     case "reconnecting":
       return {
         text: connection.error ? `Reconnecting: ${connection.error}` : "Reconnecting",
         tone: "error",
       };
     case "unsupported":
-      return { text: "Client not supported", tone: "muted" };
+      return {
+        text: "Client not supported",
+        tone: "muted",
+      };
     case "error":
       return {
         text: connection.error ? `Connection failed: ${connection.error}` : "Connection failed",
         tone: "error",
       };
     case "offline":
-      return { text: "Offline", tone: "muted" };
+      return {
+        text: "Offline",
+        tone: "muted",
+      };
     case "available":
-      return { text: "Not connected", tone: "muted" };
+      return {
+        text: "Not connected",
+        tone: "muted",
+      };
   }
 }
-
 export function SavedBackendListRow({
   environment,
   removingEnvironmentId,
@@ -122,7 +137,9 @@ export function SavedBackendListRow({
   const isConnected = environment.connection.phase === "connected";
   const isRemoving = removingEnvironmentId === environmentId;
   const errorTraceId = environment.connection.traceId;
-  const { copyToClipboard: copyTraceIdToClipboard } = useCopyToClipboard<{ traceId: string }>({
+  const { copyToClipboard: copyTraceIdToClipboard } = useCopyToClipboard<{
+    traceId: string;
+  }>({
     target: "trace ID",
     onCopy: ({ traceId }) => {
       toastManager.add({
@@ -142,9 +159,13 @@ export function SavedBackendListRow({
     },
   });
   const copyTraceId = (traceId: string) => {
-    copyTraceIdToClipboard(traceId, { traceId });
+    copyTraceIdToClipboard(traceId, {
+      traceId,
+    });
   };
-  const { copyToClipboard: copyMcpUrl } = useCopyToClipboard<{ url: string }>({
+  const { copyToClipboard: copyMcpUrl } = useCopyToClipboard<{
+    url: string;
+  }>({
     target: "MCP URL",
     onCopy: ({ url }) => {
       toastManager.add({
@@ -168,6 +189,7 @@ export function SavedBackendListRow({
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
+  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
   // Discovery empties its map on every refresh, so hold the last descriptor
   // seen or the glyph would blink back to the generic one each time.
@@ -204,36 +226,29 @@ export function SavedBackendListRow({
   });
   const machineKind = resolveEnvironmentMachineKind(
     environment.serverConfig ??
-      (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
+      (lastDescriptor === undefined
+        ? null
+        : {
+            environment: lastDescriptor,
+          }),
   );
   const routeCount = connectionRoutes(environment.entry).length;
   const subtitleText = [
     environmentTransportLabel(environment, connectedTarget),
+    isManagedEnvironment ? "Managed by system configuration" : null,
     // The headline below names the failure in full.
     diagnosis ? null : resumingServerUpdate ? "Restarting" : status.text,
     enabled && versionMismatch ? serverVersion : null,
   ]
     .filter((value): value is string => value !== null)
     .join(" · ");
-
   const showUpdateAction =
+    !isManagedEnvironment &&
     enabled &&
     isConnected &&
     versionMismatch !== null &&
     (serverUpdateState.status === "idle" || serverUpdateState.status === "failed");
-
-  const statusTooltip = `${
-    unsupported
-      ? (environment.connection.error ?? connectionStatusText(environment.connection))
-      : enabled
-        ? connectionStatusText(environment.connection)
-        : "Switched off"
-  }${
-    versionMismatch
-      ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}`
-      : ""
-  }`;
-
+  const statusTooltip = `${unsupported ? (environment.connection.error ?? connectionStatusText(environment.connection)) : enabled ? connectionStatusText(environment.connection) : "Switched off"}${versionMismatch ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}` : ""}`;
   return (
     <EnvironmentRow
       kind={machineKind}
@@ -315,7 +330,7 @@ export function SavedBackendListRow({
               onToggle={() => setDiagnosisOpen((open) => !open)}
             />
           ) : null}
-          {serverUpdateState.status !== "idle" ? (
+          {!isManagedEnvironment && serverUpdateState.status !== "idle" ? (
             <div className="mt-1 max-w-md">
               <ServerUpdateProgress state={serverUpdateState} />
             </div>
@@ -335,7 +350,7 @@ export function SavedBackendListRow({
           {routesOpen && (
             <EnvironmentRoutesList
               environment={environment}
-              onAddRoute={() => onAddRoute(environment)}
+              onAddRoute={isManagedEnvironment ? null : () => onAddRoute(environment)}
             />
           )}
           {permissionsOpen && (
@@ -353,7 +368,8 @@ export function SavedBackendListRow({
         </>
       }
     >
-      {unsupported &&
+      {!isManagedEnvironment &&
+      unsupported &&
       environment.entry.serverUpdateRequired === true &&
       serverUpdateState.status !== "running" ? (
         <OutdatedServerUpdateAction
@@ -383,14 +399,20 @@ export function SavedBackendListRow({
             <Switch
               size="sm"
               checked={enabled}
-              disabled={isRemoving || blocked}
+              disabled={isRemoving || blocked || isManagedEnvironment}
               aria-label={`${enabled ? "Switch off" : "Switch on"} ${environment.label}`}
               onCheckedChange={(checked) => onSetEnabled(environmentId, checked)}
             />
           }
         />
         <TooltipPopup side="top">
-          {blocked ? "Client not supported" : enabled ? "Switch off" : "Switch on"}
+          {blocked
+            ? "Client not supported"
+            : isManagedEnvironment
+              ? "Managed by system configuration"
+              : enabled
+                ? "Switch off"
+                : "Switch on"}
         </TooltipPopup>
       </Tooltip>
       <Menu>
@@ -417,21 +439,32 @@ export function SavedBackendListRow({
             {routesOpen ? "Hide routes" : "Routes"}
           </MenuItem>
           {mcpUrl ? (
-            <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>Copy MCP URL</MenuItem>
+            <MenuItem
+              onClick={() =>
+                copyMcpUrl(mcpUrl, {
+                  url: mcpUrl,
+                })
+              }
+            >
+              Copy MCP URL
+            </MenuItem>
           ) : null}
           {errorTraceId ? (
             <MenuItem onClick={() => copyTraceId(errorTraceId)}>Copy trace ID</MenuItem>
           ) : null}
-          <MenuSeparator />
-          <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
-            {isRemoving ? "Removing…" : "Remove from this device…"}
-          </MenuItem>
+          {isManagedEnvironment ? null : (
+            <>
+              <MenuSeparator />
+              <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
+                {isRemoving ? "Removing…" : "Remove from this device…"}
+              </MenuItem>
+            </>
+          )}
         </MenuPopup>
       </Menu>
     </EnvironmentRow>
   );
 }
-
 function CloudLinkSwitch({
   checked,
   disabled,
@@ -450,7 +483,11 @@ function CloudLinkSwitch({
       aria-label={ariaLabel}
       checked={checked}
       disabled={disabled}
-      {...(onCheckedChange ? { onCheckedChange } : {})}
+      {...(onCheckedChange
+        ? {
+            onCheckedChange,
+          }
+        : {})}
     />
   );
   return disabledReason ? (
@@ -462,7 +499,6 @@ function CloudLinkSwitch({
     control
   );
 }
-
 function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: boolean }) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const {
@@ -478,7 +514,6 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
   } = useCloudLinkController();
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
-
   const disabledReason = !isSignedIn
     ? "Sign in to T3 Connect to manage this environment."
     : !canManageRelay
@@ -511,7 +546,6 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
         </a>
       </span>
     ) : null;
-
   const updateManagedTunnel = async (enabled: boolean) => {
     if (
       primaryEnvironmentId === null ||
@@ -519,7 +553,10 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     )
       return;
     setIsUpdating(true);
-    const ok = await reconcileCloudState({ managedTunnel: enabled, publish: publishAgentActivity });
+    const ok = await reconcileCloudState({
+      managedTunnel: enabled,
+      publish: publishAgentActivity,
+    });
     if (ok) {
       toastManager.add({
         type: "success",
@@ -537,7 +574,6 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     }
     setIsUpdating(false);
   };
-
   const updatePublishAgentActivity = async (enabled: boolean) => {
     if (
       primaryEnvironmentId === null ||
@@ -545,7 +581,10 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     )
       return;
     setIsUpdatingPreference(true);
-    const ok = await reconcileCloudState({ managedTunnel: managedTunnelActive, publish: enabled });
+    const ok = await reconcileCloudState({
+      managedTunnel: managedTunnelActive,
+      publish: enabled,
+    });
     if (ok) {
       toastManager.add({
         type: "success",
@@ -557,7 +596,6 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     }
     setIsUpdatingPreference(false);
   };
-
   const updateHoldWebhooks = async (enabled: boolean) => {
     setIsUpdatingPreference(true);
     const ok = await reconcileCloudState({
@@ -576,7 +614,6 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     }
     setIsUpdatingPreference(false);
   };
-
   return (
     <>
       {window.desktopBridge ? (
@@ -654,7 +691,6 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     </>
   );
 }
-
 export function CloudLinkRow({
   canReadRelay,
   canManageRelay,
@@ -673,7 +709,6 @@ export function CloudLinkRow({
   }
   return <ConfiguredCloudLinkRow canManageRelay={canManageRelay} />;
 }
-
 function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnabled?: boolean }) {
   return (
     <Empty className="min-h-52">
@@ -691,7 +726,6 @@ function EmptyRemoteEnvironments({ cloudEnabled = true }: { readonly cloudEnable
     </Empty>
   );
 }
-
 export function CloudRemoteEnvironmentRows({
   primaryEnvironmentId,
   savedEnvironments,
