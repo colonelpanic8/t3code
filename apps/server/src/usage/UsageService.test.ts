@@ -1502,6 +1502,92 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.live("counts archived Codex rollouts once, including one archived after it was read", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      const codexHome = NodePath.join(home, "codex");
+      const sessions = NodePath.join(codexHome, "sessions", "2026", "08", "01");
+      const archive = NodePath.join(codexHome, "archived_sessions");
+      const tokenCount = (timestamp: string, outputTokens: number) => ({
+        type: "event_msg",
+        timestamp,
+        payload: {
+          type: "token_count",
+          info: { last_token_usage: { input_tokens: 10, output_tokens: outputTokens } },
+        },
+      });
+      const rollout = (id: string, outputTokens: number) =>
+        [
+          { type: "session_meta", payload: { id } },
+          { type: "turn_context", payload: { model: "gpt-5.6-sol" } },
+          tokenCount("2026-08-01T10:00:00Z", outputTokens),
+        ]
+          .map((line) => encodeUnknownJsonString(line))
+          .join("\n") + "\n";
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(sessions, { recursive: true });
+        await NodeFSP.mkdir(archive, { recursive: true });
+        await NodeFSP.writeFile(NodePath.join(sessions, "rollout-live.jsonl"), rollout("live", 11));
+        await NodeFSP.writeFile(NodePath.join(archive, "rollout-old.jsonl"), rollout("old", 13));
+      });
+      const codexSources = (summary: { readonly sources: readonly UsageSource[] }) =>
+        summary.sources
+          .filter((source) => source.fingerprint.provider === "codex")
+          .map((source) => [
+            NodePath.basename(source.fingerprint.resolvedHomePath),
+            source.status,
+            source.distinctSessions,
+          ]);
+
+      yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        const first = yield* service.readSummary(WINDOW);
+        assert.strictEqual(totalOutputTokens(first), 24);
+        assert.deepStrictEqual(codexSources(first), [
+          ["sessions", "ok", 1],
+          ["archived_sessions", "ok", 1],
+        ]);
+
+        yield* Effect.promise(() =>
+          NodeFSP.rename(
+            NodePath.join(sessions, "rollout-live.jsonl"),
+            NodePath.join(archive, "rollout-live.jsonl"),
+          ),
+        );
+        const archived = yield* service.readSummary(WINDOW);
+        assert.strictEqual(totalOutputTokens(archived), 24);
+        assert.deepStrictEqual(codexSources(archived), codexSources(first));
+        const merged = mergeUsage(
+          [{ environmentId: EnvironmentId.make("archive-test"), label: "test", summary: archived }],
+          archived.contractVersion,
+        );
+        assert.strictEqual(merged.outputTokens, 24);
+        assert.strictEqual(merged.sessions, 2);
+
+        // Usage written to the archived copy after the move still counts.
+        yield* Effect.promise(() =>
+          NodeFSP.appendFile(
+            NodePath.join(archive, "rollout-live.jsonl"),
+            encodeUnknownJsonString(tokenCount("2026-08-01T11:00:00Z", 7)) + "\n",
+          ),
+        );
+        const grown = yield* service.readSummary(WINDOW);
+        assert.strictEqual(totalOutputTokens(grown), 31);
+
+        yield* service.awaitPersisted;
+        const restarted = yield* UsageService.make;
+        const restored = yield* restarted.readSummary(WINDOW);
+        assert.strictEqual(totalOutputTokens(restored), 31);
+        assert.deepStrictEqual(restored.buckets, grown.buckets);
+      }).pipe(
+        // Scoped inside the state directory, so pending cache writes land
+        // before it is removed.
+        Effect.scoped,
+        Effect.provide(layerService({ prefix: "usage-service-codex-archive", home, settings })),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.live(
     "uses explicit account settings before environment and default homes, then refreshes them",
     () =>
