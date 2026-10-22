@@ -663,10 +663,9 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
           const cached = Option.isSome(previous)
             ? previous
             : yield* persistence.load(target.environmentId, cacheKey);
-          if (
-            Option.isSome(cached) &&
-            (connection === null || connection[0].phase !== "connected")
-          ) {
+          // Before the connection state resolves, the cached value waits like
+          // any other, so it never reads as current for a connected environment.
+          if (Option.isSome(cached) && connection !== null && connection[0].phase !== "connected") {
             return cached.value;
           }
           if (Option.isNone(previous) && Option.isSome(cached)) yield* emit(cached.value);

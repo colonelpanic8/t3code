@@ -195,6 +195,18 @@ export function formatRelativeHourShort(
   return formatDateTimeShort(hourStart, timeZone, hour12);
 }
 
+export function startOfLocalDay(now: Date): Date {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+export function msUntilNextLocalDay(now = new Date()): number {
+  const next = new Date(now);
+  next.setHours(24, 0, 0, 0);
+  return next.getTime() - now.getTime();
+}
+
 export function makeWindow(
   days: number,
   now = new Date(),
@@ -246,4 +258,18 @@ export function makeWindow(
     timeZone,
     resolution,
   };
+}
+
+/**
+ * `current` until the local day it ends on has passed, then the same window
+ * for today. Moving only on a new day keeps a rolling 24-hour window, and the
+ * usage it has already answered, in place each time the page regains focus.
+ */
+export function windowForToday(
+  current: UsageSummaryInput,
+  days: number,
+  now = new Date(),
+): UsageSummaryInput {
+  const today = makeWindow(days, now, current.resolution);
+  return today.untilDay === current.untilDay ? current : today;
 }
