@@ -7,7 +7,6 @@ import type {
 import { createModelSelection } from "@t3tools/shared/model";
 import { BotIcon, PencilRulerIcon } from "lucide-react";
 import { type ComponentProps, memo } from "react";
-
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -24,8 +23,9 @@ import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { runtimeModeConfig } from "./runtimeModeConfig";
 import { useComposerMenuState } from "./useComposerMenuState";
-
-export type RuntimeModeOption = { mode: RuntimeMode } & (typeof runtimeModeConfig)[RuntimeMode];
+export type RuntimeModeOption = {
+  mode: RuntimeMode;
+} & (typeof runtimeModeConfig)[RuntimeMode];
 const supervisedRuntimeModeOption = {
   mode: "approval-required" as const,
   ...runtimeModeConfig["approval-required"],
@@ -51,7 +51,6 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
     props.interactionMode === "plan"
       ? "Plan mode — click to return to normal build mode"
       : "Default mode — click to enter plan mode";
-
   const interactionModeToggle = props.showInteractionModeToggle ? (
     <>
       <ComposerControlSeparator size={size} />
@@ -62,6 +61,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
               size={size}
               className="shrink-0 whitespace-nowrap"
               aria-pressed={props.interactionMode === "plan"}
+              data-composer-shortcut="composer.interactionMode"
               type="button"
               onClick={props.onToggleInteractionMode}
               aria-label={interactionModeTooltip}
@@ -89,7 +89,6 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
       </Tooltip>
     </>
   ) : null;
-
   return (
     <>
       <ComposerControlSeparator size={size} />
@@ -147,7 +146,6 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
     </>
   );
 });
-
 export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   canOperateThread: boolean;
@@ -260,7 +258,9 @@ export function ComposerModelPicker({
   readonly onProviderModelSelect: (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
+    options?: {
+      focusComposer?: boolean;
+    },
   ) => void;
 }) {
   const { instanceEntries, modelOptionsByInstance } = pickerProps;
@@ -296,7 +296,9 @@ export function ComposerModelPicker({
       {...(multipleModelsEnabled
         ? {
             ...(multipleModelSelections !== null
-              ? { selectedModels: multipleModelSelections }
+              ? {
+                  selectedModels: multipleModelSelections,
+                }
               : {}),
             onToggleModel: toggleModel,
           }
