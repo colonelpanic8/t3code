@@ -6,6 +6,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
+import { createEnvironmentGroupAtoms } from "./environmentGroups.ts";
 import type { ConnectionCatalogEntry } from "../connection/catalog.ts";
 import { AVAILABLE_CONNECTION_STATE } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
@@ -43,6 +44,7 @@ const EMPTY_ENVIRONMENT_CATALOG_STATE: EnvironmentCatalogState = Object.freeze({
 export function createEnvironmentCatalogAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry.EnvironmentRegistry | R, E>,
 ) {
+  const groups = createEnvironmentGroupAtoms(runtime);
   const commandScheduler = createAtomCommandScheduler();
   const serial = { mode: "serial" as const, key: () => "environment-catalog" };
   const catalogAtom = runtime.atom(
@@ -61,9 +63,21 @@ export function createEnvironmentCatalogAtoms<R, E>(
     { initialValue: EMPTY_ENVIRONMENT_CATALOG_STATE },
   );
 
-  const catalogValueAtom = Atom.make((get) =>
+  const unfilteredCatalogValueAtom = Atom.make((get) =>
     Option.getOrElse(AsyncResult.value(get(catalogAtom)), () => EMPTY_ENVIRONMENT_CATALOG_STATE),
   ).pipe(Atom.withLabel("environment-catalog-value"));
+  const catalogValueAtom = Atom.make((get) => {
+    const catalog = get(unfilteredCatalogValueAtom);
+    const visibility = get(groups.stateAtom);
+    if (!visibility.isReady) return EMPTY_ENVIRONMENT_CATALOG_STATE;
+    if (visibility.hiddenEnvironmentIds.size === 0) return catalog;
+    return {
+      isReady: catalog.isReady,
+      entries: new Map(
+        [...catalog.entries].filter(([id]) => !visibility.hiddenEnvironmentIds.has(id)),
+      ),
+    };
+  });
 
   const githubRoutingPermissionsAtom = runtime.atom(
     Stream.unwrap(GitHubRoutingPermissions.pipe(Effect.map((permissions) => permissions.changes))),
@@ -188,6 +202,8 @@ export function createEnvironmentCatalogAtoms<R, E>(
   });
 
   return {
+    groups,
+    unfilteredCatalogValueAtom,
     catalogAtom,
     catalogValueAtom,
     githubRoutingPermissionsValueAtom,
