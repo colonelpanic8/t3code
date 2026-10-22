@@ -1,3 +1,4 @@
+import { ProviderInstanceId } from "./providerInstance.ts";
 import * as Schema from "effect/Schema";
 
 import { ForwardCompatibleArray, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -97,6 +98,15 @@ export type UsageSourceStatus = typeof UsageSourceStatus.Type;
 
 export const UsageSource = Schema.Struct({
   fingerprint: UsageSourceFingerprint,
+  /** Configured instances sharing this history directory; not historical login identities. */
+  accounts: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        id: ProviderInstanceId,
+        label: TrimmedNonEmptyString,
+      }),
+    ),
+  ),
   status: UsageSourceStatus,
   scannedFiles: NonNegativeInt,
   skippedFiles: NonNegativeInt,
