@@ -344,7 +344,11 @@ export const resolveSignalEndpoint = (
   otel: OtelEnvironment,
   signal: SignalName,
   t3: { readonly url: string | undefined; readonly export: SignalExport },
-  fallback: { readonly bootstrapUrl: string | undefined; readonly settingsUrl: string | undefined },
+  fallback: {
+    readonly bootstrapUrl: string | undefined;
+    readonly configEndpoint?: Pick<SignalEndpoint, "url" | "export"> | undefined;
+    readonly settingsUrl: string | undefined;
+  },
 ): SignalEndpoint | undefined => {
   if (otel.disabled) {
     return undefined;
@@ -370,9 +374,21 @@ export const resolveSignalEndpoint = (
       const settingsUrl = blankAsUnset(fallback.settingsUrl);
       // The desktop forwards the saved setting as its bootstrap URL, so only a differing one is
       // the desktop's own.
-      const url = blankAsUnset(fallback.bootstrapUrl) ?? settingsUrl;
-      if (url === undefined) return undefined;
-      return { url, export: t3.export, source: url === settingsUrl ? "settings" : "bootstrap" };
+      const bootstrapUrl = blankAsUnset(fallback.bootstrapUrl);
+      if (bootstrapUrl !== undefined) {
+        return {
+          url: bootstrapUrl,
+          export: t3.export,
+          source: bootstrapUrl === settingsUrl ? "settings" : "bootstrap",
+        };
+      }
+      const configUrl = blankAsUnset(fallback.configEndpoint?.url);
+      if (configUrl !== undefined && fallback.configEndpoint !== undefined) {
+        return { url: configUrl, export: fallback.configEndpoint.export, source: "settings" };
+      }
+      return settingsUrl === undefined
+        ? undefined
+        : { url: settingsUrl, export: t3.export, source: "settings" };
     },
   });
 };

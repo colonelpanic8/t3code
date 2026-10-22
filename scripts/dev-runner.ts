@@ -326,6 +326,13 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
   } else {
     delete output.T3CODE_HOME;
   }
+  // These outrank the home chosen above, so an exported one would point a
+  // worktree's dev server at the real database and run branch migrations on
+  // it, or apply the real server's options to it.
+  delete output.T3CODE_SERVER_CONFIG_DIR;
+  delete output.T3CODE_SERVER_DATA_DIR;
+  delete output.T3CODE_SERVER_CACHE_DIR;
+  delete output.T3CODE_SERVER_CONFIG_FILE;
 
   // Managed T3 service shells leak launcher variables that make dev servers fail version checks.
   // Dev-runner servers are never launcher-managed (serviceLauncherClient.ts resolveStartup).

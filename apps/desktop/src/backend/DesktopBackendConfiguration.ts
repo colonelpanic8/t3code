@@ -81,6 +81,14 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "T3CODE_TAILSCALE_SERVE_PORT",
 ] as const;
 
+const WINDOWS_SERVER_LOCATION_ENV_NAMES = new Set([
+  "T3CODE_HOME",
+  "T3CODE_SERVER_CONFIG_DIR",
+  "T3CODE_SERVER_DATA_DIR",
+  "T3CODE_SERVER_CACHE_DIR",
+  "T3CODE_SERVER_CONFIG_FILE",
+]);
+
 // Windows forwards these variables into WSL only through WSLENV.
 const WSL_FORWARDED_ENV_NAMES = [
   "OPENAI_API_KEY",
@@ -638,12 +646,12 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     }
   }
 
-  const parentEnvWithoutT3Home: Record<string, string | undefined> = {};
+  const parentEnvWithoutServerLocations: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (key === "T3CODE_HOME") continue;
-    parentEnvWithoutT3Home[key] = value;
+    if (WINDOWS_SERVER_LOCATION_ENV_NAMES.has(key)) continue;
+    parentEnvWithoutServerLocations[key] = value;
   }
-  const wslEnv = mergeWslEnv(parentEnvWithoutT3Home.WSLENV, forwardedEnvNames);
+  const wslEnv = mergeWslEnv(parentEnvWithoutServerLocations.WSLENV, forwardedEnvNames);
 
   const baseConfig = {
     executablePath: "wsl.exe",
@@ -651,12 +659,12 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
       preflight._tag === "Ready" ? preflight.windowsEntryPath : environment.backendEntryPath,
     cwd: environment.backendCwd,
     env: {
-      ...parentEnvWithoutT3Home,
+      ...parentEnvWithoutServerLocations,
       ...backendChildEnvPatch(),
       ...forwardedEnv,
       ...(wslEnv !== undefined ? { WSLENV: wslEnv } : {}),
     },
-    // env already excludes T3CODE_HOME; merging process.env would restore it.
+    // env already excludes server locations; merging process.env would restore them.
     extendEnv: false,
     bootstrap,
     bootstrapDelivery: "stdin" as const,
