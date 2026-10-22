@@ -3,7 +3,8 @@
  * worktree folder, a registered project, or a thread's worktree. Clients send
  * the thread's worktree, else the project root. A client also sets a thread's
  * worktree path, so one counts only under a managed folder or when git lists
- * it as a worktree of the thread's project.
+ * it as a worktree of the thread's project. A folder the worktree path template
+ * places for a registered project also counts.
  *
  * @module KnownWorkspaces
  */
@@ -20,6 +21,7 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { matchesWorktreePathTemplate } from "../vcs/worktreePathTemplate.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
 
 export class UnknownWorkspaceError extends Schema.TaggedError<UnknownWorkspaceError>()(
@@ -95,8 +97,24 @@ export const make = Effect.gen(function* () {
       if (managed.some(within)) return true;
 
       const projects = yield* projectStore.listShells().pipe(Effect.orElseSucceed(() => []));
+      const worktreePathTemplate = yield* ServerSettings.readWorktreePathTemplate(settings);
       for (const project of projects) {
-        if (within(yield* resolveRoot(project.workspaceRoot))) return true;
+        const projectRoot = yield* resolveRoot(project.workspaceRoot);
+        if (within(projectRoot)) return true;
+        if (
+          projectRoot !== null &&
+          managed.some((worktreesDir) =>
+            matchesWorktreePathTemplate(path, {
+              candidate: realPath,
+              cwd: project.workspaceRoot,
+              resolvedRepoRoot: projectRoot,
+              worktreesDir,
+              template: worktreePathTemplate,
+            }),
+          )
+        ) {
+          return true;
+        }
       }
 
       const threads = yield* sql<{ readonly worktreePath: string; readonly projectId: string }>`
