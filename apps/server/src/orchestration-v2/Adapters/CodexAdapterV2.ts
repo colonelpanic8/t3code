@@ -1846,22 +1846,23 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         // Setting a goal passes through cleared and paused states; publish only the result.
         const goalUpdatesHeld = new Set<string>();
 
-        const emitImageWorkState = Effect.fnUntraced(function* (
-          context: ActiveCodexTurnContext,
-          pending: boolean,
-        ) {
-          const state = imageTurns.get(context.nativeTurnId);
-          if (state === undefined || state.pending === pending) return;
-          state.pending = pending;
-          yield* emitProviderEvent({
-            type: "background_work.updated",
-            driver: CODEX_PROVIDER,
-            providerTurnId: context.providerTurnId,
-            pending,
+        const emitImageWorkState =
+          /* Provider events include streaming deltas; avoid a span for each update. */
+          Effect.fnUntraced(function* (context: ActiveCodexTurnContext, pending: boolean) {
+            const state = imageTurns.get(context.nativeTurnId);
+            if (state === undefined || state.pending === pending) return;
+            state.pending = pending;
+            yield* emitProviderEvent({
+              type: "background_work.updated",
+              driver: CODEX_PROVIDER,
+              providerTurnId: context.providerTurnId,
+              pending,
+            });
           });
-        });
 
-        const clearImageWork = Effect.fnUntraced(function* (context: ActiveCodexTurnContext) {
+        const clearImageWork = Effect.fn("CodexAdapterV2.clearImageWork")(function* (
+          context: ActiveCodexTurnContext,
+        ) {
           yield* emitImageWorkState(context, false);
           imageTurns.delete(context.nativeTurnId);
         });
@@ -5868,39 +5869,38 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           },
         );
 
-        const projectGeneratedImages = Effect.fnUntraced(function* (
-          context: ActiveCodexTurnContext,
-          nativeTurnId: string,
-        ) {
-          const state = imageTurns.get(nativeTurnId);
-          const firstImageItemId = state?.saved.keys().next().value;
-          if (state === undefined || firstImageItemId === undefined) return;
-          const finalAnswer = state.answer;
-          const text = appendGeneratedImageEmbeds(finalAnswer?.text ?? "", state.saved.values());
-          if (text === (finalAnswer?.text ?? "")) {
+        const projectGeneratedImages = Effect.fn("CodexAdapterV2.projectGeneratedImages")(
+          function* (context: ActiveCodexTurnContext, nativeTurnId: string) {
+            const state = imageTurns.get(nativeTurnId);
+            const firstImageItemId = state?.saved.keys().next().value;
+            if (state === undefined || firstImageItemId === undefined) return;
+            const finalAnswer = state.answer;
+            const text = appendGeneratedImageEmbeds(finalAnswer?.text ?? "", state.saved.values());
+            if (text === (finalAnswer?.text ?? "")) {
+              state.saved.clear();
+              return;
+            }
+            const message = { id: finalAnswer?.id ?? firstImageItemId, text };
+            state.answer = message;
+            const artifacts = yield* buildAgentMessageArtifacts(context, message, true);
+            yield* emitProviderEvent({
+              type: "node.updated",
+              driver: CODEX_PROVIDER,
+              node: artifacts.node,
+            });
+            yield* emitProviderEvent({
+              type: "message.updated",
+              driver: CODEX_PROVIDER,
+              message: artifacts.message,
+            });
+            yield* emitProviderEvent({
+              type: "turn_item.updated",
+              driver: CODEX_PROVIDER,
+              turnItem: artifacts.turnItem,
+            });
             state.saved.clear();
-            return;
-          }
-          const message = { id: finalAnswer?.id ?? firstImageItemId, text };
-          state.answer = message;
-          const artifacts = yield* buildAgentMessageArtifacts(context, message, true);
-          yield* emitProviderEvent({
-            type: "node.updated",
-            driver: CODEX_PROVIDER,
-            node: artifacts.node,
-          });
-          yield* emitProviderEvent({
-            type: "message.updated",
-            driver: CODEX_PROVIDER,
-            message: artifacts.message,
-          });
-          yield* emitProviderEvent({
-            type: "turn_item.updated",
-            driver: CODEX_PROVIDER,
-            turnItem: artifacts.turnItem,
-          });
-          state.saved.clear();
-        });
+          },
+        );
 
         const finalizeCodexTurn = (input: {
           readonly context: ActiveCodexTurnContext;
