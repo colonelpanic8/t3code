@@ -1,3 +1,5 @@
+import { useVoiceLiveTargets } from "../voice/useVoiceLive";
+import { voiceLiveStoreActions } from "../voice/voiceLiveStore";
 import { useActiveNewTask } from "../../state/active-new-task";
 import { Toolbar } from "../../components/ui/Toolbar";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -60,6 +62,7 @@ export function WorkspaceToolbar(props: {
   readonly sidebar?: boolean;
 }) {
   const workspace = useWorkspaceTabs()!;
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   const activeNewTask = useActiveNewTask();
   const navigation = useNavigation();
   const deviceType = useDeviceType();
@@ -168,6 +171,14 @@ export function WorkspaceToolbar(props: {
       />
       {/* UIKit lays trailing items out from the edge inward. */}
       <Toolbar placement="right">
+        {voiceLiveAvailable ? (
+          <Toolbar.Button
+            identifier="workspace-voice-live"
+            accessibilityLabel="Start Live Voice"
+            icon="waveform"
+            onPress={voiceLiveStoreActions.openPicker}
+          />
+        ) : null}
         <Toolbar.Button
           accessibilityLabel="Settings"
           icon="gearshape"
