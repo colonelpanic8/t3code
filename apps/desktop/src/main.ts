@@ -116,6 +116,9 @@ const layerDesktopEnvironment = Layer.unwrap(
       ),
     );
   }),
+).pipe(
+  // The Clerk layer builds this before Electron is ready, so its filesystem probes must not yield.
+  Layer.provide(DesktopPreReadyFileSystem.layer),
 );
 
 const resolveDesktopSshCliRunner = (
