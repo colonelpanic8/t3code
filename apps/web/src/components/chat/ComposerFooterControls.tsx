@@ -107,6 +107,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
                 data-composer-shortcut="composer.mode"
                 size={size}
                 aria-label="Runtime mode"
+                data-chat-runtime-mode-picker="true"
               />
             }
           >
