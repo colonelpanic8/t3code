@@ -488,6 +488,21 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
   );
 
   const startup = Effect.gen(function* () {
+    const configFile = serverConfig.serverConfigFile;
+    if (configFile !== undefined && configFile.unknownKeys.length > 0) {
+      yield* Effect.logWarning("ignoring unknown keys in the server config file", {
+        path: configFile.path,
+        keys: configFile.unknownKeys,
+      });
+    }
+
+    if (serverConfig.shadowedLegacyStateDir !== undefined) {
+      yield* Effect.logWarning(
+        "using the split storage layout; the legacy T3 home beside it is not read",
+        { legacyStateDir: serverConfig.shadowedLegacyStateDir, stateDir: serverConfig.stateDir },
+      );
+    }
+
     yield* Effect.logDebug("startup phase: starting keybindings runtime");
     yield* runStartupPhase(
       "keybindings.start",
