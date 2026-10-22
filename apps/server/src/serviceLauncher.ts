@@ -861,10 +861,17 @@ export class Launcher {
   }
 }
 
+/** The service's T3 home, or in the split layout its data dir; see `renderBootServiceUnit`. */
+export function serviceLauncherBaseDir(
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  return env.T3CODE_HOME?.trim() || env.T3CODE_DATA_DIR?.trim() || undefined;
+}
+
 export async function main(): Promise<void> {
-  const baseDir = process.env.T3CODE_HOME?.trim();
-  if (baseDir === undefined || baseDir === "") {
-    throw new Error("T3CODE_HOME is required by the T3 Code service launcher.");
+  const baseDir = serviceLauncherBaseDir(process.env);
+  if (baseDir === undefined) {
+    throw new Error("T3CODE_HOME or T3CODE_DATA_DIR is required by the T3 Code service launcher.");
   }
   const environment = await readServiceEnvironment(baseDir);
   const statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
