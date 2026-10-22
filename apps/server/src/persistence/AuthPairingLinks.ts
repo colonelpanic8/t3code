@@ -15,10 +15,20 @@ import {
   PersistenceSqlError,
 } from "./Errors.ts";
 
+/**
+ * A `fleet-enrollment` row is a reusable grant whose `credential` column holds
+ * `sha256:<hex>` of the secret; every other method stores its one-time secret.
+ */
+const AuthPairingLinkMethod = Schema.Literals([
+  "desktop-bootstrap",
+  "one-time-token",
+  "fleet-enrollment",
+]);
+
 export const AuthPairingLinkRecord = Schema.Struct({
   id: Schema.String,
   credential: Schema.String,
-  method: Schema.Literals(["desktop-bootstrap", "one-time-token"]),
+  method: AuthPairingLinkMethod,
   scopes: Schema.fromJsonString(AuthEnvironmentScopes),
   subject: Schema.String,
   label: Schema.NullOr(Schema.String),
@@ -33,7 +43,7 @@ export type AuthPairingLinkRecord = typeof AuthPairingLinkRecord.Type;
 export const CreateAuthPairingLinkInput = Schema.Struct({
   id: Schema.String,
   credential: Schema.String,
-  method: Schema.Literals(["desktop-bootstrap", "one-time-token"]),
+  method: AuthPairingLinkMethod,
   scopes: AuthEnvironmentScopes,
   subject: Schema.String,
   label: Schema.NullOr(Schema.String),
@@ -51,6 +61,13 @@ export const ConsumeAuthPairingLinkInput = Schema.Struct({
   now: Schema.DateTimeUtcFromString,
 });
 export type ConsumeAuthPairingLinkInput = typeof ConsumeAuthPairingLinkInput.Type;
+
+export const FindRedeemableFleetEnrollmentInput = Schema.Struct({
+  credentialDigest: Schema.String,
+  requestedScopes: Schema.optionalKey(AuthEnvironmentScopes),
+  now: Schema.DateTimeUtcFromString,
+});
+export type FindRedeemableFleetEnrollmentInput = typeof FindRedeemableFleetEnrollmentInput.Type;
 
 export const ListActiveAuthPairingLinksInput = Schema.Struct({
   now: Schema.DateTimeUtcFromString,
@@ -92,6 +109,10 @@ export class AuthPairingLinkRepository extends Context.Service<
     ) => Effect.Effect<void, AuthPairingLinkRepositoryError>;
     readonly consumeAvailable: (
       input: ConsumeAuthPairingLinkInput,
+    ) => Effect.Effect<Option.Option<AuthPairingLinkRecord>, AuthPairingLinkRepositoryError>;
+    /** Reusable grants are looked up, never consumed. */
+    readonly findRedeemableFleetEnrollment: (
+      input: FindRedeemableFleetEnrollmentInput,
     ) => Effect.Effect<Option.Option<AuthPairingLinkRecord>, AuthPairingLinkRepositoryError>;
     readonly listActive: (
       input: ListActiveAuthPairingLinksInput,
@@ -165,6 +186,7 @@ export const make = Effect.gen(function* () {
         UPDATE auth_pairing_links
         SET consumed_at = ${consumedAt}
         WHERE credential = ${credential}
+          AND method <> 'fleet-enrollment'
           AND revoked_at IS NULL
           AND consumed_at IS NULL
           AND expires_at > ${now}
@@ -191,6 +213,38 @@ export const make = Effect.gen(function* () {
           expires_at AS "expiresAt",
           consumed_at AS "consumedAt",
           revoked_at AS "revokedAt"
+      `,
+  });
+
+  const findRedeemableFleetEnrollmentRow = SqlSchema.findOneOption({
+    Request: FindRedeemableFleetEnrollmentInput,
+    Result: AuthPairingLinkRawDbRow,
+    execute: ({ credentialDigest, requestedScopes, now }) =>
+      sql`
+        SELECT
+          id AS "id",
+          credential AS "credential",
+          method AS "method",
+          scopes AS "scopes",
+          subject AS "subject",
+          label AS "label",
+          proof_key_thumbprint AS "proofKeyThumbprint",
+          created_at AS "createdAt",
+          expires_at AS "expiresAt",
+          consumed_at AS "consumedAt",
+          revoked_at AS "revokedAt"
+        FROM auth_pairing_links
+        WHERE credential = ${credentialDigest}
+          AND method = 'fleet-enrollment'
+          AND revoked_at IS NULL
+          AND expires_at > ${now}
+          AND (${requestedScopes === undefined ? 1 : 0} OR EXISTS (
+            SELECT 1
+            FROM json_each(${JSON.stringify(requestedScopes ?? [])}) AS requested
+            WHERE requested.value IN (
+              SELECT value FROM json_each(auth_pairing_links.scopes)
+            )
+          ))
       `,
   });
 
@@ -292,6 +346,33 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const findRedeemableFleetEnrollment: AuthPairingLinkRepository["Service"]["findRedeemableFleetEnrollment"] =
+    (input) =>
+      findRedeemableFleetEnrollmentRow(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "AuthPairingLinkRepository.findRedeemableFleetEnrollment:query",
+            "AuthPairingLinkRepository.findRedeemableFleetEnrollment:decodeRow",
+          ),
+        ),
+        Effect.flatMap((rowOption) =>
+          Option.match(rowOption, {
+            onNone: () => Effect.succeedNone,
+            onSome: (row) =>
+              decodeAuthPairingLinkDbRow(row).pipe(
+                Effect.mapError((cause) =>
+                  PersistenceDecodeError.fromSchemaError(
+                    "AuthPairingLinkRepository.findRedeemableFleetEnrollment:decodeRow",
+                    cause,
+                    { pairingLinkId: row.id },
+                  ),
+                ),
+                Effect.asSome,
+              ),
+          }),
+        ),
+      );
+
   const listActive: AuthPairingLinkRepository["Service"]["listActive"] = (input) =>
     listActivePairingLinkRows(input).pipe(
       Effect.mapError(
@@ -356,6 +437,7 @@ export const make = Effect.gen(function* () {
   return {
     create,
     consumeAvailable,
+    findRedeemableFleetEnrollment,
     listActive,
     revoke,
     getByCredential,

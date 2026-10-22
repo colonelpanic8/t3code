@@ -199,6 +199,124 @@ removed entries on the next load. Treat the token files and server token as secr
 only over a trusted private network or authenticated HTTPS endpoint, and rotate the token on every
 server and client together.
 
+## Encrypted fleet enrollment
+
+An encrypted fleet enrollment adds several machines to a phone at once. For each machine it holds
+the machine's address and a reusable enrollment credential that only that machine accepts. The
+phone pairs with each machine directly, and each machine issues the phone its own session. No
+shared server token is included, so the ciphertext can be kept in a public Git repository.
+
+Create a dedicated age identity for your phones and back it up in a password manager. Put its
+public `age1…` recipient in an age recipients file alongside your existing SSH public keys. Keep
+the `AGE-SECRET-KEY-…` identity private.
+
+### Create a bundle
+
+On each machine, with the same state directory and configuration as its running server, export
+that machine's entry:
+
+```sh
+t3 auth enrollment export \
+  --recipients-file recipients.txt \
+  --output build-host.age \
+  --label phones
+```
+
+The command finds the machine's own address in the fleet manifest named by
+`T3CODE_FLEET_MANIFEST_FILE` or `--fleet-manifest`, matched by its `T3CODE_ENVIRONMENT_ID`:
+
+```json
+{
+  "version": 1,
+  "environments": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "httpBaseUrl": "https://build-host.example.ts.net/",
+      "wsBaseUrl": "wss://build-host.example.ts.net/"
+    }
+  ]
+}
+```
+
+Both URLs must be the server origin, without a base path. The command uses the standard `age`
+executable, checks the recipients before creating the credential, and replaces the output only
+after encryption succeeds. A failure before publication revokes its new credential and keeps any
+previous output. The default lifetime is 365 days; use `--ttl` to choose a positive, finite
+lifetime.
+
+Each export decrypts to a document with one entry:
+
+```json
+{
+  "version": 2,
+  "type": "t3code.fleet-enrollment",
+  "environments": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "httpBaseUrl": "https://build-host.example.ts.net/",
+      "wsBaseUrl": "wss://build-host.example.ts.net/",
+      "credential": "t3enroll1.…",
+      "expiresAt": "2027-10-17T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+A bundle is the same document with every machine's entry in `environments`: at most 100 machines,
+each listed once, and at most 64 KiB decrypted. To build one, export to a temporary age identity
+of your own, then decrypt the exports, combine their entries, and encrypt the result to your
+recipients without writing the plaintext to disk:
+
+```sh
+for file in exports/*.age; do age -d -i export-identity.txt "$file"; done |
+  jq -cs '{version: 2, type: "t3code.fleet-enrollment", environments: map(.environments[])}' |
+  age -e -a -R recipients.txt -o fleet.age
+```
+
+### Join on mobile
+
+Choose **Import fleet file** when adding an environment, select `fleet.age`, and import the
+backed-up age identity when prompted. Review the machines and the expiry, then choose **Join**.
+The phone pairs with every machine at once and shows each one's result. A machine that is offline
+or rejects its credential does not stop the others; choose **Retry** to try the failed machines
+again. Joined machines are ordinary connections that you can edit or remove. A machine left out of
+a newer bundle stays on the phone until you remove it.
+
+Machines already on the phone are skipped, so importing the same bundle later joins machines that
+were offline before. A machine whose session was rejected, for example after it expired, is joined
+again.
+
+age protects the file's contents but does not verify who published it, so only join machines you
+expected. The phone keeps the identity in secure storage; Settings lets you import or remove it
+and copy its public recipient. Decrypted enrollment data is kept in memory.
+
+To skip choosing the file, publish `fleet.age` at an `https://` address and share it as a link.
+Opening `t3code://connections/new?fleetEnrollment=<file URL>`, with the file URL
+percent-encoded, downloads the file into **Add environment** (builds with their own app scheme
+use that scheme). The **Add environment** scanner also accepts any web page URL carrying the same
+`?fleetEnrollment=<file URL>` parameter, so one QR code can serve both the phone's camera, through
+a page that opens the app, and the in-app scanner. The phone opens the file with its stored age
+identity, or asks for it if none is stored. You still review the machines before joining.
+
+### Revoke and rotate
+
+Each machine's credential can enroll several devices until it expires or is revoked. On that
+machine, list and revoke it with `t3 auth pairing list` and `t3 auth pairing revoke <id>`; the
+export prints the id. Creating a new export does not revoke an older one. To rotate enrollment,
+distribute a replacement bundle, then revoke the old credential on each machine. Existing device
+sessions remain valid until their normal expiry or separate revocation under authorized clients.
+
+After reinstalling the app, import the same backed-up age identity to open the existing file. A
+newly generated identity cannot decrypt it until you add that identity's recipient and re-encrypt
+the file. Removing a recipient only protects future ciphertext: previously published copies remain
+readable by that key. If a phone is lost, revoke each machine's enrollment credential and that
+phone's sessions on each machine.
+
+Revoke active enrollment credentials before rolling a server back to a version that does not
+support them; older versions cannot list their pairing records.
+
 ## Desktop-managed SSH
 
 In the desktop app, open **Settings → Connections → Add environment**, choose
