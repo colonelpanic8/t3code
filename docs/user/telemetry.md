@@ -37,3 +37,7 @@ settings. For endpoints saved here or set with `T3CODE_OTLP_*_URL`, set `T3CODE_
 receivers that need authentication and `T3CODE_OTLP_PROTOCOL=http/protobuf` for receivers that do
 not accept JSON. An endpoint set with `OTEL_EXPORTER_OTLP_*` takes its headers and protocol from
 `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_PROTOCOL` instead.
+The server also reads endpoints, headers, and protocol from its
+[options file](./install.md#server-options-file), below the environment variables and above the
+saved settings. The desktop app passes its saved endpoints to the server it starts, so there the
+file supplies only the signals the app leaves unset.

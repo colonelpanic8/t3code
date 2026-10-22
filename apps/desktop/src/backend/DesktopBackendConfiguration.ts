@@ -2,6 +2,10 @@ import * as NodeOS from "node:os";
 
 import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
 import { currentDesktopBootstrapToken } from "@t3tools/shared/desktopBootstrapToken";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -81,6 +85,17 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "T3CODE_TAILSCALE_SERVE_PORT",
 ] as const;
 
+// Windows env names are case-insensitive, so these are matched upper-cased.
+const WINDOWS_SERVER_LOCATION_ENV_NAMES = new Set<string>([
+  ...T3_STORAGE_ENVIRONMENT_NAMES,
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_RUNTIME_DIR",
+  ...T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+]);
+
 // Env vars that the WSL backend needs but Windows process.env won't forward
 // across the wsl.exe boundary without WSLENV.
 const WSL_FORWARDED_ENV_NAMES = [
@@ -139,11 +154,11 @@ const mergeWslEnv = (
   const seenNames = new Set(
     existing
       .split(":")
-      .map((entry) => getWslEnvEntryName(entry.trim()))
+      .map((entry) => getWslEnvEntryName(entry.trim()).toUpperCase())
       .filter((name) => name.length > 0),
   );
 
-  const additions = forwardedEnvNames.filter((name) => !seenNames.has(name));
+  const additions = forwardedEnvNames.filter((name) => !seenNames.has(name.toUpperCase()));
 
   // Preserve the user's WSLENV exactly as Windows handed it to us — empty
   // "::" segments and duplicate entries are harmless no-ops to WSL and not
@@ -516,7 +531,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       mode: "desktop" as const,
       noBrowser: true,
       port: backendExposure.port,
-      t3Home: environment.baseDir,
+      ...(environment.storageRoots.layout === "legacy"
+        ? { t3Home: environment.storageRoots.legacyBaseDir }
+        : { storageRoots: environment.storageRoots }),
       host: backendExposure.bindHost,
       desktopBootstrapToken: input.bootstrapToken,
       desktopBootstrapSecret: input.bootstrapSecret,
@@ -667,12 +684,12 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     }
   }
 
-  const parentEnvWithoutT3Home: Record<string, string | undefined> = {};
+  const parentEnvWithoutServerLocations: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (key === "T3CODE_HOME") continue;
-    parentEnvWithoutT3Home[key] = value;
+    if (WINDOWS_SERVER_LOCATION_ENV_NAMES.has(key.toUpperCase())) continue;
+    parentEnvWithoutServerLocations[key] = value;
   }
-  const wslEnv = mergeWslEnv(parentEnvWithoutT3Home.WSLENV, forwardedEnvNames);
+  const wslEnv = mergeWslEnv(parentEnvWithoutServerLocations.WSLENV, forwardedEnvNames);
 
   const baseConfig = {
     executablePath: "wsl.exe",
@@ -680,12 +697,12 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
       preflight._tag === "Ready" ? preflight.windowsEntryPath : environment.backendEntryPath,
     cwd: environment.backendCwd,
     env: {
-      ...parentEnvWithoutT3Home,
+      ...parentEnvWithoutServerLocations,
       ...backendChildEnvPatch(),
       ...forwardedEnv,
       ...(wslEnv !== undefined ? { WSLENV: wslEnv } : {}),
     },
-    // env is already a complete process.env minus T3CODE_HOME; pass it
+    // env is already a complete process.env minus server locations; pass it
     // verbatim instead of letting the spawner re-merge process.env on top.
     extendEnv: false,
     bootstrap,
