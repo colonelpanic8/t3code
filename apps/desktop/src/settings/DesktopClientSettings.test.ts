@@ -11,23 +11,32 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
-
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "./DesktopClientSettings.ts";
-
 const clientSettings: ClientSettings = {
   ...DEFAULT_CLIENT_SETTINGS,
   notificationMode: "notifications-and-sound",
   inAppNotificationsEnabled: true,
   appearanceContrast: 100,
-  browserDefaultViewport: { _tag: "preset", width: 1024, height: 600, presetId: "nest-hub" },
+  browserDefaultViewport: {
+    _tag: "preset",
+    width: 1024,
+    height: 600,
+    presetId: "nest-hub",
+  },
   browserDefaultZoomFactor: 1.25,
   browserDefaultAppearance: "dark",
   browserRecordingFrameRate: 60,
   browserLinkTarget: "app",
   browserAutoShowFloatingPreview: false,
-  browserProfiles: [{ id: "work", name: "Work", kind: "persistent" }],
+  browserProfiles: [
+    {
+      id: "work",
+      name: "Work",
+      kind: "persistent",
+    },
+  ],
   browserDefaultProfileId: "work",
   confirmQuit: "double-click",
   confirmThreadArchive: true,
@@ -68,14 +77,19 @@ const clientSettings: ClientSettings = {
   legacySidebarEnabled: false,
   sidebarWorkingShelfEnabled: false,
   loadBalancingEnabled: false,
-  loadBalancingWeights: { "environment-1": 75, "environment-2": 0 },
+  loadBalancingWeights: {
+    "environment-1": 75,
+    "environment-2": 0,
+  },
   pullRequestMergeMethodOverrides: {},
   timestampFormat: "24-hour",
   wordWrap: true,
 };
-
 const decodeClientSettingsJson = Schema.decodeEffect(Schema.fromJsonString(ClientSettingsSchema));
-function layer(baseDir: string) {
+const decodeRecordJson = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
+function layer(baseDir: string, env: Readonly<Record<string, string>> = {}) {
   const layerEnvironment = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: baseDir,
@@ -88,16 +102,20 @@ function layer(baseDir: string) {
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          T3CODE_HOME: baseDir,
+          ...env,
+        }),
+      ),
     ),
   );
-
   return DesktopClientSettings.layer.pipe(
     Layer.provideMerge(layerEnvironment),
     Layer.provideMerge(NodeServices.layer),
   );
 }
-
 const withClientSettings = <A, E, R>(
   effect: Effect.Effect<A, E, R | DesktopClientSettings.DesktopClientSettings>,
 ) =>
@@ -108,8 +126,114 @@ const withClientSettings = <A, E, R>(
     });
     return yield* effect.pipe(Effect.provide(layer(baseDir)));
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
-
 describe("DesktopClientSettings", () => {
+  it.effect("applies managed settings without persisting them over the user's values", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-client-settings-test-",
+      });
+      const managedPath = `${baseDir}/managed-client-settings.json`;
+      yield* fileSystem.writeFileString(managedPath, '{"fontSizeCode":15,"diffLayout":"split"}');
+      yield* Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        yield* settings.set({
+          ...clientSettings,
+          fontSizeCode: 11,
+        });
+      }).pipe(Effect.provide(layer(baseDir)));
+      yield* Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        assert.deepEqual(yield* settings.getManaged, {
+          fontSizeCode: 15,
+          diffLayout: "split",
+        });
+        assert.deepEqual(
+          yield* settings.get,
+          Option.some({
+            ...clientSettings,
+            fontSizeCode: 15,
+            diffLayout: "split",
+          }),
+        );
+
+        // The renderer echoes managed values back with its other edits; only the edits persist.
+        yield* settings.set({
+          ...clientSettings,
+          fontSizeCode: 15,
+          diffLayout: "split",
+          wordWrap: false,
+        });
+        assert.deepEqual(
+          yield* decodeClientSettingsJson(
+            yield* fileSystem.readFileString(environment.clientSettingsPath),
+          ),
+          {
+            ...clientSettings,
+            fontSizeCode: 11,
+            wordWrap: false,
+          },
+        );
+      }).pipe(
+        Effect.provide(
+          layer(baseDir, {
+            T3CODE_MANAGED_CLIENT_SETTINGS_FILE: managedPath,
+          }),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        assert.deepEqual(
+          yield* settings.get,
+          Option.some({
+            ...clientSettings,
+            fontSizeCode: 11,
+            wordWrap: false,
+          }),
+        );
+      }).pipe(Effect.provide(layer(baseDir)));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+  it.effect("reads the managed keybindings file, skipping invalid entries", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-managed-keybindings-test-",
+      });
+      const managedPath = `${baseDir}/managed-keybindings.json`;
+      yield* fileSystem.writeFileString(
+        managedPath,
+        JSON.stringify([
+          {
+            key: "alt+m",
+            command: "modelPicker.toggle",
+            when: "!terminalFocus",
+          },
+          {
+            key: "alt+x",
+            command: "not.a.command",
+          },
+        ]),
+      );
+      yield* Effect.gen(function* () {
+        const settings = yield* DesktopClientSettings.DesktopClientSettings;
+        assert.deepEqual(yield* settings.getManagedKeybindings, [
+          {
+            key: "alt+m",
+            command: "modelPicker.toggle",
+            when: "!terminalFocus",
+          },
+        ]);
+      }).pipe(
+        Effect.provide(
+          layer(baseDir, {
+            T3CODE_MANAGED_KEYBINDINGS_FILE: managedPath,
+          }),
+        ),
+      );
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
   it.effect("saves through a symlinked client settings file without replacing the link", () =>
     withClientSettings(
       Effect.gen(function* () {
@@ -121,11 +245,11 @@ describe("DesktopClientSettings", () => {
         });
         const linkedSettingsPath = `${dotfiles}/client-settings.json`;
         yield* fileSystem.writeFileString(linkedSettingsPath, "{}\n");
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.symlink(linkedSettingsPath, environment.clientSettingsPath);
-
         yield* settings.set(clientSettings);
-
         assert.equal(
           yield* fileSystem.readLink(environment.clientSettingsPath),
           linkedSettingsPath,
@@ -137,10 +261,15 @@ describe("DesktopClientSettings", () => {
       }),
     ),
   );
-
   it.effect.each([
-    { label: "permission", reason: "PermissionDenied" },
-    { label: "I/O", reason: "Unknown" },
+    {
+      label: "permission",
+      reason: "PermissionDenied",
+    },
+    {
+      label: "I/O",
+      reason: "Unknown",
+    },
   ] as const)("preserves saved preferences across $label read failures and retries", (failure) =>
     withClientSettings(
       Effect.gen(function* () {
@@ -172,7 +301,6 @@ describe("DesktopClientSettings", () => {
             }),
           ),
         );
-
         const error = yield* retryableSettings.get.pipe(Effect.flip);
         assert.instanceOf(error, DesktopClientSettings.DesktopClientSettingsReadError);
         assert.equal(error.operation, "read-file");
@@ -182,20 +310,20 @@ describe("DesktopClientSettings", () => {
           yield* fileSystem.readFileString(environment.clientSettingsPath),
           savedContents,
         );
-
         failRead = false;
         assert.deepEqual(yield* retryableSettings.get, Option.some(savedSettings));
       }),
     ),
   );
-
   it.effect("loads lenient direct client settings documents", () =>
     withClientSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.writeFileString(
           environment.clientSettingsPath,
           `{
@@ -203,7 +331,6 @@ describe("DesktopClientSettings", () => {
             "timestampFormat": "24-hour",
           }\n`,
         );
-
         const persisted = yield* settings.get;
         assert.isTrue(Option.isSome(persisted));
         if (Option.isSome(persisted)) {
@@ -212,14 +339,15 @@ describe("DesktopClientSettings", () => {
       }),
     ),
   );
-
   it.effect("loads legacy wrapped client settings documents", () =>
     withClientSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.writeFileString(
           environment.clientSettingsPath,
           `{
@@ -228,7 +356,6 @@ describe("DesktopClientSettings", () => {
             }
           }\n`,
         );
-
         const persisted = yield* settings.get;
         assert.isTrue(Option.isSome(persisted));
         if (Option.isSome(persisted)) {
@@ -237,19 +364,25 @@ describe("DesktopClientSettings", () => {
       }),
     ),
   );
-
   it.effect.each([
-    { label: "malformed JSON", contents: "{not-json" },
-    { label: "invalid legacy settings", contents: '{"settings":{"fontSizeCode":"large"}}' },
+    {
+      label: "malformed JSON",
+      contents: "{not-json",
+    },
+    {
+      label: "invalid legacy settings",
+      contents: '{"settings":{"fontSizeCode":"large"}}',
+    },
   ])("reports $label without treating the settings file as absent", (document) =>
     withClientSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopClientSettings.DesktopClientSettings;
-        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.makeDirectory(environment.stateDir, {
+          recursive: true,
+        });
         yield* fileSystem.writeFileString(environment.clientSettingsPath, document.contents);
-
         const error = yield* settings.get.pipe(Effect.flip);
         assert.instanceOf(error, DesktopClientSettings.DesktopClientSettingsReadError);
         assert.equal(error.operation, "decode-document");
