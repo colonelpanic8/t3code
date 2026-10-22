@@ -1,6 +1,5 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-
 const mocks = vi.hoisted(() => {
   const values = new Map<string, string>();
   let preferencesJson: string | null = null;
@@ -39,11 +38,15 @@ const mocks = vi.hoisted(() => {
       execAsync: vi.fn(() => Promise.resolve()),
       withExclusiveTransactionAsync: vi.fn(
         (run: (transaction: { execAsync: () => Promise<void> }) => Promise<void>) =>
-          run({ execAsync: () => Promise.resolve() }),
+          run({
+            execAsync: () => Promise.resolve(),
+          }),
       ),
       getFirstAsync: vi.fn((sql: string) => {
         if (sql.includes("PRAGMA user_version")) {
-          return Promise.resolve({ user_version: 1 });
+          return Promise.resolve({
+            user_version: 1,
+          });
         }
         if (loadPreferencesFails) {
           return Promise.reject(new Error("database unavailable"));
@@ -51,7 +54,10 @@ const mocks = vi.hoisted(() => {
         return Promise.resolve(
           preferencesJson === null
             ? null
-            : { payload: preferencesJson, updatedAt: preferencesUpdatedAt },
+            : {
+                payload: preferencesJson,
+                updatedAt: preferencesUpdatedAt,
+              },
         );
       }),
       runAsync: vi.fn((_sql: string, payload?: unknown, updatedAt?: unknown) => {
@@ -69,39 +75,37 @@ const mocks = vi.hoisted(() => {
     },
   };
 });
-
 vi.mock("expo", () => ({
   requireOptionalNativeModule: () => null,
 }));
-
 vi.mock("expo-secure-store", () => ({
   deleteItemAsync: mocks.deleteItemAsync,
   getItemAsync: mocks.getItemAsync,
   setItemAsync: mocks.setItemAsync,
 }));
-
 vi.mock("expo-sqlite", () => ({
   openDatabaseAsync: vi.fn(() => Promise.resolve(mocks.database)),
 }));
-
 vi.mock("expo-crypto", () => ({
   getRandomBytes: vi.fn(() => new Uint8Array(16)),
 }));
-
 vi.mock("expo-constants", () => ({
-  default: { expoConfig: { extra: {} } },
+  default: {
+    expoConfig: {
+      extra: {},
+    },
+  },
 }));
-
 vi.mock("react-native", () => ({
-  AppState: { currentState: "active" },
+  AppState: {
+    currentState: "active",
+  },
   Platform: {
     OS: "ios",
   },
 }));
-
 import { loadPreferences, saveConnection, savePreferencesPatch } from "../persistence/imperative";
 import { toStableSavedRemoteConnection } from "./connection";
-
 const managedConnection = {
   environmentId: EnvironmentId.make("environment-1"),
   environmentLabel: "Desktop",
@@ -114,76 +118,156 @@ const managedConnection = {
   dpopAccessToken: "short-lived-token",
   relayManaged: true,
 } as const;
-
 describe("mobile connection storage", () => {
   beforeEach(() => {
     mocks.clear();
     vi.clearAllMocks();
   });
-
   it("persists relay-managed connections without their ephemeral access token", async () => {
     await saveConnection(managedConnection);
-
     const savedValue = mocks.setItemAsync.mock.calls[0]?.[1];
     expect(savedValue).toBeDefined();
     expect(JSON.parse(savedValue ?? "")).toEqual({
       connections: [toStableSavedRemoteConnection(managedConnection)],
     });
   });
-
+  it("lets a settings feed override preferences until tracking stops", async () => {
+    mocks.setPreferencesJson(
+      JSON.stringify({
+        followUpBehavior: "queue",
+        settingsFeed: {
+          url: "https://example.com/settings.age",
+          managed: {
+            followUpBehavior: "steer",
+            microphones: [
+              {
+                kind: "default",
+              },
+            ],
+          },
+          fetchedAt: 5,
+        },
+      }),
+      10,
+    );
+    await expect(loadPreferences()).resolves.toMatchObject({
+      followUpBehavior: "steer",
+    });
+    await expect(loadPreferences()).resolves.not.toHaveProperty("microphones");
+    await savePreferencesPatch({
+      followUpBehavior: "queue",
+      baseFontSize: 18,
+    });
+    await expect(loadPreferences()).resolves.toMatchObject({
+      followUpBehavior: "steer",
+      baseFontSize: 18,
+    });
+    await savePreferencesPatch({
+      settingsFeed: undefined,
+    });
+    const restored = await loadPreferences();
+    expect(restored).toMatchObject({
+      followUpBehavior: "queue",
+      baseFontSize: 18,
+    });
+    expect(restored).not.toHaveProperty("settingsFeed");
+  });
   it("loads legacy preferences when SQLite is unavailable", async () => {
     mocks.setDatabaseFailures(true, true);
-    await mocks.setItemAsync("t3code.preferences", JSON.stringify({ baseFontSize: 17 }));
-
-    await expect(loadPreferences()).resolves.toEqual({ baseFontSize: 17 });
+    await mocks.setItemAsync(
+      "t3code.preferences",
+      JSON.stringify({
+        baseFontSize: 17,
+      }),
+    );
+    await expect(loadPreferences()).resolves.toEqual({
+      baseFontSize: 17,
+    });
   });
-
   it("falls back to secure storage when SQLite cannot save preferences", async () => {
     mocks.setDatabaseFailures(true, true);
-    await expect(savePreferencesPatch({ baseFontSize: 19 })).resolves.toEqual({ baseFontSize: 19 });
+    await expect(
+      savePreferencesPatch({
+        baseFontSize: 19,
+      }),
+    ).resolves.toEqual({
+      baseFontSize: 19,
+    });
     const fallback = JSON.parse(mocks.getStoredValue("t3code.preferences.fallback") ?? "") as {
       readonly payload: string;
       readonly updatedAt: number;
     };
-    expect(JSON.parse(fallback.payload)).toEqual({ baseFontSize: 19 });
+    expect(JSON.parse(fallback.payload)).toEqual({
+      baseFontSize: 19,
+    });
     expect(fallback.updatedAt).toEqual(expect.any(Number));
   });
-
   it("reconciles fallback preferences after SQLite recovers", async () => {
-    mocks.setPreferencesJson(JSON.stringify({ baseFontSize: 15 }), 10);
+    mocks.setPreferencesJson(
+      JSON.stringify({
+        baseFontSize: 15,
+      }),
+      10,
+    );
     await mocks.setItemAsync(
       "t3code.preferences.fallback",
       JSON.stringify({
-        payload: JSON.stringify({ baseFontSize: 19 }),
+        payload: JSON.stringify({
+          baseFontSize: 19,
+        }),
         updatedAt: 20,
       }),
     );
-
-    await expect(loadPreferences()).resolves.toEqual({ baseFontSize: 19 });
-    expect(JSON.parse(mocks.getPreferencesJson() ?? "")).toEqual({ baseFontSize: 19 });
+    await expect(loadPreferences()).resolves.toEqual({
+      baseFontSize: 19,
+    });
+    expect(JSON.parse(mocks.getPreferencesJson() ?? "")).toEqual({
+      baseFontSize: 19,
+    });
     expect(mocks.getStoredValue("t3code.preferences.fallback")).toBeNull();
   });
-
   it("ignores a stale fallback when its previous deletion failed", async () => {
-    mocks.setPreferencesJson(JSON.stringify({ baseFontSize: 21 }), 30);
+    mocks.setPreferencesJson(
+      JSON.stringify({
+        baseFontSize: 21,
+      }),
+      30,
+    );
     await mocks.setItemAsync(
       "t3code.preferences.fallback",
       JSON.stringify({
-        payload: JSON.stringify({ baseFontSize: 19 }),
+        payload: JSON.stringify({
+          baseFontSize: 19,
+        }),
         updatedAt: 20,
       }),
     );
-
-    await expect(loadPreferences()).resolves.toEqual({ baseFontSize: 21 });
-    expect(JSON.parse(mocks.getPreferencesJson() ?? "")).toEqual({ baseFontSize: 21 });
+    await expect(loadPreferences()).resolves.toEqual({
+      baseFontSize: 21,
+    });
+    expect(JSON.parse(mocks.getPreferencesJson() ?? "")).toEqual({
+      baseFontSize: 21,
+    });
     expect(mocks.getStoredValue("t3code.preferences.fallback")).toBeNull();
   });
-
   it("keeps SQLite authoritative when stale legacy preferences remain", async () => {
-    mocks.setPreferencesJson(JSON.stringify({ baseFontSize: 21 }), 30);
-    await mocks.setItemAsync("t3code.preferences", JSON.stringify({ baseFontSize: 19 }));
-
-    await expect(loadPreferences()).resolves.toEqual({ baseFontSize: 21 });
-    expect(JSON.parse(mocks.getPreferencesJson() ?? "")).toEqual({ baseFontSize: 21 });
+    mocks.setPreferencesJson(
+      JSON.stringify({
+        baseFontSize: 21,
+      }),
+      30,
+    );
+    await mocks.setItemAsync(
+      "t3code.preferences",
+      JSON.stringify({
+        baseFontSize: 19,
+      }),
+    );
+    await expect(loadPreferences()).resolves.toEqual({
+      baseFontSize: 21,
+    });
+    expect(JSON.parse(mocks.getPreferencesJson() ?? "")).toEqual({
+      baseFontSize: 21,
+    });
   });
 });

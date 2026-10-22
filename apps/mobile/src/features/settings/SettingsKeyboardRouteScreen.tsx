@@ -15,6 +15,8 @@ import {
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
 
 const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
   readonly behavior: ComposerEnterBehavior;
@@ -39,6 +41,7 @@ export function SettingsKeyboardRouteScreen() {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
+  const managed = useManagedPreferenceKeys().has("composerEnterBehavior");
   const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.composerEnterBehavior ?? DEFAULT_COMPOSER_ENTER_BEHAVIOR)
     : null;
@@ -66,11 +69,12 @@ export function SettingsKeyboardRouteScreen() {
               description={option.description}
               selected={selectedBehavior === option.behavior}
               separated={index > 0}
-              disabled={!preferencesReady}
+              disabled={!preferencesReady || managed}
               onPress={() => savePreferences({ composerEnterBehavior: option.behavior })}
             />
           ))}
         </SettingsSection>
+        {managed ? <ManagedBySettingsFeedNote /> : null}
         <Text className="px-2 text-sm text-foreground-muted">
           Applies to the composer when a hardware keyboard is connected.
         </Text>
