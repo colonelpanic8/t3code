@@ -5,7 +5,6 @@ import * as NodeReadlinePromises from "node:readline/promises";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -17,12 +16,16 @@ import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
-import * as ServerConfig from "../config.ts";
-import { resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { baseDirFlag } from "./config.ts";
+import {
+  resolveServerConfigFilePath,
+  resolveServerLocations,
+  serverConfigFileFlags,
+  traceFileConfig,
+} from "./config.ts";
 import { interactiveStdin } from "./consoleStdin.ts";
 import { resolveCliCommand } from "./invocation.ts";
+import { readServerConfigFile } from "./serverConfigFile.ts";
 import {
   buildTriageContext,
   buildTriageLaunchPrompt,
@@ -142,7 +145,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 
 export const triageCommand = Command.make("triage", {
-  baseDir: baseDirFlag,
+  ...serverConfigFileFlags,
   agent: agentFlag,
   model: modelFlag,
 }).pipe(
@@ -155,10 +158,37 @@ export const triageCommand = Command.make("triage", {
       const path = yield* Path.Path;
 
       // Triage is a user-facing feature: always the userdata state, never dev.
-      const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
-      const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-      const baseDir = yield* resolveBaseDir(explicitBaseDir ?? Option.getOrUndefined(envHome));
-      const paths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {});
+      const { baseDir, derivedPaths: paths } = yield* resolveServerLocations(flags, {
+        devUrl: undefined,
+      });
+
+      const userdataLogsDir = path.join(baseDir, "userdata", "logs");
+      // A broken server config file is something to triage, not a reason to stop.
+      const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
+      const serverConfig = yield* readServerConfigFile(configFile.path, {
+        explicit: configFile.explicit,
+      }).pipe(
+        Effect.map((file) => ({
+          traceFile: file.options.traceFile,
+          description:
+            file.unknownKeys.length === 0
+              ? configFile.path
+              : `${configFile.path} (ignored unknown keys: ${file.unknownKeys.join(", ")})`,
+        })),
+        Effect.catchTags({
+          ServerConfigFileError: (error) =>
+            Effect.succeed({
+              traceFile: undefined,
+              // Fenced and indented so a multi-line detail stays inside its bullet.
+              description: [
+                `${configFile.path} (invalid, so the server will not start):`,
+                "```",
+                ...error.detail.split("\n"),
+                "```",
+              ].join("\n  "),
+            }),
+        }),
+      );
 
       const now = yield* DateTime.now;
       const scratchDir = path.join(
@@ -183,9 +213,11 @@ export const triageCommand = Command.make("triage", {
             dbPath: paths.dbPath,
             settingsPath: paths.settingsPath,
             logsDir: paths.logsDir,
-            serviceLogPath: path.join(paths.logsDir, BootService.BOOT_SERVICE_LOG_FILE),
-            desktopBackendLogGlob: path.join(paths.logsDir, "server-child*.log*"),
-            serverTracePath: paths.serverTracePath,
+            serviceLogPath: path.join(userdataLogsDir, BootService.BOOT_SERVICE_LOG_FILE),
+            desktopBackendLogGlob: path.join(userdataLogsDir, "server-child*.log*"),
+            serverConfigFile: serverConfig.description,
+            serverTracePath:
+              (yield* traceFileConfig) ?? serverConfig.traceFile ?? paths.serverTracePath,
             providerEventLogPath: paths.providerEventLogPath,
             terminalLogsDir: paths.terminalLogsDir,
             providerStatusCacheDir: paths.providerStatusCacheDir,

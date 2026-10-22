@@ -23,6 +23,12 @@ export const StartupPresentation = Schema.Literals(["browser", "headless"]);
 export type StartupPresentation = typeof StartupPresentation.Type;
 
 export interface ServerDerivedPaths {
+  /** Settings, keybindings, and themes. */
+  readonly configDir: string;
+  /** Database, identity, secrets, attachments, and logs. */
+  readonly dataDir: string;
+  readonly cacheDir: string;
+  /** Same directory as `dataDir`. */
   readonly stateDir: string;
   readonly dbPath: string;
   readonly keybindingsConfigPath: string;
@@ -43,7 +49,14 @@ export interface ServerDerivedPaths {
   readonly secretsDir: string;
 }
 
-export interface DeriveServerPathsOptions {
+/** Absolute directories that replace the base-dir-derived location of one category. */
+export interface ServerLocationOverrides {
+  readonly configDir?: string | undefined;
+  readonly dataDir?: string | undefined;
+  readonly cacheDir?: string | undefined;
+}
+
+export interface DeriveServerPathsOptions extends ServerLocationOverrides {
   readonly baseDirIsExplicit?: boolean;
 }
 
@@ -92,6 +105,10 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** The server config file read at startup, and its keys this release ignores. */
+    readonly serverConfigFile?:
+      | { readonly path: string; readonly unknownKeys: ReadonlyArray<string> }
+      | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (
@@ -124,34 +141,40 @@ export const deriveServerPaths = Effect.fn(function* (
   options: DeriveServerPathsOptions = {},
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const { join } = yield* Path.Path;
-  const stateDir = join(
+  const legacyStateDir = join(
     baseDir,
     devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
   );
-  const dbPath = join(stateDir, "statev2.sqlite");
-  const attachmentsDir = join(stateDir, "attachments");
-  const logsDir = join(stateDir, "logs");
+  const configDir = options.configDir ?? legacyStateDir;
+  const dataDir = options.dataDir ?? legacyStateDir;
+  const cacheDir = options.cacheDir ?? join(baseDir, "caches");
+  const dbPath = join(dataDir, "statev2.sqlite");
+  const attachmentsDir = join(dataDir, "attachments");
+  const logsDir = join(dataDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
-  const providerStatusCacheDir = join(baseDir, "caches");
   return {
-    stateDir,
+    configDir,
+    dataDir,
+    cacheDir,
+    stateDir: dataDir,
     dbPath,
-    keybindingsConfigPath: join(stateDir, "keybindings.json"),
-    settingsPath: join(stateDir, "settings.json"),
-    environmentThemesDir: join(stateDir, "themes"),
-    providerStatusCacheDir,
-    worktreesDir: join(baseDir, "worktrees"),
+    keybindingsConfigPath: join(configDir, "keybindings.json"),
+    settingsPath: join(configDir, "settings.json"),
+    environmentThemesDir: join(configDir, "themes"),
+    providerStatusCacheDir: cacheDir,
+    // Worktrees sit beside userdata by default, so they follow only an explicit data dir.
+    worktreesDir: join(options.dataDir ?? baseDir, "worktrees"),
     attachmentsDir,
-    browserArtifactsDir: join(stateDir, "browser-artifacts"),
+    browserArtifactsDir: join(dataDir, "browser-artifacts"),
     logsDir,
     serverTracePath: join(logsDir, "server.trace.ndjson"),
     providerLogsDir,
     providerEventLogPath: join(providerLogsDir, "events.log"),
     terminalLogsDir: join(logsDir, "terminals"),
-    anonymousIdPath: join(stateDir, "anonymous-id"),
-    environmentIdPath: join(stateDir, "environment-id"),
-    serverRuntimeStatePath: join(stateDir, "server-runtime.json"),
-    secretsDir: join(stateDir, "secrets"),
+    anonymousIdPath: join(dataDir, "anonymous-id"),
+    environmentIdPath: join(dataDir, "environment-id"),
+    serverRuntimeStatePath: join(dataDir, "server-runtime.json"),
+    secretsDir: join(dataDir, "secrets"),
   };
 });
 
@@ -188,6 +211,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
 const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   cwd: string,
   baseDirOrPrefix: string | { readonly prefix: string },
+  overrides?: ServerLocationOverrides,
 ) {
   const devUrl = undefined;
   const fs = yield* FileSystem.FileSystem;
@@ -197,7 +221,7 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
       : // macOS temp dirs live under the /var -> /private/var symlink; storage cleanup's
         // symlink guards compare resolved paths, so generated test dirs must be real paths.
         yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: baseDirOrPrefix.prefix }));
-  const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+  const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, overrides);
   yield* ensureServerDirectories(derivedPaths);
 
   return ServerConfig.of({
@@ -238,8 +262,11 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   });
 });
 
-export const layerTest = (cwd: string, baseDirOrPrefix: string | { readonly prefix: string }) =>
-  Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix));
+export const layerTest = (
+  cwd: string,
+  baseDirOrPrefix: string | { readonly prefix: string },
+  overrides?: ServerLocationOverrides,
+) => Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix, overrides));
 
 export const resolveStaticDir = Effect.fn(function* () {
   const { join, resolve } = yield* Path.Path;
