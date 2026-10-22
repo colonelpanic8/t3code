@@ -61,6 +61,8 @@ describe("preview IPC methods", () => {
         ),
         Effect.provideService(DesktopClientSettings.DesktopClientSettings, {
           get: Effect.succeedNone,
+          getManaged: Effect.succeed({}),
+          getManagedKeybindings: Effect.succeed([]),
           set: () => Effect.void,
         }),
       ),
