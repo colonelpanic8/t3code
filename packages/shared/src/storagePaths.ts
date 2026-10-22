@@ -7,6 +7,9 @@ export const T3CODE_DATA_DIR_ENV = "T3CODE_DATA_DIR";
 export const T3CODE_STATE_DIR_ENV = "T3CODE_STATE_DIR";
 export const T3CODE_CACHE_DIR_ENV = "T3CODE_CACHE_DIR";
 export const T3CODE_RUNTIME_DIR_ENV = "T3CODE_RUNTIME_DIR";
+export const T3CODE_CLIENT_CONFIG_DIR_ENV = "T3CODE_CLIENT_CONFIG_DIR";
+export const T3CODE_CLIENT_STATE_DIR_ENV = "T3CODE_CLIENT_STATE_DIR";
+export const T3CODE_CLIENT_CACHE_DIR_ENV = "T3CODE_CLIENT_CACHE_DIR";
 
 /** The split layout's root selectors. */
 export const T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES = [
@@ -23,9 +26,20 @@ export const T3_STORAGE_ENVIRONMENT_NAMES = [
   ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
 ] as const;
 
-/** Every variable storage selection reads, so each process reads the same ones. */
+/** The desktop client's split-layout root selectors. */
+export const T3_CLIENT_STORAGE_ENVIRONMENT_NAMES = [
+  T3CODE_CLIENT_CONFIG_DIR_ENV,
+  T3CODE_CLIENT_STATE_DIR_ENV,
+  T3CODE_CLIENT_CACHE_DIR_ENV,
+] as const;
+
+/**
+ * Every variable storage selection and the client roots read, so each process
+ * reads the same ones.
+ */
 export const T3_STORAGE_LAYOUT_ENVIRONMENT_NAMES = [
   ...T3_STORAGE_ENVIRONMENT_NAMES,
+  ...T3_CLIENT_STORAGE_ENVIRONMENT_NAMES,
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
   "XDG_STATE_HOME",
@@ -42,6 +56,15 @@ export const T3_SERVER_LOCATION_ENVIRONMENT_NAMES = [
   "T3CODE_SERVER_CACHE_DIR",
   "T3CODE_SERVER_CONFIG_FILE",
 ] as const;
+
+/** Written into a legacy state directory once `t3 storage migrate` copied it to the split layout. */
+export const LEGACY_STORAGE_MIGRATION_MARKER = "storage-migration.json";
+/**
+ * Present while `t3 storage migrate` places its copies. Until the marker
+ * replaces it, the split layout may be incomplete, so selection keeps using
+ * the legacy tree.
+ */
+export const LEGACY_STORAGE_MIGRATION_JOURNAL = "storage-migration.pending.json";
 
 export type T3StorageLayout = "split" | "legacy";
 export type T3ForcedStorageLayout = "xdg" | "legacy";
@@ -64,6 +87,13 @@ export interface T3LegacyStorageRoots extends T3StorageDirectories {
 }
 
 export type T3StorageRoots = T3SplitStorageRoots | T3LegacyStorageRoots;
+
+/** Directories owned by the desktop client rather than by any server. */
+export interface T3ClientStorageRoots {
+  readonly configDir: string;
+  readonly stateDir: string;
+  readonly cacheDir: string;
+}
 
 export interface T3StorageDirectoryOverrides {
   readonly configDir?: string;
@@ -155,8 +185,14 @@ export function resolveT3StorageDirectoryOverrides(input: {
 export function resolveDefaultT3StorageRoots(
   input: ResolveDefaultT3StorageRootsInput,
 ): T3SplitStorageRoots {
-  const { environment, homeDirectory, isDevelopment, path, platform, temporaryDirectory } = input;
-  const applicationDirectoryName = isDevelopment ? "t3code-dev" : "t3code";
+  return resolvePlatformStorageRoots(input, input.isDevelopment ? "t3code-dev" : "t3code");
+}
+
+function resolvePlatformStorageRoots(
+  input: ResolveDefaultT3StorageRootsInput,
+  applicationDirectoryName: string,
+): T3SplitStorageRoots {
+  const { environment, homeDirectory, path, platform, temporaryDirectory } = input;
   const runtimeFallbackName =
     input.userId === undefined
       ? applicationDirectoryName
@@ -219,6 +255,34 @@ export function resolveDefaultT3StorageRoots(
   };
 }
 
+/**
+ * The legacy tree keeps client files beside the server's. The split layout
+ * gives the client its own application directories, so a desktop that never
+ * starts a backend writes nothing into a server's storage.
+ */
+export function resolveT3ClientStorageRoots(
+  input: ResolveDefaultT3StorageRootsInput & { readonly serverRoots: T3StorageRoots },
+): T3ClientStorageRoots {
+  const { environment, homeDirectory, path, serverRoots } = input;
+  if (serverRoots.layout === "legacy") {
+    return {
+      configDir: serverRoots.configDir,
+      stateDir: serverRoots.stateDir,
+      cacheDir: serverRoots.stateDir,
+    };
+  }
+  const defaults = resolvePlatformStorageRoots(
+    input,
+    input.isDevelopment ? "t3code-client-dev" : "t3code-client",
+  );
+  const resolve = (name: string) => resolveT3ConfiguredPath(environment[name], homeDirectory, path);
+  return {
+    configDir: resolve(T3CODE_CLIENT_CONFIG_DIR_ENV) ?? defaults.configDir,
+    stateDir: resolve(T3CODE_CLIENT_STATE_DIR_ENV) ?? defaults.stateDir,
+    cacheDir: resolve(T3CODE_CLIENT_CACHE_DIR_ENV) ?? defaults.cacheDir,
+  };
+}
+
 export function applyT3StorageDirectoryOverrides(
   defaults: T3SplitStorageRoots,
   overrides: T3StorageDirectoryOverrides,
@@ -250,10 +314,25 @@ export function resolveLegacyT3StorageRoots(input: {
   };
 }
 
+export function legacyT3StorageMigrationMarkerPath(
+  roots: T3LegacyStorageRoots,
+  path: Pick<StoragePathOperations, "join">,
+): string {
+  return path.join(roots.stateDir, LEGACY_STORAGE_MIGRATION_MARKER);
+}
+
+export function legacyT3StorageMigrationJournalPath(
+  roots: T3LegacyStorageRoots,
+  path: Pick<StoragePathOperations, "join">,
+): string {
+  return path.join(roots.stateDir, LEGACY_STORAGE_MIGRATION_JOURNAL);
+}
+
 /**
  * Files whose presence marks the legacy tree as an initialized installation.
  * The caches dir counts because a legacy server always creates it, even when
  * location overrides put its config and data elsewhere; nothing split does.
+ * Selection ignores a tree carrying the migration marker.
  */
 export function legacyT3StorageArtifactPaths(
   roots: T3StorageRoots,
@@ -326,6 +405,16 @@ export class T3StorageProbeError extends Schema.TaggedError<T3StorageProbeError>
   }
 }
 
+/** A legacy tree that `t3 storage migrate` copied away, named explicitly anyway. */
+export class LegacyStorageMigratedError extends Schema.TaggedError<LegacyStorageMigratedError>()(
+  "LegacyStorageMigratedError",
+  { stateDir: Schema.String },
+) {
+  override get message(): string {
+    return `The legacy storage at '${this.stateDir}' was copied to the split layout by \`t3 storage migrate\`. Unset T3CODE_HOME and drop --base-dir or --storage-layout legacy to use the copy, or run \`t3 storage migrate --rollback\` to return to the legacy tree.`;
+  }
+}
+
 export interface SelectT3StorageInput extends ResolveDefaultT3StorageRootsInput {
   /** A --base-dir flag, which outranks T3CODE_HOME. */
   readonly baseDir?: string | undefined;
@@ -348,15 +437,34 @@ export interface T3StorageSelected {
 export type T3StorageSelection =
   | T3StorageSelected
   | { readonly _tag: "Conflict"; readonly error: T3StorageConfigurationError }
-  | { readonly _tag: "ProbeFailed"; readonly error: T3StorageProbeError };
+  | { readonly _tag: "ProbeFailed"; readonly error: T3StorageProbeError }
+  | { readonly _tag: "Retired"; readonly error: LegacyStorageMigratedError };
 
 /**
  * The storage a T3 process uses: --base-dir, then a forced layout, then
  * T3CODE_HOME, then pinned roots, then the T3CODE_*_DIR selectors, then
- * whichever of the split layout and ~/.t3 already holds an installation (split
- * first), and finally the platform's split defaults.
+ * whichever of the split layout and an unmigrated ~/.t3 already holds an
+ * installation (split first, unless a migration into it never finished), and
+ * finally the platform's split defaults. A legacy tree that `t3 storage
+ * migrate` retired is never used, however it was named.
  */
 export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection {
+  const selection = selectT3StorageRoots(input);
+  if (selection._tag !== "Selected" || selection.roots.layout !== "legacy") return selection;
+  // Serving or editing a retired tree would diverge from its migrated copy.
+  const markerPath = legacyT3StorageMigrationMarkerPath(selection.roots, input.path);
+  try {
+    if (!input.exists(markerPath)) return selection;
+  } catch (cause) {
+    return { _tag: "ProbeFailed", error: new T3StorageProbeError({ path: markerPath, cause }) };
+  }
+  return {
+    _tag: "Retired",
+    error: new LegacyStorageMigratedError({ stateDir: selection.roots.stateDir }),
+  };
+}
+
+function selectT3StorageRoots(input: SelectT3StorageInput): T3StorageSelection {
   const { environment, homeDirectory, path } = input;
   const flagHome = resolveT3ConfiguredPath(input.baseDir, homeDirectory, path);
   const environmentHome = resolveT3ConfiguredPath(environment.T3CODE_HOME, homeDirectory, path);
@@ -409,8 +517,12 @@ export function selectT3Storage(input: SelectT3StorageInput): T3StorageSelection
         return input.exists(candidate);
       });
     const splitInitialized = initialized(splitT3StorageArtifactPaths(split, path));
-    const legacyInitialized = initialized(legacyT3StorageArtifactPaths(legacyRoots, path));
-    if (splitInitialized) {
+    const legacyInitialized =
+      initialized(legacyT3StorageArtifactPaths(legacyRoots, path)) &&
+      !initialized([legacyT3StorageMigrationMarkerPath(legacyRoots, path)]);
+    const migrationPending =
+      legacyInitialized && initialized([legacyT3StorageMigrationJournalPath(legacyRoots, path)]);
+    if (splitInitialized && !migrationPending) {
       return legacyInitialized
         ? { ...selected(split), shadowedLegacyStateDir: legacyRoots.stateDir }
         : selected(split);
