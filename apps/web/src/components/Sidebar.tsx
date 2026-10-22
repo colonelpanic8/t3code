@@ -134,6 +134,7 @@ import {
   useEnvironmentIdentities,
   useConnectedEnvironmentIds,
   useEnvironmentMachines,
+  useEnvironmentPresenceScope,
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import {
@@ -972,6 +973,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // Row callbacks capture only the handler; the rest of the context changes with the route.
   const { handleNewThread } = newThreadContext;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const environmentPresenceScope = useEnvironmentPresenceScope();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
@@ -3262,7 +3264,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             jumpLabel={
                               showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null
                             }
-                            currentEnvironmentId={primaryEnvironmentId}
+                            presenceScope={environmentPresenceScope}
                             environmentLabel={
                               environmentLabelById.get(thread.environmentId) ?? null
                             }
