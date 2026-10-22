@@ -1,4 +1,8 @@
+// @effect-diagnostics nodeBuiltinImport:off - runs before Electron is ready, outside Effect.
+import * as NodeOS from "node:os";
+
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { selectT3Storage, t3StoragePathExists } from "@t3tools/shared/storagePaths";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -9,21 +13,17 @@ import {
   type LinuxPasswordStoreSwitch,
   type LinuxPasswordStorePreference,
 } from "../linuxSecretStorage.ts";
-import {
-  resolveDesktopBaseDir,
-  resolveDesktopClientPaths,
-  resolveDesktopStateDir,
-  type JoinPath,
-  type ResolvePath,
-} from "./DesktopStatePaths.ts";
+import { resolveDesktopClientPaths } from "./DesktopStatePaths.ts";
 
 interface EarlyDesktopSettingsInput {
   readonly env: NodeJS.ProcessEnv;
   readonly clientDirSwitch: string | null;
   readonly homeDirectory: string;
-  readonly joinPath: JoinPath;
-  readonly resolvePath: ResolvePath;
+  readonly joinPath: (first: string, ...segments: string[]) => string;
+  readonly resolvePath: (...segments: string[]) => string;
   readonly readFileString: (path: string) => string;
+  /** Whether a storage marker exists; the real filesystem when omitted. */
+  readonly exists?: (path: string) => boolean;
 }
 
 type EarlyLinuxElectronOptionsInput = EarlyDesktopSettingsInput;
@@ -53,26 +53,31 @@ const decodeEarlyDesktopSettingsJson = Schema.decodeSync(EarlyDesktopSettingsJso
 const isDevelopmentEnvironment = (env: NodeJS.ProcessEnv): boolean =>
   trimNonEmpty(env.VITE_DEV_SERVER_URL) !== null;
 
-function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): string {
-  const t3Home = Option.fromUndefinedOr(input.env.T3CODE_HOME);
-  const baseDir = resolveDesktopBaseDir({
+// Electron is not ready yet, so this makes DesktopEnvironment's storage
+// selection with synchronous probes. A configuration error surfaces there.
+function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): string | undefined {
+  const path = {
+    join: input.joinPath,
+    resolve: input.resolvePath,
+    isAbsolute: (candidate: string) => candidate.startsWith("/"),
+  };
+  const selection = selectT3Storage({
+    platform: "linux",
     homeDirectory: input.homeDirectory,
-    joinPath: input.joinPath,
-    t3Home,
-  });
-  const stateDir = resolveDesktopStateDir({
-    baseDir,
+    temporaryDirectory: NodeOS.tmpdir(),
     isDevelopment: isDevelopmentEnvironment(input.env),
-    joinPath: input.joinPath,
-    t3Home,
+    environment: input.env,
+    path,
+    exists: input.exists ?? t3StoragePathExists,
   });
+  if (selection._tag !== "Selected") return undefined;
   return resolveDesktopClientPaths({
-    stateDir,
+    configDir: selection.roots.configDir,
+    stateDir: selection.roots.stateDir,
     homeDirectory: input.homeDirectory,
     clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
     clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),
-    joinPath: input.joinPath,
-    resolvePath: input.resolvePath,
+    path,
   }).desktopSettingsPath;
 }
 
@@ -80,6 +85,7 @@ export function resolveEarlyLinuxPasswordStorePreference(
   input: EarlyDesktopSettingsInput,
 ): LinuxPasswordStorePreference {
   const settingsPath = resolveEarlyDesktopSettingsPath(input);
+  if (settingsPath === undefined) return DEFAULT_LINUX_PASSWORD_STORE;
   try {
     const parsed = decodeEarlyDesktopSettingsJson(input.readFileString(settingsPath));
     return normalizeLinuxPasswordStorePreference(parsed.linuxPasswordStore);
@@ -180,11 +186,9 @@ export function restoreEarlyLinuxDeviceScaleFactor(
 ): void {
   // Keep this separate from desktop-settings.json: the settings service rewrites
   // that document, and Chromium needs the value before that service is available.
-  const path = input.joinPath(
-    resolveEarlyDesktopSettingsPath(input),
-    "..",
-    "linux-device-scale-factor",
-  );
+  const settingsPath = resolveEarlyDesktopSettingsPath(input);
+  if (settingsPath === undefined) return;
+  const path = input.joinPath(settingsPath, "..", "linux-device-scale-factor");
   const switchName = "force-device-scale-factor";
   const isValid = (value: string) =>
     value.trim().length > 0 && Number.isFinite(Number(value)) && Number(value) > 0;
