@@ -38,8 +38,8 @@ describe("Usage page preferences", () => {
     const preferences = {
       metric: "cost",
       windowDays: 90,
-      chartDimensions: ["environment", "model"],
-      tableDimensions: ["provider", "period"],
+      chartDimensions: ["host", "account", "model"],
+      tableDimensions: ["host", "provider", "account", "period"],
       sort: [
         {
           field: "period",

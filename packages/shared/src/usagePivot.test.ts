@@ -476,3 +476,59 @@ describe("buildStackedColumns", () => {
     expect(stack.columns.map((column) => column.values)).toEqual([[2], [3]]);
   });
 });
+describe("host and account dimensions", () => {
+  const usage = [
+    {
+      ...entry("server-a", {
+        costUsd: 2,
+      }),
+      host: "laptop",
+      accountId: "personal",
+      accountLabel: "Personal",
+    },
+    {
+      ...entry("server-b", {
+        costUsd: 3,
+      }),
+      host: "laptop",
+      accountId: "work",
+      accountLabel: "Work",
+    },
+    {
+      ...entry("server-c", {
+        costUsd: 5,
+      }),
+      host: "desktop",
+      accountId: "desktop-work",
+      accountLabel: "Work",
+    },
+  ];
+  it("groups multiple environments on one host and preserves total cost", () => {
+    expect(pivotUsage(usage, ["host"], "day").map(({ host, costUsd }) => [host, costUsd])).toEqual([
+      ["laptop", 5],
+      ["desktop", 5],
+    ]);
+    const stack = buildStackedColumns(usage, ["host"], "day", ["2026-08-07"], "cost");
+    expect(stack.columns[0]?.total).toBe(10);
+  });
+  it("keeps accounts with the same display label separate within one provider", () => {
+    expect(
+      pivotUsage(usage, ["provider", "account"], "day").map(({ accountId, costUsd }) => [
+        accountId,
+        costUsd,
+      ]),
+    ).toEqual([
+      ["personal", 2],
+      ["work", 3],
+      ["desktop-work", 5],
+    ]);
+    expect(pivotUsage(usage, ["provider"], "day")[0]?.costUsd).toBe(10);
+  });
+  it("keeps older-server usage in explicit unknown groups", () => {
+    expect(pivotUsage([entry("old")], ["host", "account"], "day")[0]).toMatchObject({
+      host: "Unknown host",
+      accountLabel: "Unknown account",
+      costUsd: 1,
+    });
+  });
+});

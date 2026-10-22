@@ -1,6 +1,7 @@
 import {
   USAGE_CONTRACT_VERSION,
   USAGE_MERGE_COMPATIBLE_SINCE,
+  ProviderInstanceId,
   type EnvironmentId,
   type UsageBucket,
   type UsageDay,
@@ -135,6 +136,10 @@ describe("mergeUsage", () => {
       ["opencode", 10],
     ]);
     expect(merged.duplicateSources).toHaveLength(1);
+    expect(merged.entries.find(({ bucket }) => bucket.provider === "cursor")).toMatchObject({
+      host: "Account-wide",
+      accountLabel: "Cursor account (account-)",
+    });
   });
   it("counts a shared transcript directory once", () => {
     const shared = {
@@ -845,5 +850,86 @@ describe("mergeUsage", () => {
     );
     expect(merged.sessions).toBe(1);
     expect(merged.providers[0]?.sessions).toBe(1);
+  });
+});
+describe("source attribution", () => {
+  function attributed(
+    host: string,
+    accounts = [
+      {
+        id: ProviderInstanceId.make("work"),
+        label: "Work",
+      },
+    ],
+  ) {
+    const value = summary(
+      [
+        bucket({
+          sourcePath: "/history",
+        }),
+      ],
+      [
+        {
+          provider: "claude",
+          hostId: host,
+          homePath: "/history",
+        },
+      ],
+    );
+    return {
+      ...value,
+      sources: value.sources.map((source) => ({
+        ...source,
+        accounts,
+      })),
+    };
+  }
+  it("retains the source host rather than the reporting environment and deduplicates it", () => {
+    const merged = mergeUsage(
+      [
+        environment("server-a", attributed("laptop")),
+        environment("server-b", attributed("laptop")),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+    expect(merged.entries).toHaveLength(1);
+    expect(merged.entries[0]).toMatchObject({
+      host: "laptop",
+      accountLabel: "Work (laptop)",
+    });
+    expect(merged.costUsd).toBe(10);
+  });
+  it("scopes configured instance IDs by host", () => {
+    const merged = mergeUsage(
+      [
+        environment("server-a", attributed("laptop")),
+        environment("server-b", attributed("desktop")),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+    expect(new Set(merged.entries.map((entry) => entry.accountId)).size).toBe(2);
+  });
+  it("does not arbitrarily attribute a shared history directory to its first account", () => {
+    const merged = mergeUsage(
+      [
+        environment(
+          "server",
+          attributed("laptop", [
+            {
+              id: ProviderInstanceId.make("work"),
+              label: "Work",
+            },
+            {
+              id: ProviderInstanceId.make("personal"),
+              label: "Personal",
+            },
+          ]),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+    expect(merged.entries[0]?.accountId).toBeUndefined();
+    expect(merged.entries[0]?.host).toBe("laptop");
+    expect(merged.costUsd).toBe(10);
   });
 });

@@ -94,6 +94,9 @@ export interface UsageContractMismatch {
 /** One bucket an environment contributes to the merge after de-duplication. */
 export interface UsageEntry {
   readonly environmentId: EnvironmentId;
+  readonly host?: string;
+  readonly accountId?: string;
+  readonly accountLabel?: string;
   readonly bucket: UsageBucket;
 }
 
@@ -421,8 +424,36 @@ export function mergeUsage(
       providerAccumulator.set(providerKind, provider);
     }
 
+    const sourcesByPath = new Map(
+      environment.summary.sources.map((source) => [
+        JSON.stringify([source.fingerprint.provider, source.fingerprint.resolvedHomePath]),
+        source,
+      ]),
+    );
     for (const bucket of buckets) {
-      entries.push({ environmentId: environment.environmentId, bucket });
+      const source =
+        bucket.sourcePath === undefined
+          ? undefined
+          : sourcesByPath.get(JSON.stringify([bucket.provider, bucket.sourcePath]));
+      const host = source?.fingerprint.hostId;
+      const account = source?.accounts?.length === 1 ? source.accounts[0] : undefined;
+      const accountWide = bucket.provider === "cursor" && host === "cursor.com";
+      entries.push({
+        environmentId: environment.environmentId,
+        bucket,
+        ...(host === undefined ? {} : { host: accountWide ? "Account-wide" : host }),
+        ...(accountWide && source !== undefined
+          ? {
+              accountId: JSON.stringify([bucket.provider, source.fingerprint.resolvedHomePath]),
+              accountLabel: `Cursor account (${source.fingerprint.volumeId.slice(0, 8)})`,
+            }
+          : account === undefined
+            ? {}
+            : {
+                accountId: JSON.stringify([host, bucket.provider, account.id]),
+                accountLabel: `${account.label} (${host})`,
+              }),
+      });
       const tokens = bucketTokens(bucket);
 
       costUsd += bucket.costUsd;
