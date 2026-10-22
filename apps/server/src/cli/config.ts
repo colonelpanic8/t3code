@@ -233,6 +233,14 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  managedSettingsFile: Config.String("T3CODE_MANAGED_SETTINGS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  managedKeybindingsFile: Config.String("T3CODE_MANAGED_KEYBINDINGS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -1035,6 +1043,8 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     env.managedAccessTokenFile,
   );
   const environmentIdOverride = env.environmentIdOverride?.trim() || undefined;
+  const managedSettingsPath = env.managedSettingsFile?.trim() || undefined;
+  const managedKeybindingsPath = env.managedKeybindingsFile?.trim() || undefined;
   const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
   const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
   const desktopBrowserFd = bootstrap?.desktopBrowserFd;
@@ -1167,6 +1177,8 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     desktopBrowserFd,
     desktopBrowserControlFd,
     resourceMonitorPath,
+    ...(managedSettingsPath === undefined ? {} : { managedSettingsPath }),
+    ...(managedKeybindingsPath === undefined ? {} : { managedKeybindingsPath }),
     autoBootstrapProjectFromCwd,
     logWebSocketEvents,
     tailscaleServeEnabled,

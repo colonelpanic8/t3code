@@ -69,6 +69,8 @@ const clientSettingsListeners = new Set<() => void>();
 const clientSettingsHydrationListeners = new Set<() => void>();
 type ClientSettingsHydrationStatus = "pending" | "ready" | "failed" | "retrying";
 let clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
+// Applied over every snapshot so a write to a managed key cannot show a value that was not saved.
+let managedClientSettings: ClientSettingsPatch = {};
 let clientSettingsHydrationStatus: ClientSettingsHydrationStatus = "pending";
 let clientSettingsHydrationPromise: Promise<void> | null = null;
 let clientSettingsHydrationGeneration = 0;
@@ -92,8 +94,15 @@ function getClientSettingsSnapshot(): ClientSettings {
 }
 
 function replaceClientSettingsSnapshot(settings: ClientSettings): void {
-  clientSettingsSnapshot = settings;
+  clientSettingsSnapshot =
+    Object.keys(managedClientSettings).length === 0
+      ? settings
+      : { ...settings, ...managedClientSettings };
   emitClientSettingsChange();
+}
+
+function getManagedClientSettingsSnapshot(): ClientSettingsPatch {
+  return managedClientSettings;
 }
 
 function setClientSettingsHydrationStatus(nextStatus: ClientSettingsHydrationStatus): void {
@@ -144,11 +153,16 @@ async function hydrateClientSettings(): Promise<void> {
   );
   const nextHydration = (async () => {
     try {
-      const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
+      const { persistence } = ensureLocalApi();
+      const [persistedSettings, managedSettings] = await Promise.all([
+        persistence.getClientSettings(),
+        persistence.getManagedClientSettings(),
+      ]);
       if (hydrationGeneration !== clientSettingsHydrationGeneration) {
         return;
       }
-      if (persistedSettings) {
+      managedClientSettings = managedSettings ?? {};
+      if (persistedSettings || managedSettings) {
         replaceClientSettingsSnapshot({ ...DEFAULT_CLIENT_SETTINGS, ...persistedSettings });
       }
       setClientSettingsHydrationStatus("ready");
@@ -376,6 +390,15 @@ export function useMergedSettings<T = UnifiedSettings>(
     const merged = mergeEnvironmentSettings(serverSettings, clientSettings);
     return selector ? selector(merged) : (merged as T);
   });
+}
+
+/** Client settings fixed by the desktop's managed settings file. */
+export function useManagedClientSettings(): ClientSettingsPatch {
+  return useSyncExternalStore(
+    subscribeClientSettings,
+    getManagedClientSettingsSnapshot,
+    getManagedClientSettingsSnapshot,
+  );
 }
 
 export function resolveEnvironmentIdentificationMode(input: {
@@ -747,6 +770,7 @@ export function updateClientSettings(patch: ClientSettingsPatch): Promise<void> 
 export function __resetClientSettingsPersistenceForTests(): void {
   clientSettingsHydrationGeneration += 1;
   clientSettingsSnapshot = DEFAULT_CLIENT_SETTINGS;
+  managedClientSettings = {};
   clientSettingsHydrationStatus = "pending";
   clientSettingsHydrationPromise = null;
   clientSettingsPersistenceQueue = Promise.resolve();

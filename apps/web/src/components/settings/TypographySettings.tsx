@@ -10,6 +10,7 @@ import {
   MIN_INTERFACE_FONT_SIZE,
   MIN_PROMPT_FONT_SIZE,
   MIN_TERMINAL_FONT_SIZE,
+  type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import * as Schema from "effect/Schema";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -37,7 +38,6 @@ import {
   useSettingsSearchTargetId,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-
 function useFontDefaultFamilies() {
   const settings = useScopedSettings();
   const [defaults] = useState(() => ({
@@ -50,19 +50,23 @@ function useFontDefaultFamilies() {
     interfaceFamily: settings.fontFamilySans.trim() || defaults.sans,
   };
 }
-
 function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilySans", "fontSizeInterface"]}
       {...searchableSetting("interface-font")}
       description="Everything outside code blocks and the terminal."
       defaultFamily={defaults.sans}
       defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilySans}
       value={settings.fontFamilySans}
-      onValueChange={(fontFamilySans) => updateSettings({ fontFamilySans })}
+      onValueChange={(fontFamilySans) =>
+        updateSettings({
+          fontFamilySans,
+        })
+      }
       onReset={() =>
         updateSettings({
           fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
@@ -75,25 +79,36 @@ function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
         max: MAX_INTERFACE_FONT_SIZE,
         value: settings.fontSizeInterface,
         defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizeInterface,
-        onChange: (fontSizeInterface) => updateSettings({ fontSizeInterface }),
+        onChange: (fontSizeInterface) =>
+          updateSettings({
+            fontSizeInterface,
+          }),
       }}
-      {...(preview !== undefined ? { preview } : {})}
+      {...(preview !== undefined
+        ? {
+            preview,
+          }
+        : {})}
     />
   );
 }
-
 function PromptFontRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyComposer", "fontSizePrompt"]}
       {...searchableSetting("prompt-font")}
       description="Only the box you write prompts in. Mono works well here."
       defaultFamily={defaults.interfaceFamily}
       defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer}
       value={settings.fontFamilyComposer}
-      onValueChange={(fontFamilyComposer) => updateSettings({ fontFamilyComposer })}
+      onValueChange={(fontFamilyComposer) =>
+        updateSettings({
+          fontFamilyComposer,
+        })
+      }
       onReset={() =>
         updateSettings({
           fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
@@ -106,13 +121,15 @@ function PromptFontRow() {
         max: MAX_PROMPT_FONT_SIZE,
         value: settings.fontSizePrompt,
         defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizePrompt,
-        onChange: (fontSizePrompt) => updateSettings({ fontSizePrompt }),
+        onChange: (fontSizePrompt) =>
+          updateSettings({
+            fontSizePrompt,
+          }),
       }}
       preview={<PromptFontPreview />}
     />
   );
 }
-
 function CodeFontRow({
   title,
   description = "Code blocks, diffs, and file previews.",
@@ -127,13 +144,22 @@ function CodeFontRow({
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyCode", "fontSizeCode"]}
       {...searchableSetting("code-font")}
-      {...(title !== undefined ? { title } : {})}
+      {...(title !== undefined
+        ? {
+            title,
+          }
+        : {})}
       description={description}
       defaultFamily={defaults.code}
       defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilyCode}
       value={settings.fontFamilyCode}
-      onValueChange={(fontFamilyCode) => updateSettings({ fontFamilyCode })}
+      onValueChange={(fontFamilyCode) =>
+        updateSettings({
+          fontFamilyCode,
+        })
+      }
       onReset={() =>
         updateSettings({
           fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
@@ -147,25 +173,32 @@ function CodeFontRow({
         max: MAX_CODE_FONT_SIZE,
         value: settings.fontSizeCode,
         defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizeCode,
-        onChange: (fontSizeCode) => updateSettings({ fontSizeCode }),
+        onChange: (fontSizeCode) =>
+          updateSettings({
+            fontSizeCode,
+          }),
       }}
       preview={preview ?? <CodeFontPreview />}
     />
   );
 }
-
 function TerminalFontRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyTerminal", "fontSizeTerminal"]}
       {...searchableSetting("terminal-font")}
       description="Terminal output, independent from code blocks and diffs."
       defaultFamily={defaults.code}
       defaultValue={DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal}
       value={settings.fontFamilyTerminal}
-      onValueChange={(fontFamilyTerminal) => updateSettings({ fontFamilyTerminal })}
+      onValueChange={(fontFamilyTerminal) =>
+        updateSettings({
+          fontFamilyTerminal,
+        })
+      }
       onReset={() =>
         updateSettings({
           fontFamilyTerminal: DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal,
@@ -179,7 +212,10 @@ function TerminalFontRow() {
         max: MAX_TERMINAL_FONT_SIZE,
         value: settings.fontSizeTerminal,
         defaultValue: DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal,
-        onChange: (fontSizeTerminal) => updateSettings({ fontSizeTerminal }),
+        onChange: (fontSizeTerminal) =>
+          updateSettings({
+            fontSizeTerminal,
+          }),
       }}
       preview={
         <TerminalFontPreview
@@ -194,13 +230,13 @@ function TerminalFontRow() {
     />
   );
 }
-
 function FontSmoothingRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   if (!isMacPlatform(navigator.platform)) return null;
   return (
     <SettingsRow
+      settingKeys={["fontSmoothing"]}
       {...searchableSetting("font-smoothing")}
       description="Use thinner grayscale text smoothing instead of the macOS default."
       resetAction={
@@ -208,7 +244,9 @@ function FontSmoothingRow() {
           <SettingResetButton
             label="font smoothing"
             onClick={() =>
-              updateSettings({ fontSmoothing: DEFAULT_UNIFIED_SETTINGS.fontSmoothing })
+              updateSettings({
+                fontSmoothing: DEFAULT_UNIFIED_SETTINGS.fontSmoothing,
+              })
             }
           />
         ) : null
@@ -216,40 +254,51 @@ function FontSmoothingRow() {
       control={
         <Switch
           checked={settings.fontSmoothing}
-          onCheckedChange={(checked) => updateSettings({ fontSmoothing: Boolean(checked) })}
+          onCheckedChange={(checked) =>
+            updateSettings({
+              fontSmoothing: Boolean(checked),
+            })
+          }
           aria-label="Font smoothing"
         />
       }
     />
   );
 }
-
 function WordWrapRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   return (
     <SettingsRow
+      settingKeys={["wordWrap"]}
       {...searchableSetting("word-wrap")}
       description="Wrap long lines in code blocks, tables, diffs, and file previews by default."
       resetAction={
         settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? (
           <SettingResetButton
             label="word wrapping"
-            onClick={() => updateSettings({ wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap })}
+            onClick={() =>
+              updateSettings({
+                wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+              })
+            }
           />
         ) : null
       }
       control={
         <Switch
           checked={settings.wordWrap}
-          onCheckedChange={(checked) => updateSettings({ wordWrap: Boolean(checked) })}
+          onCheckedChange={(checked) =>
+            updateSettings({
+              wordWrap: Boolean(checked),
+            })
+          }
           aria-label="Wrap code, tables, diffs, and file previews by default"
         />
       }
     />
   );
 }
-
 function FontSettingsGroup() {
   return (
     <>
@@ -261,7 +310,6 @@ function FontSettingsGroup() {
     </>
   );
 }
-
 function SimpleFontRows() {
   const settings = useScopedSettings();
   return (
@@ -301,7 +349,6 @@ const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
     ? ["font-smoothing"]
     : []),
 ]);
-
 export function TypographySection() {
   const [advanced, setAdvanced] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
@@ -336,7 +383,6 @@ export function TypographySection() {
     </SettingsSection>
   );
 }
-
 function FontFamilySettingsRow({
   id,
   title,
@@ -349,8 +395,10 @@ function FontFamilySettingsRow({
   onReset,
   requireMonospace = false,
   size,
+  settingKeys,
 }: {
   id?: string;
+  settingKeys: readonly (keyof UnifiedSettings)[];
   title: string;
   description: string;
   defaultFamily: string;
@@ -374,16 +422,25 @@ function FontFamilySettingsRow({
   const [draftSettled, setDraftSettled] = useState(true);
   // Each pending commit remembers the value it was typed against, so one that outlives
   // an external change (hydration, reset, picker selection) drops its stale draft.
-  const commitTimerRef = useRef<{ readonly id: number; readonly value: string } | null>(null);
+  const commitTimerRef = useRef<{
+    readonly id: number;
+    readonly value: string;
+  } | null>(null);
   const cancelPendingCommit = () => {
     if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current.id);
     commitTimerRef.current = null;
   };
   // Bumped on every external value change, so a pending commit typed before one never lands,
   // even if the value has since changed back to what it was typed against.
-  const [adopted, setAdopted] = useState({ value, generation: 0 });
+  const [adopted, setAdopted] = useState({
+    value,
+    generation: 0,
+  });
   if (adopted.value !== value) {
-    setAdopted({ value, generation: adopted.generation + 1 });
+    setAdopted({
+      value,
+      generation: adopted.generation + 1,
+    });
     setDraft(value);
     setDraftSettled(true);
   }
@@ -497,22 +554,30 @@ function FontFamilySettingsRow({
           <SelectValue>{size.value} px</SelectValue>
         </SelectTrigger>
         <SelectPopup align="end" alignItemWithTrigger={false}>
-          {Array.from({ length: size.max - size.min + 1 }, (_, index) => size.min + index).map(
-            (px) => (
-              <SelectItem hideIndicator key={px} value={String(px)}>
-                {px} px
-              </SelectItem>
-            ),
-          )}
+          {Array.from(
+            {
+              length: size.max - size.min + 1,
+            },
+            (_, index) => size.min + index,
+          ).map((px) => (
+            <SelectItem hideIndicator key={px} value={String(px)}>
+              {px} px
+            </SelectItem>
+          ))}
         </SelectPopup>
       </Select>
     </div>
   );
   return (
     <SettingsRow
-      {...(id !== undefined ? { id } : {})}
+      {...(id !== undefined
+        ? {
+            id,
+          }
+        : {})}
       title={title}
       description={description}
+      settingKeys={settingKeys}
       resetAction={resetAction}
       control={control}
     >
