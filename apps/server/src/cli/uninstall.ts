@@ -11,7 +11,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { Command, Flag, Prompt } from "effect/cli";
 
 import * as BootService from "../cloud/bootService.ts";
 import {
@@ -19,7 +19,11 @@ import {
   pinnedRuntimeVersionsDir,
   windowsShimTarget,
 } from "../cloud/pinnedRuntime.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import {
+  installLocationFlags,
+  resolveInstallLocations,
+  resolveServerLocationOverrides,
+} from "./config.ts";
 import * as CliService from "./service.ts";
 import { findWindowsShim, resolveLauncherPath } from "./update.ts";
 
@@ -36,7 +40,7 @@ export interface UninstallPlan {
   readonly service: boolean;
   readonly launcher: string | undefined;
   readonly runtimeDir: string | undefined;
-  readonly userdataDir: string;
+  readonly keptDirs: ReadonlyArray<string>;
 }
 
 /**
@@ -66,12 +70,37 @@ export const findOwnedLauncher = Effect.fn("cli.uninstall.find_launcher")(functi
   return launcherOwnsVersionsDir(path, input.versionsDir, resolved) ? input.launchedAs : undefined;
 });
 
+/**
+ * What uninstall leaves behind. A legacy T3 home has to go as a whole, since a
+ * later install keeps using it while anything, even its caches, is left. Its
+ * worktrees may hold uncommitted work, so they are named before any deletion.
+ */
+export const keptStorageMessage = (input: {
+  readonly keptDirs: ReadonlyArray<string>;
+  readonly legacyHome: string | undefined;
+  readonly worktreesDir: string;
+}) => {
+  const kept = `Your projects, threads, and settings under ${input.keptDirs.join(", ")} are kept.`;
+  if (input.legacyHome === undefined) {
+    return `${kept} Delete ${input.keptDirs.length === 1 ? "that directory" : "those directories"} yourself if you want them gone too, after moving anything you want out of ${input.worktreesDir}.`;
+  }
+  const home = input.legacyHome;
+  const inHome = (dir: string) =>
+    dir === home || dir.startsWith(`${home}/`) || dir.startsWith(`${home}\\`);
+  const others = input.keptDirs.some((dir) => !inHome(dir))
+    ? " and the other directories listed"
+    : "";
+  return `${kept} To remove them too, move anything you want out of ${input.worktreesDir}, then delete ${home} entirely${others}; a later install keeps using anything left in it.`;
+};
+
 const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
   readonly baseDir: string;
+  readonly layoutDirs: ReadonlyArray<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const service = yield* BootService.BootService;
+  const overrides = yield* resolveServerLocationOverrides({ baseDir: Option.none() });
   const status = yield* service.status;
   const servesThisHome =
     status.installedBaseDir !== undefined &&
@@ -85,13 +114,19 @@ const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
     runtimeDir: (yield* fs.exists(runtimeDir).pipe(Effect.orElseSucceed(() => false)))
       ? runtimeDir
       : undefined,
-    userdataDir: path.join(input.baseDir, "userdata"),
+    keptDirs: [
+      ...new Set(
+        [...input.layoutDirs, overrides.configDir, overrides.dataDir, overrides.cacheDir].filter(
+          (dir): dir is string => dir !== undefined,
+        ),
+      ),
+    ],
   };
   return plan;
 });
 
 export const uninstallCommand = Command.make("uninstall", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   yes: Flag.Boolean("yes").pipe(
     Flag.withAlias("y"),
     Flag.withDescription(
@@ -105,24 +140,35 @@ export const uninstallCommand = Command.make("uninstall", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const logLevel = yield* GlobalFlag.LogLevel;
-      const config = yield* resolveCliAuthConfig(flags, logLevel);
-      return yield* runUninstall({ baseDir: config.baseDir, assumeYes: flags.yes }).pipe(
-        Effect.provide(CliService.layer(config)),
-      );
+      const config = yield* resolveInstallLocations(flags);
+      const legacy = config.storage.roots.layout === "legacy";
+      // The runtime dir persists on macOS and Windows, so it is listed too.
+      const layoutDirs = legacy
+        ? [config.stateDir, config.cacheDir, config.worktreesDir]
+        : [config.configDir, config.dataDir, config.stateDir, config.cacheDir, config.runtimeDir];
+      return yield* runUninstall({
+        baseDir: config.baseDir,
+        layoutDirs,
+        legacyHome: legacy ? config.baseDir : undefined,
+        worktreesDir: config.worktreesDir,
+        assumeYes: flags.yes,
+      }).pipe(Effect.provide(CliService.layer(config)));
     }),
   ),
 );
 
 const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
   readonly baseDir: string;
+  readonly layoutDirs: ReadonlyArray<string>;
+  readonly legacyHome: string | undefined;
+  readonly worktreesDir: string;
   readonly assumeYes: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcess.Platform;
   const environment = yield* HostProcess.Environment;
   const service = yield* BootService.BootService;
-  const plan = yield* planUninstall({ baseDir: input.baseDir });
+  const plan = yield* planUninstall({ baseDir: input.baseDir, layoutDirs: input.layoutDirs });
 
   if (!plan.service && plan.launcher === undefined && plan.runtimeDir === undefined) {
     yield* Console.log(`Nothing to remove: t3 is not installed for ${input.baseDir}.`);
@@ -141,7 +187,11 @@ const runUninstall = Effect.fn("cli.uninstall.run")(function* (input: {
     yield* Console.log(`  every downloaded version under ${plan.runtimeDir}`);
   }
   yield* Console.log(
-    `Your projects, threads, and settings under ${plan.userdataDir} are kept. Delete that directory yourself if you want them gone too.`,
+    keptStorageMessage({
+      keptDirs: plan.keptDirs,
+      legacyHome: input.legacyHome,
+      worktreesDir: input.worktreesDir,
+    }),
   );
 
   if (!input.assumeYes) {

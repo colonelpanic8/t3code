@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import { afterEach, beforeEach, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -7,14 +8,17 @@ import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-
 import * as DesktopCliCommand from "./DesktopCliCommand.ts";
 import * as DesktopCliShim from "./DesktopCliShim.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
-
 const environmentFor = (
   path: Path.Path,
-  input: { home: string; baseDir: string; platform?: NodeJS.Platform; isPackaged?: boolean },
+  input: {
+    home: string;
+    baseDir: string;
+    platform?: NodeJS.Platform;
+    isPackaged?: boolean;
+  },
 ) =>
   DesktopEnvironment.DesktopEnvironment.of({
     path,
@@ -22,37 +26,58 @@ const environmentFor = (
     isPackaged: input.isPackaged ?? true,
     homeDirectory: input.home,
     baseDir: input.baseDir,
-    stateDir: path.join(input.baseDir, "userdata"),
+    clientRoots: {
+      stateDir: path.join(input.baseDir, "userdata"),
+    },
+    storageRoots: resolveLegacyT3StorageRoots({
+      baseDir: input.baseDir,
+      stateDirectoryName: "userdata",
+      path,
+    }),
     serverRoot: "/opt/T3 Code/resources/app.asar",
     appImagePath: Option.none(),
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
-
 const commandIn = (
-  input: { home: string; baseDir?: string; platform?: NodeJS.Platform; isPackaged?: boolean },
+  input: {
+    home: string;
+    baseDir?: string;
+    platform?: NodeJS.Platform;
+    isPackaged?: boolean;
+  },
   spawner?: ChildProcessSpawner.ChildProcessSpawner["Service"],
 ) =>
   Effect.gen(function* () {
     const path = yield* Path.Path;
     const fs = yield* FileSystem.FileSystem;
     const baseDir = input.baseDir ?? path.join(input.home, ".t3");
-    yield* fs.makeDirectory(path.join(baseDir, "userdata"), { recursive: true });
+    yield* fs.makeDirectory(path.join(baseDir, "userdata"), {
+      recursive: true,
+    });
     const make = DesktopCliCommand.make.pipe(
       Effect.provideService(
         DesktopEnvironment.DesktopEnvironment,
-        environmentFor(path, { ...input, baseDir }),
+        environmentFor(path, {
+          ...input,
+          baseDir,
+        }),
       ),
     );
     return yield* spawner
       ? make.pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
       : make;
   });
-
 const fakePowerShell = (initial: string) => {
-  const registry = { path: initial, failReads: false, writes: 0 };
+  const registry = {
+    path: initial,
+    failReads: false,
+    writes: 0,
+  };
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.sync(() => {
       const { options } = command as unknown as {
-        readonly options: { readonly env?: Record<string, string> };
+        readonly options: {
+          readonly env?: Record<string, string>;
+        };
       };
       const env = options.env ?? {};
       let exitCode = 0;
@@ -80,7 +105,10 @@ const fakePowerShell = (initial: string) => {
       });
     }),
   );
-  return { registry, spawner };
+  return {
+    registry,
+    spawner,
+  };
 };
 
 // The machine's own PATH may already hold a t3; each test sets the PATH it means.
@@ -91,40 +119,47 @@ beforeEach(() => {
 afterEach(() => {
   process.env.PATH = machinePath;
 });
-
 it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
   it.effect("links the launcher onto PATH and removes only that link", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped();
-      const command = yield* commandIn({ home });
+      const command = yield* commandIn({
+        home,
+      });
       const link = path.join(home, ".local", "bin", "t3");
-
-      expect(yield* command.state).toEqual({ supported: true, installedPath: null, onPath: false });
+      expect(yield* command.state).toEqual({
+        supported: true,
+        installedPath: null,
+        onPath: false,
+      });
       const installed = yield* command.install;
       expect(installed.installedPath).toBe(link);
       expect(yield* fs.readLink(link)).toBe(path.join(home, ".t3", "bin", "t3"));
       expect((yield* command.install).installedPath).toBe(link);
-
       expect((yield* command.uninstall).installedPath).toBeNull();
       expect(yield* fs.exists(link)).toBe(false);
       expect(yield* fs.exists(path.join(home, ".t3", "bin", "t3"))).toBe(true);
     }).pipe(Effect.scoped),
   );
-
   it.effect("never replaces or removes a t3 it did not create", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped();
-      const command = yield* commandIn({ home });
+      const command = yield* commandIn({
+        home,
+      });
       const theirs = path.join(home, ".local", "bin", "t3");
-      yield* fs.makeDirectory(path.dirname(theirs), { recursive: true });
+      yield* fs.makeDirectory(path.dirname(theirs), {
+        recursive: true,
+      });
       yield* fs.writeFileString(theirs, "npm's t3\n");
-      yield* fs.makeDirectory(path.join(home, "bin"), { recursive: true });
+      yield* fs.makeDirectory(path.join(home, "bin"), {
+        recursive: true,
+      });
       yield* fs.symlink(path.join(home, "gone"), path.join(home, "bin", "t3"));
-
       const error = yield* Effect.flip(command.install);
       expect(error.message).toContain("Another t3 command is already installed");
       yield* command.uninstall;
@@ -132,16 +167,20 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(yield* fs.readLink(path.join(home, "bin", "t3"))).toBe(path.join(home, "gone"));
     }).pipe(Effect.scoped),
   );
-
   it.effect("finds and removes a link left by a previous T3 home", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped();
-      const before = yield* commandIn({ home, baseDir: path.join(home, "old-t3") });
+      const before = yield* commandIn({
+        home,
+        baseDir: path.join(home, "old-t3"),
+      });
       const link = (yield* before.install).installedPath;
-
-      const after = yield* commandIn({ home, baseDir: path.join(home, "new-t3") });
+      const after = yield* commandIn({
+        home,
+        baseDir: path.join(home, "new-t3"),
+      });
       expect((yield* after.state).installedPath).toBe(link);
       expect((yield* after.install).installedPath).toBe(link);
       expect(yield* fs.readLink(link!)).toBe(path.join(home, "new-t3", "bin", "t3"));
@@ -150,7 +189,59 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(yield* fs.exists(path.join(home, "bin", "t3"))).toBe(false);
     }).pipe(Effect.scoped),
   );
+  it.effect("follows this app's launcher when the command still runs a migrated home's", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped();
+      const legacy = path.join(home, ".t3");
+      const link = (yield* (yield* commandIn({
+        home,
+        baseDir: legacy,
+      })).install).installedPath!;
+      const split = yield* commandIn({
+        home,
+        baseDir: path.join(home, "split"),
+      });
 
+      // Another install's home that was never migrated keeps its command.
+      yield* split.followLauncher;
+      expect(yield* fs.readLink(link)).toBe(path.join(legacy, "bin", "t3"));
+      yield* fs.writeFileString(path.join(legacy, "userdata", "storage-migration.json"), "{}");
+      yield* split.followLauncher;
+      expect(yield* fs.readLink(link)).toBe(path.join(home, "split", "bin", "t3"));
+      expect(yield* fs.exists(path.join(home, "split", "bin", "t3"))).toBe(true);
+    }).pipe(Effect.scoped),
+  );
+  it.effect("moves a Windows PATH entry off a migrated home's launcher", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped();
+      const legacyBin = path.join(home, ".t3", "bin");
+      const splitBin = path.join(home, "split", "bin");
+      const { registry, spawner } = fakePowerShell(`C:\\Tools;${legacyBin}`);
+      const split = yield* commandIn(
+        {
+          home,
+          baseDir: path.join(home, "split"),
+          platform: "win32",
+        },
+        spawner,
+      );
+      yield* fs.writeFileString(
+        path.join(home, "split", "userdata", "cli-command-path-entry"),
+        `${legacyBin}\n`,
+      );
+      yield* fs.makeDirectory(path.join(home, ".t3", "userdata"), {
+        recursive: true,
+      });
+      yield* fs.writeFileString(path.join(home, ".t3", "userdata", "storage-migration.json"), "{}");
+      yield* split.followLauncher;
+      expect(registry.path).toBe(`C:\\Tools;${splitBin}`);
+      expect((yield* split.state).installedPath).toBe(path.join(splitBin, "t3.cmd"));
+    }).pipe(Effect.scoped),
+  );
   it.effect("refuses to install behind another t3 that runs first", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -158,16 +249,18 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       const home = yield* fs.makeTempDirectoryScoped();
       const shadow = path.join(home, "shadow");
       yield* fs.makeDirectory(shadow);
-      yield* fs.writeFileString(path.join(shadow, "t3"), "#!/bin/sh\n", { mode: 0o755 });
+      yield* fs.writeFileString(path.join(shadow, "t3"), "#!/bin/sh\n", {
+        mode: 0o755,
+      });
       process.env.PATH = [shadow, path.join(home, ".local", "bin")].join(":");
-
-      const command = yield* commandIn({ home });
+      const command = yield* commandIn({
+        home,
+      });
       const theirs = path.join(shadow, "t3");
       expect((yield* command.state).shadowedBy).toBe(theirs);
       const error = yield* Effect.flip(command.install);
       expect(error.message).toContain(theirs);
       expect(yield* fs.exists(path.join(home, ".local", "bin", "t3"))).toBe(false);
-
       yield* fs.remove(theirs);
       const installed = yield* command.install;
       expect(installed).toMatchObject({
@@ -177,23 +270,33 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(installed.shadowedBy).toBeUndefined();
     }).pipe(Effect.scoped),
   );
-
   it.effect("leaves the Windows PATH alone when it cannot be read", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const home = yield* fs.makeTempDirectoryScoped();
       const userPath = "C:\\Users\\Me\\npm;%USERPROFILE%\\tools";
       const { registry, spawner } = fakePowerShell(userPath);
-      const command = yield* commandIn({ home, platform: "win32" }, spawner);
-
+      const command = yield* commandIn(
+        {
+          home,
+          platform: "win32",
+        },
+        spawner,
+      );
       registry.failReads = true;
       const error = yield* Effect.flip(command.install);
       expect(error.message).toContain("left unchanged");
-      expect(registry).toMatchObject({ path: userPath, writes: 0 });
-
+      expect(registry).toMatchObject({
+        path: userPath,
+        writes: 0,
+      });
       registry.failReads = false;
       const launcherDir = DesktopCliShim.launcherPath(
-        environmentFor(yield* Path.Path, { home, baseDir: `${home}/.t3`, platform: "win32" }),
+        environmentFor(yield* Path.Path, {
+          home,
+          baseDir: `${home}/.t3`,
+          platform: "win32",
+        }),
       ).replace(/[\\/]t3\.cmd$/, "");
       yield* command.install;
       expect(registry.path).toBe(`${userPath};${launcherDir}`);
@@ -201,7 +304,6 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       expect(registry.path).toBe(userPath);
     }).pipe(Effect.scoped),
   );
-
   it.effect("does not claim or remove a Windows PATH entry the user added", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -209,13 +311,22 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       const home = yield* fs.makeTempDirectoryScoped();
       const launcherDir = path.dirname(
         DesktopCliShim.launcherPath(
-          environmentFor(path, { home, baseDir: path.join(home, ".t3"), platform: "win32" }),
+          environmentFor(path, {
+            home,
+            baseDir: path.join(home, ".t3"),
+            platform: "win32",
+          }),
         ),
       );
       const userPath = `C:\\Tools;${launcherDir}`;
       const { registry, spawner } = fakePowerShell(userPath);
-      const command = yield* commandIn({ home, platform: "win32" }, spawner);
-
+      const command = yield* commandIn(
+        {
+          home,
+          platform: "win32",
+        },
+        spawner,
+      );
       expect((yield* command.state).installedPath).toBeNull();
       yield* command.uninstall;
       expect(registry.path).toBe(userPath);
