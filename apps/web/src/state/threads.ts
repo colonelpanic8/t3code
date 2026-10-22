@@ -124,7 +124,7 @@ export function createRunningThreadKeepAliveAtom<E>(input: {
 }
 
 export const runningThreadKeepAliveAtom = createRunningThreadKeepAliveAtom({
-  environmentIdsAtom: Atom.map(environmentCatalog.catalogValueAtom, (catalog) => [
+  environmentIdsAtom: Atom.map(environmentCatalog.unfilteredCatalogValueAtom, (catalog) => [
     ...enabledEnvironmentIds(catalog),
   ]),
   threadsAtom: environmentThreadShells.environmentThreadsAtom,
