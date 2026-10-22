@@ -18,6 +18,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -66,6 +67,20 @@ const LITELLM_RATES_API_URL =
 const RATES_TTL_MS = 24 * 60 * 60 * 1000;
 
 const RATES_REFRESH_FLOOR_MS = 60 * 1000;
+
+/**
+ * A scan does not retry a failed load sooner, since each attempt can hold it
+ * for its timeouts. An explicit refresh only waits out the refresh floor.
+ */
+const RATES_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+
+/**
+ * Most scans change the cache, and each write serializes all of it, so a burst
+ * of scans writes once, this long after the last one, but no later than
+ * `SCAN_CACHE_PERSIST_MAX_WAIT_MS` after the first change since the last write.
+ */
+const SCAN_CACHE_PERSIST_DELAY_MS = 5 * 1000;
+const SCAN_CACHE_PERSIST_MAX_WAIT_MS = 30 * 1000;
 
 /**
  * Files are filtered by mtime before opening. The slack covers a session whose
@@ -218,6 +233,8 @@ export const make = Effect.gen(function* () {
   let ratesFetchedAtMs: number | null = null;
   let ratesLastFailedAtMs: number | null = null;
   let ratesStatus: UsagePricing["status"] = "unavailable";
+  const ratesBackingOff = (now: number, backoffMs = RATES_RETRY_BACKOFF_MS) =>
+    ratesLastFailedAtMs !== null && now - ratesLastFailedAtMs < backoffMs;
   const ratesLock = yield* Semaphore.make(1);
 
   const pricing = (): UsagePricing => ({
@@ -261,7 +278,7 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    if (ratesLastFailedAtMs !== null && now - ratesLastFailedAtMs < RATES_REFRESH_FLOOR_MS) return;
+    if (ratesBackingOff(now, force ? RATES_REFRESH_FLOOR_MS : RATES_RETRY_BACKOFF_MS)) return;
 
     let fetched = yield* fetchRates(LITELLM_RATES_URL);
     if (fetched === null) {
@@ -285,6 +302,12 @@ export const make = Effect.gen(function* () {
   });
 
   const ensureRates = (force: boolean) => ratesLock.withPermit(loadRates(force));
+
+  // During backoff a scan skips the lock too, so it never waits on an explicit
+  // refresh that is likely to fail the same way.
+  const ensureScanRates = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+    ratesBackingOff(now) ? Effect.void : ensureRates(false),
+  );
 
   const refreshRates = ensureRates(true).pipe(
     Effect.map(pricing),
@@ -418,12 +441,15 @@ export const make = Effect.gen(function* () {
   // keeps an older snapshot from landing after a newer one.
   const persistLock = yield* Semaphore.make(1);
 
+  /** When the first change since the last write must be written by. */
+  let persistDeadlineMs: number | undefined;
+
   // The dirty flag is cleared before encoding, so a change while the write is
   // in flight marks it dirty again. A failed write restores the flag, so the
-  // next persist retries instead of leaving disk stale.
   const persistCaches = Effect.gen(function* () {
     if (cacheDirty) {
       cacheDirty = false;
+      persistDeadlineMs = undefined;
       yield* Effect.sync(() =>
         writeScanCache(fileCache, { sources: Object.fromEntries(sourceCache) }),
       ).pipe(
@@ -435,20 +461,30 @@ export const make = Effect.gen(function* () {
         ),
       );
     }
-  }).pipe(persistLock.withPermit, Effect.withSpan("UsageService.persistCaches"));
+  }).pipe(
+    Effect.uninterruptible,
+    persistLock.withPermit,
+    Effect.withSpan("UsageService.persistCaches"),
+  );
 
-  const pendingPersists = new Set<Fiber.Fiber<void>>();
-  const schedulePersist = Effect.forkDetach(persistCaches).pipe(
-    Effect.map((fiber) => {
-      pendingPersists.add(fiber);
-      fiber.addObserver(() => pendingPersists.delete(fiber));
-    }),
-  );
-  const awaitPersisted = Effect.suspend(() => Fiber.awaitAll([...pendingPersists])).pipe(
-    Effect.asVoid,
-  );
-  // A write still running when the service shuts down finishes first, so the
-  // next start does not lose the last scan.
+  let pendingPersist: Fiber.Fiber<void> | undefined;
+  const schedulePersist = Effect.gen(function* () {
+    if (!cacheDirty) return;
+    const now = yield* Clock.currentTimeMillis;
+    persistDeadlineMs ??= now + SCAN_CACHE_PERSIST_MAX_WAIT_MS;
+    const delayMs = Math.max(0, Math.min(SCAN_CACHE_PERSIST_DELAY_MS, persistDeadlineMs - now));
+    const previous = pendingPersist;
+    pendingPersist = yield* Effect.sleep(Duration.millis(delayMs)).pipe(
+      Effect.andThen(persistCaches),
+      Effect.forkDetach,
+    );
+    if (previous !== undefined) yield* Fiber.interrupt(previous);
+  });
+  const awaitPersisted = Effect.suspend(() => {
+    const pending = pendingPersist;
+    pendingPersist = undefined;
+    return pending === undefined ? Effect.void : Fiber.interrupt(pending);
+  }).pipe(Effect.andThen(persistCaches));
   yield* Effect.addFinalizer(() => awaitPersisted);
 
   /**
@@ -731,7 +767,7 @@ export const make = Effect.gen(function* () {
 
     const [, scannedDirs] = yield* Effect.all(
       [
-        ensureRates(false),
+        ensureScanRates,
         collectDirs(windowStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
       ],
       { concurrency: 2 },
@@ -940,13 +976,13 @@ export const make = Effect.gen(function* () {
         inflightScans.set(key, created);
         // Detached so one departing client cannot tear the scan out from under
         // the fibers awaiting it; a finished scan warms the cache either way.
-        // The cache write is registered before the waiters resume, so they
-        // can await it, but its fiber starts after they have the summary.
+        // The waiters resume before the cache write is scheduled, since
+        // rescheduling waits out any write already in flight.
         yield* scanSummary(input, settings).pipe(
           Effect.onExit((exit) =>
             Effect.sync(() => inflightScans.delete(key)).pipe(
-              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
               Effect.andThen(Deferred.done(created, exit)),
+              Effect.andThen(Exit.isSuccess(exit) ? schedulePersist : Effect.void),
             ),
           ),
           Effect.forkDetach,
