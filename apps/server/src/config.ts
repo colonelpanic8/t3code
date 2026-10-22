@@ -7,6 +7,7 @@ import * as LogLevel from "effect/LogLevel";
 import * as Path from "effect/Path";
 import type * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import type { T3StorageLayout } from "@t3tools/shared/storagePaths";
 
 import type { OtlpEndpointSource } from "@t3tools/contracts";
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
@@ -35,7 +36,16 @@ export const StartupPresentation = Schema.Literals(["browser", "headless"]);
 export type StartupPresentation = typeof StartupPresentation.Type;
 
 export interface ServerDerivedPaths {
+  readonly layout: T3StorageLayout;
+  /** Settings, keybindings, and themes. */
+  readonly configDir: string;
+  /** Attachments, browser artifacts, and worktrees; everything in `stateDir` too unless split. */
+  readonly dataDir: string;
+  readonly cacheDir: string;
+  /** Database, identity, secrets, and logs. Same directory as `dataDir` unless split. */
   readonly stateDir: string;
+  /** Holds server-runtime.json. Same directory as `dataDir` unless split. */
+  readonly runtimeDir: string;
   readonly dbPath: string;
   readonly keybindingsConfigPath: string;
   readonly settingsPath: string;
@@ -55,8 +65,22 @@ export interface ServerDerivedPaths {
   readonly secretsDir: string;
 }
 
-export interface DeriveServerPathsOptions {
+/** Absolute directories that replace the base-dir-derived location of one category. */
+export interface ServerLocationOverrides {
+  readonly configDir?: string | undefined;
+  readonly dataDir?: string | undefined;
+  readonly cacheDir?: string | undefined;
+}
+
+/** The split layout's own state and runtime roots, which the legacy layout keeps in the data dir. */
+export interface SplitStorageRoots {
+  readonly stateDir: string;
+  readonly runtimeDir: string;
+}
+
+export interface DeriveServerPathsOptions extends ServerLocationOverrides {
   readonly baseDirIsExplicit?: boolean;
+  readonly split?: SplitStorageRoots | undefined;
 }
 
 export class ServerConfig extends Context.Service<
@@ -106,6 +130,12 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** The server config file read at startup, and its keys this release ignores. */
+    readonly serverConfigFile?:
+      | { readonly path: string; readonly unknownKeys: ReadonlyArray<string> }
+      | undefined;
+    /** An initialized ~/.t3 state dir the split layout in use leaves unused. */
+    readonly shadowedLegacyStateDir?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (
@@ -141,25 +171,36 @@ export const deriveServerPaths = Effect.fn(function* (
   options: DeriveServerPathsOptions = {},
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const { join } = yield* Path.Path;
-  const stateDir = join(
+  const legacyStateDir = join(
     baseDir,
     devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
   );
+  const configDir = options.configDir ?? legacyStateDir;
+  const dataDir = options.dataDir ?? legacyStateDir;
+  const cacheDir = options.cacheDir ?? join(baseDir, "caches");
+  const stateDir = options.split?.stateDir ?? dataDir;
+  const runtimeDir = options.split?.runtimeDir ?? dataDir;
   const dbPath = join(stateDir, "statev2.sqlite");
-  const attachmentsDir = join(stateDir, "attachments");
+  const attachmentsDir = join(dataDir, "attachments");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "provider");
-  const providerStatusCacheDir = join(baseDir, "caches");
   return {
+    layout: options.split === undefined ? "legacy" : "split",
+    configDir,
+    dataDir,
+    cacheDir,
     stateDir,
+    runtimeDir,
     dbPath,
-    keybindingsConfigPath: join(stateDir, "keybindings.json"),
-    settingsPath: join(stateDir, "settings.json"),
-    environmentThemesDir: join(stateDir, "themes"),
-    providerStatusCacheDir,
-    worktreesDir: join(baseDir, "worktrees"),
+    keybindingsConfigPath: join(configDir, "keybindings.json"),
+    settingsPath: join(configDir, "settings.json"),
+    environmentThemesDir: join(configDir, "themes"),
+    providerStatusCacheDir:
+      options.split === undefined ? cacheDir : join(cacheDir, "provider-status"),
+    // Worktrees sit beside userdata by default, so they follow only an explicit data dir.
+    worktreesDir: join(options.dataDir ?? baseDir, "worktrees"),
     attachmentsDir,
-    browserArtifactsDir: join(stateDir, "browser-artifacts"),
+    browserArtifactsDir: join(dataDir, "browser-artifacts"),
     logsDir,
     serverTracePath: join(logsDir, "server.trace.ndjson"),
     providerLogsDir,
@@ -167,7 +208,7 @@ export const deriveServerPaths = Effect.fn(function* (
     terminalLogsDir: join(logsDir, "terminals"),
     anonymousIdPath: join(stateDir, "anonymous-id"),
     environmentIdPath: join(stateDir, "environment-id"),
-    serverRuntimeStatePath: join(stateDir, "server-runtime.json"),
+    serverRuntimeStatePath: join(runtimeDir, "server-runtime.json"),
     secretsDir: join(stateDir, "secrets"),
   };
 });
@@ -205,6 +246,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
 const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   cwd: string,
   baseDirOrPrefix: string | { readonly prefix: string },
+  overrides?: DeriveServerPathsOptions,
 ) {
   const devUrl = undefined;
   const fs = yield* FileSystem.FileSystem;
@@ -214,7 +256,7 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
       : // macOS temp dirs live under the /var -> /private/var symlink; storage cleanup's
         // symlink guards compare resolved paths, so generated test dirs must be real paths.
         yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: baseDirOrPrefix.prefix }));
-  const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
+  const derivedPaths = yield* deriveServerPaths(baseDir, devUrl, overrides);
   yield* ensureServerDirectories(derivedPaths);
 
   return ServerConfig.of({
@@ -255,8 +297,11 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
   });
 });
 
-export const layerTest = (cwd: string, baseDirOrPrefix: string | { readonly prefix: string }) =>
-  Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix));
+export const layerTest = (
+  cwd: string,
+  baseDirOrPrefix: string | { readonly prefix: string },
+  overrides?: DeriveServerPathsOptions,
+) => Layer.effect(ServerConfig, makeTest(cwd, baseDirOrPrefix, overrides));
 
 export const resolveStaticDir = Effect.fn(function* () {
   const { join, resolve } = yield* Path.Path;

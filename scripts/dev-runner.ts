@@ -8,6 +8,11 @@ import * as NetService from "@t3tools/shared/Net";
 import { resolveGitWorktreePath, resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import {
+  T3_CLIENT_STORAGE_ENVIRONMENT_NAMES,
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -325,6 +330,21 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     output.T3CODE_HOME = resolvedBaseDir;
   } else {
     delete output.T3CODE_HOME;
+  }
+  // These outrank the home chosen above, so an exported one would point a
+  // worktree's dev server at the real database and run branch migrations on
+  // it, or apply the real server's options to it. A split-layout service
+  // exports the storage selectors into every agent shell.
+  for (const name of [
+    ...T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+    ...T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+  ]) {
+    delete output[name];
+  }
+  // A dev desktop would otherwise share the real desktop's settings, window
+  // state, saved connections, and Electron profile.
+  for (const name of ["T3CODE_CLIENT_DIR", ...T3_CLIENT_STORAGE_ENVIRONMENT_NAMES]) {
+    delete output[name];
   }
 
   // Managed T3 service shells leak launcher variables that make dev servers fail version checks.

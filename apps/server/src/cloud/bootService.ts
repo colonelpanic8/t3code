@@ -1,4 +1,11 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+  T3CODE_DATA_DIR_ENV,
+  t3StorageEnvironment,
+  type T3StorageRoots,
+} from "@t3tools/shared/storagePaths";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -62,11 +69,34 @@ const unquoteSystemdValue = (raw: string) =>
 const unescapeXmlText = (value: string) =>
   value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 
+function bootServiceEnvironmentValue(contents: string, name: string): string | undefined {
+  const systemd = new RegExp(`^Environment=${name}=(.*)$`, "m").exec(contents)?.[1];
+  if (systemd !== undefined) return unquoteSystemdValue(systemd.trim()) || undefined;
+  const plist = new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`).exec(contents)?.[1];
+  return plist === undefined ? undefined : unescapeXmlText(plist) || undefined;
+}
+
 export function bootServiceBaseDirOf(contents: string): string | undefined {
-  const systemd = /^Environment=T3CODE_HOME=(.*)$/m.exec(contents)?.[1];
-  if (systemd !== undefined) return unquoteSystemdValue(systemd.trim());
-  const plist = /<key>T3CODE_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];
-  return plist === undefined ? undefined : unescapeXmlText(plist);
+  return (
+    bootServiceEnvironmentValue(contents, "T3CODE_HOME") ??
+    bootServiceEnvironmentValue(contents, T3CODE_DATA_DIR_ENV)
+  );
+}
+
+/** Where this host's service manager keeps the unit, whether or not one is installed. */
+export function bootServiceUnitPath(input: {
+  readonly platform: NodeJS.Platform;
+  readonly homeDir: string;
+  readonly path: Pick<Path.Path, "join">;
+}): string | undefined {
+  if (input.homeDir === "") return undefined;
+  if (input.platform === "linux") {
+    return input.path.join(input.homeDir, ".config", "systemd", "user", BOOT_SERVICE_UNIT_FILE);
+  }
+  if (input.platform === "darwin") {
+    return input.path.join(input.homeDir, "Library", "LaunchAgents", BOOT_SERVICE_PLIST_FILE);
+  }
+  return undefined;
 }
 
 /** The executable an installed unit or plist starts: the launcher's runtime. */
@@ -82,14 +112,49 @@ export function bootServiceProgramOf(contents: string): string | undefined {
 export interface BootServicePlan {
   readonly program: ReadonlyArray<string>;
   readonly baseDir: string;
+  readonly storageRoots: T3StorageRoots;
   readonly logPath: string;
   readonly unitPath: string;
   /** The manager accepted a detached install; its outcome is written to `logPath`. */
   readonly handedOff?: boolean;
 }
 
+/**
+ * The service runs from its T3 home and that home's server.json alone, so these
+ * must not reach it from the user manager or launchd environment.
+ */
+const SERVER_OVERRIDE_ENV = T3_SERVER_LOCATION_ENVIRONMENT_NAMES;
+
+/**
+ * Storage variables a service sets, plus the other layout's it clears so layouts
+ * cannot mix. A split systemd unit leaves XDG_RUNTIME_DIR to the user manager:
+ * the installing shell's, under sudo or bare ssh, is a temporary fallback no shell
+ * looks in.
+ */
+const serviceStorageEnvironment = (
+  plan: BootServicePlan,
+  manager: "systemd" | "launchd",
+): { readonly set: Readonly<Record<string, string>>; readonly cleared: ReadonlyArray<string> } => {
+  const roots = plan.storageRoots;
+  if (roots.layout === "legacy") {
+    return {
+      set: { T3CODE_HOME: plan.baseDir },
+      cleared: T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+    };
+  }
+  return {
+    set: t3StorageEnvironment(roots, { includeRuntimeDir: manager === "launchd" }),
+    cleared: ["T3CODE_HOME"],
+  };
+};
+
 /** Service units cannot rely on the user's shell or PATH. */
 export function renderBootServiceUnit(plan: BootServicePlan): string {
+  const storage = serviceStorageEnvironment(plan, "systemd");
+  const storageEnvironmentLines = Object.entries(storage.set).map(
+    ([name, value]) => `Environment=${name}=${quoteSystemdValue(value)}`,
+  );
+  const unsetStorageEnvironmentLine = `UnsetEnvironment=${storage.cleared.join(" ")}`;
   // The user manager has no reliable network-online target; server networking retries itself.
   return [
     "[Unit]",
@@ -100,8 +165,10 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "[Service]",
     "Type=simple",
     "WorkingDirectory=%h",
-    `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
+    ...storageEnvironmentLines,
+    unsetStorageEnvironmentLine,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
+    `UnsetEnvironment=${SERVER_OVERRIDE_ENV.join(" ")}`,
     `ExecStart=${plan.program.map(quoteSystemdValue).join(" ")}`,
     // Let the launcher mark an explicit stop before it signals the server.
     // systemd still SIGKILLs the whole cgroup if graceful shutdown times out.
@@ -133,6 +200,7 @@ export function renderBootServicePlist(
   plan: BootServicePlan,
   options: { readonly homeDir: string; readonly environmentPath: string },
 ): string {
+  const storage = serviceStorageEnvironment(plan, "launchd");
   // Allow 90s stops for update handoffs.
   // Interactive avoids background throttling.
   // AbandonProcessGroup=false reaps agents only on launcher exit, preserving them across child updates.
@@ -151,10 +219,17 @@ export function renderBootServicePlist(
     `  <dict>`,
     `    <key>PATH</key>`,
     `    <string>${escapeXmlText(options.environmentPath)}</string>`,
-    `    <key>T3CODE_HOME</key>`,
-    `    <string>${escapeXmlText(plan.baseDir)}</string>`,
+    ...Object.entries(storage.set).flatMap(([name, value]) => [
+      `    <key>${name}</key>`,
+      `    <string>${escapeXmlText(value)}</string>`,
+    ]),
     `    <key>${BOOT_SERVICE_UNIT_ENV}</key>`,
     `    <string>${BOOT_SERVICE_PLIST_FILE}</string>`,
+    // launchd has no unset; the server treats an empty value as unset.
+    ...[...storage.cleared, ...SERVER_OVERRIDE_ENV].flatMap((name) => [
+      `    <key>${name}</key>`,
+      `    <string></string>`,
+    ]),
     `  </dict>`,
     `  <key>WorkingDirectory</key>`,
     `  <string>${escapeXmlText(options.homeDir)}</string>`,
@@ -515,6 +590,7 @@ export interface BootServiceHost {
 
 export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   readonly baseDir: string;
+  readonly storageRoots: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;
@@ -591,6 +667,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const plan: BootServicePlan = {
     program: [runtimePaths.entryPath, "__service-launcher"],
     baseDir: input.baseDir,
+    storageRoots: input.storageRoots,
     logPath,
     unitPath,
   };
@@ -1012,6 +1089,7 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
 export const layer = (input: {
   readonly baseDir: string;
+  readonly storageRoots: T3StorageRoots;
   readonly logsDir: string;
   readonly cliVersion: string;
   readonly host?: BootServiceHost;

@@ -629,9 +629,17 @@ export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
-  const baseDir = path.resolve(serverConfig.baseDir);
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
   const foldWorktreeCase = (yield* HostProcess.Platform) === "win32";
+  // The state dir holds triage scratch directories that agents run in.
+  const serverDirs = [
+    serverConfig.baseDir,
+    serverConfig.configDir,
+    serverConfig.dataDir,
+    serverConfig.stateDir,
+    serverConfig.cacheDir,
+    serverConfig.runtimeDir,
+  ].map((directory) => normalizeForWorktreeMatch(path.resolve(directory), foldWorktreeCase));
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;
   // `/private/tmp` is what macOS reports for sessions started in `/tmp`.
@@ -652,8 +660,8 @@ export const make = Effect.gen(function* () {
         normalizeForWorktreeMatch(ancestor, foldWorktreeCase),
       ),
     ) ||
-    normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
-      normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
+    serverDirs.some((directory) =>
+      normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(directory),
     ) ||
     isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase);
 
