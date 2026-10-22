@@ -10,10 +10,7 @@ import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import {
-  deriveServerRuntimeStatePath,
-  type ServerRuntimeStateVariant,
-} from "@t3tools/shared/serverRuntimeState";
+import type { ServerRuntimeStateVariant } from "@t3tools/shared/serverRuntimeState";
 import {
   buildTailscaleHttpsBaseUrl,
   DEFAULT_TAILSCALE_SERVE_PORT,
@@ -289,7 +286,7 @@ const probeEnvironmentDescriptor: (
 
 interface PairCandidate {
   readonly storage: ServerStorage;
-  readonly variant: PairStateVariant;
+  readonly variant: ServerRuntimeStateVariant;
 }
 
 interface DiscoveredPairTarget extends PairCandidate {
@@ -348,7 +345,6 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     }
   }
 
-  const path = yield* Path.Path;
   const checkedStatePaths: Array<string> = [];
   for (const candidate of candidates) {
     const statePath = (yield* candidatePaths(candidate, overrides)).derivedPaths
@@ -595,7 +591,7 @@ export const pairCommand = Command.make("pair", {
           return yield* new JsonTailscaleUnsupportedError();
         }
 
-        const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+        const target = yield* discoverPairTarget(flags);
 
         const notes: Array<string> = [];
         let pairingBaseUrl: string;
