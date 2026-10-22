@@ -2860,6 +2860,12 @@ export default function ChatView(props: ChatViewProps) {
     activeEnvironmentUnavailable,
     defaultRuntimeMode,
   });
+  const blankSlate = activeThread?.blankSlate === true;
+  const toggleBlankSlate = () => {
+    setDraftThreadContext(composerDraftTarget, { blankSlate: !blankSlate });
+    scheduleComposerFocus();
+  };
+  const toggleBlankSlateStable = useStableCallback(toggleBlankSlate);
   const { onSend } = useComposerSend({
     environmentId,
     routeThreadKey,
@@ -3649,6 +3655,10 @@ export default function ChatView(props: ChatViewProps) {
                               toggleInteractionMode={toggleInteractionModeStable}
                               handleRuntimeModeChange={handleRuntimeModeChangeStable}
                               handleInteractionModeChange={handleInteractionModeChangeStable}
+                              blankSlate={blankSlate}
+                              onToggleBlankSlate={
+                                isLocalDraftThread ? toggleBlankSlateStable : undefined
+                              }
                               focusComposer={focusComposerStable}
                               scheduleComposerFocus={scheduleComposerFocusStable}
                               setThreadError={setThreadError}
