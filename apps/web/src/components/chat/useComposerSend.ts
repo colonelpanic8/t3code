@@ -1,3 +1,4 @@
+import { recoverDraftThreadAfterBootstrap } from "../ChatView.logic";
 import {
   mergeDirectPreviewAnnotation,
   resolveBackgroundDraftWorkspaceOptions,
@@ -1265,6 +1266,11 @@ export function useComposerSend(input: ComposerSendInput) {
         clearUsageLimitsFor(routeThreadKey);
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
+        }
+        if (isLocalDraftThread) {
+          const promotedDraftRef = scopeThreadRef(activeThread.environmentId, threadIdForSend);
+          markPromotedDraftThreadByRef(promotedDraftRef);
+          void recoverDraftThreadAfterBootstrap(promotedDraftRef);
         }
         acknowledgeActiveThreadWoke();
         // A draft still on screen finalizes once its thread route takes over.
