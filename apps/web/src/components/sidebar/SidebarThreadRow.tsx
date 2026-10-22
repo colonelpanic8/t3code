@@ -1,3 +1,4 @@
+import { type EnvironmentPresenceScope, isRemoteEnvironmentId } from "../../environmentPresence";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -24,7 +25,6 @@ import {
   type EnvironmentMachineKind,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
@@ -56,7 +56,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
 import { useUiStateStore } from "../../uiStateStore";
@@ -140,11 +139,9 @@ function RelativeTimeLabel(props: { timestamp: string | null }) {
         formatRelativeTimeLabel(props.timestamp, Date.parse(`${nowMinute}:00.000Z`)),
       );
 }
-
 function threadTimeTimestamp(thread: SidebarThreadSummary): string {
   return thread.latestUserMessageAt ?? thread.updatedAt;
 }
-
 function JumpHintBadge(props: { label: string }) {
   return (
     <span
@@ -155,7 +152,6 @@ function JumpHintBadge(props: { label: string }) {
     </span>
   );
 }
-
 function WorkingDuration(props: { startedAt: string | null }) {
   const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
   if (Number.isNaN(startedMs)) return null;
@@ -170,11 +166,9 @@ function WorkingDurationLabel(props: { startedMs: number }) {
     <span className="tabular-nums">{formatWorkingDurationLabel(nowMs - props.startedMs)}</span>
   );
 }
-
 function terminalProcessLabel(count: number): string {
   return `${count} terminal ${count === 1 ? "process" : "processes"} running`;
 }
-
 function SidebarProviderStack(props: {
   thread: SidebarThreadSummary;
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
@@ -222,7 +216,6 @@ function SidebarProviderStack(props: {
     </span>
   );
 }
-
 function SidebarThreadTooltip({
   thread,
   project,
@@ -361,7 +354,6 @@ function SidebarThreadTooltip({
     </ThreadHoverCardPopup>
   );
 }
-
 function SnoozeMenuButton(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -419,19 +411,21 @@ function SnoozeMenuButton(props: {
     </Menu>
   );
 }
-
 type SortableThreadRowBag = Pick<
   ReturnType<typeof useSortable>,
   "listeners" | "setNodeRef" | "transform" | "transition" | "isDragging"
 >;
-
 export const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
 export const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
 
 // useSortable memoizes on its `disabled` object, so a fresh one per render
 // re-renders every row and marker on each sidebar update.
-export const SIDEBAR_SORTABLE_DRAG_DISABLED = { draggable: true } as const;
-const SIDEBAR_SORTABLE_DRAG_ENABLED = { draggable: false } as const;
+export const SIDEBAR_SORTABLE_DRAG_DISABLED = {
+  draggable: true,
+} as const;
+const SIDEBAR_SORTABLE_DRAG_ENABLED = {
+  draggable: false,
+} as const;
 
 // Takes the row's props rather than a render function: a closure from the
 // sidebar body is new on every sidebar render, which rebuilt the bag and
@@ -506,7 +500,6 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
     </>
   ),
 };
-
 type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -527,7 +520,7 @@ type SidebarThreadRowProps = {
   isRouteThread: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
-  currentEnvironmentId: string | null;
+  presenceScope: EnvironmentPresenceScope;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   scratchMachineLabel: string | null;
@@ -543,7 +536,13 @@ type SidebarThreadRowProps = {
   onCancelRename: () => void;
   isRenaming: boolean;
   renamingTitle: string;
-  onContextMenu: (threadRef: ScopedThreadRef, position: { x: number; y: number }) => void;
+  onContextMenu: (
+    threadRef: ScopedThreadRef,
+    position: {
+      x: number;
+      y: number;
+    },
+  ) => void;
   onSettle: (threadRef: ScopedThreadRef) => void;
   onActionSweepStart: (
     threadRef: ScopedThreadRef,
@@ -557,7 +556,6 @@ type SidebarThreadRowProps = {
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
 };
-
 const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
   const {
     isRenaming,
@@ -606,7 +604,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     event.stopPropagation();
     discardComposerDraft(threadRef);
   };
-
   const gitCwd = thread.worktreePath ?? props.project?.workspaceRoot ?? null;
   const linkedPullRequestStatus = useLinkedThreadPullRequest(
     thread.environmentId,
@@ -619,7 +616,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     leaseLiveStatus && (thread.branch != null || thread.worktreePath !== null) && gitCwd !== null
       ? vcsEnvironment.status({
           environmentId: thread.environmentId,
-          input: { cwd: gitCwd, includeRemote: false },
+          input: {
+            cwd: gitCwd,
+            includeRemote: false,
+          },
         })
       : null,
   );
@@ -632,8 +632,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const currentLinkedPr = supportsMultiplePullRequests
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
-
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  const isUnread = hasUnseenCompletion({
+    ...thread,
+    lastVisitedAt,
+  });
   const status = resolveSidebarThreadStatus(thread);
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
@@ -699,7 +701,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       }
                     : null;
   const isWokeStatus = topStatus?.icon === "woke";
-
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
     activeWorktreePath: thread.worktreePath,
@@ -707,7 +708,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     currentGitBranch: visibleGitStatus?.refName ?? null,
   });
   const prStatus = prStatusIndicator(pr, linkedPullRequestStatus?.sourceControlProvider);
-
   const modelInstanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
   const providerEntry = props.providerEntryByInstanceId.get(modelInstanceId) ?? null;
   const showInstanceBadge =
@@ -719,10 +719,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const modelLabel = selectedModel
     ? getTriggerDisplayModelLabel(selectedModel)
     : thread.modelSelection.model;
-
-  const isRemote = thread.environmentId !== props.currentEnvironmentId;
+  const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
   const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
-
   const detailsTooltip = (
     <SidebarThreadTooltip
       thread={thread}
@@ -740,7 +738,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       terminalProcessCount={terminalProcessCount}
     />
   );
-
   const handleClick = (event: ReactMouseEvent) => {
     onThreadClick(event, threadRef);
   };
@@ -752,7 +749,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   };
   const handleContextMenu = (event: ReactMouseEvent) => {
     event.preventDefault();
-    onContextMenu(threadRef, { x: event.clientX, y: event.clientY });
+    onContextMenu(threadRef, {
+      x: event.clientX,
+      y: event.clientY,
+    });
   };
   const handleKeyDown = (event: ReactKeyboardEvent) => {
     if (event.target !== event.currentTarget) return;
@@ -850,10 +850,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     now: new Date().toISOString(),
   }));
   if (snoozeGateClock.thread !== thread) {
-    setSnoozeGateClock({ thread, now: new Date().toISOString() });
+    setSnoozeGateClock({
+      thread,
+      now: new Date().toISOString(),
+    });
   }
   const snoozeGateNow = snoozeGateClock.now;
-  const snoozeGateExpiryMs = hasQueuedTurnStart(thread, { now: snoozeGateNow })
+  const snoozeGateExpiryMs = hasQueuedTurnStart(thread, {
+    now: snoozeGateNow,
+  })
     ? Date.parse(thread.latestUserMessageAt ?? "") + QUEUED_TURN_START_GRACE_MS
     : Number.NaN;
   useEffect(() => {
@@ -863,13 +868,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       return;
     }
     const id = window.setTimeout(
-      () => setSnoozeGateClock({ thread, now: new Date().toISOString() }),
+      () =>
+        setSnoozeGateClock({
+          thread,
+          now: new Date().toISOString(),
+        }),
       Math.min(Math.max(0, snoozeGateExpiryMs - Date.now()) + 50, 2_147_483_647),
     );
     return () => window.clearTimeout(id);
   }, [snoozeGateExpiryMs, snoozeGateNow, thread]);
   const showSnoozeButton =
-    canOperateThread && props.snoozeSupported && canSnooze(thread, { now: snoozeGateNow });
+    canOperateThread &&
+    props.snoozeSupported &&
+    canSnooze(thread, {
+      now: snoozeGateNow,
+    });
   // Closing here, not just masking, keeps the menu from reopening when the button returns.
   if (snoozeMenuOpenRaw && !showSnoozeButton) setSnoozeMenuOpen(false);
   const snoozeMenuOpen = snoozeMenuOpenRaw && showSnoozeButton;
@@ -882,7 +895,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       onThreadActivate(threadRef);
     }
   };
-
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
@@ -934,14 +946,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         {dropVerbBadge[destinationVerb]}
       </span>
     ) : null;
-
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: topStatus?.label ?? null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isActive,
   });
-
   const title =
     isRenaming && canOperateThread ? (
       <input
@@ -992,7 +1002,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     );
   const accessibleTitle = isRenaming ? null : <span className="sr-only">{thread.title}</span>;
-
   const prBadgeShape = supportsMultiplePullRequests
     ? resolveThreadPullRequestBadge(thread.pullRequests)
     : null;
@@ -1071,7 +1080,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       />
     )
   ) : null;
-
   if (variant === "slim") {
     return (
       <li
@@ -1229,9 +1237,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </li>
     );
   }
-
   const diff = latestRunDiff(thread);
-
   return (
     <li
       data-thread-item={threadKey}
@@ -1496,14 +1502,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </li>
   );
 });
-
-function latestRunDiff(
-  thread: SidebarThreadSummary,
-): { insertions: number; deletions: number } | null {
+function latestRunDiff(thread: SidebarThreadSummary): {
+  insertions: number;
+  deletions: number;
+} | null {
   void thread;
   return null;
 }
-
 export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   isSettled: boolean;
   thread: SidebarThreadSummary;
@@ -1538,7 +1543,10 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
     leaseLiveStatus && (thread.branch != null || thread.worktreePath !== null) && gitCwd !== null
       ? vcsEnvironment.status({
           environmentId: thread.environmentId,
-          input: { cwd: gitCwd, includeRemote: false },
+          input: {
+            cwd: gitCwd,
+            includeRemote: false,
+          },
         })
       : null,
   );
