@@ -337,7 +337,7 @@ function keepWindowsPathEscape(this: EscapeCompileContext) {
  * CommonMark treats backslashes as escapes; preserve them as separators in Windows destinations
  * and drive-path prose. Prose paths end at whitespace so later escapes still work.
  */
-function remarkKeepWindowsPaths(this: Processor) {
+export function remarkKeepWindowsPaths(this: Processor) {
   const data = this.data();
   (data.fromMarkdownExtensions ??= []).push({
     exit: {
