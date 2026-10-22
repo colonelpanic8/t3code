@@ -11,6 +11,7 @@ import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { LocalEnvironmentList } from "./LocalEnvironmentList";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 
 export function ConnectionsRouteScreen() {
   const {
@@ -60,6 +61,7 @@ export function ConnectionsRouteScreen() {
           paddingTop: 16,
         }}
       >
+        <EnvironmentGroupsSettings />
         <LocalEnvironmentList
           environments={connectedEnvironments}
           expandedId={expandedId}
