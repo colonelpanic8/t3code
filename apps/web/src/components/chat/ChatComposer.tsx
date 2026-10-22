@@ -1,3 +1,4 @@
+import { ComposerShortcutHints, composerShortcutScopes } from "./ComposerShortcutHints";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -3071,6 +3072,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
       },
       openControl: (command) => {
+        if (command === "composer.interactionMode") {
+          if (planModeUiEnabled) toggleInteractionMode();
+          return;
+        }
         if (composerBlurFrameRef.current !== null) {
           window.cancelAnimationFrame(composerBlurFrameRef.current);
           composerBlurFrameRef.current = null;
@@ -3079,15 +3084,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           setIsComposerScrollCollapsed(false);
           setIsComposerFocused(true);
         });
-        const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
-        const trigger = Array.from(
-          shell?.querySelectorAll<HTMLButtonElement>(
-            `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
-          ) ?? [],
-        ).find(
-          (element) =>
-            !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
-        );
+        const trigger = composerShortcutScopes(composerFormRef.current)
+          .flatMap((scope) =>
+            Array.from(
+              scope.querySelectorAll<HTMLButtonElement>(
+                `button[data-composer-shortcut~="${command}"]:not(:disabled)`,
+              ),
+            ),
+          )
+          .find(
+            (element) =>
+              !element.closest("[inert]") && element.checkVisibility({ visibilityProperty: true }),
+          );
         if (!trigger) return;
         trigger.focus({ preventScroll: true });
         trigger.click();
@@ -3252,6 +3260,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       selectedProviderModels,
       interactionMode,
       planModeUiEnabled,
+      toggleInteractionMode,
       compactThreadContextStable,
       restoreAfterTimelineReachedEnd,
       getTimelineScrollableNode,
@@ -3861,6 +3870,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           </div>
         </ComposerSurface.Main>
       </div>
+      <ComposerShortcutHints
+        anchorRef={composerFormRef}
+        keybindings={keybindings}
+        trigger={settings.composerShortcutHints}
+      />
     </form>
   );
 });
