@@ -62,6 +62,8 @@ export function ComposerControlsBar(props: {
   compatibleRuntimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
+  blankSlate: boolean;
+  onToggleBlankSlate: ChatComposerProps["onToggleBlankSlate"];
   composerControlsCollapsed: boolean;
   composerControlsHidden: boolean;
   restingHiddenBlockCount: number;
@@ -202,6 +204,7 @@ export function ComposerControlsBar(props: {
     matchesDefault: permissionsChipHidden,
     hasTraits: providerTraitsPicker !== null,
     planModeUiEnabled,
+    blankSlateControl: props.blankSlate || props.onToggleBlankSlate !== undefined,
     collapsed: composerControlsCollapsed,
     measuredHiddenBlockCount,
   });
@@ -231,6 +234,8 @@ export function ComposerControlsBar(props: {
                 interactionMode={interactionMode}
                 runtimeMode={compatibleRuntimeMode}
                 runtimeModeOptions={compatibleRuntimeModeOptions}
+                blankSlate={props.blankSlate}
+                onToggleBlankSlate={props.onToggleBlankSlate}
                 size={composerControlsCollapsed ? "xs" : "sm"}
                 hidden={composerControlsHidden || restingHiddenBlockCount > 0}
                 accessDisplay={accessDisplay}
@@ -355,6 +360,9 @@ export function ComposerControlsBar(props: {
             showPermissions={overflowShowsPermissions}
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
+            {...(hiddenRestingBlockIds.includes("mode")
+              ? { blankSlate: props.blankSlate, onToggleBlankSlate: props.onToggleBlankSlate }
+              : {})}
           />
         </div>
       </>
