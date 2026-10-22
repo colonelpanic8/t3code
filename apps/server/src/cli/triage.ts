@@ -3,21 +3,32 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeReadlinePromises from "node:readline/promises";
 
 import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
-import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
-import * as ServerConfig from "../config.ts";
-import { resolveBaseDir } from "../os-jank.ts";
 import { buildTriageLaunchPrompt } from "../triage/triagePrompt.ts";
-import { describeServerProcess, writeTriageSession } from "../triage/triageSession.ts";
-import { baseDirFlag } from "./config.ts";
+import {
+  describeServerConfigFile,
+  describeServerProcess,
+  writeTriageSession,
+} from "../triage/triageSession.ts";
+import {
+  currentStorageHost,
+  resolveClientStorageRoots,
+  resolveInstallLocations,
+  resolveServerConfigFilePath,
+  resolveServerLocations,
+  serverConfigFileFlags,
+  traceFileConfig,
+} from "./config.ts";
 import { interactiveStdin } from "./consoleStdin.ts";
 import { resolveCliCommand } from "./invocation.ts";
+import { readServerConfigFile } from "./serverConfigFile.ts";
 
 interface TriageAgent {
   readonly id: "claude" | "codex";
@@ -113,7 +124,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 
 export const triageCommand = Command.make("triage", {
-  baseDir: baseDirFlag,
+  ...serverConfigFileFlags,
   agent: agentFlag,
   model: modelFlag,
 }).pipe(
@@ -122,21 +133,67 @@ export const triageCommand = Command.make("triage", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
+      const path = yield* Path.Path;
+
       // Triage is a user-facing feature: always the userdata state, never dev.
-      const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
-      const envHome = yield* Config.String("T3CODE_HOME").pipe(Config.option);
-      const baseDir = yield* resolveBaseDir(explicitBaseDir ?? Option.getOrUndefined(envHome));
-      const paths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {});
+      const { baseDir, derivedPaths: paths } = yield* resolveServerLocations(flags, {
+        devUrl: undefined,
+      });
+
+      // The service and the desktop app write their logs where the storage
+      // layout puts them, whatever location overrides this shell sets.
+      const install = yield* resolveInstallLocations(flags);
+      const desktopLogsDir = path.join(
+        (yield* resolveClientStorageRoots({
+          serverRoots: install.storage.roots,
+          isDevelopment: false,
+          host: yield* currentStorageHost,
+        })).stateDir,
+        "logs",
+      );
+      // A broken server config file is something to triage, not a reason to stop.
+      const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
+      const serverConfig = yield* readServerConfigFile(configFile.path, {
+        explicit: configFile.explicit,
+      }).pipe(
+        Effect.map((file) => ({
+          traceFile: file.options.traceFile,
+          description: describeServerConfigFile({
+            path: configFile.path,
+            unknownKeys: file.unknownKeys,
+          }),
+        })),
+        Effect.catchTags({
+          ServerConfigFileError: (error) =>
+            Effect.succeed({
+              traceFile: undefined,
+              // Fenced and indented so a multi-line detail stays inside its bullet.
+              description: [
+                `${configFile.path} (invalid, so the server will not start):`,
+                "```",
+                ...error.detail.split("\n"),
+                "```",
+              ].join("\n  "),
+            }),
+        }),
+      );
 
       const session = yield* writeTriageSession({
         baseDir,
-        paths,
+        paths: {
+          ...paths,
+          serverTracePath:
+            (yield* traceFileConfig) ?? serverConfig.traceFile ?? paths.serverTracePath,
+        },
         entry: {
           kind: "cli",
           cliVersion: packageJson.version,
           launchedAs: yield* resolveCliCommand("triage"),
         },
         server: yield* describeServerProcess(paths.serverRuntimeStatePath),
+        serverConfigFile: serverConfig.description,
+        serviceLogsDir: install.logsDir,
+        desktopLogsDir,
       });
 
       const installed: Array<TriageAgent> = [];
