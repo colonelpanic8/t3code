@@ -45,6 +45,119 @@ for an independent server.
 To try T3 Code once without installing it, run `npx t3@latest` instead (needs
 Node.js for `npx`).
 
+### Where the server keeps its files
+
+A new install keeps its files in the platform's usual places, with
+configuration, data, state, caches, and live-process files in separate
+directories (on Linux, `~/.config/t3code`, `~/.local/share/t3code`,
+`~/.local/state/t3code`, and so on). An existing `~/.t3` that holds an
+installation keeps being used, as one T3 home, and `--base-dir` or
+`T3CODE_HOME` names a T3 home to use instead.
+[Storage directories](./storage-directories.md) lists the defaults and how the
+server picks between them.
+
+To move one kind of file on its own, for example to keep configuration in a
+dotfiles repository or the database on another disk, set any of these. Each
+falls back to its usual place when unset, and none moves the others.
+
+| Files                                                                      | Flag                  | Environment variable       | Default                                             |
+| -------------------------------------------------------------------------- | --------------------- | -------------------------- | --------------------------------------------------- |
+| `settings.json`, `keybindings.json`, `themes/`                             | `--server-config-dir` | `T3CODE_SERVER_CONFIG_DIR` | the config directory, or `~/.t3/userdata`           |
+| Database, secrets, attachments, logs, `worktrees/`, and other server state | `--server-data-dir`   | `T3CODE_SERVER_DATA_DIR`   | the data and state directories, or `~/.t3/userdata` |
+| Provider status caches                                                     | `--server-cache-dir`  | `T3CODE_SERVER_CACHE_DIR`  | the cache directory, or `~/.t3/caches`              |
+
+New worktrees go in `worktrees/` inside the data directory, or in
+`~/.t3/worktrees` for a T3 home without a data directory set. Model and usage
+caches live in the data directory too, so they move with it. Existing files are
+not moved for you: stop the server and move them yourself before pointing it at
+a new location.
+
+Setting or changing a data directory signs every browser out once, since login
+sessions are tied to where the server keeps its data. The desktop app
+saves its browser screenshots in the data directory too, where the server
+prunes them, when `T3CODE_SERVER_DATA_DIR` is set in its environment.
+
+Use absolute paths in these variables. A relative value is resolved against the
+working directory of each process that reads it, which differs between your
+shell and the desktop app.
+
+These settings outrank `--base-dir` and `T3CODE_HOME`. While one is exported,
+a different `--base-dir` does not give you an independent server; unset them
+for that.
+
+Commands that work with a server's files, such as `t3 pair`, `t3 auth`,
+`t3 project`, `t3 theme`, and `t3 connect`, need the same settings as the server
+to find it; the environment variables are the easiest way to share them. The
+background service records only its storage directories (its T3 home, or the
+config, data, state, and cache directories), and clears these settings from its
+environment, so `t3 service`, `t3 update`, and `t3 uninstall` ignore them too.
+
+### Server options file
+
+Server options can also live in a JSON file, which is easier to keep in a
+dotfiles repository or generate than a list of flags. The server reads
+`server.json` in its config directory, `~/.t3/userdata/server.json` by default.
+To read another file, set `--server-config-file` or `T3CODE_SERVER_CONFIG_FILE`;
+a file named this way must exist. The server reads the file once at startup, so
+restart it after editing.
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 3773,
+  "tailscaleServeEnabled": true,
+  "logLevel": "Debug"
+}
+```
+
+Every key is optional. A flag wins over its environment variable, and both win
+over the file. When the desktop app starts the server, the mode, port, host,
+network access, and browser setting it passes also win over the file.
+
+| Key                                              | Same as                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| `port`                                           | `--port`, `T3CODE_PORT`                                       |
+| `host`                                           | `--host`, `T3CODE_HOST`                                       |
+| `mode`                                           | `--mode`, `T3CODE_MODE`                                       |
+| `noBrowser`                                      | `--no-browser`, `T3CODE_NO_BROWSER`                           |
+| `tailscaleServeEnabled`                          | `--tailscale-serve`, `T3CODE_TAILSCALE_SERVE`                 |
+| `tailscaleServePort`                             | `--tailscale-serve-port`, `T3CODE_TAILSCALE_SERVE_PORT`       |
+| `logLevel`                                       | `--log-level`, `T3CODE_LOG_LEVEL`                             |
+| `logWebSocketEvents`                             | `--log-websocket-events`, `T3CODE_LOG_WS_EVENTS`              |
+| `traceFile`                                      | `T3CODE_TRACE_FILE`                                           |
+| `traceMinLevel`                                  | `T3CODE_TRACE_MIN_LEVEL`                                      |
+| `traceTimingEnabled`                             | `T3CODE_TRACE_TIMING_ENABLED`                                 |
+| `traceBatchWindowMs`                             | `T3CODE_TRACE_BATCH_WINDOW_MS`                                |
+| `traceMaxBytes`                                  | `T3CODE_TRACE_MAX_BYTES`                                      |
+| `traceMaxFiles`                                  | `T3CODE_TRACE_MAX_FILES`                                      |
+| `otlpTracesUrl`, `otlpMetricsUrl`, `otlpLogsUrl` | `T3CODE_OTLP_TRACES_URL`, `_METRICS_URL`, `_LOGS_URL`         |
+| `otlpProtocol`                                   | `T3CODE_OTLP_PROTOCOL`                                        |
+| `otlpHeaders`                                    | `T3CODE_OTLP_HEADERS`, as an object of header names to values |
+| `otlpExportIntervalMs`                           | `T3CODE_OTLP_EXPORT_INTERVAL_MS`                              |
+
+Log levels are spelled as for the environment variables: `Trace`, `Debug`,
+`Info`, `Warn`, `Error`, `Fatal`, `All`, or `None`. A relative `traceFile` is
+relative to the file's directory. The file cannot say where the server keeps
+its files. Those locations come only from the flags and environment variables
+above, so the `t3` commands and the SSH launcher always find a running server
+from its T3 home.
+
+An OpenTelemetry endpoint in the file is sent the file's `otlpProtocol` and
+`otlpHeaders` only. Endpoints from environment variables win over the file's,
+and the file's win over endpoints saved in
+[Diagnostics settings](./telemetry.md#export-diagnostics-to-your-own-receiver).
+The desktop app passes the endpoints saved there to the server it starts, so in
+the desktop app they win over the file.
+
+A value of the wrong type stops the server with an error naming the file and
+the key. `t3 auth`, `t3 project`, `t3 connect`, and `t3 trace summary` read the
+file too, so they fail with the same error. Keys the server does not know are skipped with a
+warning in its log. `t3 trace summary` uses the file's trace settings, and
+`t3 triage` reports a broken file instead of stopping. The background service
+reads `server.json` from its config directory, `userdata` in a T3 home. `t3 service`, `t3 update`,
+and `t3 uninstall` never read the file, so a broken one does not stop you from
+managing the install.
+
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To
@@ -85,6 +198,28 @@ terminal, open **Settings → About** and choose **Install** next to
 `PATH`; on Windows it adds the app's command folder to your `PATH`. Open a new
 terminal afterwards. **Remove** takes it off again. If you already have `t3`
 from npm, it stays as it is.
+
+### Where the desktop app keeps its files
+
+The desktop app keeps its preferences and client settings in its
+[configuration directory](./storage-directories.md#desktop-app-storage), and its
+window position and saved connections in its state directory, both `userdata`
+in a T3 home such as `~/.t3`. To keep all of them in one other place, start the app with
+`--client-dir=<path>` or set `T3CODE_CLIENT_DIR=<path>`. The command-line option
+wins when both are set. Write the option with `=`; `--client-dir <path>` is ignored. A leading `~`
+means your home directory, and a relative path is resolved against the
+directory the app starts in.
+
+Links that open the app, such as `t3code://` links, start it without your
+command-line options. To use a client directory every time, set
+`T3CODE_CLIENT_DIR` in your login environment instead.
+
+This relocates only `desktop-settings.json`, `client-settings.json`,
+`desktop-window-state.json`, `connection-catalog.json`, and the older
+`saved-environments.json`, whichever storage layout is in use. The server's
+data, the sign-in tokens in `clerk-tokens.json`, Electron's browser profile,
+logs, and caches stay where they are. Existing files are not moved; copy them into the
+new directory before the first launch to keep them.
 
 ### Windows Subsystem for Linux
 
