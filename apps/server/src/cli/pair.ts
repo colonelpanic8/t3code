@@ -43,7 +43,12 @@ import {
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
 import { authScopesFlag } from "./authScopes.ts";
-import { baseDirFlag, DurationFromString } from "./config.ts";
+import {
+  type CliServerLocationFlags,
+  DurationFromString,
+  resolveServerLocationOverrides,
+  serverLocationFlags,
+} from "./config.ts";
 
 const WELL_KNOWN_ENVIRONMENT_PATH = "/.well-known/t3/environment";
 const PAIR_PROBE_TIMEOUT = Duration.millis(2_500);
@@ -224,14 +229,17 @@ const probeEnvironmentDescriptor: (
 
 interface DiscoveredPairTarget {
   readonly baseDir: string;
+  readonly overrides: ServerConfig.ServerLocationOverrides;
   readonly variant: PairStateVariant;
   readonly state: PersistedServerRuntimeState;
   readonly descriptor: ExecutionEnvironmentDescriptor;
 }
 
 const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
-  explicitBaseDir: string | undefined,
+  flags: CliServerLocationFlags,
 ) {
+  const explicitBaseDir = Option.getOrUndefined(flags.baseDir);
+  const overrides = yield* resolveServerLocationOverrides(flags);
   const bases: Array<string> = [];
   let inLinkedWorktree = false;
   if (explicitBaseDir !== undefined && explicitBaseDir.trim().length > 0) {
@@ -257,9 +265,13 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       const derivedPaths = yield* ServerConfig.deriveServerPaths(
         baseDir,
         variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-        {},
+        overrides,
       );
       const statePath = derivedPaths.serverRuntimeStatePath;
+      // A data dir override pins the state file, so every candidate shares it.
+      if (checkedStatePaths.includes(statePath)) {
+        continue;
+      }
       checkedStatePaths.push(statePath);
       const state = yield* readPersistedServerRuntimeState(statePath);
       if (Option.isNone(state)) {
@@ -277,6 +289,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       }
       return {
         baseDir,
+        overrides,
         variant,
         state: state.value,
         descriptor: probed.descriptor,
@@ -295,7 +308,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
   readonly target: DiscoveredPairTarget;
   readonly logLevel: ServerConfig.ServerConfig["Service"]["logLevel"];
 }) {
-  const { baseDir, variant, state } = input.target;
+  const { baseDir, overrides, variant, state } = input.target;
   // The state-dir variant does not imply dev-ness: a worktree dev server uses
   // an explicit home and therefore lands in `userdata`. The recorded devUrl is
   // what actually marks a dev server.
@@ -303,7 +316,7 @@ const makePairServerConfig = Effect.fn(function* (input: {
   const derivedPaths = yield* ServerConfig.deriveServerPaths(
     baseDir,
     variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-    {},
+    overrides,
   );
   return ServerConfig.make({
     logLevel: input.logLevel,
@@ -477,7 +490,7 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
 );
 
 export const pairCommand = Command.make("pair", {
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   scopes: authScopesFlag(AuthStandardClientScopes),
   ttl: ttlFlag,
   label: labelFlag,
@@ -492,7 +505,7 @@ export const pairCommand = Command.make("pair", {
       const cliLogLevel = yield* GlobalFlag.LogLevel;
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
-      const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+      const target = yield* discoverPairTarget(flags);
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
