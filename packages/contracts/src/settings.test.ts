@@ -214,21 +214,63 @@ describe("provider enabled defaults", () => {
   it("resolves instance enabled state with explicit false winning", () => {
     const grok = ProviderDriverKind.make("grok");
     const codex = ProviderDriverKind.make("codex");
-    expect(resolveProviderInstanceEnabled({ driver: grok, config: {} })).toBe(false);
-    expect(resolveProviderInstanceEnabled({ driver: codex, config: {} })).toBe(true);
     expect(
-      resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("ollama"), config: {} }),
-    ).toBe(true);
-    expect(resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: {} })).toBe(true);
-    expect(resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: {} })).toBe(
-      false,
-    );
-    expect(resolveProviderInstanceEnabled({ driver: grok, config: { enabled: true } })).toBe(true);
-    expect(
-      resolveProviderInstanceEnabled({ driver: grok, enabled: true, config: { enabled: false } }),
+      resolveProviderInstanceEnabled({
+        driver: grok,
+        config: {},
+      }),
     ).toBe(false);
     expect(
-      resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: { enabled: true } }),
+      resolveProviderInstanceEnabled({
+        driver: codex,
+        config: {},
+      }),
+    ).toBe(true);
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: ProviderDriverKind.make("ollama"),
+        config: {},
+      }),
+    ).toBe(true);
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: grok,
+        enabled: true,
+        config: {},
+      }),
+    ).toBe(true);
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: codex,
+        enabled: false,
+        config: {},
+      }),
+    ).toBe(false);
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: grok,
+        config: {
+          enabled: true,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: grok,
+        enabled: true,
+        config: {
+          enabled: false,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      resolveProviderInstanceEnabled({
+        driver: codex,
+        enabled: false,
+        config: {
+          enabled: true,
+        },
+      }),
     ).toBe(false);
   });
 });
@@ -236,11 +278,15 @@ describe("provider enabled defaults", () => {
 describe("ServerSettings worktree defaults", () => {
   it("defaults the thread env mode to inherit and keeps stored values", () => {
     expect(decodeServerSettings({}).defaultThreadEnvMode).toBeNull();
-    expect(decodeServerSettings({ defaultThreadEnvMode: "worktree" }).defaultThreadEnvMode).toBe(
-      "worktree",
-    );
     expect(
-      decodeServerSettings({ defaultThreadEnvMode: "remote" }).defaultThreadEnvMode,
+      decodeServerSettings({
+        defaultThreadEnvMode: "worktree",
+      }).defaultThreadEnvMode,
+    ).toBe("worktree");
+    expect(
+      decodeServerSettings({
+        defaultThreadEnvMode: "remote",
+      }).defaultThreadEnvMode,
     ).toBeNull();
     expect(
       decodeServerSettingsPatch({ defaultThreadEnvMode: null }).defaultThreadEnvMode,
@@ -268,10 +314,29 @@ describe("ServerSettings.sourceControlWritingStyle", () => {
   ])("normalizes legacy writing style $legacy in snapshots only", ({ legacy, ...expected }) => {
     const style = { ...expected, followChangeRequestTemplates: true };
     for (const [input, normalized] of [
-      [{ sourceControlWritingStyle: legacy }, { sourceControlWritingStyle: style }],
       [
-        { projectSettingsOverrides: { project: { sourceControlWritingStyle: legacy } } },
-        { projectSettingsOverrides: { project: { sourceControlWritingStyle: style } } },
+        {
+          sourceControlWritingStyle: legacy,
+        },
+        {
+          sourceControlWritingStyle: style,
+        },
+      ],
+      [
+        {
+          projectSettingsOverrides: {
+            project: {
+              sourceControlWritingStyle: legacy,
+            },
+          },
+        },
+        {
+          projectSettingsOverrides: {
+            project: {
+              sourceControlWritingStyle: style,
+            },
+          },
+        },
       ],
     ] as const) {
       const settings = decodeServerSettings(input);
@@ -282,6 +347,11 @@ describe("ServerSettings.sourceControlWritingStyle", () => {
   });
 });
 
+describe("ServerSettings worktree path template", () => {
+  it("defaults to the existing centralized worktree layout", () => {
+    expect(DEFAULT_SERVER_SETTINGS.worktreePathTemplate).toBe("{worktreesDir}/{repoName}/{branch}");
+  });
+});
 describe("ServerSettings environment icon", () => {
   it("decodes a kind from a newer server as null instead of failing the snapshot", () => {
     expect(decodeServerSettings({ environmentIcon: "toaster" }).environmentIcon).toBeNull();
@@ -315,12 +385,41 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
   expect(decodeDeviceHostSettings({ deviceHosts: [host] }).deviceHosts).toEqual([
     { kind: "ssh", ...host },
   ]);
-  expect(() => decodeDeviceHostSettings({ deviceHosts: [host, host] })).toThrow();
-  expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, id: "local" }] })).toThrow();
   expect(() =>
-    decodeDeviceHostSettings({ deviceHosts: [{ ...host, target: "-oProxyCommand=bad" }] }),
+    decodeDeviceHostSettings({
+      deviceHosts: [host, host],
+    }),
   ).toThrow();
-  expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
+  expect(() =>
+    decodeDeviceHostSettings({
+      deviceHosts: [
+        {
+          ...host,
+          id: "local",
+        },
+      ],
+    }),
+  ).toThrow();
+  expect(() =>
+    decodeDeviceHostSettings({
+      deviceHosts: [
+        {
+          ...host,
+          target: "-oProxyCommand=bad",
+        },
+      ],
+    }),
+  ).toThrow();
+  expect(() =>
+    decodeDeviceHostSettings({
+      deviceHosts: [
+        {
+          ...host,
+          port: 0,
+        },
+      ],
+    }),
+  ).toThrow();
 });
 
 describe("resolveProjectProviderInstanceEnabled", () => {
