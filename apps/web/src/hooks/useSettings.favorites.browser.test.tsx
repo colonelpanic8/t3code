@@ -40,6 +40,7 @@ vi.mock(import("~/connection/catalog"), async (original) => {
 vi.mock("~/localApi", () => ({
   ensureLocalApi: () => ({
     persistence: {
+      getManagedClientSettings: async () => null,
       getClientSettings: async () => ({ favorites: [{ provider, model }] }),
     },
   }),
