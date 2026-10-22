@@ -122,12 +122,15 @@ it.effect("points at the split layout's service and desktop logs", () =>
     const root = yield* fs.makeTempDirectoryScoped({
       prefix: "t3-triage-split-",
     });
-    const env = Object.fromEntries(
-      ["CONFIG", "DATA", "STATE", "CACHE", "RUNTIME"].map((name) => [
-        `T3CODE_${name}_DIR`,
-        path.join(root, name.toLowerCase()),
-      ]),
-    );
+    const env = {
+      ...Object.fromEntries(
+        ["CONFIG", "DATA", "STATE", "CACHE", "RUNTIME"].map((name) => [
+          `T3CODE_${name}_DIR`,
+          path.join(root, name.toLowerCase()),
+        ]),
+      ),
+      T3CODE_CLIENT_STATE_DIR: path.join(root, "client-state"),
+    };
     yield* Command.runWith(triageCommand, {
       version: "0.0.0",
     })([]).pipe(
@@ -154,7 +157,7 @@ it.effect("points at the split layout's service and desktop logs", () =>
     );
     assert.include(
       context,
-      `written only when a backend crashes or fails to start): ${path.join(logsDir, "server-child*.log*")}\n`,
+      `written only when a backend crashes or fails to start): ${path.join(root, "client-state", "logs", "server-child*.log*")}\n`,
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
