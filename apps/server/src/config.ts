@@ -85,6 +85,8 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** Read-only settings layered beneath `settingsPath`; never written. */
+    readonly sharedSettingsPath?: string | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (
