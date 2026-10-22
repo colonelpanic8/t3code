@@ -383,7 +383,7 @@ export function NewTaskDraftScreen(props: {
     const frame = requestAnimationFrame(() => {
       const environmentId = props.initialProjectRef?.environmentId;
       navigation.dispatch(
-StackActions.replace("NewTaskProject", {
+        StackActions.replace("NewTaskProject", {
           environmentId,
           incomingShareId: props.incomingShareId,
         }),
