@@ -2637,11 +2637,7 @@ export default function ChatView(props: ChatViewProps) {
     getShortcutContext,
     threadFindActive: isThreadFindActive,
     composerRef,
-    branchToolbarRef: {
-      get current() {
-        return branchToolbarRef.current ?? panelBranchToolbarRef.current;
-      },
-    },
+    branchToolbarRefs: [branchToolbarRef, panelBranchToolbarRef],
     closeThreadFind: () => {
       closeThreadFind();
       focusComposerStable();
