@@ -1,16 +1,27 @@
 import {
   BearerConnectionCredential,
   BearerConnectionProfile,
+  BearerConnectionRegistration,
   BearerConnectionTarget,
+  isManagedConnectionTarget,
+  MANAGED_CONNECTION_ID_PREFIX,
   RelayConnectionTarget,
   SshConnectionProfile,
   SshConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import {
   ConnectionCatalogDocument as RuntimeConnectionCatalogDocument,
+  EMPTY_CONNECTION_CATALOG_DOCUMENT,
+  registerConnectionInCatalog,
+  removeConnectionFromCatalog,
+  setConnectionEnabledInCatalog,
   type ConnectionCatalogDocument as RuntimeConnectionCatalogDocumentType,
 } from "@t3tools/client-runtime/platform";
-import type { PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type PersistedSavedEnvironmentRecord,
+  TrimmedNonEmptyString,
+} from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -45,6 +56,37 @@ const RuntimeConnectionCatalogDocumentJson = Schema.fromJsonString(
 const encodeRuntimeConnectionCatalogDocumentJson = Schema.encodeEffect(
   RuntimeConnectionCatalogDocumentJson,
 );
+const decodeRuntimeConnectionCatalogDocumentJson = Schema.decodeEffect(
+  RuntimeConnectionCatalogDocumentJson,
+);
+
+// Exactly `{ "$file": "/absolute/path" }`, as in managed settings, so the
+// document itself can stay secret-free.
+const ManagedCredentialFile = Schema.Unknown.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => typeof value === "object" && value !== null && Object.keys(value).length === 1,
+    ),
+  ),
+  Schema.decodeTo(Schema.Struct({ $file: TrimmedNonEmptyString })),
+);
+
+const ManagedConnection = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: TrimmedNonEmptyString,
+  httpBaseUrl: TrimmedNonEmptyString,
+  wsBaseUrl: TrimmedNonEmptyString,
+  token: Schema.Union([TrimmedNonEmptyString, ManagedCredentialFile]),
+  enabled: Schema.optional(Schema.Boolean),
+});
+type ManagedConnection = typeof ManagedConnection.Type;
+
+const ManagedConnectionsDocument = Schema.Struct({
+  version: Schema.Literal(1),
+  connections: Schema.Array(ManagedConnection),
+});
+const ManagedConnectionsDocumentJson = fromLenientJson(ManagedConnectionsDocument);
+const decodeManagedConnectionsDocumentJson = Schema.decodeEffect(ManagedConnectionsDocumentJson);
 
 const DesktopConnectionCatalogStoreWriteOperation = Schema.Literals([
   "create-temporary-file-name",
@@ -83,7 +125,7 @@ export class DesktopConnectionCatalogStoreWriteError extends Schema.TaggedError<
 export class DesktopConnectionCatalogStoreDecodeError extends Schema.TaggedError<DesktopConnectionCatalogStoreDecodeError>()(
   "DesktopConnectionCatalogStoreDecodeError",
   {
-    resource: Schema.Literal("encryptedCatalog"),
+    resource: Schema.Literals(["catalog", "encryptedCatalog"]),
     catalogPath: Schema.String,
     cause: Schema.Defect(),
   },
@@ -114,6 +156,20 @@ export class DesktopConnectionCatalogStoreDocumentDecodeError extends Schema.Tag
 ) {
   override get message(): string {
     return `Failed to decode the desktop connection catalog document at ${this.catalogPath}.`;
+  }
+}
+
+export class DesktopManagedConnectionCredentialError extends Schema.TaggedError<DesktopManagedConnectionCredentialError>()(
+  "DesktopManagedConnectionCredentialError",
+  {
+    reason: Schema.Literals(["relative-path", "unreadable", "empty"]),
+    environmentId: Schema.String,
+    credentialPath: Schema.String,
+    cause: Schema.optionalKey(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Managed connection ${this.environmentId} cannot use credential file ${this.credentialPath}: ${this.reason}.`;
   }
 }
 
@@ -285,6 +341,63 @@ function connectionId(prefix: "bearer" | "ssh", environmentId: string): string {
   return `${prefix}:${environmentId}`;
 }
 
+function managedConnectionId(environmentId: string): string {
+  return `${MANAGED_CONNECTION_ID_PREFIX}${environmentId}`;
+}
+
+interface ResolvedManagedConnection extends Omit<ManagedConnection, "token"> {
+  readonly token: string;
+}
+
+function registerManagedConnections(
+  catalog: RuntimeConnectionCatalogDocumentType,
+  connections: ReadonlyArray<ResolvedManagedConnection>,
+): RuntimeConnectionCatalogDocumentType {
+  return connections.reduce((current, connection) => {
+    const connectionId = managedConnectionId(connection.environmentId);
+    const registered = registerConnectionInCatalog(
+      current,
+      new BearerConnectionRegistration({
+        target: new BearerConnectionTarget({
+          environmentId: connection.environmentId,
+          label: connection.label,
+          connectionId,
+        }),
+        profile: new BearerConnectionProfile({
+          connectionId,
+          environmentId: connection.environmentId,
+          label: connection.label,
+          httpBaseUrl: connection.httpBaseUrl,
+          wsBaseUrl: connection.wsBaseUrl,
+        }),
+        credential: new BearerConnectionCredential({ token: connection.token }),
+      }),
+    );
+    // The declaration owns the switch, so a flag persisted from the UI cannot hide it.
+    return setConnectionEnabledInCatalog(
+      registered,
+      connection.environmentId,
+      connection.enabled ?? true,
+    );
+  }, catalog);
+}
+
+function removeStaleManagedConnections(
+  catalog: RuntimeConnectionCatalogDocumentType,
+  connections: ReadonlyArray<ResolvedManagedConnection>,
+): RuntimeConnectionCatalogDocumentType {
+  const declared = new Set(
+    connections.map((connection) => managedConnectionId(connection.environmentId)),
+  );
+  return catalog.targets.reduce(
+    (current, target) =>
+      isManagedConnectionTarget(target) && !declared.has(target.connectionId)
+        ? removeConnectionFromCatalog(current, target.environmentId)
+        : current,
+    catalog,
+  );
+}
+
 const migrateSavedEnvironmentRecords = Effect.fn(
   "desktop.connectionCatalogStore.migrateSavedEnvironmentRecords",
 )(function* (
@@ -396,6 +509,100 @@ export const make = Effect.gen(function* () {
     ),
   );
 
+  const resolveManagedConnection = Effect.fn(
+    "desktop.connectionCatalogStore.resolveManagedConnection",
+  )(function* (connection: ManagedConnection) {
+    if (typeof connection.token === "string") {
+      return { ...connection, token: connection.token };
+    }
+    const credentialPath = connection.token.$file;
+    const credentialError = (
+      reason: DesktopManagedConnectionCredentialError["reason"],
+      cause?: unknown,
+    ) =>
+      new DesktopManagedConnectionCredentialError({
+        reason,
+        environmentId: connection.environmentId,
+        credentialPath,
+        ...(cause === undefined ? {} : { cause }),
+      });
+    if (!path.isAbsolute(credentialPath)) {
+      return yield* credentialError("relative-path");
+    }
+    const token = (yield* fileSystem
+      .readFileString(credentialPath)
+      .pipe(Effect.mapError((cause) => credentialError("unreadable", cause)))).trim();
+    if (token.length === 0) {
+      return yield* credentialError("empty");
+    }
+    return { ...connection, token };
+  });
+
+  const readManagedConnections = Effect.fn("desktop.connectionCatalogStore.readManagedConnections")(
+    function* () {
+      if (Option.isNone(environment.managedConnectionsPath)) {
+        return [] as const;
+      }
+      const managedConnectionsPath = environment.managedConnectionsPath.value;
+      const raw = yield* fileSystem.readFileString(managedConnectionsPath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreReadError({
+              catalogPath: managedConnectionsPath,
+              cause,
+            }),
+        ),
+      );
+      const document = yield* decodeManagedConnectionsDocumentJson(raw).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreDocumentDecodeError({
+              catalogPath: managedConnectionsPath,
+              cause,
+            }),
+        ),
+      );
+      const connections = yield* Effect.forEach(document.connections, (connection) =>
+        resolveManagedConnection(connection).pipe(
+          Effect.map(Option.some),
+          Effect.catchTags({
+            DesktopManagedConnectionCredentialError: (error) =>
+              Effect.logWarning("Skipping managed connection with unusable credentials.", {
+                environmentId: error.environmentId,
+                credentialPath: error.credentialPath,
+                reason: error.reason,
+              }).pipe(Effect.as(Option.none())),
+          }),
+        ),
+      );
+      return connections.flatMap(Option.toArray);
+    },
+  );
+
+  const decodeCatalog = (catalog: string) =>
+    decodeRuntimeConnectionCatalogDocumentJson(catalog).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DesktopConnectionCatalogStoreDecodeError({
+            resource: "catalog",
+            catalogPath,
+            cause,
+          }),
+      ),
+    );
+
+  const encodeCatalog = (catalog: RuntimeConnectionCatalogDocumentType) =>
+    encodeRuntimeConnectionCatalogDocumentJson(catalog).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DesktopConnectionCatalogStoreDecodeError({
+            resource: "catalog",
+            catalogPath,
+            cause,
+          }),
+      ),
+    );
+
   const writeCatalog = Effect.fn("desktop.connectionCatalogStore.writeCatalog")(function* (
     catalog: string,
   ) {
@@ -473,28 +680,48 @@ export const make = Effect.gen(function* () {
 
   return DesktopConnectionCatalogStore.of({
     get: Effect.gen(function* () {
+      const managedConnections = yield* readManagedConnections();
       const document = yield* readDocument(fileSystem, catalogPath);
+      let storedCatalog: Option.Option<string>;
       if (Option.isNone(document)) {
-        return yield* migrateLegacyCatalog;
-      }
-      if (!(yield* encryptionAvailable)) {
-        return Option.none<string>();
-      }
-      const decrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
-        Effect.flatMap((encryptedCatalog) =>
-          safeStorage.decryptString(encryptedCatalog).pipe(
-            Effect.mapError(
-              (cause) =>
-                new DesktopConnectionCatalogStoreProtectionError({
-                  operation: "decrypt-catalog",
-                  catalogPath,
-                  cause,
-                }),
+        storedCatalog = yield* migrateLegacyCatalog;
+      } else if (!(yield* encryptionAvailable)) {
+        storedCatalog = Option.none();
+      } else {
+        const decrypted = yield* decodeSecretBytes(
+          catalogPath,
+          document.value.encryptedCatalog,
+        ).pipe(
+          Effect.flatMap((encryptedCatalog) =>
+            safeStorage.decryptString(encryptedCatalog).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new DesktopConnectionCatalogStoreProtectionError({
+                    operation: "decrypt-catalog",
+                    catalogPath,
+                    cause,
+                  }),
+              ),
             ),
+          ),
+        );
+        storedCatalog = Option.some(decrypted);
+      }
+
+      if (Option.isNone(environment.managedConnectionsPath)) {
+        return storedCatalog;
+      }
+      const catalog = Option.isSome(storedCatalog)
+        ? yield* decodeCatalog(storedCatalog.value)
+        : EMPTY_CONNECTION_CATALOG_DOCUMENT;
+      return Option.some(
+        yield* encodeCatalog(
+          registerManagedConnections(
+            removeStaleManagedConnections(catalog, managedConnections),
+            managedConnections,
           ),
         ),
       );
-      return Option.some(decrypted);
     }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
       if (!(yield* encryptionAvailable)) {
