@@ -1,8 +1,6 @@
 import type { ModelTotals } from "@t3tools/shared/usageMerge";
 import { describe, expect, it } from "vite-plus/test";
-
 import { cacheHitRate, costPerMillionTokens } from "./usageBreakdown";
-
 const model = (
   name: string,
   totalTokens: number,
@@ -27,7 +25,6 @@ const model = (
   tokenShare: 0,
   ...overrides,
 });
-
 describe("model rates", () => {
   it("counts cache writes as misses and leaves unpriced tokens out of $/1M", () => {
     const mixed = model("mixed", 4_000_000, 6, {
@@ -42,9 +39,13 @@ describe("model rates", () => {
       unpricedRecords: 1,
       unpricedTokens: 1_000_000,
     });
-
     expect(cacheHitRate(mixed)).toBe(0.25);
     expect(costPerMillionTokens(mixed)).toBe(2);
-    expect(costPerMillionTokens({ ...mixed, unpricedRecords: 4 })).toBeNull();
+    expect(
+      costPerMillionTokens({
+        ...mixed,
+        unpricedRecords: 4,
+      }),
+    ).toBeNull();
   });
 });
