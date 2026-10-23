@@ -71,6 +71,9 @@ function createBrowserLocalApi(): LocalApi {
         }
         writeBrowserClientSettings(settings);
       },
+      // Only the desktop app reads a managed settings file; browsers have none.
+      getManagedClientSettings: async () =>
+        (await window.desktopBridge?.getManagedClientSettings?.()) ?? null,
     },
   };
 }

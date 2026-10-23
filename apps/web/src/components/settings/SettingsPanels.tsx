@@ -99,41 +99,34 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
-
 const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
   turn: "Wait for the full response",
   paragraph: "Show finished paragraphs",
 };
-
 const RESPONSE_STREAMING_MODE_DESCRIPTIONS: Record<ResponseStreamingMode, string> = {
   turn: "Text appears once the agent finishes its turn.",
   paragraph: "Each paragraph or code block appears as soon as it is complete.",
 };
-
 const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
   manual: "Manual",
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
-
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
-
 const DIFF_LAYOUT_LABELS: Record<DiffLayout, string> = {
   stacked: "Stacked",
   split: "Split",
 };
-
 const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
   direct: "Direct",
   hold: "Hold",
   "double-click": "Double press",
 };
-
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 function AboutVersionTitle() {
   return (
@@ -143,16 +136,13 @@ function AboutVersionTitle() {
     </span>
   );
 }
-
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
   const [isChangingUpdateChannel, setIsChangingUpdateChannel] = useState(false);
   const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
-
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
   const selectedUpdateChannel = updateState?.channel ?? "latest";
   const selectedHostedAppChannel = hasDesktopBridge ? null : HOSTED_APP_CHANNEL;
-
   const handleUpdateChannelChange = (channel: DesktopUpdateChannel) => {
     const bridge = window.desktopBridge;
     if (
@@ -162,7 +152,6 @@ function AboutVersionSection() {
     ) {
       return;
     }
-
     setIsChangingUpdateChannel(true);
     void bridge
       .setUpdateChannel(channel)
@@ -179,13 +168,10 @@ function AboutVersionSection() {
         setIsChangingUpdateChannel(false);
       });
   };
-
   const handleButtonClick = async () => {
     const bridge = window.desktopBridge;
     if (!bridge) return;
-
     const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
-
     if (action === "download") {
       void bridge.downloadUpdate().catch((error: unknown) => {
         toastManager.add(
@@ -198,7 +184,6 @@ function AboutVersionSection() {
       });
       return;
     }
-
     if (action === "install") {
       if (isUpdateActionPending) return;
       setIsUpdateActionPending(true);
@@ -206,7 +191,10 @@ function AboutVersionSection() {
       try {
         confirmed = await ensureLocalApi().dialogs.confirm(
           getDesktopUpdateInstallConfirmationMessage(
-            updateState ?? { availableVersion: null, downloadedVersion: null },
+            updateState ?? {
+              availableVersion: null,
+              downloadedVersion: null,
+            },
           ),
         );
       } catch (error) {
@@ -238,7 +226,6 @@ function AboutVersionSection() {
         .finally(() => setIsUpdateActionPending(false));
       return;
     }
-
     if (typeof bridge.checkForUpdate !== "function") return;
     void bridge
       .checkForUpdate()
@@ -264,15 +251,16 @@ function AboutVersionSection() {
         );
       });
   };
-
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
   const buttonDisabled =
     action === "none"
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
-
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = {
+    download: "Download",
+    install: "Install",
+  };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
@@ -284,7 +272,6 @@ function AboutVersionSection() {
     action === "download" || action === "install"
       ? "Update available."
       : (getDesktopUpdateDisabledReason(updateState) ?? "Current version of the application.");
-
   return (
     <>
       <SettingsRow
@@ -351,7 +338,9 @@ function AboutVersionSection() {
               onValueChange={(value) => {
                 if (value === selectedHostedAppChannel) return;
                 window.location.assign(
-                  buildHostedChannelSelectionUrl({ channel: value as HostedAppChannel }),
+                  buildHostedChannelSelectionUrl({
+                    channel: value as HostedAppChannel,
+                  }),
                 );
               }}
             >
@@ -374,7 +363,6 @@ function AboutVersionSection() {
     </>
   );
 }
-
 export function useSettingsRestore(onRestored?: () => void) {
   const {
     theme,
@@ -387,13 +375,11 @@ export function useSettingsRestore(onRestored?: () => void) {
   } = useTheme();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-
   const isTextGenerationModelDirty = !Equal.equals(
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
-
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
     ...(!followSystem ? ["Follow system"] : []),
@@ -531,7 +517,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["Agent browser access"]
       : []),
   ];
-
   const restoreDefaults = async () => {
     if (changedSettingLabels.length === 0) return;
     const api = readLocalApi();
@@ -539,7 +524,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ["Restore default settings?", `This will reset: ${changedSettingLabels.join(", ")}.`].join(
         "\n",
       ),
-      { variant: "destructive" },
+      {
+        variant: "destructive",
+      },
     );
     if (!confirmed) return;
 
@@ -661,15 +648,12 @@ export function useSettingsRestore(onRestored?: () => void) {
     });
     onRestored?.();
   };
-
   return {
     changedSettingLabels,
     restoreDefaults,
   };
 }
-
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 3;
-
 function AutoSettleDaysInput({
   value,
   onCommit,
@@ -683,7 +667,6 @@ function AutoSettleDaysInput({
     setDraftSource(value);
     setDraft(String(value));
   }
-
   return (
     <Input
       size="sm"
@@ -708,13 +691,11 @@ function AutoSettleDaysInput({
     />
   );
 }
-
 const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
   "legacy-plan-mode",
   "legacy-context-window-indicator",
   "legacy-sidebar",
 ]);
-
 function LegacyFeaturesSection() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -732,7 +713,6 @@ function LegacyFeaturesSection() {
     lastExpandedTargetRef.current = searchTargetId;
     setOpen(true);
   }, [searchTargetId]);
-
   return (
     <section id="legacy-features" ref={targetRef} tabIndex={-1} className="space-y-2.5">
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -745,39 +725,48 @@ function LegacyFeaturesSection() {
         <CollapsiblePanel>
           <SettingsGroup>
             <SettingsRow
+              settingKeys={["planModeEnabled"]}
               {...searchableSetting("legacy-plan-mode")}
               description="Restore Build/Plan, /plan, /default, and Shift+Tab. Off uses build mode."
               control={
                 <Switch
                   checked={settings.planModeEnabled}
                   onCheckedChange={(checked) => {
-                    updateSettings({ planModeEnabled: Boolean(checked) });
+                    updateSettings({
+                      planModeEnabled: Boolean(checked),
+                    });
                   }}
                   aria-label="Plan mode (legacy)"
                 />
               }
             />
             <SettingsRow
+              settingKeys={["contextWindowMeterEnabled"]}
               {...searchableSetting("legacy-context-window-indicator")}
               description="Shows context window usage as a circular indicator in the composer."
               control={
                 <Switch
                   checked={settings.contextWindowMeterEnabled}
                   onCheckedChange={(checked) =>
-                    updateSettings({ contextWindowMeterEnabled: Boolean(checked) })
+                    updateSettings({
+                      contextWindowMeterEnabled: Boolean(checked),
+                    })
                   }
                   aria-label="Context window indicator (legacy)"
                 />
               }
             />
             <SettingsRow
+              settingKeys={["legacySidebarEnabled"]}
               {...searchableSetting("legacy-sidebar")}
               description="Restore per-project thread trees instead of the default flat sidebar."
               control={
                 <Switch
                   checked={settings.legacySidebarEnabled}
                   onCheckedChange={(checked) =>
-                    updateSettings({ legacySidebarEnabled: Boolean(checked) })
+                    updateSettings({
+                      legacySidebarEnabled: Boolean(checked),
+                    })
                   }
                   aria-label="Sidebar (legacy)"
                 />
@@ -789,13 +778,21 @@ function LegacyFeaturesSection() {
     </section>
   );
 }
-
 export function GeneralSettingsPanel() {
   const modifierLabel = isMacPlatform(navigator.platform) ? "⌘" : "Ctrl";
   const sendShortcutOptions = [
-    { value: "enter", label: "Enter" },
-    { value: "mod-enter-multiline", label: `${modifierLabel} + Enter for multiline prompts` },
-    { value: "mod-enter", label: `${modifierLabel} + Enter always` },
+    {
+      value: "enter",
+      label: "Enter",
+    },
+    {
+      value: "mod-enter-multiline",
+      label: `${modifierLabel} + Enter for multiline prompts`,
+    },
+    {
+      value: "mod-enter",
+      label: `${modifierLabel} + Enter always`,
+    },
   ] as const;
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -827,7 +824,6 @@ export function GeneralSettingsPanel() {
     connectedEnvironments.every(
       (target) => target.serverConfig?.environment.capabilities.threadRestartContinuation === true,
     );
-
   const textGenerationProviders = serverProviders.filter(
     (provider) => provider.supportsTextGeneration !== false,
   );
@@ -870,12 +866,12 @@ export function GeneralSettingsPanel() {
   const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedWorktreePathTemplate = useScopedSettingsMixed(["worktreePathTemplate"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
-
   return (
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="general" />
       <SettingsSection id="organization" title="Organization">
         <SettingsRow
+          settingKeys={["sidebarProjectGroupingMode"]}
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
           resetAction={
@@ -911,6 +907,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["sidebarProjectSortOrder"]}
           {...searchableSetting("project-order")}
           description="Order of projects in the sidebar project picker and command palette."
           resetAction={
@@ -931,7 +928,9 @@ export function GeneralSettingsPanel() {
               value={settings.sidebarProjectSortOrder}
               onValueChange={(value) => {
                 if (isSidebarProjectSortOrder(value)) {
-                  updateSettings({ sidebarProjectSortOrder: value });
+                  updateSettings({
+                    sidebarProjectSortOrder: value,
+                  });
                 }
               }}
             >
@@ -961,7 +960,9 @@ export function GeneralSettingsPanel() {
               settingKeys={["autoResumeLimitedThreads"]}
               checked={settings.autoResumeLimitedThreads}
               onCheckedChange={(checked) =>
-                updateSettings({ autoResumeLimitedThreads: Boolean(checked) })
+                updateSettings({
+                  autoResumeLimitedThreads: Boolean(checked),
+                })
               }
               aria-label="Auto-resume limited threads"
             />
@@ -977,7 +978,9 @@ export function GeneralSettingsPanel() {
               settingKeys={["snoozeLimitedThreads"]}
               checked={settings.snoozeLimitedThreads}
               onCheckedChange={(checked) =>
-                updateSettings({ snoozeLimitedThreads: Boolean(checked) })
+                updateSettings({
+                  snoozeLimitedThreads: Boolean(checked),
+                })
               }
               aria-label="Snooze limited threads"
             />
@@ -985,6 +988,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["sidebarWorkingShelfEnabled"]}
           {...searchableSetting("working-shelf")}
           description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you."
           resetAction={
@@ -1004,7 +1008,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.sidebarWorkingShelfEnabled}
               onCheckedChange={(checked) =>
-                updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
+                updateSettings({
+                  sidebarWorkingShelfEnabled: Boolean(checked),
+                })
               }
               aria-label="Working section (beta)"
             />
@@ -1108,7 +1114,9 @@ export function GeneralSettingsPanel() {
                   settingKeys={["sidebarAutoSettleOnMerge"]}
                   checked={settings.sidebarAutoSettleOnMerge}
                   onCheckedChange={(checked) =>
-                    updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
+                    updateSettings({
+                      sidebarAutoSettleOnMerge: Boolean(checked),
+                    })
                   }
                   aria-label="Auto-settle merged threads"
                 />
@@ -1156,7 +1164,11 @@ export function GeneralSettingsPanel() {
                 control={
                   <AutoSettleDaysInput
                     value={settings.sidebarAutoSettleAfterDays}
-                    onCommit={(days) => updateSettings({ sidebarAutoSettleAfterDays: days })}
+                    onCommit={(days) =>
+                      updateSettings({
+                        sidebarAutoSettleAfterDays: days,
+                      })
+                    }
                   />
                 }
               />
@@ -1172,7 +1184,9 @@ export function GeneralSettingsPanel() {
                     settingKeys={["sidebarAutoSettleKeepPullRequests"]}
                     checked={settings.sidebarAutoSettleKeepPullRequests}
                     onCheckedChange={(checked) =>
-                      updateSettings({ sidebarAutoSettleKeepPullRequests: checked })
+                      updateSettings({
+                        sidebarAutoSettleKeepPullRequests: checked,
+                      })
                     }
                     aria-label="Keep threads with a PR"
                   />
@@ -1186,17 +1200,23 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="behavior" title="Behavior">
         <NotificationSettings />
         <SettingsRow
+          settingKeys={["inAppNotificationsEnabled"]}
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
           control={
             <Switch
               checked={settings.inAppNotificationsEnabled}
-              onCheckedChange={(checked) => updateSettings({ inAppNotificationsEnabled: checked })}
+              onCheckedChange={(checked) =>
+                updateSettings({
+                  inAppNotificationsEnabled: checked,
+                })
+              }
               aria-label="In-app notifications"
             />
           }
         />
         <SettingsRow
+          settingKeys={["timestampFormat"]}
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
           resetAction={
@@ -1216,7 +1236,9 @@ export function GeneralSettingsPanel() {
               value={settings.timestampFormat}
               onValueChange={(value) => {
                 if (value === "locale" || value === "12-hour" || value === "24-hour") {
-                  updateSettings({ timestampFormat: value });
+                  updateSettings({
+                    timestampFormat: value,
+                  });
                 }
               }}
             >
@@ -1263,7 +1285,9 @@ export function GeneralSettingsPanel() {
               value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
               onValueChange={(value) => {
                 if (value === "turn" || value === "paragraph") {
-                  updateSettings({ responseStreamingMode: value });
+                  updateSettings({
+                    responseStreamingMode: value,
+                  });
                 }
               }}
             >
@@ -1286,6 +1310,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffIgnoreWhitespace"]}
           {...searchableSetting("hide-whitespace-changes")}
           description="Set whether the diff panel ignores whitespace-only edits by default."
           resetAction={
@@ -1304,13 +1329,16 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.diffIgnoreWhitespace}
               onCheckedChange={(checked) =>
-                updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
+                updateSettings({
+                  diffIgnoreWhitespace: Boolean(checked),
+                })
               }
               aria-label="Hide whitespace changes by default"
             />
           }
         />
         <SettingsRow
+          settingKeys={["diffFilesCollapsed"]}
           {...searchableSetting("default-diff-file-state")}
           description="Start with files expanded or collapsed when opening diffs or a pull request's Code tab."
           resetAction={
@@ -1330,7 +1358,9 @@ export function GeneralSettingsPanel() {
               value={settings.diffFilesCollapsed ? "collapsed" : "expanded"}
               onValueChange={(value) => {
                 if (value === "expanded" || value === "collapsed") {
-                  updateSettings({ diffFilesCollapsed: value === "collapsed" });
+                  updateSettings({
+                    diffFilesCollapsed: value === "collapsed",
+                  });
                 }
               }}
             >
@@ -1353,13 +1383,18 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffLayout"]}
           {...searchableSetting("diff-layout")}
           description="Show diffs stacked or side by side. The toggle in the diff toolbar changes this too."
           resetAction={
             settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? (
               <SettingResetButton
                 label="diff layout"
-                onClick={() => updateSettings({ diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout })}
+                onClick={() =>
+                  updateSettings({
+                    diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
+                  })
+                }
               />
             ) : null
           }
@@ -1368,7 +1403,9 @@ export function GeneralSettingsPanel() {
               value={settings.diffLayout}
               onValueChange={(value) => {
                 if (value === "stacked" || value === "split") {
-                  updateSettings({ diffLayout: value });
+                  updateSettings({
+                    diffLayout: value,
+                  });
                 }
               }}
             >
@@ -1388,6 +1425,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["proactivePanelsEnabled"]}
           {...searchableSetting("proactive-panels")}
           description="Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines."
           resetAction={
@@ -1406,7 +1444,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.proactivePanelsEnabled}
               onCheckedChange={(checked) =>
-                updateSettings({ proactivePanelsEnabled: Boolean(checked) })
+                updateSettings({
+                  proactivePanelsEnabled: Boolean(checked),
+                })
               }
               aria-label="Proactive panels"
             />
@@ -1414,6 +1454,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["showSkillsInSlashMenu"]}
           {...searchableSetting("skills-in-slash-menu")}
           description="Also include skills in the / command menu. Skills always appear when you type $."
           resetAction={
@@ -1432,7 +1473,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.showSkillsInSlashMenu}
               onCheckedChange={(checked) =>
-                updateSettings({ showSkillsInSlashMenu: Boolean(checked) })
+                updateSettings({
+                  showSkillsInSlashMenu: Boolean(checked),
+                })
               }
               aria-label="Show skills in slash menu"
             />
@@ -1440,6 +1483,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["composerRichTextEnabled"]}
           {...searchableSetting("composer-rich-text")}
           description="Show formatted Markdown as you type."
           resetAction={
@@ -1459,7 +1503,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.composerRichTextEnabled}
               onCheckedChange={(checked) =>
-                updateSettings({ composerRichTextEnabled: Boolean(checked) })
+                updateSettings({
+                  composerRichTextEnabled: Boolean(checked),
+                })
               }
               aria-label="Rich text composer"
             />
@@ -1467,6 +1513,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["composerCollapseOnScroll"]}
           {...searchableSetting("composer-collapse")}
           description="Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again."
           resetAction={
@@ -1486,7 +1533,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.composerCollapseOnScroll}
               onCheckedChange={(checked) =>
-                updateSettings({ composerCollapseOnScroll: Boolean(checked) })
+                updateSettings({
+                  composerCollapseOnScroll: Boolean(checked),
+                })
               }
               aria-label="Collapse composer on scroll"
             />
@@ -1494,6 +1543,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["sendShortcut"]}
           {...searchableSetting("send-shortcut")}
           description="Choose when Enter sends a prompt or inserts a new line"
           resetAction={
@@ -1501,7 +1551,9 @@ export function GeneralSettingsPanel() {
               <SettingResetButton
                 label="send shortcut"
                 onClick={() =>
-                  updateSettings({ sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut })
+                  updateSettings({
+                    sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
+                  })
                 }
               />
             ) : null
@@ -1511,7 +1563,10 @@ export function GeneralSettingsPanel() {
               value={settings.sendShortcut}
               onValueChange={(value) => {
                 const option = sendShortcutOptions.find((option) => option.value === value);
-                if (option) updateSettings({ sendShortcut: option.value });
+                if (option)
+                  updateSettings({
+                    sendShortcut: option.value,
+                  });
               }}
             >
               <SelectTrigger
@@ -1541,6 +1596,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["followUpBehavior"]}
           {...searchableSetting("follow-up-behavior")}
           description={
             "Queue follow-ups while the agent runs or steer the current run. " +
@@ -1565,7 +1621,9 @@ export function GeneralSettingsPanel() {
               value={settings.followUpBehavior}
               onValueChange={(value) => {
                 if (value === "queue" || value === "steer") {
-                  updateSettings({ followUpBehavior: value });
+                  updateSettings({
+                    followUpBehavior: value,
+                  });
                 }
               }}
             >
@@ -1605,7 +1663,9 @@ export function GeneralSettingsPanel() {
               settingKeys={["enableProviderUpdateChecks"]}
               checked={settings.enableProviderUpdateChecks}
               onCheckedChange={(checked) =>
-                updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
+                updateSettings({
+                  enableProviderUpdateChecks: Boolean(checked),
+                })
               }
               aria-label="Check provider versions"
             />
@@ -1643,7 +1703,9 @@ export function GeneralSettingsPanel() {
               checked={settings.continueThreadsAfterServerUpdate}
               disabled={!supportsRestartContinuation}
               onCheckedChange={(checked) =>
-                updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
+                updateSettings({
+                  continueThreadsAfterServerUpdate: Boolean(checked),
+                })
               }
               aria-label="Continue threads after restarts"
             />
@@ -1678,7 +1740,9 @@ export function GeneralSettingsPanel() {
               settingKeys={["newWorktreesStartFromOrigin"]}
               checked={settings.newWorktreesStartFromOrigin}
               onCheckedChange={(checked) =>
-                updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
+                updateSettings({
+                  newWorktreesStartFromOrigin: Boolean(checked),
+                })
               }
               aria-label="Start new worktrees from remote by default"
             />
@@ -1741,7 +1805,11 @@ export function GeneralSettingsPanel() {
               size="sm"
               className="w-full sm:w-72"
               value={mixedAddProjectBaseDirectory ? "" : settings.addProjectBaseDirectory}
-              onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
+              onCommit={(next) =>
+                updateSettings({
+                  addProjectBaseDirectory: next,
+                })
+              }
               placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
               spellCheck={false}
               aria-label="Add project base directory"
@@ -1752,6 +1820,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="confirmations" title="Confirmations">
         <SettingsRow
+          settingKeys={["confirmThreadUnpin"]}
           {...searchableSetting("unpin-confirmation")}
           description="Ask before unpinning a thread from the pinned section."
           resetAction={
@@ -1770,7 +1839,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.confirmThreadUnpin}
               onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadUnpin: Boolean(checked) })
+                updateSettings({
+                  confirmThreadUnpin: Boolean(checked),
+                })
               }
               aria-label="Confirm thread unpinning"
             />
@@ -1778,6 +1849,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["confirmThreadArchive"]}
           {...searchableSetting("archive-confirmation")}
           description="Require a second click on the inline archive action before a thread is archived."
           resetAction={
@@ -1796,7 +1868,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.confirmThreadArchive}
               onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadArchive: Boolean(checked) })
+                updateSettings({
+                  confirmThreadArchive: Boolean(checked),
+                })
               }
               aria-label="Confirm thread archiving"
             />
@@ -1804,6 +1878,7 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["confirmThreadDelete"]}
           {...searchableSetting("delete-confirmation")}
           description="Ask before deleting a thread and its chat history."
           resetAction={
@@ -1822,7 +1897,9 @@ export function GeneralSettingsPanel() {
             <Switch
               checked={settings.confirmThreadDelete}
               onCheckedChange={(checked) =>
-                updateSettings({ confirmThreadDelete: Boolean(checked) })
+                updateSettings({
+                  confirmThreadDelete: Boolean(checked),
+                })
               }
               aria-label="Confirm thread deletion"
             />
@@ -1831,6 +1908,7 @@ export function GeneralSettingsPanel() {
 
         {isElectron ? (
           <SettingsRow
+            settingKeys={["confirmQuit"]}
             {...searchableSetting("quit-confirmation")}
             description="Hold mode also quits on two quick presses."
             resetAction={
@@ -1838,7 +1916,9 @@ export function GeneralSettingsPanel() {
                 <SettingResetButton
                   label="quit shortcut behavior"
                   onClick={() =>
-                    updateSettings({ confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit })
+                    updateSettings({
+                      confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
+                    })
                   }
                 />
               ) : null
@@ -1848,7 +1928,9 @@ export function GeneralSettingsPanel() {
                 value={settings.confirmQuit}
                 onValueChange={(value) => {
                   if (value === "direct" || value === "hold" || value === "double-click") {
-                    updateSettings({ confirmQuit: value });
+                    updateSettings({
+                      confirmQuit: value,
+                    });
                   }
                 }}
               >
@@ -1910,14 +1992,21 @@ export function GeneralSettingsPanel() {
                   instanceEntries={textGenerationModelInstanceEntries}
                   modelOptionsByInstance={textGenerationModelOptionsByInstance}
                   triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                  {...(mixedTextGenerationModel ? { triggerLabel: "Mixed" } : {})}
+                  {...(mixedTextGenerationModel
+                    ? {
+                        triggerLabel: "Mixed",
+                      }
+                    : {})}
                   getModelDisabledReason={textGenerationModelDisabledReason}
                   {...(environmentId
                     ? {
                         onOpenProviderSetup: (instanceId: ProviderInstanceId) => {
                           void navigate({
                             to: "/settings/providers",
-                            search: { environmentId, instanceId },
+                            search: {
+                              environmentId,
+                              instanceId,
+                            },
                           });
                         },
                       }
@@ -2016,7 +2105,12 @@ export function GeneralSettingsPanel() {
           control={
             <Button
               render={
-                <Link to="/settings/diagnostics" search={{ machine: environmentId ?? undefined }} />
+                <Link
+                  to="/settings/diagnostics"
+                  search={{
+                    machine: environmentId ?? undefined,
+                  }}
+                />
               }
               size="sm"
               variant="outline"

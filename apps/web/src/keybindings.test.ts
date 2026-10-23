@@ -2,6 +2,7 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   compileResolvedKeybindingsConfig,
   DEFAULT_RESOLVED_KEYBINDINGS,
+  applyManagedKeybindings,
   mergeWithDefaultKeybindings,
 } from "@t3tools/shared/keybindings";
 import {
@@ -1261,6 +1262,58 @@ describe("isRichTextBoldShortcut", () => {
     const modB = event({ key: "b", metaKey: true });
     assert.isFalse(isRichTextBoldShortcut(modB, { isCollapsed: true }));
     assert.isFalse(isRichTextBoldShortcut(modB, null));
+  });
+});
+describe("applyManagedKeybindings", () => {
+  it("replaces an environment's bindings for each managed command", () => {
+    const bindings = applyManagedKeybindings(mergeWithDefaultKeybindings([]), [
+      {
+        key: "alt+m",
+        command: "modelPicker.toggle",
+        when: "!terminalFocus",
+      },
+      {
+        key: "alt+d",
+        command: "threadPanel.toggle",
+      },
+    ]);
+    const resolve = (init: Parameters<typeof event>[0]) =>
+      resolveShortcutCommand(event(init), bindings, {
+        platform: "Linux",
+      });
+    assert.strictEqual(
+      resolve({
+        key: "m",
+        altKey: true,
+      }),
+      "modelPicker.toggle",
+    );
+    assert.isNull(
+      resolve({
+        key: "m",
+        ctrlKey: true,
+        shiftKey: true,
+      }),
+    );
+    assert.strictEqual(
+      resolve({
+        key: "d",
+        altKey: true,
+      }),
+      "threadPanel.toggle",
+    );
+    assert.strictEqual(
+      resolve({
+        key: "d",
+        ctrlKey: true,
+      }),
+      "diff.toggle",
+    );
+    assert.isTrue(
+      bindings
+        .filter((binding) => binding.command === "modelPicker.toggle")
+        .every((binding) => binding.managed === true),
+    );
   });
 });
 describe("composer and pull request shortcuts", () => {
