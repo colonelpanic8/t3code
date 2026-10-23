@@ -50,7 +50,11 @@ import * as NodeOS from "node:os";
 import { readBootstrapEnvelope } from "../bootstrap.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "../os-jank.ts";
-import { isProcessAlive, isRespondingServerRuntime, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import {
+  isProcessAlive,
+  isRespondingServerRuntime,
+  readPersistedServerRuntimeState,
+} from "../serverRuntimeState.ts";
 import { readServerConfigFile } from "./serverConfigFile.ts";
 
 const modeFlag = Flag.Literals("mode", ServerConfig.RuntimeMode.literals).pipe(
