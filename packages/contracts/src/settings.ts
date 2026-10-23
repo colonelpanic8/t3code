@@ -1,4 +1,5 @@
 import { EasDeviceHostConfigs, SshDeviceHostConfigs } from "./device.ts";
+import { EnvironmentGroups } from "./environmentGroups.ts";
 import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
@@ -315,6 +316,7 @@ export type ModelPreferences = {
 };
 
 export const ClientSettingsSchema = Schema.Struct({
+  environmentGroups: EnvironmentGroups.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1723,6 +1725,7 @@ export function requiredScopesForProjectMutation(
 }
 
 export const ClientSettingsPatch = Schema.Struct({
+  environmentGroups: Schema.optionalKey(EnvironmentGroups),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
