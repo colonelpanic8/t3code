@@ -7,7 +7,6 @@ import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
@@ -17,17 +16,14 @@ import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopConnectionCatalogStore from "./DesktopConnectionCatalogStore.ts";
 import { resolveEarlyLinuxPasswordStorePreference } from "./DesktopEarlyElectronStartup.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
-
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
-
 const layerSafeStorage = Layer.succeed(ElectronSafeStorage.ElectronSafeStorage, {
   isEncryptionAvailable: Effect.succeed(true),
   encryptString: (value) => Effect.succeed(textEncoder.encode(value)),
   decryptString: (value) => Effect.succeed(textDecoder.decode(value)),
   selectedStorageBackend: Effect.succeedNone,
 } satisfies ElectronSafeStorage.ElectronSafeStorage["Service"]);
-
 const layerClientFiles = (serverHome: string, clientDir: string) => {
   const layerDependencies = Layer.mergeAll(
     DesktopEnvironment.layer({
@@ -44,7 +40,10 @@ const layerClientFiles = (serverHome: string, clientDir: string) => {
       Layer.provide(
         Layer.mergeAll(
           NodeServices.layer,
-          DesktopConfig.layerTest({ T3CODE_HOME: serverHome, T3CODE_CLIENT_DIR: clientDir }),
+          DesktopConfig.layerTest({
+            T3CODE_HOME: serverHome,
+            T3CODE_CLIENT_DIR: clientDir,
+          }),
         ),
       ),
     ),
@@ -57,7 +56,6 @@ const layerClientFiles = (serverHome: string, clientDir: string) => {
     DesktopConnectionCatalogStore.layer.pipe(Layer.provideMerge(DesktopSavedEnvironments.layer)),
   ).pipe(Layer.provideMerge(layerDependencies));
 };
-
 describe("desktop client directory", () => {
   it.effect("keeps every desktop client file in the client directory", () =>
     Effect.gen(function* () {
@@ -72,12 +70,19 @@ describe("desktop client directory", () => {
         `${clientDir}/desktop-settings.json`,
         '{"updateChannel":"nightly","linuxPasswordStore":"kwallet6"}\n',
       );
-
       yield* Effect.gen(function* () {
         const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
         const windowState = yield* DesktopWindowState.DesktopWindowState;
         assert.equal((yield* desktopSettings.load).updateChannel, "nightly");
-        yield* windowState.setMainWindowBounds({ x: 10, y: 20, width: 1200, height: 800 }, false);
+        yield* windowState.setMainWindowBounds(
+          {
+            x: 10,
+            y: 20,
+            width: 1200,
+            height: 800,
+          },
+          false,
+        );
         yield* (yield* DesktopClientSettings.DesktopClientSettings).set(DEFAULT_CLIENT_SETTINGS);
         assert.isTrue(
           yield* (yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore).set(
@@ -85,7 +90,6 @@ describe("desktop client directory", () => {
           ),
         );
       }).pipe(Effect.provide(layerClientFiles(serverHome, clientDir)));
-
       assert.deepEqual((yield* fileSystem.readDirectory(clientDir)).toSorted(), [
         "client-settings.json",
         "connection-catalog.json",
@@ -95,7 +99,10 @@ describe("desktop client directory", () => {
       assert.deepEqual(yield* fileSystem.readDirectory(serverHome), []);
       assert.equal(
         resolveEarlyLinuxPasswordStorePreference({
-          env: { T3CODE_HOME: serverHome, T3CODE_CLIENT_DIR: clientDir },
+          env: {
+            T3CODE_HOME: serverHome,
+            T3CODE_CLIENT_DIR: clientDir,
+          },
           clientDirSwitch: null,
           homeDirectory: "/home/user",
           joinPath: NodePath.posix.join,

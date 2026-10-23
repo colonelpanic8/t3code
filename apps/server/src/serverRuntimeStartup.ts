@@ -504,6 +504,13 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
       });
     }
 
+    if (serverConfig.shadowedLegacyStateDir !== undefined) {
+      yield* Effect.logWarning(
+        "using the split storage layout; the legacy T3 home beside it is not read",
+        { legacyStateDir: serverConfig.shadowedLegacyStateDir, stateDir: serverConfig.stateDir },
+      );
+    }
+
     yield* Effect.logDebug("startup phase: starting keybindings runtime");
     yield* runStartupPhase(
       "keybindings.start",
