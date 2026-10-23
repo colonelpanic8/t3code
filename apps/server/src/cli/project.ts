@@ -1,5 +1,5 @@
 import {
-  AuthAdministrativeScopes,
+  AuthStandardClientScopes,
   CommandId,
   EnvironmentHttpApi,
   EnvironmentHttpCommonError,
@@ -41,7 +41,12 @@ import {
   readPersistedServerRuntimeState,
 } from "../serverRuntimeState.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { type CliAuthLocationFlags, projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import {
+  type CliAuthLocationFlags,
+  projectLocationFlags,
+  resolveCliAuthConfig,
+  sharedSettingsFileFlag,
+} from "./config.ts";
 
 type ProjectMutationTarget = {
   readonly id: ProjectId;
@@ -169,7 +174,7 @@ export const ProjectCommandError = Schema.Union([
 ]);
 export type ProjectCommandError = typeof ProjectCommandError.Type;
 
-export function projectCommandErrorFromLiveServerRequest(cause: unknown): ProjectCommandError {
+function projectCommandErrorFromLiveServerRequest(cause: unknown): ProjectCommandError {
   if (isEnvironmentHttpCommonError(cause)) {
     return new ProjectLiveServerDeclaredResponseError({
       operation: "callLiveServer",
@@ -221,7 +226,7 @@ const withProjectCliSessionToken = <A, E, R>(
 ) =>
   Effect.acquireUseRelease(
     environmentAuth.issueSession({
-      scopes: AuthAdministrativeScopes,
+      scopes: AuthStandardClientScopes,
       label: "t3 project cli",
     }),
     (issued) => run(issued.token),
@@ -316,32 +321,34 @@ const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (
   } satisfies ProjectMutationTarget;
 });
 
-const fetchLiveOrchestrationSnapshot = (origin: string, bearerToken: string) =>
-  Effect.gen(function* () {
+const fetchLiveOrchestrationSnapshot = Effect.fn("project.fetchLiveOrchestrationSnapshot")(
+  function* (origin: string, bearerToken: string) {
     const client = yield* makeLiveServerClient(origin);
     return yield* client.projects.snapshot({
       headers: { authorization: `Bearer ${bearerToken}` },
     });
-  }).pipe(
-    withProjectCliLiveServerTimeout,
-    Effect.mapError(projectCommandErrorFromLiveServerRequest),
-  );
+  },
+  (effect, _origin, _bearerToken) =>
+    effect.pipe(
+      withProjectCliLiveServerTimeout,
+      Effect.mapError(projectCommandErrorFromLiveServerRequest),
+    ),
+);
 
-const dispatchLiveOrchestrationCommand = (
-  origin: string,
-  bearerToken: string,
-  command: ProjectCliDispatchCommand,
-) =>
-  Effect.gen(function* () {
+const dispatchLiveOrchestrationCommand = Effect.fn("project.dispatchLiveOrchestrationCommand")(
+  function* (origin: string, bearerToken: string, command: ProjectCliDispatchCommand) {
     const client = yield* makeLiveServerClient(origin);
     yield* client.projects.mutate({
       headers: { authorization: `Bearer ${bearerToken}` },
       payload: command,
     } as Parameters<typeof client.projects.mutate>[0]);
-  }).pipe(
-    withProjectCliLiveServerTimeout,
-    Effect.mapError(projectCommandErrorFromLiveServerRequest),
-  );
+  },
+  (effect, _origin, _bearerToken, _command) =>
+    effect.pipe(
+      withProjectCliLiveServerTimeout,
+      Effect.mapError(projectCommandErrorFromLiveServerRequest),
+    ),
+);
 
 const getOfflineSnapshot = Effect.fn("getOfflineSnapshot")(function* () {
   const projects = yield* ProjectService.ProjectService;
@@ -375,7 +382,6 @@ const tryResolveLiveProjectExecutionMode = Effect.fn("tryResolveLiveProjectExecu
       origin: runtimeState.value.origin,
       cause: attempted.failure,
     });
-    // The offline path decides whether that server still owns the home.
     return Option.none<{ readonly origin: string }>();
   },
 );
@@ -453,8 +459,14 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   );
 });
 
-const projectAddCommand = Command.make("add", {
+// Offline mutations save project settings, which must see the shared layer.
+const projectSettingsFlags = {
   ...projectLocationFlags,
+  sharedSettingsFile: sharedSettingsFileFlag,
+} as const;
+
+const projectAddCommand = Command.make("add", {
+  ...projectSettingsFlags,
   workspaceRoot: Argument.String("path").pipe(
     Argument.withDescription("Workspace root to add as a project."),
   ),
@@ -501,7 +513,7 @@ const projectAddCommand = Command.make("add", {
 );
 
 const projectRemoveCommand = Command.make("remove", {
-  ...projectLocationFlags,
+  ...projectSettingsFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to remove."),
   ),
@@ -540,7 +552,7 @@ const projectRemoveCommand = Command.make("remove", {
 );
 
 const projectRenameCommand = Command.make("rename", {
-  ...projectLocationFlags,
+  ...projectSettingsFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to rename."),
   ),
