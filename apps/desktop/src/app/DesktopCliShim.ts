@@ -3,8 +3,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import {
+  T3_CLIENT_STORAGE_ENVIRONMENT_NAMES,
   T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
   T3_STORAGE_ENVIRONMENT_NAMES,
+  T3CODE_CLIENT_STATE_DIR_ENV,
   t3StorageEnvironment,
 } from "@t3tools/shared/storagePaths";
 
@@ -42,6 +44,7 @@ export const renderCliShim = (input: {
   // overrides, so any of those also means the caller chose its storage.
   const callerStorageNames = [
     ...T3_STORAGE_ENVIRONMENT_NAMES,
+    ...T3_CLIENT_STORAGE_ENVIRONMENT_NAMES,
     ...(Object.hasOwn(input.storageEnvironment, "T3CODE_HOME")
       ? []
       : T3_SERVER_LOCATION_ENVIRONMENT_NAMES),
@@ -144,6 +147,18 @@ export const launcherPath = (environment: DesktopEnvironment.DesktopEnvironment[
     environment.platform === "win32" ? "t3.cmd" : "t3",
   );
 
+export const launcherStorageEnvironment = (
+  environment: Pick<
+    DesktopEnvironment.DesktopEnvironment["Service"],
+    "storageRoots" | "clientRoots"
+  >,
+): Readonly<Record<string, string>> => ({
+  ...t3StorageEnvironment(environment.storageRoots),
+  ...(environment.storageRoots.layout === "split"
+    ? { [T3CODE_CLIENT_STATE_DIR_ENV]: environment.clientRoots.stateDir }
+    : {}),
+});
+
 export const install = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   if (!environment.isPackaged) return Option.none<string>();
@@ -165,7 +180,7 @@ export const install = Effect.gen(function* () {
   const content = renderCliShim({
     target,
     shimPath,
-    storageEnvironment: t3StorageEnvironment(environment.storageRoots),
+    storageEnvironment: launcherStorageEnvironment(environment),
   });
 
   return yield* Effect.gen(function* () {

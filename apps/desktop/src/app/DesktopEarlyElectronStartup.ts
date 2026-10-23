@@ -2,7 +2,11 @@
 import * as NodeOS from "node:os";
 
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
-import { selectT3Storage, t3StoragePathExists } from "@t3tools/shared/storagePaths";
+import {
+  resolveT3ClientStorageRoots,
+  selectT3Storage,
+  t3StoragePathExists,
+} from "@t3tools/shared/storagePaths";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -61,19 +65,26 @@ function resolveEarlyDesktopSettingsPath(input: EarlyDesktopSettingsInput): stri
     resolve: input.resolvePath,
     isAbsolute: (candidate: string) => candidate.startsWith("/"),
   };
-  const selection = selectT3Storage({
-    platform: "linux",
+  const storageHost = {
+    platform: "linux" as const,
     homeDirectory: input.homeDirectory,
     temporaryDirectory: NodeOS.tmpdir(),
     isDevelopment: isDevelopmentEnvironment(input.env),
     environment: input.env,
     path,
+  };
+  const selection = selectT3Storage({
+    ...storageHost,
     exists: input.exists ?? t3StoragePathExists,
   });
   if (selection._tag !== "Selected") return undefined;
+  const clientRoots = resolveT3ClientStorageRoots({
+    ...storageHost,
+    serverRoots: selection.roots,
+  });
   return resolveDesktopClientPaths({
-    configDir: selection.roots.configDir,
-    stateDir: selection.roots.stateDir,
+    configDir: clientRoots.configDir,
+    stateDir: clientRoots.stateDir,
     homeDirectory: input.homeDirectory,
     clientDirSwitch: Option.fromNullOr(input.clientDirSwitch),
     clientDirEnv: Option.fromUndefinedOr(input.env.T3CODE_CLIENT_DIR),

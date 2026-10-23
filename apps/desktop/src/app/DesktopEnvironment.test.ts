@@ -6,6 +6,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import {
+  LegacyStorageMigratedError,
   selectT3Storage,
   T3StorageConfigurationError,
   t3StoragePathExists,
@@ -151,7 +152,7 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.desktopSettingsPath, "/Users/alice/c/desktop-settings.json");
     }),
   );
-  it.effect("splits the desktop's own files by layout and moves them all with a client dir", () =>
+  it.effect("keeps the desktop's own files in client roots and moves them with a client dir", () =>
     Effect.gen(function* () {
       const linux = {
         platform: "linux" as const,
@@ -165,10 +166,13 @@ describe("DesktopEnvironment", () => {
       };
       const split = yield* makeEnvironment(linux, xdg);
       assert.equal(split.storageLayout, "split");
-      assert.equal(split.desktopSettingsPath, "/xdg/config/t3code/desktop-settings.json");
-      assert.equal(split.clientSettingsPath, "/xdg/config/t3code/client-settings.json");
-      assert.equal(split.desktopWindowStatePath, "/xdg/state/t3code/desktop-window-state.json");
-      assert.equal(split.connectionCatalogPath, "/xdg/state/t3code/connection-catalog.json");
+      assert.equal(split.desktopSettingsPath, "/xdg/config/t3code-client/desktop-settings.json");
+      assert.equal(split.clientSettingsPath, "/xdg/config/t3code-client/client-settings.json");
+      assert.equal(
+        split.desktopWindowStatePath,
+        "/xdg/state/t3code-client/desktop-window-state.json",
+      );
+      assert.equal(split.connectionCatalogPath, "/xdg/state/t3code-client/connection-catalog.json");
       const relocated = yield* makeEnvironment(
         {
           ...linux,
@@ -187,9 +191,12 @@ describe("DesktopEnvironment", () => {
         relocated.desktopWindowStatePath,
         "/home/alice/t3-client/desktop-window-state.json",
       );
-      // The server's files and the Electron profile stay with the layout.
+      // The server's files and everything under the client roots stay put.
       assert.equal(relocated.serverSettingsPath, "/xdg/config/t3code/settings.json");
-      assert.equal(relocated.electronUserDataPath, "/xdg/state/t3code/electron");
+      assert.equal(relocated.clientRoots.stateDir, "/xdg/state/t3code-client");
+      assert.equal(relocated.electronUserDataPath, "/xdg/state/t3code-client/electron");
+      assert.equal(relocated.logDir, "/xdg/state/t3code-client/logs");
+      assert.equal(relocated.clientCacheDir, "/home/alice/.cache/t3code-client");
     }),
   );
   it.effect("resolves a relative T3CODE_CLIENT_DIR against the working directory", () =>
@@ -275,8 +282,94 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.serverSettingsPath, "/xdg/config/t3code/settings.json");
       // The server prunes these with its own, so both share the data dir.
       assert.equal(environment.browserArtifactsDir, "/xdg/data/t3code/browser-artifacts");
-      assert.equal(environment.electronUserDataPath, "/xdg/state/t3code/electron");
+      assert.equal(environment.electronUserDataPath, "/xdg/state/t3code-client/electron");
     }),
+  );
+  it.effect("keeps client storage apart from overridden server storage", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment(
+        {
+          platform: "linux",
+          homeDirectory: "/home/alice",
+          temporaryDirectory: "/tmp",
+        },
+        {
+          T3CODE_CONFIG_DIR: "/srv/t3/config",
+          T3CODE_STATE_DIR: "/srv/t3/state",
+          T3CODE_CLIENT_STATE_DIR: "~/client-state",
+        },
+      );
+      assert.equal(environment.stateDir, "/srv/t3/state");
+      assert.equal(environment.serverSettingsPath, "/srv/t3/config/settings.json");
+      assert.deepStrictEqual(environment.clientRoots, {
+        configDir: "/home/alice/.config/t3code-client",
+        stateDir: "/home/alice/client-state",
+        cacheDir: "/home/alice/.cache/t3code-client",
+      });
+      assert.equal(
+        environment.desktopSettingsPath,
+        "/home/alice/.config/t3code-client/desktop-settings.json",
+      );
+      assert.equal(
+        environment.savedEnvironmentRegistryPath,
+        "/home/alice/client-state/saved-environments.json",
+      );
+    }),
+  );
+  it.effect("refuses to start on a retired legacy tree named by T3CODE_HOME", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-retired-",
+      });
+      const legacyStateDir = path.join(root, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(legacyStateDir, {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+      const error = yield* makeEnvironment(
+        {
+          platform: "linux",
+          homeDirectory: root,
+          temporaryDirectory: root,
+        },
+        {
+          T3CODE_HOME: path.join(root, ".t3"),
+        },
+      ).pipe(Effect.flip);
+      assert.instanceOf(error, LegacyStorageMigratedError);
+      assert.include(error.message, "Unset T3CODE_HOME");
+      assert.deepEqual(yield* fileSystem.readDirectory(legacyStateDir), ["storage-migration.json"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+  it.effect("uses split storage once the legacy tree carries the migration marker", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-environment-migrated-",
+      });
+      const homeDirectory = path.join(root, "home");
+      const legacyStateDir = path.join(homeDirectory, ".t3", "userdata");
+      yield* fileSystem.makeDirectory(legacyStateDir, {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, "statev2.sqlite"), "legacy");
+      yield* fileSystem.writeFileString(path.join(legacyStateDir, "storage-migration.json"), "{}");
+      const environment = yield* makeEnvironment({
+        platform: "linux",
+        homeDirectory,
+        temporaryDirectory: root,
+        userId: 1000,
+      });
+      assert.equal(environment.storageLayout, "split");
+      assert.equal(environment.stateDir, path.join(homeDirectory, ".local", "state", "t3code"));
+      assert.equal(
+        environment.desktopSettingsPath,
+        path.join(homeDirectory, ".config", "t3code-client", "desktop-settings.json"),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
   it.effect("rejects mixing T3CODE_HOME with granular directory overrides", () =>
     Effect.gen(function* () {
