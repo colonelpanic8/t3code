@@ -60,7 +60,7 @@ function Chat(props: { composerKeys: string[]; launcher?: { keys: string; receiv
         },
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
-    branchToolbarRef: { current: null },
+    branchToolbarRefs: [],
     closeThreadFind: () => {},
     commands: {},
     fallback: () => undefined,
