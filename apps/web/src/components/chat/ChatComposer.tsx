@@ -1,3 +1,4 @@
+import type { AgentProfileControlProps } from "./ComposerAgentProfileControl";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -488,6 +489,7 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
+  agentProfile: AgentProfileControlProps;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -586,6 +588,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     toggleInteractionMode,
     handleRuntimeModeChange,
     handleInteractionModeChange,
+    agentProfile,
     focusComposer,
     scheduleComposerFocus,
     setThreadError,
@@ -2310,6 +2313,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       compatibleRuntimeModeOptions={compatibleRuntimeModeOptions}
       toggleInteractionMode={toggleInteractionMode}
       handleRuntimeModeChange={handleRuntimeModeChange}
+      agentProfile={agentProfile}
       composerControlsCollapsed={composerControlsCollapsed}
       effortDisplay={settings.effortDisplay}
       permissionsShownInStrip={props.permissionsShownInStrip}

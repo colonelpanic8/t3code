@@ -23,6 +23,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -44,6 +45,12 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
+import {
+  AGENT_PROFILE_DRIVERS,
+  AgentProfileError,
+  agentProfileKeepsT3Context,
+} from "../provider/AgentProfileFiles.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
 import * as CommandOutputHub from "./CommandOutputHub.ts";
@@ -318,6 +325,30 @@ export const layerWithOptions = (
       const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const agentScope = yield* AgentScope;
+      const serverConfig = yield* Effect.serviceOption(ServerConfig.ServerConfig);
+      const pathService = yield* Effect.serviceOption(Path.Path);
+      /** A profile with `t3Context: false` gets no T3 MCP session, and with it no T3 tools. */
+      const threadKeepsT3Context = Effect.fn("ProviderSessionManagerV2.threadKeepsT3Context")(
+        function* (threadId: ThreadId) {
+          const profileId = yield* projectionStore.getThread(threadId).pipe(
+            Effect.map((thread) => thread.agentProfile),
+            Effect.orElseSucceed(() => undefined),
+          );
+          if (
+            profileId === undefined ||
+            Option.isNone(serverConfig) ||
+            Option.isNone(pathService)
+          ) {
+            return true;
+          }
+          // The adapter reports an unreadable profile when it opens the session.
+          return yield* agentProfileKeepsT3Context(serverConfig.value.stateDir, profileId).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, pathService.value),
+            Effect.orElseSucceed(() => true),
+          );
+        },
+      );
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
           if (Option.isNone(serverSettings)) return { browser: true, device: false };
@@ -421,6 +452,10 @@ export const layerWithOptions = (
           : mcpPrepareLock.withLock(
               threadId,
               Effect.gen(function* () {
+                if (!(yield* threadKeepsT3Context(threadId))) {
+                  yield* mcpSessions.clear(threadId);
+                  return { mcpCredentialId: undefined, issued: false };
+                }
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
@@ -2075,6 +2110,19 @@ export const layerWithOptions = (
                     }),
                 ),
               );
+              if (
+                input.runtimePolicy.agentProfile !== undefined &&
+                !AGENT_PROFILE_DRIVERS.has(adapter.driver)
+              ) {
+                return yield* new ProviderSessionOpenError({
+                  instanceId: input.modelSelection.instanceId,
+                  providerSessionId: input.providerSessionId,
+                  cause: new AgentProfileError({
+                    profileId: input.runtimePolicy.agentProfile,
+                    detail: `${adapter.driver} threads cannot use agent profiles yet; use Codex or Claude`,
+                  }),
+                });
+              }
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
