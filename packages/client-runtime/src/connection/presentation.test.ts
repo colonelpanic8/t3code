@@ -6,17 +6,20 @@ import {
   BearerConnectionProfile,
   type ConnectionCatalogEntry,
   type ConnectionRoute,
+  SshConnectionProfile,
 } from "./catalog.ts";
 import {
   BearerConnectionTarget,
   ConnectionTransientError,
   RelayConnectionTarget,
+  SshConnectionTarget,
   type SupervisorConnectionState,
 } from "./model.ts";
 import {
   environmentMcpUrl,
   presentEnvironmentConnection,
   presentConnectionState,
+  connectionCatalogDisplayUrl,
 } from "./presentation.ts";
 
 const TARGET = new BearerConnectionTarget({
@@ -111,6 +114,31 @@ describe("connection presentation", () => {
     ).toBe("https://tunnel.example.test/mcp");
   });
 
+  it("formats SSH display information without a missing username and preserves the port", () => {
+    const target = new SshConnectionTarget({
+      environmentId: EnvironmentId.make("environment-ssh"),
+      label: "SSH environment",
+      connectionId: "connection-ssh",
+    });
+    const entry: ConnectionCatalogEntry = {
+      target,
+      profile: Option.some(
+        new SshConnectionProfile({
+          connectionId: target.connectionId,
+          environmentId: target.environmentId,
+          label: target.label,
+          target: {
+            alias: "devbox",
+            hostname: "devbox.example.test",
+            username: null,
+            port: 2222,
+          },
+        }),
+      ),
+      enabled: true,
+    };
+    expect(connectionCatalogDisplayUrl(entry)).toBe("devbox.example.test:2222");
+  });
   it("distinguishes initial connection, reconnect, and retry errors", () => {
     expect(presentConnectionState(supervisorState({ phase: "connecting", attempt: 1 }))).toEqual({
       phase: "connecting",
