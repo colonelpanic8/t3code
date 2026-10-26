@@ -245,10 +245,8 @@ function layerTest(input: {
     applyWslWindowsFallback: Effect.die("unexpected WSL Windows fallback"),
     applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
   } satisfies DesktopAppSettings.DesktopAppSettings["Service"]);
-  let mainWindowState = input.mainWindowState ?? {
-    bounds: null,
-    maximized: false,
-  };
+
+  let mainWindowState = input.mainWindowState ?? { bounds: null, maximized: false };
   const layerDesktopWindowState = Layer.succeed(DesktopWindowState.DesktopWindowState, {
     get: Effect.sync(() => mainWindowState),
     setMainWindowBounds: (bounds, isMaximized) =>
@@ -263,14 +261,12 @@ function layerTest(input: {
         ) {
           return;
         }
-        mainWindowState = {
-          bounds,
-          maximized: isMaximized,
-        };
+        mainWindowState = { bounds, maximized: isMaximized };
         input.mainWindowBoundsUpdates?.push(bounds);
         input.mainWindowMaximizedUpdates?.push(isMaximized);
       }),
   } satisfies DesktopWindowState.DesktopWindowState["Service"]);
+
   const layerElectronWindow = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
       Effect.sync(() => {
@@ -424,10 +420,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           layerDesktopEnvironment,
           DesktopAppSettings.layerTest(),
           Layer.succeed(DesktopWindowState.DesktopWindowState, {
-            get: Effect.succeed({
-              bounds: null,
-              maximized: false,
-            }),
+            get: Effect.succeed({ bounds: null, maximized: false }),
             setMainWindowBounds: () => Effect.void,
           }),
           layerDesktopClientSettings,
@@ -872,12 +865,7 @@ describe("DesktopWindow", () => {
         mainWindow,
         mainWindowBoundsUpdates,
         mainWindowState: {
-          bounds: {
-            x: 2040,
-            y: 80,
-            width: 1320,
-            height: 880,
-          },
+          bounds: { x: 2040, y: 80, width: 1320, height: 880 },
           maximized: false,
         },
       });

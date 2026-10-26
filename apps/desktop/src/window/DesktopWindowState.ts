@@ -58,7 +58,7 @@ export class DesktopWindowState extends Context.Service<
   }
 >()("@t3tools/desktop/window/DesktopWindowState") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
