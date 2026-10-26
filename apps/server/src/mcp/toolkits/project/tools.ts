@@ -1,5 +1,6 @@
 import { McpAttachmentInput } from "../attachment/input.ts";
 import {
+  AgentProfileId,
   NonNegativeInt,
   ModelSelection,
   TrimmedNonEmptyString,
@@ -134,6 +135,12 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     modelSelection: Schema.optional(ModelSelection),
     runtimeMode: Schema.optional(RuntimeMode),
     interactionMode: Schema.optional(ProviderInteractionMode),
+    agentProfile: Schema.optional(
+      AgentProfileId.annotate({
+        description:
+          "Agent profile: replaces user-level instructions, skills, and provider config. Omit to inherit yours.",
+      }),
+    ),
     workspaceStrategy: Schema.optional(
       OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
         description:
