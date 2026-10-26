@@ -968,6 +968,7 @@ function UsageOverview({
       ) : null}
 
       <UsageBreakdownTable
+        hour12={hour12}
         entries={merged.entries}
         view={tableView}
         chartSeries={chartSeries}
