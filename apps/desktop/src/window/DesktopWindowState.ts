@@ -108,28 +108,29 @@ export const make = Effect.gen(function* () {
 
   return DesktopWindowState.of({
     get: SynchronizedRef.get(stateRef).pipe(Effect.flatMap(resolve)),
-    setMainWindowBounds: (bounds, isMaximized) =>
-      SynchronizedRef.modifyEffect(stateRef, (stored) =>
-        resolve(stored).pipe(
-          Effect.flatMap((current) => {
-            if (
-              current.bounds !== null &&
-              windowBoundsEquivalence(current.bounds, bounds) &&
-              current.maximized === isMaximized
-            ) {
-              return Effect.succeed([undefined, stored] as const);
-            }
-            const next: MainWindowState = { bounds, maximized: isMaximized };
-            return write(bounds, isMaximized).pipe(
-              Effect.as([undefined, Option.some(next)] as const),
-            );
-          }),
-        ),
-      ).pipe(
-        Effect.withSpan("desktop.windowState.setMainWindowBounds", {
-          attributes: { ...bounds, isMaximized },
-        }),
-      ),
+    setMainWindowBounds: Effect.fn("desktop.windowState.setMainWindowBounds")(
+      function* (bounds, isMaximized) {
+        yield* Effect.annotateCurrentSpan({ ...bounds, isMaximized });
+
+        return yield* SynchronizedRef.modifyEffect(stateRef, (stored) =>
+          resolve(stored).pipe(
+            Effect.flatMap((current) => {
+              if (
+                current.bounds !== null &&
+                windowBoundsEquivalence(current.bounds, bounds) &&
+                current.maximized === isMaximized
+              ) {
+                return Effect.succeed([undefined, stored] as const);
+              }
+              const next: MainWindowState = { bounds, maximized: isMaximized };
+              return write(bounds, isMaximized).pipe(
+                Effect.as([undefined, Option.some(next)] as const),
+              );
+            }),
+          ),
+        );
+      },
+    ),
   });
 });
 
