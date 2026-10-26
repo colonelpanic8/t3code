@@ -28,6 +28,7 @@ export function assistantCatalogJson(): string {
  * the catalog only when names, statuses, or membership do.
  */
 export function AssistantCatalogSync() {
+  // oxlint-disable-next-line t3code/react-effect-budget -- publishes to the native assistant content provider
   useEffect(() => {
     const native = evaExtension;
     if (!native) return;
