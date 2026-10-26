@@ -743,6 +743,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         ) : null}
         {panelSection !== "workspace" ? (
           <BranchToolbarBranchSelector
+            ref={branchSelectorRef}
             displayMode="panel"
             className="w-full"
             environmentId={environmentId}
