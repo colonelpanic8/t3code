@@ -1,4 +1,5 @@
 import { Atom } from "effect/reactivity";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import { SessionPermissions } from "./SessionPermissions";
 import { ChevronRightIcon, EllipsisIcon, RefreshCwIcon, TerminalIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
@@ -1749,6 +1750,7 @@ export function ConnectionsSettings() {
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {primarySettings}
       {renderAccessManagement()}
       {localServerPairingCandidates.length > 0 || localServerDiscoveryError !== null ? (
