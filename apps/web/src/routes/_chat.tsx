@@ -15,7 +15,7 @@ import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
-import { usePrimaryEnvironmentId } from "../state/environments";
+import { appOwnsLocalEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { useEnvironmentScope } from "../state/session";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
@@ -54,6 +54,7 @@ function ChatRouteGlobalShortcuts() {
     projects,
     settings: projectGroupingSettings,
     primaryEnvironmentId,
+    ownsLocalEnvironment: appOwnsLocalEnvironment(),
     resolveEnvironmentLabel: () => null,
   }).length;
   const terminalOpen = useTerminalUiStateStore((state) =>
