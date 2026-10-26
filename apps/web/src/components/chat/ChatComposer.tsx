@@ -210,7 +210,11 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
-import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
+import {
+  getComposerPromptInjectionState,
+  getComposerReasoningStep,
+  selectComposerReasoningEffort,
+} from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
 import {
   providerSupportsManualCompaction,
@@ -329,6 +333,8 @@ export interface ChatComposerHandle {
   isModelPickerOpen: () => boolean;
   isCaretAtStart: () => boolean;
   compactContext: () => void;
+  selectModel: (instanceId: ProviderInstanceId, model: string) => void;
+  selectReasoningEffort: (effort: string) => void;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -3176,6 +3182,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         const range = composerEditorRef.current?.readSelectionRange();
         return range !== undefined && range.start === 0 && range.end === 0;
       },
+      selectModel: (instanceId: ProviderInstanceId, model: string) => {
+        onProviderModelSelect(instanceId, model);
+      },
+      selectReasoningEffort: (effort: string) => {
+        const change = selectComposerReasoningEffort({
+          provider: selectedProvider,
+          model: selectedModel,
+          models: selectedProviderModels,
+          modelOptions: composerModelOptions?.[selectedInstanceId],
+          prompt: promptRef.current,
+          planModeEnabled: settings.planModeEnabled,
+          effort,
+        });
+        if (change === null) return;
+        if (change.modelOptions) {
+          useComposerDraftStore
+            .getState()
+            .setProviderModelOptions(composerDraftTarget, selectedProvider, change.modelOptions, {
+              instanceId: selectedInstanceId,
+              model: selectedModel,
+              persistSticky: true,
+            });
+        }
+        if (change.prompt !== promptRef.current) editPromptFromTraitsStable(() => change.prompt);
+      },
       readSnapshot: () => {
         return readComposerSnapshotStable();
       },
@@ -3335,6 +3366,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       getTimelineScrollableNode,
       isTimelineAtLogicalEnd,
       setIsComposerScrollCollapsed,
+      onProviderModelSelect,
     ],
   );
 
