@@ -27,6 +27,7 @@ import {
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
 import { VoiceLiveSurface } from "./features/voice/VoiceLiveOverlays";
+import { SettingsFeedSync } from "./features/settings-feed/SettingsFeedSync";
 import { RootStack } from "./Stack";
 import { appAtomRegistry } from "./state/atom-registry";
 import { subscribeComposerDraftModelReconciliation } from "./state/use-composer-drafts";
@@ -115,6 +116,7 @@ export default function App() {
     <RegistryContext.Provider value={appAtomRegistry}>
       <CloudAuthProvider>
         <AppearancePreferencesProvider>
+          <SettingsFeedSync />
           <AppContent />
         </AppearancePreferencesProvider>
       </CloudAuthProvider>
