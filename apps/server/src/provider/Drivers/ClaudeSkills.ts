@@ -432,6 +432,8 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
   config: Pick<ClaudeSettings, "homePath"> & Partial<Pick<ClaudeSettings, "launchArgs">>,
   cwd?: string,
   environment?: NodeJS.ProcessEnv,
+  /** An agent profile's skills replace the user's skills and plugins. */
+  profileSkillsDirectory?: string,
 ): Effect.fn.Return<ReadonlyArray<ServerProviderSkill>, never, FileSystem.FileSystem | Path.Path> {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -444,7 +446,7 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
 
   const additionalDirectory = parseCliArgs(config.launchArgs ?? "").flags["add-dir"];
   const roots: ReadonlyArray<ClaudeSkillRoot> = [
-    { directory: path.join(configDirPath, "skills"), scope: "user" },
+    { directory: profileSkillsDirectory ?? path.join(configDirPath, "skills"), scope: "user" },
     ...(cwd ? [{ directory: path.join(cwd, ".claude", "skills"), scope: "project" as const }] : []),
     ...(additionalDirectory && (cwd || path.isAbsolute(additionalDirectory))
       ? [
@@ -458,12 +460,14 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
           },
         ]
       : []),
-    ...(yield* discoverPluginSkillRoots(
-      configDirPath,
-      cwd,
-      enabledPlugins,
-      environment ?? process.env,
-    )),
+    ...(profileSkillsDirectory === undefined
+      ? yield* discoverPluginSkillRoots(
+          configDirPath,
+          cwd,
+          enabledPlugins,
+          environment ?? process.env,
+        )
+      : []),
   ];
 
   const skillsByName = new Map<string, ServerProviderSkill>();
