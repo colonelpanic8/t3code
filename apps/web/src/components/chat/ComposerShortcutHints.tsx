@@ -14,7 +14,7 @@ import {
   shouldShowComposerControlHintsForModifiers,
 } from "../../keybindings";
 import { type ShortcutModifierState, useShortcutModifierState } from "../../shortcutModifierState";
-import { useThreadJumpHintVisibility } from "../Sidebar.logic";
+import { useThreadJumpHintsVisible } from "../Sidebar.logic";
 
 /**
  * Where composer control triggers live: the composer shell, then the thread
@@ -137,8 +137,6 @@ export function ComposerShortcutHints(props: {
   const modifiers = useShortcutModifierState();
   const chordConsumed = useChordConsumed();
   const terminalFocus = useTerminalFocus();
-  const { showThreadJumpHints: visible, updateThreadJumpHintsVisibility: updateVisibility } =
-    useThreadJumpHintVisibility();
   const [hints, setHints] = useState<PlacedHint[]>([]);
 
   const shouldShow =
@@ -158,10 +156,7 @@ export function ComposerShortcutHints(props: {
       },
       trigger,
     );
-  // oxlint-disable-next-line t3code/react-effect-budget -- Feed the delayed reveal timer, as the sidebar jump hints do.
-  useEffect(() => {
-    updateVisibility(shouldShow);
-  }, [shouldShow, updateVisibility]);
+  const visible = useThreadJumpHintsVisible(shouldShow);
 
   // oxlint-disable-next-line t3code/react-effect-budget -- Measure trigger rects and follow window resize and scroll while hints are visible.
   useLayoutEffect(() => {
