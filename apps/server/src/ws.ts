@@ -2163,6 +2163,11 @@ export const layerWsRpc = (
                         commandId: input.commandId,
                         projectId: input.projectId,
                         message: "Failed to launch thread",
+                        // Tells the client its reserved thread id was consumed and
+                        // released, so a retry must mint a fresh one.
+                        ...(cause.bootstrapThreadDisposition === undefined
+                          ? {}
+                          : { bootstrapThreadDisposition: cause.bootstrapThreadDisposition }),
                         cause,
                       }),
                     ServerRuntimeStartupError: (cause) =>
