@@ -149,6 +149,12 @@ import * as ServerSettings from "../../serverSettings.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { spawnAndCollect } from "@t3tools/provider-core/server/snapshotProbe";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
+import { AgentProfileError } from "../../provider/AgentProfileFiles.ts";
+import {
+  type ClaudeAgentProfile,
+  claudeProfileDirectory,
+  prepareClaudeAgentProfile,
+} from "../../provider/Drivers/ClaudeProfileContext.ts";
 import {
   claudeSignedOutMessage,
   makeClaudeEnvironment,
@@ -1473,7 +1479,9 @@ export function makeClaudeQueryOptions(input: {
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
   readonly toolSearchOverride?: "true";
+  readonly agentProfile?: ClaudeAgentProfile;
 }): ClaudeAgentSdkQueryOptions {
+  const { agentProfile } = input;
   const compiledSelection = compileClaudeModelSelection(input.modelSelection);
   const {
     // claudeLaunchArgDirectories reads every --add-dir into additionalDirectories.
@@ -1499,6 +1507,8 @@ export function makeClaudeQueryOptions(input: {
   if (requestThinkingSummaries && extraArgs["thinking-display"] === undefined) {
     extraArgs["thinking-display"] = "summarized";
   }
+  // The user's Claude in Chrome setting would otherwise add its browser tools.
+  if (agentProfile !== undefined) extraArgs["no-chrome"] = null;
   const threadIdentity: ClaudeAgentSdkThreadIdentity = input.resume
     ? { resume: input.nativeThreadId }
     : { sessionId: input.nativeThreadId };
@@ -1521,7 +1531,7 @@ export function makeClaudeQueryOptions(input: {
           autoCompactWindow: Number(input.settings.autoCompactWindow),
         } as ClaudeSdkSettings);
   // A settings file path cannot take extra keys, so it goes through unchanged.
-  const effectiveQuerySettings =
+  const toolSearchQuerySettings =
     input.toolSearchOverride === undefined || typeof compactQuerySettings === "string"
       ? compactQuerySettings
       : ({
@@ -1529,6 +1539,20 @@ export function makeClaudeQueryOptions(input: {
           env: { ...compactQuerySettings?.env, ENABLE_TOOL_SEARCH: input.toolSearchOverride },
         } as ClaudeSdkSettings);
   const deviceInstructions = input.mcpServers !== undefined && input.deviceToolsAvailable === true;
+  const effectiveQuerySettings =
+    agentProfile === undefined || typeof toolSearchQuerySettings === "string"
+      ? toolSearchQuerySettings
+      : ({
+          ...agentProfile.settings,
+          ...toolSearchQuerySettings,
+          autoMemoryDirectory: agentProfile.memoryDirectory,
+        } as ClaudeSdkSettings);
+  const mcpServers =
+    agentProfile?.mcpServers === undefined
+      ? input.mcpServers
+      : ({ ...agentProfile.mcpServers, ...input.mcpServers } as NonNullable<
+          ClaudeQueryOptions["mcpServers"]
+        >);
   const options: ClaudeAgentSdkQueryOptions = {
     model: compiledSelection.apiModelId,
     tools: claudeAgentSdkQueryToolsForSdk(selectedTools),
@@ -1573,11 +1597,15 @@ export function makeClaudeQueryOptions(input: {
       ? { pathToClaudeCodeExecutable: input.settings.binaryPath }
       : {}),
     ...(input.environment === undefined ? {} : { env: input.environment }),
-    ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
+    ...(mcpServers === undefined ? {} : { mcpServers }),
+    // Without user settings Claude skips the user's CLAUDE.md, skills, agents,
+    // plugins, hooks, and MCP servers; the profile supplies its own.
+    ...(agentProfile === undefined ? {} : { settingSources: ["project", "local"] }),
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
       append: [
+        ...(agentProfile?.instructions === undefined ? [] : [agentProfile.instructions]),
         buildRuntimeInstructions({ harness: "Claude Code" }) +
           (input.mcpServers === undefined
             ? ""
@@ -1598,6 +1626,7 @@ export function makeClaudeQueryOptions(input: {
     ...(input.cwd === null ? [] : [input.cwd]),
     ...(input.attachmentsDir === undefined ? [] : [input.attachmentsDir]),
     ...claudeLaunchArgDirectories(input.settings?.launchArgs),
+    ...(agentProfile === undefined ? [] : [agentProfile.directory]),
   ];
   const withDirectories =
     additionalDirectories.length === 0 ? options : { ...options, additionalDirectories };
@@ -4353,6 +4382,8 @@ export interface ClaudeAdapterV2Options {
   readonly settings: ClaudeSettings;
   readonly environment: NodeJS.ProcessEnv;
   readonly attachmentsDir: string;
+  /** Holds agent profiles; profile threads fail without it. */
+  readonly stateDir?: string;
   readonly fileSystem: FileSystem.FileSystem;
   readonly path: Path.Path;
   readonly crypto: Crypto.Crypto;
@@ -4518,12 +4549,40 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
       return claudeToolSearchOverride(adapterOptions.environment.ENABLE_TOOL_SEARCH);
     },
   );
+  const resolveAgentProfile = Effect.fn("ClaudeAdapterV2.resolveAgentProfile")(function* (
+    runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
+  ) {
+    const profileId = runtimePolicy.agentProfile;
+    if (profileId === undefined) return undefined;
+    if (adapterOptions.stateDir === undefined) {
+      return yield* new AgentProfileError({
+        profileId,
+        path: "",
+        detail: "this Claude instance has no state directory for profiles",
+      });
+    }
+    return yield* prepareClaudeAgentProfile({
+      profileId,
+      stateDir: adapterOptions.stateDir,
+      cwd: runtimePolicy.cwd,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+  });
 
-  const userInvocableSkills = (cwd: string | null) =>
+  const userInvocableSkills = (runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy) =>
     discoverClaudeSkills(
       adapterOptions.settings,
-      cwd ?? undefined,
+      runtimePolicy.cwd ?? undefined,
       adapterOptions.environment,
+      runtimePolicy.agentProfile === undefined || adapterOptions.stateDir === undefined
+        ? undefined
+        : path.join(
+            claudeProfileDirectory(path, adapterOptions.stateDir, runtimePolicy.agentProfile),
+            ".claude",
+            "skills",
+          ),
     ).pipe(
       Effect.map(
         (skills) =>
@@ -9894,6 +9953,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             fileSystem,
             path,
           });
+          const agentProfile = yield* resolveAgentProfile(turnInput.runtimePolicy);
           const closedExistingNativeThreadId = existing !== null ? existing.nativeThreadId : null;
           if (existing !== null) {
             yield* existing.query.close.pipe(Effect.ignore);
@@ -9950,6 +10010,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             supportedDialogKinds: ["resume_return"],
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
+            ...(agentProfile === undefined ? {} : { agentProfile }),
           });
           const querySession = yield* queryRunner
             .open({
@@ -10124,7 +10185,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     attachmentsDir,
                     fileSystem,
                     pdfReservation,
-                    skills: yield* userInvocableSkills(turnInput.runtimePolicy.cwd),
+                    skills: yield* userInvocableSkills(turnInput.runtimePolicy),
                     uuid: promptUuid,
                   }).pipe(
                     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -10577,7 +10638,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               attachmentsDir,
               fileSystem,
               pdfReservation,
-              skills: yield* userInvocableSkills(currentTurn.input.runtimePolicy.cwd),
+              skills: yield* userInvocableSkills(currentTurn.input.runtimePolicy),
             }).pipe(
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
               Effect.provideService(Path.Path, path),
@@ -11226,6 +11287,7 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       settings: { ...config, enabled, binaryPath },
       environment: claudeEnvironment,
       attachmentsDir: serverConfig.attachmentsDir,
+      stateDir: serverConfig.stateDir,
       fileSystem,
       path,
       crypto,

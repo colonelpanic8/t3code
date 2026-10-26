@@ -346,6 +346,46 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     });
   });
 
+  it("replaces user-level context with an agent profile", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-agent-profile",
+      resume: false,
+      cwd: "/workspace",
+      sdkSettings: { env: { OTHER: "kept" } },
+      mcpServers: { "t3-code": { type: "http", url: "http://t3.test/mcp" } },
+      agentProfile: {
+        instructions: "Profile instructions.",
+        directory: "/state/providers/claude/profiles/focus",
+        mcpServers: {
+          profile: { type: "stdio", command: "profile-mcp" },
+          "t3-code": { type: "http", url: "http://profile.test/mcp" },
+        },
+        settings: { env: { OTHER: "profile" }, hooks: {} },
+        memoryDirectory: "/state/providers/claude/profiles/focus/projects/-workspace/memory",
+      },
+    });
+
+    assert.deepEqual(options.settingSources, ["project", "local"]);
+    assert.deepEqual(Object.keys(options.mcpServers ?? {}), ["profile", "t3-code"]);
+    assert.deepEqual(options.mcpServers?.["t3-code"], {
+      type: "http",
+      url: "http://t3.test/mcp",
+    });
+    assert.deepInclude(options.settings, {
+      env: { OTHER: "kept" },
+      hooks: {},
+      autoMemoryDirectory: "/state/providers/claude/profiles/focus/projects/-workspace/memory",
+    });
+    assert.isTrue(
+      typeof options.systemPrompt === "object" &&
+        !Array.isArray(options.systemPrompt) &&
+        options.systemPrompt.append?.startsWith("Profile instructions.\n\n"),
+    );
+    assert.include(options.additionalDirectories, "/state/providers/claude/profiles/focus");
+    assert.isNull(options.extraArgs?.["no-chrome"]);
+  });
+
   it("projects AskUserQuestion input with question text as the answer key", () => {
     const preview = "\n  **Proposed change**\n\n```ts\n\tconst enabled = true;\n```\n  ";
     assert.deepEqual(
