@@ -6,6 +6,8 @@ import { waitForHttpReady as waitForHttpReadyShared } from "@t3tools/shared/http
 import { cliReleaseDownloadBaseUrl } from "@t3tools/shared/cliRelease";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import {
+  LEGACY_STORAGE_MIGRATION_JOURNAL,
+  LEGACY_STORAGE_MIGRATION_MARKER,
   T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
   T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
 } from "@t3tools/shared/storagePaths";
@@ -535,10 +537,10 @@ fi
 exec "$T3_RUNTIME_DIR/t3" "$@"
 `;
 
-// Serve the remote's split layout if its t3 already keeps state there, else ~/.t3.
-// Server location variables and an inherited config file are always cleared: they
-// would hide a running server or replace server.json. The decision is recorded in
-// the state dir so pairing from a shell with another profile uses the same storage.
+// Serve the split layout if the remote's t3 keeps state there (not mid-migration) or
+// `t3 storage migrate` retired its ~/.t3; else ~/.t3. Server location variables and an
+// inherited config file are always cleared so they cannot hide a running server or
+// replace server.json. The state dir records the decision so pairing from any shell agrees.
 const T3_SELECTOR_NAMES = T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.join(" ");
 const REMOTE_STORAGE_FUNCTIONS = `t3_select_storage() {
   T3_SPLIT_STATE_DIR="\${T3CODE_STATE_DIR:-}"
@@ -553,7 +555,10 @@ const REMOTE_STORAGE_FUNCTIONS = `t3_select_storage() {
     fi
   fi
   T3_STORAGE="legacy"
-  if [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; then
+  if [ -e "$HOME/.t3/userdata/${LEGACY_STORAGE_MIGRATION_MARKER}" ] || {
+    { [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; } &&
+      [ ! -e "$HOME/.t3/userdata/${LEGACY_STORAGE_MIGRATION_JOURNAL}" ]
+  }; then
     T3_STORAGE="split"
   fi
   unset ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
@@ -592,6 +597,7 @@ t3_restore_storage() {
     esac
   done <"$STATE_DIR/storage"
 }`;
+
 const REMOTE_LAUNCH_SCRIPT = `set -eu
 ${REMOTE_STORAGE_FUNCTIONS}
 t3_select_storage
