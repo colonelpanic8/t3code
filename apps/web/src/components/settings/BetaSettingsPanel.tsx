@@ -45,6 +45,7 @@ export function BetaSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["sidebarWorkingShelfEnabled"]}
           {...searchableSetting("working-shelf")}
           description="Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you."
           resetAction={
