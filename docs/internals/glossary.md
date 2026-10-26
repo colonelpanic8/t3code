@@ -62,3 +62,10 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Attachment inventory | The ordered image records shown as thumbnails above the prose, including images with no inline references.                          |
 
 See [composer context references](./composer-context-references.md) for the contract and lifecycle.
+
+## Live voice
+
+| Term                | Meaning                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live voice call     | An ephemeral speech-to-speech session between a client and OpenAI, brokered by one server through a hidden Codex app-server session and owned by the client socket that started it.      |
+| Voice route request | A tool call sent by the hidden voice session through its owning client for execution against another connected environment. See [live voice](./live-voice.md) for the routing lifecycle. |
