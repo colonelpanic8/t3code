@@ -1915,14 +1915,18 @@ export function makeClaudeQueryOptions(input: {
       preset: "claude_code" as const,
       append: [
         ...(agentProfile?.instructions === undefined ? [] : [agentProfile.instructions]),
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
-          (input.mcpServers === undefined
-            ? ""
-            : T3_CODE_ORCHESTRATION_INSTRUCTIONS +
-              CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS +
-              (deviceInstructions
-                ? `\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH}\n`
-                : "")),
+        ...(agentProfile?.t3Context === false
+          ? []
+          : [
+              buildRuntimeInstructions({ harness: "Claude Code" }) +
+                (input.mcpServers === undefined
+                  ? ""
+                  : T3_CODE_ORCHESTRATION_INSTRUCTIONS +
+                    CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS +
+                    (deviceInstructions
+                      ? `\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH}\n`
+                      : "")),
+            ]),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -5077,7 +5081,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     if (adapterOptions.stateDir === undefined) {
       return yield* new AgentProfileError({
         profileId,
-        path: "",
         detail: "this Claude instance has no state directory for profiles",
       });
     }
