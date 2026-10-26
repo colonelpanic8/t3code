@@ -189,6 +189,7 @@ describe("DesktopSettings", () => {
       }),
     ),
   );
+
   it.effect("keeps legacy window state when persisting sparse desktop settings", () =>
     withSettings(
       Effect.gen(function* () {
@@ -196,14 +197,10 @@ describe("DesktopSettings", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
         yield* writeSettingsPatch({
-          mainWindowBounds: {
-            x: -1200,
-            y: 40,
-            width: 1440,
-            height: 960,
-          },
+          mainWindowBounds: { x: -1200, y: 40, width: 1440, height: 960 },
           mainWindowMaximized: true,
         });
+
         yield* settings.load;
         yield* settings.setServerExposureMode("network-accessible");
         const persisted = yield* decodeDesktopSettingsPatch(
