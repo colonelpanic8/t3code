@@ -223,6 +223,15 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  managedSettingsFile: Config.String("T3CODE_MANAGED_SETTINGS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  managedKeybindingsFile: Config.String("T3CODE_MANAGED_KEYBINDINGS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   managedAccessToken: Config.String("T3CODE_MANAGED_ACCESS_TOKEN").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -1029,6 +1038,8 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
   const desktopBootstrapSecret = bootstrap?.desktopBootstrapSecret;
   const shellEnvironmentPrepared = bootstrap?.shellEnvironmentPrepared;
+  const managedSettingsPath = env.managedSettingsFile?.trim() || undefined;
+  const managedKeybindingsPath = env.managedKeybindingsFile?.trim() || undefined;
   const managedAccessToken = yield* resolveManagedAccessToken(
     env.managedAccessToken,
     env.managedAccessTokenFile,
@@ -1190,6 +1201,8 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     desktopBrowserFd,
     desktopBrowserControlFd,
     resourceMonitorPath,
+    ...(managedSettingsPath === undefined ? {} : { managedSettingsPath }),
+    ...(managedKeybindingsPath === undefined ? {} : { managedKeybindingsPath }),
     autoBootstrapProjectFromCwd,
     logWebSocketEvents,
     tailscaleServeEnabled,
