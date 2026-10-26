@@ -53,6 +53,8 @@ export const materializeCodexProfileHome = Effect.fn("materializeCodexProfileHom
     const files = yield* makeAgentProfileFiles(input.profileId);
 
     yield* files.requireProfileRoot(input.profileRoot);
+    // Codex has no use for the manifest here, but a malformed one should still stop the thread.
+    yield* files.readManifest(input.profileRoot);
     if (path.resolve(input.baseHomePath) === path.resolve(input.profileHomePath)) {
       return yield* files.fail(
         "profile home must differ from the base Codex home",

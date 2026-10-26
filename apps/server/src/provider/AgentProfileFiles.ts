@@ -1,3 +1,4 @@
+import { AgentProfileId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -10,25 +11,69 @@ import { isNotSymlinkError } from "./Drivers/CodexHomeLayout.ts";
  * `skills/` at its root apply to every provider; `<provider>/` subdirectories
  * hold provider-specific entries, such as `codex/config.toml`.
  */
-export const agentProfilesDirectory = (path: Path.Path, stateDir: string) =>
+const agentProfilesDirectory = (path: Path.Path, stateDir: string) =>
   path.join(stateDir, "profiles");
 
 export const agentProfileRoot = (path: Path.Path, stateDir: string, profileId: string) =>
   path.join(agentProfilesDirectory(path, stateDir), profileId);
 
+const isAgentProfileId = Schema.is(AgentProfileId);
+
+/** Profile ids, in name order; missing or unreadable directories list nothing. */
+export const listAgentProfiles = Effect.fn("listAgentProfiles")(function* (stateDir: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const directory = agentProfilesDirectory(path, stateDir);
+  const entries = yield* fileSystem
+    .readDirectory(directory)
+    .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+  const profiles: Array<AgentProfileId> = [];
+  for (const entry of [...entries].sort()) {
+    if (!isAgentProfileId(entry)) continue;
+    const isDirectory = yield* fileSystem.stat(path.join(directory, entry)).pipe(
+      Effect.map((info) => info.type === "Directory"),
+      Effect.orElseSucceed(() => false),
+    );
+    if (isDirectory) profiles.push(entry);
+  }
+  return profiles;
+});
+
+/** Whether a profile keeps T3's runtime instructions and MCP tools. */
+export const agentProfileKeepsT3Context = Effect.fn("agentProfileKeepsT3Context")(function* (
+  stateDir: string,
+  profileId: string,
+) {
+  const path = yield* Path.Path;
+  const files = yield* makeAgentProfileFiles(profileId);
+  return (yield* files.readManifest(agentProfileRoot(path, stateDir, profileId))).t3Context;
+});
+
 export class AgentProfileError extends Schema.TaggedError<AgentProfileError>()(
   "AgentProfileError",
   {
     profileId: Schema.String,
-    path: Schema.String,
+    path: Schema.optional(Schema.String),
     detail: Schema.String,
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
-    return `Agent profile '${this.profileId}': ${this.detail} (${this.path}).`;
+    return `Agent profile '${this.profileId}': ${this.detail}${this.path === undefined ? "" : ` (${this.path})`}.`;
   }
 }
+
+/** Providers that apply agent profiles; others refuse profile threads. */
+export const AGENT_PROFILE_DRIVERS: ReadonlySet<string> = new Set(["codex", "claudeAgent"]);
+
+/**
+ * `profile.json` at a profile's root. `t3Context: false` also leaves out T3's
+ * runtime instructions and MCP tools, for a blank-slate thread.
+ */
+const AgentProfileManifest = Schema.Struct({ t3Context: Schema.optional(Schema.Boolean) });
+const decodeAgentProfileManifest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(AgentProfileManifest),
+);
 
 type LinkState =
   | { readonly _tag: "Missing" }
@@ -168,6 +213,17 @@ export const makeAgentProfileFiles = Effect.fn("makeAgentProfileFiles")(function
   const readText = (filePath: string) =>
     attempt(fileSystem.readFileString(filePath), "readFile", filePath);
 
+  const readManifest = Effect.fn("AgentProfileFiles.readManifest")(function* (profileRoot: string) {
+    const manifestPath = path.join(profileRoot, "profile.json");
+    if (!(yield* exists(manifestPath))) return { t3Context: true };
+    const manifest = yield* decodeAgentProfileManifest(yield* readText(manifestPath)).pipe(
+      Effect.mapError((cause) =>
+        fail("profile.json is not valid JSON of the expected shape", manifestPath, cause),
+      ),
+    );
+    return { t3Context: manifest.t3Context ?? true };
+  });
+
   return {
     fail,
     attempt,
@@ -179,5 +235,6 @@ export const makeAgentProfileFiles = Effect.fn("makeAgentProfileFiles")(function
     syncSkills,
     findFirst,
     readText,
+    readManifest,
   } as const;
 });

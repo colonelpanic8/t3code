@@ -363,6 +363,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
         },
         settings: { env: { OTHER: "profile" }, hooks: {} },
         memoryDirectory: "/state/providers/claude/profiles/focus/projects/-workspace/memory",
+        t3Context: true,
       },
     });
 
@@ -377,13 +378,35 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       hooks: {},
       autoMemoryDirectory: "/state/providers/claude/profiles/focus/projects/-workspace/memory",
     });
+    const systemPrompt = options.systemPrompt;
     assert.isTrue(
-      typeof options.systemPrompt === "object" &&
-        !Array.isArray(options.systemPrompt) &&
-        options.systemPrompt.append?.startsWith("Profile instructions.\n\n"),
+      typeof systemPrompt === "object" &&
+        !Array.isArray(systemPrompt) &&
+        systemPrompt.type === "preset" &&
+        systemPrompt.append?.startsWith("Profile instructions.\n\n") === true,
     );
-    assert.include(options.additionalDirectories, "/state/providers/claude/profiles/focus");
+    assert.include(options.additionalDirectories ?? [], "/state/providers/claude/profiles/focus");
     assert.isNull(options.extraArgs?.["no-chrome"]);
+
+    const blankSlate = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-agent-profile-blank",
+      resume: false,
+      cwd: "/workspace",
+      agentProfile: {
+        instructions: undefined,
+        directory: "/state/providers/claude/profiles/blank",
+        mcpServers: undefined,
+        settings: undefined,
+        memoryDirectory: "/state/providers/claude/profiles/blank/projects/-workspace/memory",
+        t3Context: false,
+      },
+    });
+    assert.deepEqual(blankSlate.systemPrompt, {
+      type: "preset",
+      preset: "claude_code",
+      append: "",
+    });
   });
 
   it("projects AskUserQuestion input with question text as the answer key", () => {

@@ -17,6 +17,8 @@ export interface ClaudeAgentProfile {
   readonly mcpServers: Readonly<Record<string, unknown>> | undefined;
   readonly settings: Readonly<Record<string, unknown>> | undefined;
   readonly memoryDirectory: string;
+  /** False leaves out T3's runtime instructions. */
+  readonly t3Context: boolean;
 }
 
 const decodeJsonObject = Schema.decodeUnknownEffect(
@@ -72,6 +74,7 @@ export const prepareClaudeAgentProfile = Effect.fn("prepareClaudeAgentProfile")(
   const mcpConfig = yield* readOptional([path.join(profileRoot, "claude", "mcp.json")]);
   const settings = yield* readOptional([path.join(profileRoot, "claude", "settings.json")]);
   return {
+    t3Context: (yield* files.readManifest(profileRoot)).t3Context,
     instructions: instructions?.text,
     directory,
     mcpServers:
