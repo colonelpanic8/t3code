@@ -87,6 +87,7 @@ export const keptStorageMessage = (input: {
     : "";
   return `${kept} To remove them too, move anything you want out of ${input.worktreesDir}, then delete ${home} entirely${others}; a later install keeps using anything left in it.`;
 };
+
 const planUninstall = Effect.fn("cli.uninstall.plan")(function* (input: {
   readonly baseDir: string;
   readonly layoutDirs: ReadonlyArray<string>;
