@@ -310,6 +310,29 @@ describe("CodexAdapterV2 native protocol logging", () => {
   );
 });
 
+describe("CodexAdapterV2 process spawning", () => {
+  it("skips AGENTS.md, skills, and memories for blank-slate threads", () => {
+    assert.deepEqual(
+      CodexAdapterV2.codexThreadRuntimeParams({
+        mcpSession: undefined,
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/workspace/blank",
+          blankSlate: true,
+        },
+      }).config,
+      {
+        "tools.update_plan.enabled": true,
+        mcp_optional_startup_grace_ms: 10_000,
+        project_doc_max_bytes: 0,
+        "skills.include_instructions": false,
+        "memories.use_memories": false,
+      },
+    );
+  });
+});
+
 describe("CodexAdapterV2 rollback mapping", () => {
   it.effect("derives native rollback count from durable provider turns", () =>
     Effect.gen(function* () {
