@@ -164,6 +164,7 @@ interface UsageBreakdownTableProps {
   readonly metric: "cost" | "tokens";
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   readonly timeZone: string;
+  readonly hour12: boolean;
   /** Providers whose figures are still coming in. */
   readonly loadingProviders: ReadonlySet<UsageProviderKind>;
   readonly onOpenModel: (row: UsagePivotRow & { readonly model: string }) => void;
@@ -195,6 +196,7 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
   metric,
   environmentLabels,
   timeZone,
+  hour12,
   loadingProviders,
   onOpenModel,
 }: UsageBreakdownTableProps) {
@@ -203,7 +205,7 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
   const table = layoutBreakdownTable(
     entries,
     view,
-    { environmentLabels, grouping, timeZone },
+    { environmentLabels, grouping, timeZone, hour12 },
     chartSeries,
   );
   const truncated = !showAllRows && table.rowCount > MAX_VISIBLE_ROWS;
@@ -246,89 +248,99 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
         </div>
       </div>
 
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-right text-xs text-muted-foreground">
-            <th className="w-full py-2 text-left font-normal">
-              {dimensions.length === 0
-                ? "Total"
-                : USAGE_DIMENSIONS.filter((dimension) => dimensions.includes(dimension))
-                    .map((dimension) =>
-                      dimension === "period"
-                        ? GROUPING_NAMES[grouping]
-                        : DIMENSION_NAMES[dimension],
-                    )
-                    .join(" · ")}
-            </th>
-            <th className="py-2 pl-6 font-normal">Cost</th>
-            <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
-            <th className="py-2 pl-6 font-normal">Tokens</th>
-          </tr>
-        </thead>
-        {groups.length === 0 ? (
-          <tbody>
-            <tr>
-              <td colSpan={4} className="py-6 text-center text-muted-foreground">
-                No activity in this window.
-              </td>
+      <div
+        className="overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        role="region"
+        aria-label="Usage breakdown"
+        tabIndex={0}
+      >
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-right text-xs text-muted-foreground">
+              <th className="w-full py-2 text-left font-normal">
+                {dimensions.length === 0
+                  ? "Total"
+                  : USAGE_DIMENSIONS.filter((dimension) => dimensions.includes(dimension))
+                      .map((dimension) =>
+                        dimension === "period"
+                          ? GROUPING_NAMES[grouping]
+                          : DIMENSION_NAMES[dimension],
+                      )
+                      .join(" · ")}
+              </th>
+              <th className="py-2 pl-6 font-normal">Cost</th>
+              <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
+              <th className="py-2 pl-6 font-normal">Tokens</th>
             </tr>
-          </tbody>
-        ) : (
-          groups.map((group) => (
-            <tbody key={group.key}>
-              {table.grouped ? (
-                <tr className="border-b border-border/50 text-right whitespace-nowrap text-foreground tabular-nums">
-                  <th scope="rowgroup" className="pt-4 pb-2 text-left font-medium">
-                    <BreakdownNameView name={group.heading} />
-                  </th>
-                  <UsageFigureCells
-                    totals={group}
-                    share={shareOf(group)}
-                    loading={group.rows.some(({ row }) => isRowLoading(row))}
-                    className="pt-4 pb-2 font-medium"
-                  />
-                </tr>
-              ) : null}
-              {group.rows.map(({ row, name }) => {
-                const model = row.model;
-                return (
-                  <tr
-                    key={row.key}
-                    className={cn(
-                      "relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors",
-                      model !== undefined && "hover:bg-muted/50 has-focus-visible:bg-muted/50",
-                    )}
-                  >
-                    <td
-                      className={cn("py-2.5 text-left whitespace-normal", table.grouped && "pl-3")}
-                    >
-                      {model === undefined ? (
-                        <BreakdownNameView name={name} />
-                      ) : (
-                        // The button's overlay makes the whole row open the model.
-                        // Focus shows as the row's hover fill, not a ring.
-                        <button
-                          type="button"
-                          onClick={() => onOpenModel({ ...row, model })}
-                          className="text-left outline-none after:absolute after:inset-0"
-                        >
-                          <BreakdownNameView name={name} />
-                        </button>
-                      )}
-                    </td>
+          </thead>
+          {groups.length === 0 ? (
+            <tbody>
+              <tr>
+                <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                  No activity in this window.
+                </td>
+              </tr>
+            </tbody>
+          ) : (
+            groups.map((group) => (
+              <tbody key={group.key}>
+                {table.grouped ? (
+                  <tr className="border-b border-border/50 text-right whitespace-nowrap text-foreground tabular-nums">
+                    <th scope="rowgroup" className="pt-4 pb-2 text-left font-medium">
+                      <BreakdownNameView name={group.heading} />
+                    </th>
                     <UsageFigureCells
-                      totals={row}
-                      share={shareOf(row)}
-                      loading={isRowLoading(row)}
-                      className="py-2.5"
+                      totals={group}
+                      share={shareOf(group)}
+                      loading={group.rows.some(({ row }) => isRowLoading(row))}
+                      className="pt-4 pb-2 font-medium"
                     />
                   </tr>
-                );
-              })}
-            </tbody>
-          ))
-        )}
-      </table>
+                ) : null}
+                {group.rows.map(({ row, name }) => {
+                  const model = row.model;
+                  return (
+                    <tr
+                      key={row.key}
+                      className={cn(
+                        "relative border-b border-border/50 text-right whitespace-nowrap text-muted-foreground tabular-nums transition-colors",
+                        model !== undefined && "hover:bg-muted/50 has-focus-visible:bg-muted/50",
+                      )}
+                    >
+                      <td
+                        className={cn(
+                          "py-2.5 text-left whitespace-normal",
+                          table.grouped && "pl-3",
+                        )}
+                      >
+                        {model === undefined ? (
+                          <BreakdownNameView name={name} />
+                        ) : (
+                          // The button's overlay makes the whole row open the model.
+                          // Focus shows as the row's hover fill, not a ring.
+                          <button
+                            type="button"
+                            onClick={() => onOpenModel({ ...row, model })}
+                            className="text-left outline-none after:absolute after:inset-0"
+                          >
+                            <BreakdownNameView name={name} />
+                          </button>
+                        )}
+                      </td>
+                      <UsageFigureCells
+                        totals={row}
+                        share={shareOf(row)}
+                        loading={isRowLoading(row)}
+                        className="py-2.5"
+                      />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            ))
+          )}
+        </table>
+      </div>
       {truncated ? (
         <div>
           <Button size="xs" variant="ghost-muted" onClick={() => setShowAllRows(true)}>
