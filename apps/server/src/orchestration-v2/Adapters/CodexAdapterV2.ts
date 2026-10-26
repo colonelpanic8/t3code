@@ -116,8 +116,8 @@ import {
   materializeCodexShadowHome,
   resolveCodexHomeLayout,
 } from "../../provider/Drivers/CodexHomeLayout.ts";
+import { agentProfileRoot } from "../../provider/AgentProfileFiles.ts";
 import {
-  agentProfileRoot,
   codexProfileHomePath,
   codexProfileThreadConfig,
   materializeCodexProfileHome,

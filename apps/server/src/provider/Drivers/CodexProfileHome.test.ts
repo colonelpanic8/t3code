@@ -5,11 +5,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
-import {
-  CodexProfileHomeError,
-  codexProfileThreadConfig,
-  materializeCodexProfileHome,
-} from "./CodexProfileHome.ts";
+import { AgentProfileError } from "../AgentProfileFiles.ts";
+import { codexProfileThreadConfig, materializeCodexProfileHome } from "./CodexProfileHome.ts";
 
 const makeTempDir = Effect.fn("CodexProfileHome.test.makeTempDir")(function* (prefix: string) {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -120,7 +117,7 @@ it.layer(NodeServices.layer)("CodexProfileHome", (it) => {
           profileRoot: path.join(homes.profileRoot, "missing"),
         }).pipe(Effect.flip);
 
-        expect(error).toBeInstanceOf(CodexProfileHomeError);
+        expect(error).toBeInstanceOf(AgentProfileError);
         expect(error.detail).toBe("profile directory not found");
       }),
     );
