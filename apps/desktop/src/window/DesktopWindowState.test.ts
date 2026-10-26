@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Tracer from "effect/Tracer";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -97,6 +98,40 @@ const withBaseDir = <A, E, R>(f: (baseDir: string) => Effect.Effect<A, E, R>) =>
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
 describe("DesktopWindowState", () => {
+  it.effect("records one bounds operation span with its input attributes", () =>
+    withBaseDir((baseDir) =>
+      Effect.gen(function* () {
+        const spans: Array<Tracer.Span> = [];
+        const tracer = Tracer.make({
+          span: (options) => {
+            const span = new Tracer.NativeSpan(options);
+            spans.push(span);
+            return span;
+          },
+        });
+        yield* Effect.gen(function* () {
+          const windowState = yield* DesktopWindowState.DesktopWindowState;
+          yield* windowState.setMainWindowBounds({ x: 10, y: 20, width: 900, height: 600 }, true);
+        }).pipe(
+          Effect.provide(layerWindowState(baseDir)),
+          Effect.provideService(Tracer.Tracer, tracer),
+        );
+        const operationSpans = spans.filter(
+          (span) => span.name === "desktop.windowState.setMainWindowBounds",
+        );
+        assert.lengthOf(operationSpans, 1);
+        assert.deepEqual(Object.fromEntries(operationSpans[0]!.attributes), {
+          x: 10,
+          y: 20,
+          width: 900,
+          height: 600,
+          isMaximized: true,
+        });
+        assert.equal(operationSpans[0]!.status._tag, "Ended");
+      }),
+    ),
+  );
+
   it.effect("moving the window leaves a symlinked desktop-settings.json untouched", () =>
     withBaseDir((baseDir) =>
       Effect.gen(function* () {
