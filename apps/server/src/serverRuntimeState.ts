@@ -120,4 +120,3 @@ export const isRespondingServerRuntime = Effect.fn("serverRuntimeState.isRespond
   Effect.orElseSucceed(() => false),
   Effect.provide(FetchHttpClient.layer),
 );
-
