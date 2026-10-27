@@ -6,6 +6,7 @@ import { LogBox } from "react-native";
 import { featureFlags } from "react-native-screens";
 
 import App from "./src/App";
+import { registerAssistantTask } from "./src/features/eva/register-assistant-task";
 
 // Enables iOS FormSheet sizing for nested native stacks in non-fitToContents sheets.
 featureFlags.experiment.synchronousScreenUpdatesEnabled = true;
@@ -14,4 +15,5 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
   LogBox.ignoreAllLogs();
 }
 
+registerAssistantTask();
 registerRootComponent(App);
