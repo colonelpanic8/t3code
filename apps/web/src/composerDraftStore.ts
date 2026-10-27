@@ -48,7 +48,9 @@ import * as Option from "effect/Option";
 import type {
   EnvironmentShellState,
   EnvironmentThreadShell,
+  ThreadStructure,
 } from "@t3tools/client-runtime/state/shell";
+import { deriveLatestThreadRun } from "@t3tools/client-runtime/state/thread-execution";
 import { waitForDraftHeroTransition } from "./components/chat/draftHeroTransition";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { readThreadPreviewState } from "./previewStateStore";
@@ -4372,12 +4374,16 @@ type DraftPromotionShell = Pick<EnvironmentThreadShell, "latestRun" | "latestUse
 export function resolveDraftPromotionNavigationTarget(input: {
   serverThreadRef: ScopedThreadRef | null;
   serverThread: DraftPromotionShell | null | undefined;
+  serverThreadProjection?: ThreadStructure | null | undefined;
   backgroundSubmissionPending: boolean;
 }): ScopedThreadRef | null {
   if (input.backgroundSubmissionPending) {
     return null;
   }
-  const latestRun = input.serverThread?.latestRun ?? null;
+  const latestRun =
+    (input.serverThreadProjection ? deriveLatestThreadRun(input.serverThreadProjection) : null) ??
+    input.serverThread?.latestRun ??
+    null;
   const runStarted = latestRun?.startedAt != null;
   const startupStopped =
     latestRun?.status === "failed" ||
@@ -4397,6 +4403,9 @@ export function subscribeDraftThreadPromotion(input: {
   readonly registry: AtomRegistry.AtomRegistry;
   readonly threadRefsAtom: Atom.Atom<ReadonlyArray<ScopedThreadRef>>;
   readonly threadShellAtom: (ref: ScopedThreadRef) => Atom.Atom<DraftPromotionShell | null>;
+  readonly threadDetailAtom: (
+    ref: ScopedThreadRef,
+  ) => Atom.Atom<{ readonly projection: ThreadStructure } | null>;
 }): () => void {
   // Only the promotion slices: prompt edits replace the store state on every keystroke.
   const promotionSlices = (state: ComposerDraftStoreState) => ({
@@ -4426,14 +4435,16 @@ export function subscribeDraftThreadPromotion(input: {
       const ref =
         draftThread.promotedTo ?? scopeThreadRef(draftThread.environmentId, draftThread.threadId);
       const threadKey = scopedThreadKey(ref);
-      if (!threadKeys.has(threadKey)) continue;
       if (!draftThread.promotedTo) {
-        arrived.push([DraftId.make(draftId), ref]);
+        if (threadKeys.has(threadKey)) arrived.push([DraftId.make(draftId), ref]);
         continue;
       }
+      // The shell stream can lag or miss a freshly bootstrapped thread, so a sent draft also
+      // promotes from its reserved detail stream.
       const target = resolveDraftPromotionNavigationTarget({
         serverThreadRef: ref,
-        serverThread: get(input.threadShellAtom(ref)),
+        serverThread: threadKeys.has(threadKey) ? get(input.threadShellAtom(ref)) : null,
+        serverThreadProjection: get(input.threadDetailAtom(ref))?.projection,
         backgroundSubmissionPending: state.backgroundSubmissionThreadKeys[threadKey] === true,
       });
       if (target) owned.push([DraftId.make(draftId), target]);
