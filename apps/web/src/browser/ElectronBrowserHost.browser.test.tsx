@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../test/render";
 
 const mocks = vi.hoisted(() => ({
+  getManagedClientSettings: async () => null,
   getClientSettings: vi.fn<() => Promise<ClientSettings | null>>(),
   setClientSettings: vi.fn<(settings: ClientSettings) => Promise<void>>(),
   createTab: vi.fn<DesktopPreviewBridge["createTab"]>(),
