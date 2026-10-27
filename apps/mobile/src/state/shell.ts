@@ -24,19 +24,33 @@ export const environmentShellSummaryAtom = createEnvironmentShellSummaryAtom({
 
 const EMPTY_ENVIRONMENT_SHELL_STATE_ATOM = Atom.make<EnvironmentShellState>(EMPTY_SHELL_STATE);
 
+const environmentShellStateAtom = (environmentId: EnvironmentId | null) =>
+  environmentId === null
+    ? EMPTY_ENVIRONMENT_SHELL_STATE_ATOM
+    : environmentShell.stateValueAtom(environmentId);
+
 const shellStatus = (state: EnvironmentShellState) => state.status;
 const shellHasError = (state: EnvironmentShellState) => Option.isSome(state.error);
 // The empty placeholder stands until the environment has read its cached shell.
 const shellCacheRead = (state: EnvironmentShellState) => state !== EMPTY_SHELL_STATE;
+const shellError = (state: EnvironmentShellState) => Option.getOrNull(state.error);
+const shellHasSnapshot = (state: EnvironmentShellState) => Option.isSome(state.snapshot);
 
 export function useEnvironmentShellReadiness(environmentId: EnvironmentId | null) {
-  const atom =
-    environmentId === null
-      ? EMPTY_ENVIRONMENT_SHELL_STATE_ATOM
-      : environmentShell.stateValueAtom(environmentId);
+  const atom = environmentShellStateAtom(environmentId);
   return {
     status: useAtomValue(atom, shellStatus),
     hasError: useAtomValue(atom, shellHasError),
     cacheRead: useAtomValue(atom, shellCacheRead),
+  };
+}
+
+/** Shell availability for one environment, without subscribing to snapshot contents. */
+export function useEnvironmentShellAvailability(environmentId: EnvironmentId | null) {
+  const atom = environmentShellStateAtom(environmentId);
+  return {
+    status: useAtomValue(atom, shellStatus),
+    error: useAtomValue(atom, shellError),
+    hasSnapshot: useAtomValue(atom, shellHasSnapshot),
   };
 }
