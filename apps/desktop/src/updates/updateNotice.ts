@@ -32,7 +32,7 @@ export function resolveDesktopUpdateNotice(
   return {
     _tag: "available",
     version: publishedCommit.slice(0, 8),
-    url: `https://github.com/${feed.repository}/compare/${feed.commit}...${publishedCommit}`,
+    url: `https://github.com/${feed.repository}/compare/${feed.commit}..${publishedCommit}`,
   };
 }
 
