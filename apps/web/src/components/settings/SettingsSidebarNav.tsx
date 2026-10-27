@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  ArrowLeftIcon,
   FlaskConicalIcon,
   BotIcon,
   createLucideIcon,
@@ -45,6 +46,7 @@ import {
   SidebarMenuItem,
   SidebarInput,
 } from "../ui/sidebar";
+import { useCloseAppModal } from "../sidebar/mainAppLocation";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
@@ -128,6 +130,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = validateSettingsScopeSearch(currentSearch);
   const activePath = SETTINGS_DETAIL_PAGE_PARENTS[pathname] ?? pathname;
+  const closeAppModal = useCloseAppModal();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   // Below md the nav is an icon rail; searching expands it over the page.
@@ -250,6 +253,17 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       <SidebarContent className="overflow-x-hidden">
         <SidebarGroup>
           <div className="flex flex-col gap-2">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => void closeAppModal()}>
+                  <ArrowLeftIcon />
+                  <span className={cn("truncate", !compactSearchOpen && "max-md:sr-only")}>
+                    Back
+                  </span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <div role="separator" className="h-px bg-sidebar-border/50" />
             <div
               className={cn(
                 "flex h-8 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
