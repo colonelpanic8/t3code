@@ -11,7 +11,7 @@ import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import { type ServerRuntimeStateVariant } from "@t3tools/shared/serverRuntimeState";
+import type { ServerRuntimeStateVariant } from "@t3tools/shared/serverRuntimeState";
 import {
   buildTailscaleHttpsBaseUrl,
   DEFAULT_TAILSCALE_SERVE_PORT,
