@@ -5,12 +5,14 @@ import { AutoSettleDaysField } from "./components/AutoSettleDaysField";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
+import { useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { AppText as Text } from "../../components/ui/AppText";
+import { evaExtension } from "../../native/eva-extension";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
@@ -214,6 +216,33 @@ function LegacySettingsSection() {
       <Text className="px-2 text-sm text-foreground-muted">
         Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan
         control; otherwise every task runs in Build mode.
+      </Text>
+    </View>
+  );
+}
+
+export function EvaSettingsSection() {
+  const [allowed, setAllowed] = useState(
+    () => evaExtension?.isAssistantAutomationAllowed() ?? null,
+  );
+  if (evaExtension === null || allowed === null) return null;
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title="EVA">
+        <SettingsSwitchRow
+          icon="mic"
+          label="Let EVA run threads"
+          value={allowed}
+          onValueChange={(value) => {
+            evaExtension?.setAssistantAutomationAllowed(value);
+            setAllowed(value);
+          }}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        The EVA assistant can start threads and send messages without opening T3 Code, even while
+        the phone is locked. Only the signed EVA app can use this.
       </Text>
     </View>
   );
