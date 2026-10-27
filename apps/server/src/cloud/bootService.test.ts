@@ -20,7 +20,13 @@ import {
   SERVICE_RESTART_PENDING_FILE,
   serviceStateHasPendingUpdate,
 } from "./serviceProtocol.ts";
-
+const linuxRuntime = "/home/theo/.t3/runtime/versions/1.2.3/t3";
+const linuxPlan = {
+  program: [linuxRuntime, "__service-launcher"],
+  baseDir: "/home/theo/.t3",
+  logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
+  unitPath: "/home/theo/.config/systemd/user/t3code.service",
+};
 it("reads the served T3 home back out of a rendered unit or plist", () => {
   const plan = (baseDir: string) => ({
     program: [`${baseDir}/runtime/versions/1.2.3/t3`, "__service-launcher"],
@@ -64,10 +70,41 @@ it.each([
     ),
   ).toBe(program);
 });
+it("keeps server location overrides from the user manager out of the unit", () => {
+  const unit = BootService.renderBootServiceUnit(linuxPlan);
+  expect(unit).toContain(
+    "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR\n",
+  );
+});
+const macRuntime = "/Users/theo/.t3/runtime/versions/1.2.3/t3";
+const macPlan = {
+  program: [macRuntime, "__service-launcher"],
+  baseDir: "/Users/theo/.t3",
+  logPath: "/Users/theo/.t3/userdata/logs/boot-service.log",
+  unitPath: "/Users/theo/Library/LaunchAgents/com.t3tools.t3code.service.plist",
+};
 
 const macInstallerPath =
   "/opt/homebrew/bin:/Users/theo/.npm-global/bin:/Users/theo/.nvm/versions/node/v22.16.0/bin:/usr/bin:/bin";
 
+const macRenderOptions = {
+  homeDir: "/Users/theo",
+  environmentPath: macInstallerPath,
+};
+it("blanks server location overrides from launchctl setenv in the launch agent", () => {
+  const plist = BootService.renderBootServicePlist(macPlan, macRenderOptions);
+  expect(plist).toContain(
+    [
+      "    <key>T3CODE_SERVER_CONFIG_DIR</key>",
+      "    <string></string>",
+      "    <key>T3CODE_SERVER_DATA_DIR</key>",
+      "    <string></string>",
+      "    <key>T3CODE_SERVER_CACHE_DIR</key>",
+      "    <string></string>",
+      "  </dict>",
+    ].join("\n"),
+  );
+});
 const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
   platform: NodeJS.Platform = "linux",
   installerPath = macInstallerPath,
