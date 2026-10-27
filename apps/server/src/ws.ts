@@ -1746,6 +1746,7 @@ export const layerWsRpc = (
         const settings = ServerSettings.redactServerSettingsForClient(
           yield* serverSettings.getSettings,
         );
+        const managedSettingPaths = yield* serverSettings.managedSettingPaths;
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
@@ -1811,6 +1812,7 @@ export const layerWsRpc = (
             ...(config.layout === "legacy" ? { legacyBaseDirectoryPath: config.baseDir } : {}),
           },
           settings,
+          ...(managedSettingPaths.length > 0 ? { managedSettingPaths } : {}),
           shellResumeCompletionMarker: true,
           shellThreadFamilies: true,
           shellOlderSettled: true,
