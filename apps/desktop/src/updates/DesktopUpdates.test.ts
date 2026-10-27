@@ -940,7 +940,7 @@ describe("DesktopUpdates", () => {
           assert.equal(result.state.status, "available");
           assert.equal(result.state.availableVersion, "bbbbbbbb");
           assert.deepEqual(result.state.manualUpdate, {
-            url: `https://github.com/owner/fork/compare/${RUNNING_COMMIT}...${PUBLISHED_COMMIT}`,
+            url: `https://github.com/owner/fork/compare/${RUNNING_COMMIT}..${PUBLISHED_COMMIT}`,
           });
           const [request] = harness.httpRequests;
           assert.equal(
