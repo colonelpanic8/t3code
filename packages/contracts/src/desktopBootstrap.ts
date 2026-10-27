@@ -15,6 +15,7 @@ export const DesktopBackendStorageRoots = Schema.Struct({
   runtimeDir: Schema.String,
 });
 export type DesktopBackendStorageRoots = typeof DesktopBackendStorageRoots.Type;
+
 export const DesktopBackendBootstrap = Schema.Struct({
   mode: Schema.Literal("desktop"),
   noBrowser: Schema.Boolean,
