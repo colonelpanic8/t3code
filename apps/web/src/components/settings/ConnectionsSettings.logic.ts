@@ -95,7 +95,7 @@ export function resolveLocalVersionStatusLabel(state: DesktopUpdateState | null)
     const version = getDesktopUpdateDownloadedVersion(state);
     return version ? `Update ${version} downloaded` : "Update downloaded";
   }
-  if (action === "download") {
+  if (action === "download" || action === "open") {
     return state.availableVersion
       ? `Update ${state.availableVersion} available`
       : "Update available";
