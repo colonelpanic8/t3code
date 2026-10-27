@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as PlatformError from "effect/PlatformError";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { HttpClient, type HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
@@ -35,6 +36,7 @@ export interface UpdatesHarnessOptions {
   readonly platform?: NodeJS.Platform;
   readonly packageType?: string | undefined;
   readonly installRecord?: string | undefined;
+  readonly httpResponse?: (request: HttpClientRequest.HttpClientRequest) => Response;
 }
 
 export function makeHarness(options: UpdatesHarnessOptions = {}) {
@@ -47,6 +49,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
   const sentStates: DesktopUpdateState[] = [];
   const installSteps: string[] = [];
+  const httpRequests: HttpClientRequest.HttpClientRequest[] = [];
 
   const addListener = (eventName: string, listener: (...args: readonly unknown[]) => void) => {
     const eventListeners = listeners.get(eventName) ?? new Set();
@@ -213,6 +216,17 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
         } satisfies DesktopAppSettings.DesktopAppSettings["Service"])
       : DesktopAppSettings.layer;
 
+  const layerHttpClient = Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((request) => {
+      httpRequests.push(request);
+      const respond = options.httpResponse;
+      return respond
+        ? Effect.sync(() => HttpClientResponse.fromWeb(request, respond(request)))
+        : Effect.die("unexpected HTTP request");
+    }),
+  );
+
   const updateRestartMarkers = new Set<string>();
   const installRecords = new Map<string, string>();
   let previousInstallRecord = options.installRecord;
@@ -251,6 +265,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   const layer = DesktopUpdates.layer.pipe(
     Layer.provide(layerFileSystem),
+    Layer.provide(layerHttpClient),
     Layer.provideMerge(layerUpdater),
     Layer.provideMerge(layerWindow),
     Layer.provideMerge(layerBackend),
@@ -285,6 +300,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
         0,
       ),
     sentStates,
+    httpRequests,
     emit: (eventName: string, payload?: unknown) => {
       for (const listener of listeners.get(eventName) ?? []) {
         listener(payload);
