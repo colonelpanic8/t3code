@@ -4,6 +4,7 @@ import {
   assetUrlStateFromResult,
   blockedAssetUrlState,
   EMPTY_ASSET_URL_ATOM,
+  projectFaviconResource,
   resolveAssetUrl,
 } from "@t3tools/client-runtime/state/assets";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -11,9 +12,10 @@ import { AssetResource, type AssetCreateUrlResult, EnvironmentId } from "@t3tool
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
 
-import { assetEnvironment } from "~/state/assets";
+import { assetEnvironment, assetUrlRevalidate } from "~/state/assets";
 import { useFilesystemReadAccess } from "~/state/filesystem";
 import { usePreparedConnection } from "~/state/session";
+import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 export { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
@@ -131,6 +133,29 @@ export function useAssetUrlRefresh(
     const result = await refresh({ environmentId, input: { resource } });
     if (result._tag === "Failure") throw squashAtomCommandFailure(result);
     return resolveAssetUrl(httpBaseUrl, result.value.relativeUrl);
+  };
+}
+
+/**
+ * Project icon URLs name the file the server found and a hash of its bytes, and the server caches
+ * that lookup. Revalidating first re-runs the lookup, so the shared query refresh that follows picks
+ * up an icon that was added, replaced, or moved, and a changed hash gets past every image cache.
+ */
+export function useProjectFaviconRefresh(project: {
+  readonly environmentId: EnvironmentId;
+  readonly workspaceRoot: string;
+  readonly faviconPath?: string | null | undefined;
+}): () => void {
+  const resource = projectFaviconResource(project.workspaceRoot, project.faviconPath);
+  const revalidate = useAtomCommand(assetUrlRevalidate, { reportFailure: false });
+  const refresh = useAssetUrlRefresh(project.environmentId, resource);
+  return () => {
+    void revalidate({
+      environmentId: project.environmentId,
+      input: { resource, revalidate: true },
+    })
+      .then(() => refresh())
+      .catch(() => {});
   };
 }
 
