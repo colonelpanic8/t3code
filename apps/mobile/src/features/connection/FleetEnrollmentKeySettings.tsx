@@ -24,7 +24,7 @@ export function FleetEnrollmentKeySettings() {
   const [recipient, setRecipient] = useState<AgeRecipient | null | undefined>(undefined);
   const [loadFailed, setLoadFailed] = useState(false);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- loads the stored key from secure storage on mount
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the stored key from secure storage on mount
   useEffect(() => {
     let active = true;
     void Effect.runPromise(Effect.result(loadEnrollmentIdentity())).then((result) => {

@@ -19,7 +19,7 @@ export function FleetEnrollmentKeyField(props: {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const mounted = useRef(true);
-  // oxlint-disable-next-line t3code/react-effect-budget -- an in-flight save must not set state after unmount
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- an in-flight save must not set state after unmount
   useEffect(() => {
     mounted.current = true;
     return () => {
