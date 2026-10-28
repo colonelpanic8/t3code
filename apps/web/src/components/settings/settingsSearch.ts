@@ -438,6 +438,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["beta boring sidebar folder rows multiline branch pull request details"],
   },
   {
+    id: "large-project-icons",
+    title: "Large project icons",
+    to: "/settings/general",
+    searchTerms: ["sidebar thread rows favicon size bigger"],
+  },
+  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/labs",
