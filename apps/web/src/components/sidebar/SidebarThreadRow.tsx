@@ -1,3 +1,4 @@
+import { useClientSettings } from "../../hooks/useSettings";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -629,6 +630,7 @@ function ThreadRenameInput(props: {
 }
 
 const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
+  const largeIcons = useClientSettings((s) => s.sidebarV2LargeIcons);
   const {
     isRenaming,
     onCancelRename,
@@ -1243,7 +1245,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   )}
                 >
                   {props.project ? (
-                    <ProjectFavicon project={props.project} className="size-4" />
+                    <ProjectFavicon
+                      project={props.project}
+                      className={largeIcons ? "size-6" : "size-4"}
+                    />
                   ) : null}
                 </span>
               )}
@@ -1422,7 +1427,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
               {props.project ? (
-                <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+                <ProjectFavicon
+                  project={props.project}
+                  className={largeIcons ? "size-6 shrink-0" : "size-4 shrink-0"}
+                />
               ) : null}
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
