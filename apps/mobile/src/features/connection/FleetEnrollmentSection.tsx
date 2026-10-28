@@ -77,7 +77,7 @@ export function FleetEnrollmentSection(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
-  // oxlint-disable-next-line t3code/react-effect-budget -- in-flight decrypts and joins must not set state after unmount
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- in-flight decrypts and joins must not set state after unmount
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -168,7 +168,7 @@ export function FleetEnrollmentSection(props: {
   // A request that arrives mid-action waits for it, then replaces whatever
   // file is open.
   const handledRequest = useRef<FleetFileRequest | null>(null);
-  // oxlint-disable-next-line t3code/react-effect-budget -- a link or scan from the route opens once no action is running
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a link or scan from the route opens once no action is running
   useEffect(() => {
     const request = props.request;
     if (request === null || request === handledRequest.current || busy) return;
