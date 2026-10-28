@@ -1,9 +1,13 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  scopedProjectKey as projectKey,
+  scopedThreadKey as threadKey,
+} from "@t3tools/client-runtime/environment";
 
 export function scopedProjectKey(environmentId: EnvironmentId, projectId: ProjectId): string {
-  return `${environmentId}:${projectId}`;
+  return projectKey({ environmentId, projectId });
 }
 
 export function scopedThreadKey(environmentId: EnvironmentId, threadId: ThreadId): string {
-  return `${environmentId}:${threadId}`;
+  return threadKey({ environmentId, threadId });
 }
