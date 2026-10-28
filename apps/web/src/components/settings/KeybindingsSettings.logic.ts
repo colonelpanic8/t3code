@@ -39,7 +39,7 @@ function compareCommands(
   );
 }
 
-export type KeybindingSource = "Default" | "Custom" | "Project";
+export type KeybindingSource = "Default" | "Custom" | "Project" | "Managed";
 
 export interface KeybindingRow {
   readonly id: string;
@@ -132,6 +132,9 @@ export function parseWhenExpressionDraft(
 }
 
 function sourceForBinding(binding: ResolvedKeybindingRule): KeybindingSource {
+  if (binding.managed) {
+    return "Managed";
+  }
   if (String(binding.command).startsWith("script.")) {
     return "Project";
   }

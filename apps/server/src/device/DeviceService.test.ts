@@ -41,7 +41,15 @@ const encodeBootError = Schema.encodeSync(Schema.fromJsonString(DeviceBootError)
 
 const fixture = Effect.fn("fixture")(function* (
   onBoot: Effect.Effect<void> = Effect.void,
-  bootError?: string | { error?: string; errors?: Array<{ message: string; error?: string }> },
+  bootError?:
+    | string
+    | {
+        error?: string;
+        errors?: Array<{
+          message: string;
+          error?: string;
+        }>;
+      },
   failListAfterShutdown = false,
   runtimeFailure?:
     | NodeRuntimeUnavailableError
@@ -203,6 +211,7 @@ const fixture = Effect.fn("fixture")(function* (
         start: Effect.void,
         ready: Effect.void,
         getSettings: Ref.get(settings),
+        managedSettingPaths: Effect.succeed([]),
         updateSettings: (patch) =>
           Ref.updateAndGet(settings, (current) => ({
             ...current,
@@ -645,10 +654,21 @@ it.effect.each(["shutdown", "close"] as const)(
             booted = false;
           } else if (path === "/api/devices/boot") booted = true;
           else throw new Error(`Unexpected hub path: ${path}`);
-          return HttpClientResponse.fromWeb(request, Response.json({ ok: true, id: deviceId }));
+          return HttpClientResponse.fromWeb(
+            request,
+            Response.json({
+              ok: true,
+              id: deviceId,
+            }),
+          );
         }),
       );
-      const run = () => Effect.succeed({ code: 0, stdout: "", stderr: "" });
+      const run = () =>
+        Effect.succeed({
+          code: 0,
+          stdout: "",
+          stderr: "",
+        });
       const ready: DeviceHost.DeviceHostReady = {
         nodePath: process.execPath,
         hub: { origin: "http://device.test" },
