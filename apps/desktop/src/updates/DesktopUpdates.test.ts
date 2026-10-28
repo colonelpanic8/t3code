@@ -7,6 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as References from "effect/References";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
@@ -744,6 +745,160 @@ describe("DesktopUpdates", () => {
       ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
     }),
   );
+
+  describe("update notice mode", () => {
+    const RUNNING_COMMIT = "a".repeat(40);
+    const PUBLISHED_COMMIT = "b".repeat(40);
+    const noticeEnv = {
+      T3CODE_UPDATE_NOTICE_REPOSITORY: "owner/fork",
+      T3CODE_UPDATE_NOTICE_BRANCH: "t3code/assembled",
+      T3CODE_UPDATE_NOTICE_COMMIT: RUNNING_COMMIT,
+    };
+    const publishing = (body: string, status = 200) =>
+      makeHarness({ env: noticeEnv, httpResponse: () => new Response(body, { status }) });
+
+    it.effect("announces a newer published build without touching electron-updater", () => {
+      const harness = publishing(`${PUBLISHED_COMMIT}\n`);
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          const result = yield* updates.check("menu");
+
+          assert.isTrue(result.checked);
+          assert.equal(result.state.status, "available");
+          assert.equal(result.state.availableVersion, "bbbbbbbb");
+          assert.deepEqual(result.state.manualUpdate, {
+            url: `https://github.com/owner/fork/compare/${RUNNING_COMMIT}..${PUBLISHED_COMMIT}`,
+          });
+          const [request] = harness.httpRequests;
+          assert.equal(
+            request?.url,
+            "https://api.github.com/repos/owner/fork/commits/t3code%2Fassembled",
+          );
+          assert.equal(request?.headers["accept"], "application/vnd.github.sha");
+          assert.equal(harness.checkCount(), 0);
+          assert.equal(harness.listenerCount(), 0);
+          assert.deepEqual(harness.feedUrls(), []);
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    });
+
+    it.effect("refuses to download or install a published build", () => {
+      const harness = publishing(PUBLISHED_COMMIT);
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          yield* updates.check("menu");
+
+          const download = yield* updates.download;
+          const install = yield* updates.install;
+          const prepared = yield* updates.installPrepared("bbbbbbbb");
+
+          assert.deepEqual(
+            [download.accepted, install.accepted, prepared.accepted],
+            [false, false, false],
+          );
+          assert.equal(prepared.state.status, "available");
+          assert.equal(harness.downloadCount(), 0);
+          assert.equal(harness.quitAndInstalls(), 0);
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    });
+
+    it.effect("reports up to date when the branch still points at the running build", () => {
+      const harness = publishing(RUNNING_COMMIT.toUpperCase());
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          const result = yield* updates.check("menu");
+
+          assert.equal(result.state.status, "up-to-date");
+          assert.isNull(result.state.availableVersion);
+          assert.deepEqual(result.state.manualUpdate, { url: null });
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    });
+
+    it.effect("turns a refused GitHub request into a check failure", () => {
+      const harness = publishing('{"message":"API rate limit exceeded"}', 403);
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          const result = yield* updates.check("menu");
+
+          assert.isTrue(result.checked);
+          assert.equal(result.state.status, "error");
+          assert.equal(result.state.errorContext, "check");
+          assert.equal(
+            result.state.message,
+            "Could not read the latest build published to owner/fork t3code/assembled.",
+          );
+          assert.deepEqual(result.state.manualUpdate, { url: null });
+          assert.equal(harness.httpRequests.length, 1);
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    });
+
+    it.effect("polls GitHub after the startup delay and then every 30 minutes", () => {
+      const harness = publishing(PUBLISHED_COMMIT);
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          const { changes } = yield* updates.subscribe;
+          const settled = yield* Queue.unbounded<string>();
+          yield* changes.pipe(
+            Stream.filter((state) => state.status !== "checking"),
+            Stream.runForEach((state) => Queue.offer(settled, state.status)),
+            Effect.forkScoped,
+          );
+
+          yield* TestClock.adjust("15 seconds");
+          assert.equal(yield* Queue.take(settled), "available");
+          assert.equal(harness.httpRequests.length, 1);
+
+          yield* TestClock.adjust("29 minutes");
+          assert.equal(harness.httpRequests.length, 1);
+
+          yield* TestClock.adjust("1 minute");
+          assert.equal(yield* Queue.take(settled), "available");
+          assert.equal(harness.httpRequests.length, 2);
+          assert.equal(harness.checkCount(), 0);
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    });
+
+    it.effect("keeps electron-updater when any notice setting is missing", () => {
+      const harness = makeHarness({
+        env: {
+          T3CODE_UPDATE_NOTICE_REPOSITORY: noticeEnv.T3CODE_UPDATE_NOTICE_REPOSITORY,
+          T3CODE_UPDATE_NOTICE_BRANCH: noticeEnv.T3CODE_UPDATE_NOTICE_BRANCH,
+        },
+      });
+
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          const result = yield* updates.check("menu");
+
+          assert.isTrue(result.checked);
+          assert.equal(harness.checkCount(), 1);
+          assert.isUndefined(result.state.manualUpdate);
+          assert.deepEqual(harness.httpRequests, []);
+        }),
+      ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+    });
+  });
 });
 
 describe("describeUpdateErrorCause", () => {
