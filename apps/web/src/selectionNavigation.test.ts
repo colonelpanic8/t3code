@@ -113,7 +113,7 @@ describe("selection navigation", () => {
 
   it.each([
     ["model", "data-chat-provider-model-picker", "combobox-list"],
-    ["runtime/access", "data-chat-runtime-mode-picker", "select-popup"],
+    ["permissions", "data-chat-runtime-mode-picker", "menu-popup"],
     ["effort and provider options", "data-chat-provider-traits-picker", "menu-popup"],
   ] as const)(
     "routes the first chord after a tooltip replaces the %s picker trigger slot",

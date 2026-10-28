@@ -23,7 +23,7 @@ const SURFACE_SLOT_BY_TRIGGER_SLOT: Readonly<Record<string, string>> = {
 const SURFACE_SLOT_BY_TRIGGER_MARKER: Readonly<Record<string, string>> = {
   "data-chat-provider-model-picker": "combobox-list",
   "data-chat-provider-traits-picker": "menu-popup",
-  "data-chat-runtime-mode-picker": "select-popup",
+  "data-chat-runtime-mode-picker": "menu-popup",
 };
 
 function resolveSelectionNavigationKey(event: KeyboardEvent): SelectionNavigationKey | null {
