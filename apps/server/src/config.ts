@@ -77,6 +77,7 @@ export interface SplitStorageRoots {
   readonly stateDir: string;
   readonly runtimeDir: string;
 }
+
 export interface DeriveServerPathsOptions extends ServerLocationOverrides {
   readonly baseDirIsExplicit?: boolean;
   readonly split?: SplitStorageRoots | undefined;

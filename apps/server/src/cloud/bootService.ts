@@ -83,6 +83,22 @@ export function bootServiceBaseDirOf(contents: string): string | undefined {
   );
 }
 
+/** Where this host's service manager keeps the unit, whether or not one is installed. */
+export function bootServiceUnitPath(input: {
+  readonly platform: NodeJS.Platform;
+  readonly homeDir: string;
+  readonly path: Pick<Path.Path, "join">;
+}): string | undefined {
+  if (input.homeDir === "") return undefined;
+  if (input.platform === "linux") {
+    return input.path.join(input.homeDir, ".config", "systemd", "user", BOOT_SERVICE_UNIT_FILE);
+  }
+  if (input.platform === "darwin") {
+    return input.path.join(input.homeDir, "Library", "LaunchAgents", BOOT_SERVICE_PLIST_FILE);
+  }
+  return undefined;
+}
+
 /** The executable an installed unit or plist starts: the launcher's runtime. */
 export function bootServiceProgramOf(contents: string): string | undefined {
   const systemd = /^ExecStart=("(?:\\.|[^"\\])*"|\S+)/m.exec(contents)?.[1];
