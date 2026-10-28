@@ -50,6 +50,9 @@ export const writeTriageSession = Effect.fn("triage.writeTriageSession")(functio
   readonly entry: TriageEntry;
   readonly server: string;
   readonly sourceClone?: TriageSourceClone | undefined;
+  /** Where the boot service and desktop app write logs, when location overrides moved `paths.logsDir`. */
+  readonly serviceLogsDir?: string | undefined;
+  readonly desktopLogsDir?: string | undefined;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -78,8 +81,14 @@ export const writeTriageSession = Effect.fn("triage.writeTriageSession")(functio
         dbPath: paths.dbPath,
         settingsPath: paths.settingsPath,
         logsDir: paths.logsDir,
-        serviceLogPath: path.join(paths.logsDir, BootService.BOOT_SERVICE_LOG_FILE),
-        desktopBackendLogGlob: path.join(paths.logsDir, "server-child*.log*"),
+        serviceLogPath: path.join(
+          input.serviceLogsDir ?? paths.logsDir,
+          BootService.BOOT_SERVICE_LOG_FILE,
+        ),
+        desktopBackendLogGlob: path.join(
+          input.desktopLogsDir ?? paths.logsDir,
+          "server-child*.log*",
+        ),
         serverTracePath: paths.serverTracePath,
         providerEventLogPath: paths.providerEventLogPath,
         terminalLogsDir: paths.terminalLogsDir,
