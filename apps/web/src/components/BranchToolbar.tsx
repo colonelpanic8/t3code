@@ -772,35 +772,10 @@ export const BranchToolbar = memo(function BranchToolbar({
         !contextStripVisible && "pointer-events-none invisible absolute inset-x-0 top-full",
       )}
     >
-      {showGitControls ? (
-        <div className="contents @3xl/composer-surface:hidden">
-          <RunContextSelector
-            forceNewWorktree={forceNewWorktree}
-            autoEnvironmentLabel={autoEnvironmentLabel}
-            onAutoEnvironment={onAutoEnvironment}
-            envLocked={envLocked}
-            envModeLocked={envModeLocked}
-            environmentId={environmentId}
-            availableEnvironments={availableEnvironments}
-            showEnvironmentPicker={showEnvironmentPicker}
-            showEnvironmentIndicator={showEnvironmentIndicator}
-            onEnvironmentChange={onEnvironmentChange}
-            effectiveEnvMode={effectiveEnvMode}
-            activeWorktreePath={activeWorktreePath}
-            onEnvModeChange={onEnvModeChange}
-            previousWorktreeLabel={previousWorktreeLabel}
-            previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
-            onUsePreviousWorktree={onUsePreviousWorktree}
-            addTargets={addTargets}
-            onAddToMachine={onAddToMachine}
-          />
-        </div>
-      ) : null}
       {showGitControls || showEnvironmentIndicator ? (
         <div
           className={cn(
-            "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
-            showGitControls ? "hidden @3xl/composer-surface:flex" : "flex",
+            "flex min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
             composerControlsHostRef ? "shrink" : "flex-1",
           )}
         >
