@@ -5,7 +5,7 @@ import type {
   RuntimeMode,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import { BotIcon, PencilRulerIcon } from "lucide-react";
+import { BotIcon, PencilRulerIcon, SquareDashedIcon } from "lucide-react";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
@@ -26,11 +26,64 @@ const supervisedRuntimeModeOption = {
   mode: "approval-required" as const,
   ...runtimeModeConfig["approval-required"],
 };
+const BLANK_SLATE_DESCRIPTION =
+  "Starts without T3's runtime instructions or tools. User and project context is disabled where the provider supports it; some provider context may remain.";
+
+const ComposerBlankSlateControl = memo(function ComposerBlankSlateControl(props: {
+  blankSlate: boolean;
+  size: "sm" | "xs";
+  /** Absent once the thread exists: the choice is fixed at creation. */
+  onToggleBlankSlate: (() => void) | undefined;
+}) {
+  if (!props.blankSlate && props.onToggleBlankSlate === undefined) return null;
+  const tooltip =
+    props.onToggleBlankSlate === undefined
+      ? `Blank slate thread. ${BLANK_SLATE_DESCRIPTION}`
+      : props.blankSlate
+        ? `Blank slate on. ${BLANK_SLATE_DESCRIPTION} Click to turn off.`
+        : `Start a blank slate thread. ${BLANK_SLATE_DESCRIPTION}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <ComposerControl
+            size={props.size}
+            className="shrink-0 whitespace-nowrap"
+            aria-pressed={props.blankSlate}
+            aria-disabled={props.onToggleBlankSlate === undefined || undefined}
+            type="button"
+            onClick={props.onToggleBlankSlate}
+            aria-label={tooltip}
+          />
+        }
+      >
+        <ComposerControlIcon
+          icon={SquareDashedIcon}
+          size={props.size}
+          className={props.blankSlate ? "text-current opacity-100" : undefined}
+        />
+        {props.blankSlate ? (
+          <span
+            data-composer-control-label
+            className={props.size === "xs" ? "sr-only" : "sr-only sm:not-sr-only"}
+          >
+            Blank slate
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-72">
+        {tooltip}
+      </TooltipPopup>
+    </Tooltip>
+  );
+});
+
 export const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   runtimeModeOptions: ReadonlyArray<RuntimeModeOption>;
+  blankSlate?: boolean;
   size?: "sm" | "xs";
   hidden?: boolean;
   /** How the permissions chip shows: hidden while the thread matches the user's default. */
@@ -39,6 +92,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
   emphasized?: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onToggleBlankSlate?: (() => void) | undefined;
 }) {
   const size = props.size ?? "sm";
   const accessDisplay = props.accessDisplay ?? "label";
@@ -151,6 +205,11 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
     <>
       {accessDisplay === "hidden" ? null : permissionsChip}
       {interactionModeToggle}
+      <ComposerBlankSlateControl
+        blankSlate={props.blankSlate === true}
+        size={size}
+        onToggleBlankSlate={props.onToggleBlankSlate}
+      />
     </>
   );
 });
