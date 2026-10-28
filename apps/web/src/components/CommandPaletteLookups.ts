@@ -9,7 +9,11 @@ import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useClientSettings } from "../hooks/useSettings";
 import { getProjectOrderKey } from "@t3tools/client-runtime/state/project-grouping";
 import { useProjects, useThreadShells } from "../state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
+import {
+  useEnvironments,
+  usePrimaryEnvironmentId,
+  appOwnsLocalEnvironment,
+} from "../state/environments";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sidebar.logic";
@@ -83,6 +87,7 @@ export function useSortedProjectGroups(environmentLabelById: ReadonlyMap<Environ
     projects: clientSettings.sidebarProjectSortOrder === "manual" ? orderedProjects : projects,
     settings: projectGroupingSettings,
     primaryEnvironmentId,
+    ownsLocalEnvironment: appOwnsLocalEnvironment(),
     resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
   });
   return sortLogicalProjectsForSidebar(
