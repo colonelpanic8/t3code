@@ -1,17 +1,30 @@
+import { DesktopBackendModeStateSchema } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopLifecycle from "../../app/DesktopLifecycle.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as IpcChannels from "../channels.ts";
 import { makeIpcMethod, makeSyncIpcMethod } from "../DesktopIpc.ts";
 
+// Reports whether this launch runs a local backend, which can differ from the
+// saved setting (see getBackendModeState).
 export const getLocalEnvironmentEnabled = makeSyncIpcMethod({
   channel: IpcChannels.GET_LOCAL_ENVIRONMENT_ENABLED_CHANNEL,
   result: Schema.Boolean,
   handler: Effect.fn("desktop.ipc.localEnvironment.getEnabled")(function* () {
-    const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
-    return (yield* appSettings.get).localEnvironmentEnabled;
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+    return yield* backendMode.localEnvironmentEnabled;
+  }),
+});
+
+export const getBackendModeState = makeSyncIpcMethod({
+  channel: IpcChannels.GET_BACKEND_MODE_STATE_CHANNEL,
+  result: DesktopBackendModeStateSchema,
+  handler: Effect.fn("desktop.ipc.localEnvironment.getBackendModeState")(function* () {
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+    return yield* backendMode.get;
   }),
 });
 
@@ -21,9 +34,16 @@ export const setLocalEnvironmentEnabled = makeIpcMethod({
   result: Schema.Void,
   handler: Effect.fn("desktop.ipc.localEnvironment.setEnabled")(function* (enabled) {
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
     const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+    const { source } = yield* backendMode.get;
     const change = yield* appSettings.setLocalEnvironmentEnabled(enabled);
-    if (change.changed) {
+    // A `--backend-mode` launch keeps its mode across relaunches, so the saved
+    // setting only applies to launches without it.
+    if (source === "cli") return;
+    // Turning it on while attached to an existing server retries starting our
+    // own backend, in case that server has since stopped.
+    if (change.changed || (enabled && source === "existing-server")) {
       yield* lifecycle.relaunch(`localEnvironmentEnabled=${enabled}`);
     }
   }),

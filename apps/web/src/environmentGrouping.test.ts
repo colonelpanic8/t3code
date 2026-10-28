@@ -61,6 +61,7 @@ describe("environment grouping", () => {
       projects: [local, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     };
     const filters = buildSidebarProjectSnapshots({ ...input, groupScratchProjects: true });
@@ -96,6 +97,7 @@ describe("environment grouping", () => {
         groupScratchProjects: true,
         settings,
         primaryEnvironmentId,
+        ownsLocalEnvironment: true,
         resolveEnvironmentLabel: () => null,
       });
       expect(
@@ -116,10 +118,34 @@ describe("environment grouping", () => {
       groupScratchProjects: true,
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
     const key = deriveLogicalProjectKeyFromSettings(ordinary, defaultGroupingSettings);
     expect(resolveSidebarProjectScopeKey({ groups, key, canClearMissingScope: true })).toBe(key);
+  });
+  it("marks every project remote for an app with no local backend of its own", () => {
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+    });
+    const [clientOnly] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      ownsLocalEnvironment: false,
+      resolveEnvironmentLabel: () => "remote",
+    });
+    expect(clientOnly?.environmentPresence).toBe("remote-only");
+    expect(clientOnly?.remoteEnvironmentLabels).toEqual(["remote"]);
+    const [managed] = buildSidebarProjectSnapshots({
+      projects: [remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId: null,
+      ownsLocalEnvironment: true,
+      resolveEnvironmentLabel: () => "remote",
+    });
+    expect(managed?.environmentPresence).toBe("local-only");
   });
 
   it("dedupes stale project rows with the same environment and workspace path", () => {
@@ -145,6 +171,7 @@ describe("environment grouping", () => {
       projects: [primary, duplicate, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: (environmentId) =>
         environmentId === remoteEnvironmentId ? "remote" : "primary",
     });
@@ -178,6 +205,7 @@ describe("environment grouping", () => {
       projects: [staleWithoutRepositoryIdentity, canonical, remote],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: (environmentId) =>
         environmentId === remoteEnvironmentId ? "remote" : "primary",
     });
@@ -206,6 +234,25 @@ describe("environment grouping", () => {
     });
     expect(pickerEntry?.isPreferred).toBe(true);
     expect(pickerEntry?.targetProject.id).toBe(canonical.id);
+  });
+  it("reports the remote environments backing a group's remote labels", () => {
+    const primary = makeProject({
+      repositoryIdentity,
+    });
+    const remote = makeProject({
+      id: ProjectId.make("project-remote"),
+      environmentId: remoteEnvironmentId,
+      repositoryIdentity,
+    });
+    const [group] = buildSidebarProjectSnapshots({
+      projects: [primary, remote],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      ownsLocalEnvironment: true,
+      resolveEnvironmentLabel: (environmentId) =>
+        environmentId === remoteEnvironmentId ? "ryzen-shine" : null,
+    });
+    expect(group?.remoteEnvironmentLabels).toEqual(["ryzen-shine"]);
   });
 
   it("keeps the current environment when available and falls back otherwise", () => {
@@ -251,6 +298,7 @@ describe("environment grouping", () => {
       ],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
 
