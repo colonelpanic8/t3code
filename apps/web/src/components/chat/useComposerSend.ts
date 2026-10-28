@@ -1258,6 +1258,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
+                      ...(activeThread.blankSlate === true ? { blankSlate: true } : {}),
                     },
                   }
                 : {}),

@@ -9,6 +9,8 @@ export function resolveComposerControlsOwnership(input: {
   /** The model has an effort (traits) menu, which then always holds Permissions. */
   readonly hasTraits: boolean;
   readonly planModeUiEnabled: boolean;
+  /** A blank slate toggle or indicator rides in the mode block. */
+  readonly blankSlateControl?: boolean;
   readonly collapsed: boolean;
   /** How many trailing blocks the width measurement moved into the overflow menu. */
   readonly measuredHiddenBlockCount: number;
@@ -21,7 +23,8 @@ export function resolveComposerControlsOwnership(input: {
       input.hasTraits
       ? ("hidden" as const)
       : ("icon" as const);
-  const showModeBlock = !(accessDisplay === "hidden" && !input.planModeUiEnabled);
+  const modeBlockHasToggles = input.planModeUiEnabled || input.blankSlateControl === true;
+  const showModeBlock = !(accessDisplay === "hidden" && !modeBlockHasToggles);
   const blockIds = [
     ...(input.hasTraits ? ["traits" as const] : []),
     ...(showModeBlock ? ["mode" as const] : []),
@@ -31,7 +34,7 @@ export function resolveComposerControlsOwnership(input: {
     hidden.includes(input.hasTraits ? "traits" : "mode");
   const overflowHasContent = (hidden: ReadonlyArray<string>) =>
     hidden.includes("traits") ||
-    (input.planModeUiEnabled && hidden.includes("mode")) ||
+    (modeBlockHasToggles && hidden.includes("mode")) ||
     overflowShowsPermissionsFor(hidden);
 
   let hiddenBlockCount = Math.min(input.measuredHiddenBlockCount, blockIds.length);
