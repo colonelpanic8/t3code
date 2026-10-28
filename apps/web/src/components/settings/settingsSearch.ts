@@ -432,6 +432,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["beta folders project tree legacy old classic sidebar"],
   },
   {
+    id: "large-project-icons",
+    title: "Large project icons",
+    to: "/settings/general",
+    searchTerms: ["sidebar thread rows favicon size bigger"],
+  },
+  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/labs",
