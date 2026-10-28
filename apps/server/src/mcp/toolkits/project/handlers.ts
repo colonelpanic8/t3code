@@ -195,6 +195,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 Effect.orElseSucceed(() => runtimeMode),
               )
             : runtimeMode;
+        const agentProfile = input.agentProfile ?? caller?.agentProfile;
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,
@@ -203,6 +204,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           modelSelection,
           runtimeMode: startedRuntimeMode,
           interactionMode,
+          ...(agentProfile === undefined ? {} : { agentProfile }),
           workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
           ...(input.message === undefined && attachments.length === 0
             ? {}

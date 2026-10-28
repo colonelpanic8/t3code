@@ -1,6 +1,6 @@
 /**
  * Where the permissions control lives, which blocks overflow, and which menu answers the
- * composer.mode shortcut. Blocks are ordered [traits, mode]; the last block overflows first.
+ * composer.mode shortcut. Blocks are ordered [traits, mode, profile]; the last block overflows first.
  * The rule: Permissions have exactly one visible home and composer.mode exactly one target.
  */
 export function resolveComposerControlsOwnership(input: {
@@ -9,6 +9,8 @@ export function resolveComposerControlsOwnership(input: {
   /** The model has an effort (traits) menu, which then always holds Permissions. */
   readonly hasTraits: boolean;
   readonly planModeUiEnabled: boolean;
+  /** The agent profile picker, which overflows as its own block. */
+  readonly hasProfile: boolean;
   readonly collapsed: boolean;
   /** How many trailing blocks the width measurement moved into the overflow menu. */
   readonly measuredHiddenBlockCount: number;
@@ -25,12 +27,14 @@ export function resolveComposerControlsOwnership(input: {
   const blockIds = [
     ...(input.hasTraits ? ["traits" as const] : []),
     ...(showModeBlock ? ["mode" as const] : []),
+    ...(input.hasProfile ? ["profile" as const] : []),
   ];
   const hiddenFor = (count: number) => blockIds.slice(blockIds.length - count);
   const overflowShowsPermissionsFor = (hidden: ReadonlyArray<string>) =>
     hidden.includes(input.hasTraits ? "traits" : "mode");
   const overflowHasContent = (hidden: ReadonlyArray<string>) =>
     hidden.includes("traits") ||
+    hidden.includes("profile") ||
     (input.planModeUiEnabled && hidden.includes("mode")) ||
     overflowShowsPermissionsFor(hidden);
 
@@ -46,6 +50,7 @@ export function resolveComposerControlsOwnership(input: {
   const hiddenBlockIds = hiddenFor(hiddenBlockCount);
   const modeHidden = hiddenBlockIds.includes("mode");
   const traitsHidden = hiddenBlockIds.includes("traits");
+  const profileHidden = hiddenBlockIds.includes("profile");
   return {
     accessDisplay,
     showModeBlock,
@@ -53,6 +58,7 @@ export function resolveComposerControlsOwnership(input: {
     hiddenBlockIds,
     traitsHidden,
     modeHidden,
+    profileHidden,
     /**
      * The effort chip answers composer.mode while the chip is hidden or overflowed, until the
      * effort chip overflows too; then the overflow menu (which holds Permissions) answers it.
