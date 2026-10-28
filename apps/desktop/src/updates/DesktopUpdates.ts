@@ -23,6 +23,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
+import { HttpClient } from "effect/http";
 
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
@@ -35,6 +36,7 @@ import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
 import { resolveDefaultDesktopUpdateChannel } from "./updateChannels.ts";
+import { fetchPublishedCommit, resolveDesktopUpdateNotice } from "./updateNotice.ts";
 import {
   createInitialDesktopUpdateState,
   reduceDesktopUpdateStateOnCheckFailure,
@@ -51,6 +53,8 @@ import {
 
 const AUTO_UPDATE_STARTUP_DELAY = "15 seconds";
 const AUTO_UPDATE_POLL_INTERVAL = "4 minutes";
+// Unauthenticated GitHub API calls share 60 requests per hour across every machine on one IP.
+const UPDATE_NOTICE_POLL_INTERVAL = "30 minutes";
 const PREPARED_INSTALL_CHECK_WAIT = Duration.seconds(90);
 
 type UpdateAction = "check" | "download" | "install" | "install-recovery" | "channel";
@@ -341,6 +345,7 @@ export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const httpClient = yield* HttpClient.HttpClient;
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
   const activeUpdateActionRef = yield* Ref.make<Option.Option<UpdateAction>>(Option.none());
@@ -410,6 +415,7 @@ export const make = Effect.gen(function* () {
   );
 
   const resolveDisabledReason = Effect.gen(function* () {
+    if (Option.isSome(config.updateNoticeFeed)) return Option.none<string>();
     const hasFeedConfig = yield* hasUpdateFeedConfig;
     return Option.fromNullishOr(
       getAutoUpdateDisabledReason({
@@ -632,6 +638,7 @@ export const make = Effect.gen(function* () {
           onNone: () => ({}),
           onSome: (version) => ({ notAppliedVersion: version }),
         }),
+        ...(Option.isSome(config.updateNoticeFeed) ? { manualUpdate: { url: null } } : {}),
       })),
     );
 
@@ -808,9 +815,66 @@ export const make = Effect.gen(function* () {
     };
   });
 
-  const startUpdatePollers: Effect.Effect<void, never, Scope.Scope> = Effect.gen(function* () {
+  const checkUpdateNotice = Effect.fn("desktop.updates.checkUpdateNotice")(function* (
+    feed: DesktopConfig.DesktopUpdateNoticeFeed,
+    reason: string,
+  ) {
+    yield* Effect.annotateCurrentSpan({ reason });
+    if (yield* Ref.get(desktopState.quitting)) return false;
+    if (!(yield* tryStartUpdateAction("check"))) return false;
+
+    const state = yield* Ref.get(updateStateRef);
+    return yield* Effect.gen(function* () {
+      yield* setState({
+        ...reduceDesktopUpdateStateOnCheckStart(state, yield* currentIsoTimestamp),
+        manualUpdate: { url: null },
+      });
+      yield* logUpdaterInfo("checking for a newer published build", { reason });
+      const notice = yield* fetchPublishedCommit(feed).pipe(
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.map((publishedCommit) => resolveDesktopUpdateNotice(feed, publishedCommit)),
+      );
+      const checkedAt = yield* currentIsoTimestamp;
+      yield* updateState((current) =>
+        notice._tag === "available"
+          ? {
+              ...reduceDesktopUpdateStateOnUpdateAvailable(current, notice.version, checkedAt),
+              manualUpdate: { url: notice.url },
+            }
+          : reduceDesktopUpdateStateOnNoUpdate(current, checkedAt),
+      );
+      yield* logUpdaterInfo(
+        notice._tag === "available" ? "newer build published" : "no newer build published",
+        notice._tag === "available" ? { version: notice.version } : {},
+      );
+      return true;
+    }).pipe(
+      Effect.catchTags({
+        DesktopUpdateNoticeCheckError: Effect.fn("desktop.updates.handleUpdateNoticeFailure")(
+          function* (error) {
+            const failedAt = yield* currentIsoTimestamp;
+            yield* updateState((current) =>
+              reduceDesktopUpdateStateOnCheckFailure(current, error.message, failedAt),
+            );
+            yield* logUpdaterError(error.message, {
+              errorTag: error._tag,
+              cause: describeUpdateErrorCause(error.cause),
+            });
+            return true;
+          },
+        ),
+      }),
+      Effect.onInterrupt(() => setState(state)),
+      Effect.ensuring(finishUpdateAction("check")),
+    );
+  });
+
+  const startUpdatePollers = Effect.fn("desktop.updates.startPollers")(function* (
+    check: (reason: string) => Effect.Effect<boolean>,
+    pollInterval: Duration.Input,
+  ) {
     yield* Effect.sleep(AUTO_UPDATE_STARTUP_DELAY).pipe(
-      Effect.andThen(checkForUpdates("startup")),
+      Effect.andThen(check("startup")),
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.void;
@@ -824,8 +888,8 @@ export const make = Effect.gen(function* () {
       }),
       Effect.forkScoped,
     );
-    yield* Effect.sleep(AUTO_UPDATE_POLL_INTERVAL).pipe(
-      Effect.andThen(checkForUpdates("poll")),
+    yield* Effect.sleep(pollInterval).pipe(
+      Effect.andThen(check("poll")),
       Effect.forever,
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
@@ -840,7 +904,7 @@ export const make = Effect.gen(function* () {
       }),
       Effect.forkScoped,
     );
-  }).pipe(Effect.withSpan("desktop.updates.startPollers"));
+  });
 
   const handleUpdateAvailable = Effect.fn("desktop.updates.handleUpdateAvailable")(function* (
     raw: unknown,
@@ -1025,6 +1089,21 @@ export const make = Effect.gen(function* () {
         void Effect.runPromiseWith(context)(effect);
       };
 
+      if (Option.isSome(config.updateNoticeFeed)) {
+        const feed = config.updateNoticeFeed.value;
+        const settings = yield* desktopSettings.get;
+        yield* setState(yield* baseUpdateState(settings.updateChannel, Option.none()));
+        yield* logUpdaterInfo("electron-updater is off; checking a git branch for newer builds", {
+          repository: feed.repository,
+          branch: feed.branch,
+        });
+        yield* startUpdatePollers(
+          (reason) => checkUpdateNotice(feed, reason),
+          UPDATE_NOTICE_POLL_INTERVAL,
+        );
+        return;
+      }
+
       const appUpdateYmlConfig = yield* readAppUpdateYml;
       yield* Ref.set(appUpdateYmlConfigRef, appUpdateYmlConfig);
 
@@ -1088,7 +1167,7 @@ export const make = Effect.gen(function* () {
         runEffect(handleUpdateDownloaded(info));
       });
 
-      yield* startUpdatePollers;
+      yield* startUpdatePollers(checkForUpdates, AUTO_UPDATE_POLL_INTERVAL);
     }).pipe(Effect.withSpan("desktop.updates.configure")),
     setChannel: Effect.fn("desktop.updates.setChannel")(function* (
       nextChannel: DesktopUpdateChannel,
@@ -1134,6 +1213,12 @@ export const make = Effect.gen(function* () {
     }),
     check: Effect.fn("desktop.updates.check")(function* (reason: string) {
       yield* Effect.annotateCurrentSpan({ reason });
+      if (Option.isSome(config.updateNoticeFeed)) {
+        return {
+          checked: yield* checkUpdateNotice(config.updateNoticeFeed.value, reason),
+          state: yield* Ref.get(updateStateRef),
+        };
+      }
       if (!(yield* Ref.get(updaterConfiguredRef))) {
         return {
           checked: false,
