@@ -54,6 +54,17 @@ describe("resolveComposerControlsOwnership", () => {
     expect(result.effortOwnsModeShortcut).toBe(true);
   });
 
+  it("keeps the blank slate toggle's mode block at the default and overflows it alone", () => {
+    const result = resolveComposerControlsOwnership({
+      ...base,
+      blankSlateControl: true,
+      measuredHiddenBlockCount: 1,
+    });
+    expect(result.showModeBlock).toBe(true);
+    expect(result.hiddenBlockIds).toEqual(["mode"]);
+    expect(result.effortOwnsModeShortcut).toBe(true);
+  });
+
   it("overflows only the chip when the Plan toggle gives the overflow menu content", () => {
     const result = resolveComposerControlsOwnership({
       ...base,
