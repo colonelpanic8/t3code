@@ -25,7 +25,11 @@ import {
   projectGroupsSpanEnvironments,
 } from "~/sidebarProjectGrouping";
 import { useProjects, useThreadShells } from "~/state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
+import {
+  appOwnsLocalEnvironment,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "~/state/environments";
 import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
@@ -96,6 +100,7 @@ export function DraftHeroHeadline({
       projects,
       settings: projectGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: appOwnsLocalEnvironment(),
       resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
     }),
     threads,
