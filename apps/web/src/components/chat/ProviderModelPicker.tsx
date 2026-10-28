@@ -192,6 +192,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             }
             size={size}
             data-chat-provider-model-picker="true"
+            data-composer-shortcut={props.isComposerOwned ? "modelPicker.toggle" : undefined}
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
               props.compact
