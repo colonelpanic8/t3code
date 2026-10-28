@@ -51,7 +51,7 @@ import { installChatRouteCommands } from "./shortcuts/chatRouteCommands";
 import { startWorkspaceFocus } from "./lib/workspaceFocus";
 import { installCommandPaletteCommands } from "./shortcuts/commandPaletteCommands";
 import { registerOpenFavoriteEditorCommand } from "./components/chat/OpenInPickerShortcut";
-import { environmentThreadShells } from "./state/threads";
+import { environmentThreadDetails, environmentThreadShells } from "./state/threads";
 import { resolveThreadRouteTarget } from "./threadRoutes";
 
 /** Writes appearance settings onto the document, touching only the groups that changed. */
@@ -184,6 +184,7 @@ export function startAppServices(): AppRouter {
     registry: appAtomRegistry,
     threadShellAtom: environmentThreadShells.quietThreadShellAtom,
     threadRefsAtom: environmentThreadShells.threadRefsAtom,
+    threadDetailAtom: environmentThreadDetails.quietThreadAtom,
   });
   subscribeComposerDraftModelReconciliation({
     registry: appAtomRegistry,
