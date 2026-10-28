@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Each variant gets its own authority so variants install side by side. -->
+    <provider
+      android:name="expo.modules.t3evaextension.AssistantContentProvider"
+      android:authorities="${applicationId}.assistant"
+      android:exported="true"
+      android:grantUriPermissions="false" />
+    <!-- EVA discovers installed extensions by this action and protocol version. -->
+    <service
+      android:name="expo.modules.t3evaextension.EvaExtensionService"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="com.colonelpanic.eva.action.EXTENSION" />
+      </intent-filter>
+      <meta-data android:name="com.colonelpanic.eva.extension.version" android:value="1" />
+    </service>
+  </application>
+</manifest>
