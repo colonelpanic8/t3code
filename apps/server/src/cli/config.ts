@@ -22,6 +22,7 @@ import { Argument, Flag } from "effect/cli";
 import * as CliError from "effect/cli/CliError";
 
 import { readBootstrapEnvelope } from "../bootstrap.ts";
+import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath, resolveBaseDir } from "../os-jank.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -42,6 +43,24 @@ const hostFlag = Flag.String("host").pipe(
 export const baseDirFlag = Flag.String("base-dir").pipe(
   Flag.withDescription(
     "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
+  ),
+  Flag.optional,
+);
+const serverConfigDirFlag = Flag.String("server-config-dir").pipe(
+  Flag.withDescription(
+    "Directory for settings.json, keybindings.json, and themes (equivalent to T3CODE_SERVER_CONFIG_DIR). Defaults to the base dir's state directory.",
+  ),
+  Flag.optional,
+);
+const serverDataDirFlag = Flag.String("server-data-dir").pipe(
+  Flag.withDescription(
+    "Directory for the database, secrets, attachments, logs, and worktrees (equivalent to T3CODE_SERVER_DATA_DIR). Defaults to the base dir's state directory, with worktrees beside it.",
+  ),
+  Flag.optional,
+);
+const serverCacheDirFlag = Flag.String("server-cache-dir").pipe(
+  Flag.withDescription(
+    "Directory for provider status caches (equivalent to T3CODE_SERVER_CACHE_DIR). Defaults to the base dir's caches directory.",
   ),
   Flag.optional,
 );
@@ -84,7 +103,6 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.optional,
 );
 
-// Trace file location, shared by the server and `t3 trace summary`.
 export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
   Config.option,
   Config.map(Option.getOrUndefined),
@@ -129,7 +147,6 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -186,11 +203,81 @@ const DevAuthTokenConfig = Config.Redacted("T3CODE_DEV_AUTH_TOKEN").pipe(
   Config.map(Option.getOrUndefined),
 );
 
-export interface CliServerFlags {
+const nonEmptyEnv = (name: string) =>
+  Config.String(name).pipe(
+    Config.option,
+    Config.map(Option.filter((value) => value.trim().length > 0)),
+  );
+
+const ServerLocationEnv = Config.all({
+  t3Home: Config.String("T3CODE_HOME").pipe(Config.option),
+  serverConfigDir: nonEmptyEnv("T3CODE_SERVER_CONFIG_DIR"),
+  serverDataDir: nonEmptyEnv("T3CODE_SERVER_DATA_DIR"),
+  serverCacheDir: nonEmptyEnv("T3CODE_SERVER_CACHE_DIR"),
+});
+
+/** Where the server keeps its files. Each value is a flag that wins over its env var. */
+export interface CliServerLocationFlags {
+  readonly baseDir: Option.Option<string>;
+  readonly serverConfigDir?: Option.Option<string>;
+  readonly serverDataDir?: Option.Option<string>;
+  readonly serverCacheDir?: Option.Option<string>;
+}
+
+const resolveLocationOverride = Effect.fn(function* (
+  flag: Option.Option<string> | undefined,
+  env: Option.Option<string>,
+) {
+  const raw = Option.orElse(
+    Option.filter(flag ?? Option.none(), (value) => value.trim().length > 0),
+    () => env,
+  );
+  if (Option.isNone(raw)) return undefined;
+  const path = yield* Path.Path;
+  return path.resolve(yield* expandHomePath(raw.value.trim()));
+});
+
+/** The config, data, and cache overrides from flags, then env. */
+export const resolveServerLocationOverrides = Effect.fn(function* (flags: CliServerLocationFlags) {
+  const env = yield* ServerLocationEnv;
+  return {
+    configDir: yield* resolveLocationOverride(flags.serverConfigDir, env.serverConfigDir),
+    dataDir: yield* resolveLocationOverride(flags.serverDataDir, env.serverDataDir),
+    cacheDir: yield* resolveLocationOverride(flags.serverCacheDir, env.serverCacheDir),
+  } satisfies ServerConfig.ServerLocationOverrides;
+});
+
+/**
+ * Base dir is flag, then T3CODE_HOME, then `fallbackBaseDir`, then `~/.t3`.
+ * Every command touching server files resolves here so the CLI and server agree.
+ * `ignoreLocationOverrides` derives paths from the base dir alone, as the
+ * background service records only the base dir.
+ */
+export const resolveServerLocations = Effect.fn(function* (
+  flags: CliServerLocationFlags,
+  options: {
+    readonly devUrl: URL | undefined;
+    readonly fallbackBaseDir?: string | undefined;
+    readonly ignoreLocationOverrides?: boolean | undefined;
+  },
+) {
+  const env = yield* ServerLocationEnv;
+  const explicitBaseDir = Option.orElse(flags.baseDir, () => env.t3Home).pipe(
+    Option.filter((value) => value.trim().length > 0),
+  );
+  const baseDir = yield* resolveBaseDir(
+    Option.getOrUndefined(explicitBaseDir) ?? options.fallbackBaseDir,
+  );
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, options.devUrl, {
+    baseDirIsExplicit: Option.isSome(explicitBaseDir),
+    ...(options.ignoreLocationOverrides ? {} : yield* resolveServerLocationOverrides(flags)),
+  });
+  return { baseDir, derivedPaths };
+});
+export interface CliServerFlags extends CliServerLocationFlags {
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
-  readonly baseDir: Option.Option<string>;
   readonly cwd: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
   readonly noBrowser: Option.Option<boolean>;
@@ -201,17 +288,27 @@ export interface CliServerFlags {
   readonly tailscaleServePort: Option.Option<number>;
 }
 
-export interface CliAuthLocationFlags {
-  readonly baseDir: Option.Option<string>;
+export interface CliAuthLocationFlags extends CliServerLocationFlags {
   readonly devUrl?: Option.Option<URL>;
 }
 
-export const authLocationFlags = {
+export const serverLocationFlags = {
   baseDir: baseDirFlag,
-  devUrl: devUrlFlag,
+  serverConfigDir: serverConfigDirFlag,
+  serverDataDir: serverDataDirFlag,
+  serverCacheDir: serverCacheDirFlag,
 } as const;
 
-export const projectLocationFlags = {
+export const authLocationFlags = {
+  ...serverLocationFlags,
+  devUrl: devUrlFlag,
+} as const;
+/**
+ * Commands that manage the install (service, update, uninstall) record only
+ * the base dir, so they take no server location overrides.
+ */
+
+export const installLocationFlags = {
   baseDir: baseDirFlag,
 } as const;
 
@@ -219,7 +316,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
-  baseDir: baseDirFlag,
+  ...serverLocationFlags,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
       "Working directory for provider sessions (defaults to the current directory).",
@@ -250,7 +347,7 @@ const loadPersistedObservabilitySettings = Effect.fn(function* (settingsPath: st
   return parsePersistedServerObservabilitySettings(raw);
 });
 
-export const resolveServerConfig = (
+export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(function* (
   flags: CliServerFlags,
   cliLogLevel: Option.Option<LogLevel.LogLevel>,
   options?: {
@@ -258,231 +355,252 @@ export const resolveServerConfig = (
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
   },
-) =>
-  Effect.gen(function* () {
-    const { findAvailablePort } = yield* NetService.NetService;
-    const path = yield* Path.Path;
-    const fs = yield* FileSystem.FileSystem;
-    const env = yield* EnvServerConfig;
-    const normalizedFlags = {
-      mode: flags.mode ?? Option.none(),
-      port: flags.port ?? Option.none(),
-      host: flags.host ?? Option.none(),
-      baseDir: flags.baseDir ?? Option.none(),
-      cwd: flags.cwd ?? Option.none(),
-      devUrl: flags.devUrl ?? Option.none(),
-      noBrowser: flags.noBrowser ?? Option.none(),
-      bootstrapFd: flags.bootstrapFd ?? Option.none(),
-      autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
-      logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
-      tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
-      tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
-    } satisfies CliServerFlags;
-    const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
-    const bootstrapEnvelope =
-      bootstrapFd !== undefined
-        ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
-        : Option.none();
-    const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
+) {
+  const { findAvailablePort } = yield* NetService.NetService;
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const env = yield* EnvServerConfig;
+  const normalizedFlags = {
+    mode: flags.mode ?? Option.none(),
+    port: flags.port ?? Option.none(),
+    host: flags.host ?? Option.none(),
+    baseDir: flags.baseDir ?? Option.none(),
+    serverConfigDir: flags.serverConfigDir ?? Option.none(),
+    serverDataDir: flags.serverDataDir ?? Option.none(),
+    serverCacheDir: flags.serverCacheDir ?? Option.none(),
+    cwd: flags.cwd ?? Option.none(),
+    devUrl: flags.devUrl ?? Option.none(),
+    noBrowser: flags.noBrowser ?? Option.none(),
+    bootstrapFd: flags.bootstrapFd ?? Option.none(),
+    autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
+    logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
+    tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
+    tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
+  } satisfies CliServerFlags;
+  const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
+  const bootstrapEnvelope =
+    bootstrapFd !== undefined
+      ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
+      : Option.none();
+  const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
 
-    const mode: ServerConfig.RuntimeMode = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.mode,
-        Option.fromUndefinedOr(env.mode),
-        Option.fromUndefinedOr(bootstrap?.mode),
-      ),
-      () => "web",
-    );
+  const mode: ServerConfig.RuntimeMode = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.mode,
+      Option.fromUndefinedOr(env.mode),
+      Option.fromUndefinedOr(bootstrap?.mode),
+    ),
+    () => "web",
+  );
 
-    const port = yield* Option.match(
-      resolveOptionPrecedence(
-        normalizedFlags.port,
-        Option.fromUndefinedOr(env.port),
-        Option.fromUndefinedOr(bootstrap?.port),
-      ),
-      {
-        onSome: (value) => Effect.succeed(value),
-        onNone: () => {
-          if (mode === "desktop") {
-            return Effect.succeed(ServerConfig.DEFAULT_PORT);
-          }
-          return findAvailablePort(ServerConfig.DEFAULT_PORT);
-        },
+  const port = yield* Option.match(
+    resolveOptionPrecedence(
+      normalizedFlags.port,
+      Option.fromUndefinedOr(env.port),
+      Option.fromUndefinedOr(bootstrap?.port),
+    ),
+    {
+      onSome: (value) => Effect.succeed(value),
+      onNone: () => {
+        if (mode === "desktop") {
+          return Effect.succeed(ServerConfig.DEFAULT_PORT);
+        }
+        return findAvailablePort(ServerConfig.DEFAULT_PORT);
       },
-    );
-    const devUrl = Option.getOrElse(
-      resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
-      () => undefined,
-    );
-    const devAuthToken =
-      mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
-    const explicitBaseDir = resolveOptionPrecedence(
-      normalizedFlags.baseDir,
-      Option.fromUndefinedOr(env.t3Home),
-    ).pipe(Option.filter((value) => value.trim().length > 0));
-    const baseDir = yield* resolveBaseDir(
-      Option.getOrUndefined(
-        resolveOptionPrecedence(explicitBaseDir, Option.fromUndefinedOr(bootstrap?.t3Home)),
-      ),
-    );
-    const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
-    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
-    const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
-      baseDirIsExplicit: Option.isSome(explicitBaseDir),
-    });
-    // An interactive CLI must not start over a discovered server. Lifetime locking
-    // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
-    if (options?.rejectRunningServer && mode === "web") {
-      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
-      if (Option.isSome(runtime) && runtime.value.pid > 0 && isProcessAlive(runtime.value.pid)) {
-        return yield* new CliError.UserError({
-          cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
-        });
-      }
-    }
-    yield* fs.makeDirectory(cwd, { recursive: true });
-    yield* ServerConfig.ensureServerDirectories(derivedPaths);
-    const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
-      derivedPaths.settingsPath,
-    );
-    const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
-    yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
-    const startupPresentation = options?.startupPresentation ?? "browser";
-    const isHeadlessStartup = startupPresentation === "headless";
-    const noBrowser = Option.getOrElse(
-      resolveOptionPrecedence(
-        isHeadlessStartup ? Option.some(true) : Option.none(),
-        normalizedFlags.noBrowser,
-        Option.fromUndefinedOr(env.noBrowser),
-        Option.fromUndefinedOr(bootstrap?.noBrowser),
-      ),
-      () => mode === "desktop",
-    );
-    const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
-    const desktopBootstrapSecret = bootstrap?.desktopBootstrapSecret;
-    const shellEnvironmentPrepared = bootstrap?.shellEnvironmentPrepared;
-    const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
-    const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
-    const desktopBrowserFd = bootstrap?.desktopBrowserFd;
-    const desktopBrowserControlFd = bootstrap?.desktopBrowserControlFd;
-    const resourceMonitorPath = bootstrap?.resourceMonitorPath;
-    const autoBootstrapProjectFromCwd = Option.getOrElse(
-      resolveOptionPrecedence(
-        Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
-        isHeadlessStartup ? Option.some(false) : Option.none(),
-        normalizedFlags.autoBootstrapProjectFromCwd,
-        Option.fromUndefinedOr(env.autoBootstrapProjectFromCwd),
-      ),
-      () => mode === "web",
-    );
-    const logWebSocketEvents = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.logWebSocketEvents,
-        Option.fromUndefinedOr(env.logWebSocketEvents),
-      ),
-      () => Boolean(devUrl),
-    );
-    const tailscaleServeEnabled = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.tailscaleServeEnabled,
-        Option.fromUndefinedOr(env.tailscaleServeEnabled),
-        Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
-      ),
-      () => false,
-    );
-    const tailscaleServePort = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.tailscaleServePort,
-        Option.fromUndefinedOr(env.tailscaleServePort),
-        Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
-      ),
-      () => 443,
-    );
-    const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
-    const host = Option.getOrElse(
-      resolveOptionPrecedence(
-        normalizedFlags.host,
-        Option.fromUndefinedOr(env.host),
-        Option.fromUndefinedOr(bootstrap?.host),
-      ),
-      () => (mode === "desktop" ? "127.0.0.1" : undefined),
-    );
-    const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
-
-    const otel = yield* OtelEnvironment.load;
-
-    // T3 Code's own OTLP variables name no signal, so the one answer they give
-    // is the answer for all three.
-    const signalExport: SignalExport = {
-      protocol: env.otlpProtocol,
-      headers: env.otlpHeaders,
-      exportIntervalMs: env.otlpExportIntervalMs,
-    };
-    const traces = OtelEnvironment.resolveSignalEndpoint(
-      otel,
-      "traces",
-      { url: env.otlpTracesUrl, export: signalExport },
-      bootstrap?.otlpTracesUrl,
-      persistedObservabilitySettings.otlpTracesUrl,
-    );
-    const metrics = OtelEnvironment.resolveSignalEndpoint(
-      otel,
-      "metrics",
-      { url: env.otlpMetricsUrl, export: signalExport },
-      bootstrap?.otlpMetricsUrl,
-      persistedObservabilitySettings.otlpMetricsUrl,
-    );
-    const logs = OtelEnvironment.resolveSignalEndpoint(
-      otel,
-      "logs",
-      { url: env.otlpLogsUrl, export: signalExport },
-      bootstrap?.otlpLogsUrl,
-      persistedObservabilitySettings.otlpLogsUrl,
-    );
-
-    const config: ServerConfig.ServerConfig["Service"] = {
-      logLevel,
-      traceMinLevel: env.traceMinLevel,
-      traceTimingEnabled: env.traceTimingEnabled,
-      traceBatchWindowMs: env.traceBatchWindowMs,
-      traceMaxBytes: env.traceMaxBytes,
-      traceMaxFiles: env.traceMaxFiles,
-      otlpTracesUrl: traces?.url,
-      otlpMetricsUrl: metrics?.url,
-      otlpLogsUrl: logs?.url,
-      otlpTracesExport: traces?.export ?? signalExport,
-      otlpMetricsExport: metrics?.export ?? signalExport,
-      otlpLogsExport: logs?.export ?? signalExport,
-      otelEnvironment: otel,
-      mode,
-      port,
-      cwd,
-      baseDir,
-      ...derivedPaths,
-      serverTracePath,
-      host,
-      staticDir,
-      devUrl,
-      ...(devAuthToken === undefined ? {} : { devAuthToken }),
-      devAllowedOrigins: env.devAllowedOrigins,
-      noBrowser,
-      startupPresentation,
-      desktopBootstrapToken,
-      ...(desktopBootstrapSecret === undefined ? {} : { desktopBootstrapSecret }),
-      ...(shellEnvironmentPrepared === undefined ? {} : { shellEnvironmentPrepared }),
-      desktopTelemetryFd,
-      desktopTelemetryControlFd,
-      desktopBrowserFd,
-      desktopBrowserControlFd,
-      resourceMonitorPath,
-      autoBootstrapProjectFromCwd,
-      logWebSocketEvents,
-      tailscaleServeEnabled,
-      tailscaleServePort,
-    };
-
-    return config;
+    },
+  );
+  const devUrl = Option.getOrElse(
+    resolveOptionPrecedence(normalizedFlags.devUrl, Option.fromUndefinedOr(env.devUrl)),
+    () => undefined,
+  );
+  const devAuthToken =
+    mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
+  const { baseDir, derivedPaths } = yield* resolveServerLocations(normalizedFlags, {
+    devUrl,
+    fallbackBaseDir: bootstrap?.t3Home,
   });
+  const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
+  const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+  // An interactive CLI must not start over a discovered server. Lifetime locking
+  // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
+  if (options?.rejectRunningServer && mode === "web") {
+    const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+    // A killed container can leave a record with the new server's own PID.
+    if (
+      Option.isSome(runtime) &&
+      runtime.value.pid > 0 &&
+      runtime.value.pid !== process.pid &&
+      isProcessAlive(runtime.value.pid)
+    ) {
+      return yield* new CliError.UserError({
+        cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). Connect to that server, stop it before starting another, or use a different --base-dir.`,
+      });
+    }
+  }
+  yield* fs.makeDirectory(cwd, { recursive: true });
+  yield* ServerConfig.ensureServerDirectories(derivedPaths);
+  const persistedObservabilitySettings = yield* loadPersistedObservabilitySettings(
+    derivedPaths.settingsPath,
+  );
+  const serverTracePath = env.traceFile ?? derivedPaths.serverTracePath;
+  yield* fs.makeDirectory(path.dirname(serverTracePath), { recursive: true });
+  const startupPresentation = options?.startupPresentation ?? "browser";
+  const isHeadlessStartup = startupPresentation === "headless";
+  const noBrowser = Option.getOrElse(
+    resolveOptionPrecedence(
+      isHeadlessStartup ? Option.some(true) : Option.none(),
+      normalizedFlags.noBrowser,
+      Option.fromUndefinedOr(env.noBrowser),
+      Option.fromUndefinedOr(bootstrap?.noBrowser),
+    ),
+    () => mode === "desktop",
+  );
+  const desktopBootstrapToken = bootstrap?.desktopBootstrapToken;
+  const desktopBootstrapSecret = bootstrap?.desktopBootstrapSecret;
+  const shellEnvironmentPrepared = bootstrap?.shellEnvironmentPrepared;
+  const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
+  const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
+  const desktopBrowserFd = bootstrap?.desktopBrowserFd;
+  const desktopBrowserControlFd = bootstrap?.desktopBrowserControlFd;
+  const resourceMonitorPath = bootstrap?.resourceMonitorPath;
+  const autoBootstrapProjectFromCwd = Option.getOrElse(
+    resolveOptionPrecedence(
+      Option.fromUndefinedOr(options?.forceAutoBootstrapProjectFromCwd),
+      isHeadlessStartup ? Option.some(false) : Option.none(),
+      normalizedFlags.autoBootstrapProjectFromCwd,
+      Option.fromUndefinedOr(env.autoBootstrapProjectFromCwd),
+    ),
+    () => mode === "web",
+  );
+  const logWebSocketEvents = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.logWebSocketEvents,
+      Option.fromUndefinedOr(env.logWebSocketEvents),
+    ),
+    () => Boolean(devUrl),
+  );
+  const tailscaleServeEnabled = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.tailscaleServeEnabled,
+      Option.fromUndefinedOr(env.tailscaleServeEnabled),
+      Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
+    ),
+    () => false,
+  );
+  const tailscaleServePort = Option.getOrElse(
+    resolveOptionPrecedence(
+      normalizedFlags.tailscaleServePort,
+      Option.fromUndefinedOr(env.tailscaleServePort),
+      Option.fromUndefinedOr(bootstrap?.tailscaleServePort),
+    ),
+    () => 443,
+  );
+  const staticDir = devUrl ? undefined : yield* ServerConfig.resolveStaticDir();
+  const explicitHost = resolveOptionPrecedence(
+    normalizedFlags.host,
+    Option.fromUndefinedOr(env.host),
+    Option.fromUndefinedOr(bootstrap?.host),
+  );
+  // A background service exists to be reached from other devices, so it
+  // listens on private networks unless `service.env` sets `T3CODE_HOST`.
+  // Clients then learn its LAN address and prefer it over T3 Connect.
+  const privateNetworkOnly =
+    Option.isNone(explicitHost) &&
+    mode === "web" &&
+    (yield* resolveServiceLauncherMode().pipe(
+      Effect.map((launcher) => launcher.managed),
+      Effect.orElseSucceed(() => false),
+    ));
+  const host = Option.getOrElse(explicitHost, () =>
+    privateNetworkOnly ? "0.0.0.0" : mode === "desktop" ? "127.0.0.1" : undefined,
+  );
+  const logLevel = Option.getOrElse(cliLogLevel, () => env.logLevel);
+
+  const otel = yield* OtelEnvironment.load;
+
+  const signalExport: SignalExport = {
+    protocol: env.otlpProtocol,
+    headers: env.otlpHeaders,
+    exportIntervalMs: env.otlpExportIntervalMs,
+  };
+  const traces = OtelEnvironment.resolveSignalEndpoint(
+    otel,
+    "traces",
+    { url: env.otlpTracesUrl, export: signalExport },
+    {
+      bootstrapUrl: bootstrap?.otlpTracesUrl,
+      settingsUrl: persistedObservabilitySettings.otlpTracesUrl,
+    },
+  );
+  const metrics = OtelEnvironment.resolveSignalEndpoint(
+    otel,
+    "metrics",
+    { url: env.otlpMetricsUrl, export: signalExport },
+    {
+      bootstrapUrl: bootstrap?.otlpMetricsUrl,
+      settingsUrl: persistedObservabilitySettings.otlpMetricsUrl,
+    },
+  );
+  const logs = OtelEnvironment.resolveSignalEndpoint(
+    otel,
+    "logs",
+    { url: env.otlpLogsUrl, export: signalExport },
+    {
+      bootstrapUrl: bootstrap?.otlpLogsUrl,
+      settingsUrl: persistedObservabilitySettings.otlpLogsUrl,
+    },
+  );
+
+  const config: ServerConfig.ServerConfig["Service"] = {
+    logLevel,
+    traceMinLevel: env.traceMinLevel,
+    traceTimingEnabled: env.traceTimingEnabled,
+    traceBatchWindowMs: env.traceBatchWindowMs,
+    traceMaxBytes: env.traceMaxBytes,
+    traceMaxFiles: env.traceMaxFiles,
+    otlpTracesUrl: traces?.url,
+    otlpMetricsUrl: metrics?.url,
+    otlpLogsUrl: logs?.url,
+    otlpTracesExport: traces?.export ?? signalExport,
+    otlpMetricsExport: metrics?.export ?? signalExport,
+    otlpLogsExport: logs?.export ?? signalExport,
+    ...(traces !== undefined ? { otlpTracesSource: traces.source } : {}),
+    ...(traces?.variable !== undefined ? { otlpTracesVariable: traces.variable } : {}),
+    ...(metrics !== undefined ? { otlpMetricsSource: metrics.source } : {}),
+    ...(metrics?.variable !== undefined ? { otlpMetricsVariable: metrics.variable } : {}),
+    ...(logs !== undefined ? { otlpLogsSource: logs.source } : {}),
+    ...(logs?.variable !== undefined ? { otlpLogsVariable: logs.variable } : {}),
+    otelEnvironment: otel,
+    mode,
+    port,
+    cwd,
+    baseDir,
+    ...derivedPaths,
+    serverTracePath,
+    host,
+    ...(privateNetworkOnly ? { privateNetworkOnly } : {}),
+    staticDir,
+    devUrl,
+    ...(devAuthToken === undefined ? {} : { devAuthToken }),
+    devAllowedOrigins: env.devAllowedOrigins,
+    noBrowser,
+    startupPresentation,
+    desktopBootstrapToken,
+    ...(desktopBootstrapSecret === undefined ? {} : { desktopBootstrapSecret }),
+    ...(shellEnvironmentPrepared === undefined ? {} : { shellEnvironmentPrepared }),
+    desktopTelemetryFd,
+    desktopTelemetryControlFd,
+    desktopBrowserFd,
+    desktopBrowserControlFd,
+    resourceMonitorPath,
+    autoBootstrapProjectFromCwd,
+    logWebSocketEvents,
+    tailscaleServeEnabled,
+    tailscaleServePort,
+  };
+
+  return config;
+});
 
 export const resolveCliAuthConfig = (
   flags: CliAuthLocationFlags,
@@ -494,6 +612,9 @@ export const resolveCliAuthConfig = (
       port: Option.none(),
       host: Option.none(),
       baseDir: flags.baseDir,
+      serverConfigDir: flags.serverConfigDir ?? Option.none(),
+      serverDataDir: flags.serverDataDir ?? Option.none(),
+      serverCacheDir: flags.serverCacheDir ?? Option.none(),
       cwd: Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: Option.none(),
@@ -505,6 +626,22 @@ export const resolveCliAuthConfig = (
     },
     cliLogLevel,
   );
+
+/**
+ * Paths for the install commands (service, update, uninstall). They come from
+ * the base dir alone so they agree with the service they manage, which runs
+ * without the location overrides whatever the invoking shell sets. Creates
+ * nothing on disk.
+ */
+export const resolveInstallLocations = Effect.fn(function* (flags: {
+  readonly baseDir: Option.Option<string>;
+}) {
+  const { baseDir, derivedPaths } = yield* resolveServerLocations(flags, {
+    devUrl: undefined,
+    ignoreLocationOverrides: true,
+  });
+  return { ...derivedPaths, baseDir };
+});
 
 const DurationShorthandPattern = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i;
 
