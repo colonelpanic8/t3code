@@ -10,7 +10,7 @@ export function shouldHandleAppLink(url: string, cloudConfigured: boolean): bool
   return (
     !url.includes("expo-development-client") &&
     !url.includes("://expo-sharing") &&
-    !/^t3code(-dev|-preview)?:\/*$/.test(url) &&
+    !/^t3code(?:-[a-z]+)?:\/*$/.test(url) &&
     (cloudConfigured || !CLOUD_ONLY_LINK_PATH.test(url.split(/[?#]/)[0] ?? ""))
   );
 }

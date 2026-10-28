@@ -8,18 +8,27 @@ import { AsyncResult } from "effect/reactivity";
 import { findStackRoute } from "../../lib/appLinking";
 import { rootNavigationRef } from "../../lib/rootNavigation";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { isLaunchedFromHistory } from "../../native/android-intents";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import { environmentThreadShells, environmentThreads } from "../../state/threads";
-import { applyLinkedPromptToThreadDraft } from "./prompt-link-actions";
+import { applyLinkedPromptToThreadDraft, sendLinkedPromptToThread } from "./prompt-link-actions";
 import {
+  linkedThreadPromptDelivery,
   promptLinkNotice,
+  promptLinkRequestsSend,
   promptLinkSearchFromParams,
   stepPendingPromptLink,
 } from "./prompt-link-model";
 
-const THREAD_LINK_KEYS = ["prompt"];
+const THREAD_LINK_KEYS = ["prompt", "send"];
 
-type PendingThreadLink = { readonly ref: ScopedThreadRef; readonly prompt: LinkedPrompt };
+type PendingThreadLink = {
+  readonly ref: ScopedThreadRef;
+  readonly prompt: LinkedPrompt;
+  readonly sendRequested: boolean;
+  readonly launchedFromHistory: boolean;
+};
 
 function firstString(value: unknown): string | null {
   const first = Array.isArray(value) ? value[0] : value;
@@ -29,12 +38,12 @@ function firstString(value: unknown): string | null {
 let pendingLink: PendingThreadLink | null = null;
 let stopWaitingForShell: (() => void) | null = null;
 let stopWaitingForDetail: (() => void) | null = null;
+let stopWaitingForPreferences: (() => void) | null = null;
 
 /**
- * `threads/<environment>/<thread>?prompt=…` fills that thread's composer draft. The param is
- * dropped as the link arrives, so the thread screen never sees it and a later visit cannot apply
- * it again. The draft is written only once the thread's screen shows a thread that exists: a
- * screen for an unknown thread replaces itself with a new-thread draft, which drops the link.
+ * `threads/<environment>/<thread>?prompt=…` fills that thread's draft (queues it with an opted-in
+ * `send=1`). Params drop on arrival so a later visit cannot reapply them. It resolves only once the
+ * screen shows a thread that exists; an unknown thread's screen becomes a draft, dropping the link.
  */
 export function takeThreadPromptLink(
   state: PartialState<NavigationState> | undefined,
@@ -47,7 +56,7 @@ export function takeThreadPromptLink(
   if (!route || !params || search === null) return state;
   // A newer link replaces a waiting one even when it turns out to be invalid.
   dropPendingLink();
-  const { prompt: _prompt, ...rest } = params;
+  const { prompt: _prompt, send: _send, ...rest } = params;
   const routes = state.routes.slice();
   routes[index] = { ...route, params: rest };
   const nextState = { ...state, routes };
@@ -61,9 +70,12 @@ export function takeThreadPromptLink(
     return nextState;
   }
   if (parsed.value !== null) {
+    const sendRequested = promptLinkRequestsSend(search);
     pendingLink = {
       ref: { environmentId: EnvironmentId.make(environmentId), threadId: ThreadId.make(threadId) },
       prompt: parsed.value,
+      sendRequested,
+      launchedFromHistory: sendRequested && isLaunchedFromHistory(),
     };
   }
   return nextState;
@@ -80,6 +92,9 @@ export function resolvePendingThreadPromptLink(state: NavigationState | undefine
   // Read detail only while the screen holds it: opening it here for an unknown thread would keep
   // retrying with no screen to close it.
   const screenHoldsDetail = appAtomRegistry.getNodes().has(detailAtom);
+  // Whether a link may send depends on a preference that loads from storage at launch.
+  const preferencesLoaded =
+    !pendingLink.sendRequested || AsyncResult.isSuccess(appAtomRegistry.get(mobilePreferencesAtom));
   const step = stepPendingPromptLink(pendingLink, {
     screenOnStack:
       findStackRoute(
@@ -90,18 +105,21 @@ export function resolvePendingThreadPromptLink(state: NavigationState | undefine
           firstString(params?.threadId) === ref.threadId,
       ) !== undefined,
     ready:
-      appAtomRegistry.get(shellAtom) !== null ||
-      (screenHoldsDetail && detailLoaded(appAtomRegistry.get(detailAtom))),
+      preferencesLoaded &&
+      (appAtomRegistry.get(shellAtom) !== null ||
+        (screenHoldsDetail && detailLoaded(appAtomRegistry.get(detailAtom)))),
   });
   if (step.pending === null) dropPendingLink();
   if (step.resolve !== null) {
-    const { prompt } = step.resolve;
-    void applyLinkedPromptToThreadDraft(
-      scopedThreadKey(ref.environmentId, ref.threadId),
-      prompt,
-      promptLinkNotice({ hiddenCharacters: prompt.hiddenCharacters }),
-    );
+    deliverThreadPromptLink(step.resolve);
   } else if (step.pending !== null) {
+    if (!preferencesLoaded) {
+      stopWaitingForPreferences ??= appAtomRegistry.subscribe(mobilePreferencesAtom, (result) => {
+        if (AsyncResult.isSuccess(result)) {
+          resolvePendingThreadPromptLink(rootNavigationRef.getRootState());
+        }
+      });
+    }
     stopWaitingForShell ??= appAtomRegistry.subscribe(shellAtom, (shell) => {
       if (shell !== null) resolvePendingThreadPromptLink(rootNavigationRef.getRootState());
     });
@@ -111,6 +129,30 @@ export function resolvePendingThreadPromptLink(state: NavigationState | undefine
       });
     }
   }
+}
+
+function deliverThreadPromptLink(link: PendingThreadLink): void {
+  const { ref, prompt } = link;
+  const preferences = appAtomRegistry.get(mobilePreferencesAtom);
+  const delivery = linkedThreadPromptDelivery({
+    sendRequested: link.sendRequested,
+    sendEnabled:
+      AsyncResult.isSuccess(preferences) && preferences.value.linkPromptSendEnabled === true,
+    launchedFromHistory: link.launchedFromHistory,
+    hiddenCharacters: prompt.hiddenCharacters,
+  });
+  if (delivery.kind === "send") {
+    void sendLinkedPromptToThread(ref, prompt);
+    return;
+  }
+  void applyLinkedPromptToThreadDraft(
+    scopedThreadKey(ref.environmentId, ref.threadId),
+    prompt,
+    promptLinkNotice({
+      hiddenCharacters: prompt.hiddenCharacters,
+      sendBlocked: delivery.sendBlocked,
+    }),
+  );
 }
 
 function detailLoaded(
@@ -125,4 +167,6 @@ function dropPendingLink(): void {
   stopWaitingForShell = null;
   stopWaitingForDetail?.();
   stopWaitingForDetail = null;
+  stopWaitingForPreferences?.();
+  stopWaitingForPreferences = null;
 }
