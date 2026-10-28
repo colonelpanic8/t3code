@@ -70,10 +70,10 @@ it.each([
     ),
   ).toBe(program);
 });
-it("keeps server location overrides from the user manager out of the unit", () => {
+it("keeps server overrides from the user manager out of the unit", () => {
   const unit = BootService.renderBootServiceUnit(linuxPlan);
   expect(unit).toContain(
-    "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR\n",
+    "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE\n",
   );
 });
 const macRuntime = "/Users/theo/.t3/runtime/versions/1.2.3/t3";
@@ -91,7 +91,7 @@ const macRenderOptions = {
   homeDir: "/Users/theo",
   environmentPath: macInstallerPath,
 };
-it("blanks server location overrides from launchctl setenv in the launch agent", () => {
+it("blanks server overrides from launchctl setenv in the launch agent", () => {
   const plist = BootService.renderBootServicePlist(macPlan, macRenderOptions);
   expect(plist).toContain(
     [
@@ -100,6 +100,8 @@ it("blanks server location overrides from launchctl setenv in the launch agent",
       "    <key>T3CODE_SERVER_DATA_DIR</key>",
       "    <string></string>",
       "    <key>T3CODE_SERVER_CACHE_DIR</key>",
+      "    <string></string>",
+      "    <key>T3CODE_SERVER_CONFIG_FILE</key>",
       "    <string></string>",
       "  </dict>",
     ].join("\n"),
