@@ -17,6 +17,7 @@ import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
   type AcpRegistryUrlAuthAction,
+  isSettingPathManaged,
   PROVIDER_DISPLAY_NAMES,
   ProviderDriverKind,
   type ProjectId,
@@ -114,6 +115,7 @@ import {
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
 } from "./SettingsPanels.logic";
 import {
+  MANAGED_SETTING_MESSAGE,
   PolicyTooltip,
   SettingResetButton,
   SettingsPageContainer,
@@ -547,6 +549,9 @@ export function EnvironmentProviderSettings({
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
+  const managedSettingPaths = useAtomValue(
+    serverEnvironment.configValueAtom(environmentId),
+  )?.managedSettingPaths;
   const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const canRefreshProviders = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
@@ -928,6 +933,7 @@ export function EnvironmentProviderSettings({
         mode={mode}
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         readOnly={readOnly}
+        managed={isSettingPathManaged(managedSettingPaths, ["providerInstances", row.instanceId])}
         canWriteSettings={canWriteSettings}
         liveProvider={serverProviders.find((candidate) => candidate.instanceId === row.instanceId)}
         isUpdateDispatching={updatingProviderInstanceIds.has(row.instanceId)}
@@ -1214,6 +1220,7 @@ function ProviderInstanceRow({
   mode,
   selected,
   readOnly,
+  managed,
   canWriteSettings,
   liveProvider,
   isUpdateDispatching,
@@ -1234,6 +1241,7 @@ function ProviderInstanceRow({
   readonly mode: "list" | "editor";
   readonly selected: boolean;
   readonly readOnly: boolean;
+  readonly managed: boolean;
   readonly canWriteSettings: boolean;
   readonly liveProvider: ServerProvider | undefined;
   readonly isUpdateDispatching: boolean;
@@ -1265,6 +1273,7 @@ function ProviderInstanceRow({
     favorite.provider === instanceId ? Result.succeed(favorite.model) : Result.failVoid,
   );
   const resetLabel = driverOption?.label ?? String(driver);
+  const instanceReadOnly = readOnly || managed;
   const projectOverride = showProjectOverride
     ? {
         value: projectOverrideValue,
@@ -1288,7 +1297,9 @@ function ProviderInstanceRow({
       acpProjects={acpProjects}
       projectOverride={projectOverride}
       onAcceptUrlAuth={
-        readOnly ? undefined : (action) => actions.acceptUrlAuthentication(instanceId, action)
+        instanceReadOnly
+          ? undefined
+          : (action) => actions.acceptUrlAuthentication(instanceId, action)
       }
       instanceId={instanceId}
       instance={instance}
@@ -1297,7 +1308,7 @@ function ProviderInstanceRow({
       mode={mode}
       selected={selected}
       onSelect={mode === "list" ? () => actions.selectInstance(instanceId) : undefined}
-      readOnly={readOnly}
+      readOnly={instanceReadOnly}
       runtime={
         mode === "editor" && codexSetupMode === "managed" ? (
           <CodexManagedRuntimeFields
@@ -1318,7 +1329,7 @@ function ProviderInstanceRow({
             binaryPath={configuredBinaryPath(instance.config)}
             authMethod={readAntigravityAuthMethod(instance.config)}
             enabled={resolveProviderInstanceEnabled(instance)}
-            readOnly={readOnly}
+            readOnly={instanceReadOnly}
             onEnable={() => actions.enableInstance(instanceId, { ...instance, enabled: true })}
           />
         ) : mode === "editor" && codexSetupMode === "managed" ? (
@@ -1328,7 +1339,7 @@ function ProviderInstanceRow({
             provider={liveProvider}
             mode={codexSetupMode}
             enabled={resolveProviderInstanceEnabled(instance)}
-            readOnly={readOnly}
+            readOnly={instanceReadOnly}
             onModeChange={(setupMode) =>
               actions.enableInstance(instanceId, {
                 ...instance,
@@ -1344,7 +1355,7 @@ function ProviderInstanceRow({
             }
           />
         ) : mode === "editor" &&
-          !readOnly &&
+          !instanceReadOnly &&
           liveProvider &&
           (liveProvider.setup?.canAuthenticate ||
             (liveProvider.driver === "acpRegistry" && liveProvider.installed)) ? (
@@ -1354,10 +1365,10 @@ function ProviderInstanceRow({
             environmentLabel={environmentLabel}
             instanceId={instanceId}
             provider={liveProvider}
-            readOnly={readOnly}
+            readOnly={instanceReadOnly}
           />
         ) : mode === "editor" &&
-          !readOnly &&
+          !instanceReadOnly &&
           driver === "cursor" &&
           liveProvider?.setup?.canAuthenticate === false ? (
           <SettingsRow
@@ -1368,12 +1379,14 @@ function ProviderInstanceRow({
       }
       onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
       onDelete={
-        mode === "editor" && !isDefault
+        mode === "editor" && !isDefault && !managed
           ? () => actions.deleteInstance(instanceId, instance)
           : undefined
       }
       headerAction={
-        mode === "editor" && isDefault && isDirty ? (
+        managed ? (
+          <span className="text-xs text-muted-foreground">{MANAGED_SETTING_MESSAGE}</span>
+        ) : mode === "editor" && isDefault && isDirty ? (
           <SettingResetButton
             label={`${resetLabel} provider settings`}
             onClick={() => actions.resetDefaultInstance(driver)}
