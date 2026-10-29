@@ -456,6 +456,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? ["In-app notifications"]
       : []),
+    ...(settings.sidebarV2LargeIcons !== DEFAULT_UNIFIED_SETTINGS.sidebarV2LargeIcons
+      ? ["Large project icons"]
+      : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
       ? ["Project Grouping"]
       : []),
@@ -628,6 +631,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
+      sidebarV2LargeIcons: DEFAULT_UNIFIED_SETTINGS.sidebarV2LargeIcons,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
@@ -883,6 +887,27 @@ export function GeneralSettingsPanel() {
                 updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
               }
               aria-label="Working section"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("large-project-icons")}
+          description="Show larger project icons in sidebar thread rows."
+          resetAction={
+            settings.sidebarV2LargeIcons ? (
+              <SettingResetButton
+                label="large project icons"
+                onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarV2LargeIcons}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
+              }
+              aria-label="Large project icons"
             />
           }
         />
