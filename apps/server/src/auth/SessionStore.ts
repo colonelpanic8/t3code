@@ -37,6 +37,7 @@ import {
   resolveSessionCookieName,
   signPayload,
   timingSafeEqualBase64Url,
+  timingSafeEqualUtf8,
 } from "./utils.ts";
 
 export interface IssuedSession {
@@ -425,6 +426,7 @@ export class SessionStore extends Context.Service<
 
 const SIGNING_SECRET_NAME = "server-signing-key";
 const DEFAULT_SESSION_TTL = Duration.days(30);
+const MANAGED_ACCESS_SESSION_TTL = Duration.days(3_650);
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
 
 const SessionClaims = Schema.Struct({
@@ -488,7 +490,7 @@ function toAuthClientSession(input: Omit<AuthClientSession, "current">): AuthCli
   };
 }
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
@@ -742,6 +744,19 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const managedAccessSession = serverConfig.managedAccessToken
+    ? yield* issue({
+        ttl: MANAGED_ACCESS_SESSION_TTL,
+        subject: "managed-access",
+        method: "bearer-access-token",
+        replaceActiveForSubjectAndMethod: true,
+        client: {
+          label: "Managed fleet",
+          deviceType: "bot",
+        },
+      })
+    : undefined;
+
   const verify: SessionStore["Service"]["verify"] = Effect.fn("SessionStore.verify")(
     function* (token) {
       if (devAuth?.matches(token)) {
@@ -780,7 +795,13 @@ const make = Effect.gen(function* () {
           scopes: row.value.scopes,
         } satisfies VerifiedSession;
       }
-      const [encodedPayload, signature] = token.split(".");
+      const resolvedToken =
+        managedAccessSession &&
+        serverConfig.managedAccessToken &&
+        timingSafeEqualUtf8(token, serverConfig.managedAccessToken)
+          ? managedAccessSession.token
+          : token;
+      const [encodedPayload, signature] = resolvedToken.split(".");
       if (!encodedPayload || !signature) {
         return yield* new MalformedSessionTokenError({});
       }
@@ -829,7 +850,7 @@ const make = Effect.gen(function* () {
 
       return {
         sessionId: claims.sid,
-        token,
+        token: resolvedToken,
         method: claims.method,
         client: toClientMetadata(row.value.client),
         expiresAt: expiresAt.value,
