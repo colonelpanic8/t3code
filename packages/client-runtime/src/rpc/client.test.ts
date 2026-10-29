@@ -15,6 +15,7 @@ import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 import { RpcClientError } from "effect/rpc";
 
 import {
@@ -343,6 +344,50 @@ describe("environment RPC", () => {
 
       expect(subscriptions).toEqual(["first", "second"]);
       expect(yield* Ref.get(retryCount)).toBe(0);
+    }),
+  );
+
+  it.effect("uses a caller-supplied retry delay for each consecutive failure", () =>
+    Effect.gen(function* () {
+      const domainError = new Error("thread not found yet");
+      const subscriptions = yield* Queue.unbounded<void>();
+      const failures = yield* Queue.unbounded<void>();
+      const client = {
+        [WS_METHODS.subscribeTerminalMetadata]: () =>
+          Stream.unwrap(
+            Queue.offer(subscriptions, undefined).pipe(Effect.as(Stream.fail(domainError))),
+          ),
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      const subscriptionFiber = yield* subscribe(
+        WS_METHODS.subscribeTerminalMetadata,
+        {},
+        {
+          onExpectedFailure: () => Queue.offer(failures, undefined).pipe(Effect.asVoid),
+          retryExpectedFailureAfter: (attempt) => 100 * 2 ** attempt,
+        },
+      ).pipe(
+        Stream.runDrain,
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.forkChild,
+      );
+      yield* Queue.take(subscriptions);
+      yield* Queue.take(failures);
+
+      // First failure retries after the base delay.
+      yield* TestClock.adjust("100 millis");
+      yield* Queue.take(subscriptions);
+      yield* Queue.take(failures);
+
+      // The second failure asks for 200ms and gets exactly that, not a
+      // further doubling.
+      yield* TestClock.adjust("100 millis");
+      expect(Option.isNone(yield* Queue.poll(subscriptions))).toBe(true);
+      yield* TestClock.adjust("100 millis");
+      yield* Queue.take(subscriptions);
+      yield* Fiber.interrupt(subscriptionFiber);
     }),
   );
 
