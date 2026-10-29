@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import { afterEach, beforeEach, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
@@ -24,6 +25,11 @@ const environmentFor = (
     homeDirectory: input.home,
     baseDir: input.baseDir,
     stateDir: path.join(input.baseDir, "userdata"),
+    storageRoots: resolveLegacyT3StorageRoots({
+      baseDir: input.baseDir,
+      stateDirectoryName: "userdata",
+      path,
+    }),
     serverRoot: "/opt/T3 Code/resources/app.asar",
     appImagePath: Option.none(),
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
