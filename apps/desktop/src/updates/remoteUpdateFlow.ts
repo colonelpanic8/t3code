@@ -60,6 +60,13 @@ export function nextRemoteDesktopUpdateStep(
     return { action: "wait" };
   }
   if (state.status === "available") {
+    if (state.manualUpdate !== undefined) {
+      return {
+        action: "done",
+        outcome: "failed",
+        reason: `Build ${state.availableVersion ?? "update"} is published. This machine applies updates outside the app.`,
+      };
+    }
     if (attempts.downloads >= MAX_REMOTE_UPDATE_DOWNLOADS) {
       return {
         action: "done",
