@@ -305,7 +305,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
         setIsDiscoveringLocalServers(false);
       });
   };
-  // oxlint-disable-next-line t3code/react-effect-budget -- Scan the desktop bridge for running local servers when the panel opens.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Scans the desktop bridge for running local servers while the panel is open.
   useEffect(() => {
     if (view === "environments") refreshRunningLocalServers();
   }, [view, refreshRunningLocalServers]);
