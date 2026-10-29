@@ -45,6 +45,7 @@ import {
   type CliAuthLocationFlags,
   serverConfigFileFlags,
   resolveCliAuthConfig,
+  sharedSettingsFileFlag,
 } from "./config.ts";
 
 type ProjectMutationTarget = {
@@ -457,8 +458,14 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
   );
 });
 
-const projectAddCommand = Command.make("add", {
+// Offline mutations save project settings, which must see the shared layer.
+const projectSettingsFlags = {
   ...serverConfigFileFlags,
+  sharedSettingsFile: sharedSettingsFileFlag,
+} as const;
+
+const projectAddCommand = Command.make("add", {
+  ...projectSettingsFlags,
   workspaceRoot: Argument.String("path").pipe(
     Argument.withDescription("Workspace root to add as a project."),
   ),
@@ -505,7 +512,7 @@ const projectAddCommand = Command.make("add", {
 );
 
 const projectRemoveCommand = Command.make("remove", {
-  ...serverConfigFileFlags,
+  ...projectSettingsFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to remove."),
   ),
@@ -544,7 +551,7 @@ const projectRemoveCommand = Command.make("remove", {
 );
 
 const projectRenameCommand = Command.make("rename", {
-  ...serverConfigFileFlags,
+  ...projectSettingsFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to rename."),
   ),
