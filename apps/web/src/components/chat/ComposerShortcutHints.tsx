@@ -100,7 +100,7 @@ const MODIFIER_KEYS = new Set(["Alt", "AltGraph", "Control", "Meta", "OS", "Shif
  */
 function useChordConsumed(): boolean {
   const [consumed, setConsumed] = useState(false);
-  // oxlint-disable-next-line t3code/react-effect-budget -- Track window key and blur events while the composer is mounted.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Track window key and blur events while the composer is mounted.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (MODIFIER_KEYS.has(event.key)) return;
@@ -158,7 +158,7 @@ export function ComposerShortcutHints(props: {
     );
   const visible = useThreadJumpHintsVisible(shouldShow);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Measure trigger rects and follow window resize and scroll while hints are visible.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Measure trigger rects and follow window resize and scroll while hints are visible.
   useLayoutEffect(() => {
     if (!visible) return;
     const update = () =>
