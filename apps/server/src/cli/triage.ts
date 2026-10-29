@@ -12,10 +12,20 @@ import { Command, Flag } from "effect/cli";
 
 import packageJson from "../../package.json" with { type: "json" };
 import { buildTriageLaunchPrompt } from "../triage/triagePrompt.ts";
-import { describeServerProcess, writeTriageSession } from "../triage/triageSession.ts";
-import { resolveServerLocations, serverLocationFlags } from "./config.ts";
+import {
+  describeServerConfigFile,
+  describeServerProcess,
+  writeTriageSession,
+} from "../triage/triageSession.ts";
+import {
+  resolveServerConfigFilePath,
+  resolveServerLocations,
+  serverConfigFileFlags,
+  traceFileConfig,
+} from "./config.ts";
 import { interactiveStdin } from "./consoleStdin.ts";
 import { resolveCliCommand } from "./invocation.ts";
+import { readServerConfigFile } from "./serverConfigFile.ts";
 
 interface TriageAgent {
   readonly id: "claude" | "codex";
@@ -111,7 +121,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 
 export const triageCommand = Command.make("triage", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   agent: agentFlag,
   model: modelFlag,
 }).pipe(
@@ -127,16 +137,47 @@ export const triageCommand = Command.make("triage", {
         devUrl: undefined,
       });
       const userdataLogsDir = path.join(baseDir, "userdata", "logs");
+      // A broken server config file is something to triage, not a reason to stop.
+      const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
+      const serverConfig = yield* readServerConfigFile(configFile.path, {
+        explicit: configFile.explicit,
+      }).pipe(
+        Effect.map((file) => ({
+          traceFile: file.options.traceFile,
+          description: describeServerConfigFile({
+            path: configFile.path,
+            unknownKeys: file.unknownKeys,
+          }),
+        })),
+        Effect.catchTags({
+          ServerConfigFileError: (error) =>
+            Effect.succeed({
+              traceFile: undefined,
+              // Fenced and indented so a multi-line detail stays inside its bullet.
+              description: [
+                `${configFile.path} (invalid, so the server will not start):`,
+                "```",
+                ...error.detail.split("\n"),
+                "```",
+              ].join("\n  "),
+            }),
+        }),
+      );
 
       const session = yield* writeTriageSession({
         baseDir,
-        paths,
+        paths: {
+          ...paths,
+          serverTracePath:
+            (yield* traceFileConfig) ?? serverConfig.traceFile ?? paths.serverTracePath,
+        },
         entry: {
           kind: "cli",
           cliVersion: packageJson.version,
           launchedAs: yield* resolveCliCommand("triage"),
         },
         server: yield* describeServerProcess(paths.serverRuntimeStatePath),
+        serverConfigFile: serverConfig.description,
         serviceLogsDir: userdataLogsDir,
         desktopLogsDir: userdataLogsDir,
       });
