@@ -510,6 +510,10 @@
     "./provider-clients": {
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
+    },
+    "./state/voice-live": {
+      "types": "./src/state/voiceLive.ts",
+      "default": "./src/state/voiceLive.ts"
     }
   },
   "scripts": {
