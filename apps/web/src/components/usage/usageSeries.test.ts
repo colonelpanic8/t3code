@@ -9,6 +9,7 @@ import {
   formatPeriodShort,
   usageRowSeriesColor,
   usageSeriesLabels,
+  withoutChartProviders,
 } from "./usageSeries";
 
 function entry(provider: UsageProviderKind, model: string, costUsd: number): UsageEntry {
@@ -136,5 +137,22 @@ describe("usageRowSeriesColor", () => {
       pivotUsage(entries, ["model"], "day").map((row) => usageRowSeriesColor(series, row)),
     ).toEqual([undefined]);
     expect(series.colors.get("[]")).toBe("var(--contrast-foreground)");
+  });
+});
+
+describe("withoutChartProviders", () => {
+  it("drops a hidden provider's usage while the rest keep their colors", () => {
+    const entries = [
+      entry("claude", "opus", 3),
+      entry("codex", "gpt", 2),
+      entry("cursor", "zeta", 1),
+    ];
+    const full = buildUsageChartSeries(entries, ["model"], "day", periods, "cost");
+    const shown = withoutChartProviders(full, entries, new Set(["codex"]), "day", periods, "cost");
+    const colorsOf = (series: typeof full) =>
+      series.stack.series.map((entry) => [entry.row?.model, series.colors.get(entry.key)]);
+
+    expect(colorsOf(shown)).toEqual(colorsOf(full).filter(([model]) => model !== "gpt"));
+    expect(shown.stack.peak).toBe(4);
   });
 });
