@@ -647,6 +647,7 @@ export const TraitsPicker = memo(function TraitsPicker({
                         : "composer.effort"
                       : undefined
                   }
+                  data-chat-provider-traits-picker="true"
                   size={size}
                   className={cn(
                     isCodexStyle
