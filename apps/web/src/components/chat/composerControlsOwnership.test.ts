@@ -6,6 +6,7 @@ const base = {
   matchesDefault: true,
   hasTraits: true,
   planModeUiEnabled: false,
+  hasProfile: false,
   collapsed: false,
   measuredHiddenBlockCount: 0,
 };
@@ -86,5 +87,17 @@ describe("resolveComposerControlsOwnership", () => {
       collapsed: true,
     });
     expect(result.accessDisplay).toBe("icon");
+  });
+
+  it("overflows the profile picker first, on its own", () => {
+    const result = resolveComposerControlsOwnership({
+      ...base,
+      matchesDefault: false,
+      hasProfile: true,
+      measuredHiddenBlockCount: 1,
+    });
+    expect(result.hiddenBlockIds).toEqual(["profile"]);
+    expect(result.profileHidden).toBe(true);
+    expect(result.overflowShowsPermissions).toBe(false);
   });
 });

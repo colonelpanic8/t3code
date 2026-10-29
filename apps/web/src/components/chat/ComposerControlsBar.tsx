@@ -4,6 +4,11 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import {
+  type AgentProfileControlProps,
+  ComposerAgentProfileControl,
+  showsAgentProfileControl,
+} from "./ComposerAgentProfileControl";
 import { ComposerControl } from "./ComposerControl";
 import {
   ComposerPermissionsSection,
@@ -62,6 +67,7 @@ export function ComposerControlsBar(props: {
   compatibleRuntimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
+  agentProfile: AgentProfileControlProps;
   composerControlsCollapsed: boolean;
   composerControlsHidden: boolean;
   restingHiddenBlockCount: number;
@@ -110,6 +116,7 @@ export function ComposerControlsBar(props: {
     compatibleRuntimeModeOptions,
     toggleInteractionMode,
     handleRuntimeModeChange,
+    agentProfile,
     composerControlsCollapsed,
     composerControlsHidden,
     restingHiddenBlockCount: measuredHiddenBlockCount,
@@ -196,12 +203,14 @@ export function ComposerControlsBar(props: {
     hiddenBlockCount: restingHiddenBlockCount,
     hiddenBlockIds: hiddenRestingBlockIds,
     traitsHidden: traitsBlockHidden,
+    profileHidden,
     effortOwnsModeShortcut,
     overflowShowsPermissions,
   } = resolveComposerControlsOwnership({
     matchesDefault: permissionsChipHidden,
     hasTraits: providerTraitsPicker !== null,
     planModeUiEnabled,
+    hasProfile: showsAgentProfileControl(agentProfile),
     collapsed: composerControlsCollapsed,
     measuredHiddenBlockCount,
   });
@@ -237,6 +246,20 @@ export function ComposerControlsBar(props: {
                 emphasized={!accessMatchesDefault}
                 onToggleInteractionMode={toggleInteractionMode}
                 onRuntimeModeChange={handleRuntimeModeChange}
+              />
+            ),
+          },
+        ]),
+    ...(!showsAgentProfileControl(agentProfile)
+      ? []
+      : [
+          {
+            id: "profile",
+            content: (
+              <ComposerAgentProfileControl
+                {...agentProfile}
+                size={composerControlsCollapsed ? "xs" : "sm"}
+                hidden={composerControlsHidden || profileHidden}
               />
             ),
           },
@@ -355,6 +378,7 @@ export function ComposerControlsBar(props: {
             showPermissions={overflowShowsPermissions}
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
+            {...(profileHidden ? { agentProfile } : {})}
           />
         </div>
       </>
