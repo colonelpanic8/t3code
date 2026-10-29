@@ -7,6 +7,7 @@ import { FolderCodeIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { createElement, lazy, Suspense, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
+import { useProjectFaviconRefresh } from "../assets/assetUrls";
 import { projectFaviconUrlAtom } from "../state/assets";
 import { deriveProjectIdentity } from "../projectIdentity";
 import { projectIconColorClassName } from "../projectIconColors";
@@ -45,6 +46,7 @@ export function ProjectFavicon(input: {
       faviconPath: project.faviconPath,
     }),
   );
+  const refresh = useProjectFaviconRefresh(project);
   if (project.projectIcon?.kind === "monogram") {
     return (
       <ProjectMonogram
@@ -89,6 +91,7 @@ export function ProjectFavicon(input: {
         className={input.className}
         icon={FallbackIcon}
         projectName={project.title}
+        onClick={refresh}
       />
     );
   }
@@ -106,6 +109,7 @@ export function ProjectFavicon(input: {
       className={input.className}
       fallbackIcon={FallbackIcon}
       fallbackProjectName={project.title}
+      onClick={refresh}
     />
   );
 }
@@ -115,12 +119,27 @@ function ProjectFaviconFallback({
   icon: Icon,
   emoji,
   projectName,
+  onClick,
 }: {
   readonly className?: string | undefined;
   readonly icon: ComponentType<{ className?: string }>;
   readonly emoji?: string | undefined;
   readonly projectName?: string | undefined;
+  readonly onClick?: (() => void) | undefined;
 }) {
+  if (onClick) {
+    // Clicks still bubble, so pressing the icon in a row also opens the row.
+    return (
+      <span className="contents" onClick={onClick}>
+        <ProjectFaviconFallback
+          className={className}
+          icon={Icon}
+          emoji={emoji}
+          projectName={projectName}
+        />
+      </span>
+    );
+  }
   if (projectName && projectName.trim().length > 0) {
     const identity = deriveProjectIdentity(projectName);
     return (
@@ -150,11 +169,13 @@ function ProjectFaviconImage({
   className,
   fallbackIcon: FallbackIcon,
   fallbackProjectName,
+  onClick,
 }: {
   readonly src: string;
   readonly className?: string | undefined;
   readonly fallbackIcon: ComponentType<{ className?: string }>;
   readonly fallbackProjectName?: string | undefined;
+  readonly onClick: () => void;
 }) {
   const [displayedSrc, setDisplayedSrc] = useState<string | null>(() =>
     src.startsWith("data:image/") ? src : null,
@@ -171,6 +192,7 @@ function ProjectFaviconImage({
           className={className}
           icon={FallbackIcon}
           projectName={fallbackProjectName}
+          onClick={onClick}
         />
       ) : null}
       {displayedSrc ? (
@@ -178,6 +200,7 @@ function ProjectFaviconImage({
           src={displayedSrc}
           alt=""
           className={cn("size-3.5 shrink-0 rounded-[25%] object-contain", className)}
+          onClick={onClick}
           onError={() => handleLoadError(displayedSrc)}
         />
       ) : null}
