@@ -51,7 +51,8 @@ environments are selected by default. The dropdown shows which environments are 
 results appear as each one responds, and figures still updating are dimmed. After a reload, each
 environment's usage from earlier the same day appears dimmed until it answers again. Cursor shows its
 last saved totals first, then updates them when Cursor's API responds. A page left open past
-midnight moves its window to the new day.
+midnight moves its window to the new day. The mobile app does the same: after a restart it shows
+each environment's usage from earlier the same day dimmed until the environment answers again.
 
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
