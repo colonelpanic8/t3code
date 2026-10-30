@@ -40,6 +40,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ServerConfig from "../config.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
@@ -227,6 +228,7 @@ function makeThreadCreatedEvent(input: {
   readonly now: DateTime.Utc;
   readonly projectId?: ProjectId;
   readonly delegatedBy?: ThreadId;
+  readonly agentProfile?: string;
 }) {
   return Effect.gen(function* () {
     const projectId =
@@ -250,6 +252,7 @@ function makeThreadCreatedEvent(input: {
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      ...(input.agentProfile === undefined ? {} : { agentProfile: input.agentProfile }),
       activeProviderThreadId: providerThreadId,
       lineage:
         input.delegatedBy === undefined
@@ -490,6 +493,7 @@ function layerTest(input: {
   readonly scopeCloseReached?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
+  readonly serverConfigLayer?: Layer.Layer<ServerConfig.ServerConfig>;
 }) {
   const layerConfiguredEventSink =
     input.flakyReleaseWrites !== undefined
@@ -571,6 +575,7 @@ function layerTest(input: {
           layerTestStores,
           ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
           ...(input.projectServiceLayer === undefined ? [] : [input.projectServiceLayer]),
+          ...(input.serverConfigLayer === undefined ? [] : [input.serverConfigLayer]),
         ),
       ),
     ),
@@ -1687,6 +1692,54 @@ it.effect(
         ),
       );
     }),
+);
+
+it.effect("ProviderSessionManagerV2 opens no T3 MCP session for a profile without T3 context", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const baseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3code-psm-profile-" });
+    const serverConfigLayer = ServerConfig.layerTest(process.cwd(), baseDir).pipe(
+      Layer.provide(NodeServices.layer),
+      Layer.orDie,
+    );
+    const { stateDir } = yield* ServerConfig.ServerConfig.pipe(Effect.provide(serverConfigLayer));
+    yield* fileSystem.makeDirectory(`${stateDir}/profiles/blank`, { recursive: true });
+    yield* fileSystem.writeFileString(
+      `${stateDir}/profiles/blank/profile.json`,
+      JSON.stringify({ t3Context: false }),
+    );
+    const state = yield* Ref.make(emptyState);
+    const mcpConfigs = yield* Ref.make<
+      ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
+    >([]);
+    const threadId = ThreadId.make("thread-provider-session-manager-blank-profile");
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const now = yield* DateTime.now;
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+      yield* eventSink.write({
+        events: [
+          yield* makeThreadCreatedEvent({ idAllocator, threadId, now, agentProfile: "blank" }),
+        ],
+      });
+      yield* manager.open({
+        threadId,
+        providerSessionId,
+        modelSelection,
+        runtimePolicy: { ...runtimePolicy, agentProfile: "blank" },
+      });
+    }).pipe(
+      Effect.provide(layerTest({ state, idleTimeoutMs: 1_000, mcpConfigs, serverConfigLayer })),
+    );
+
+    assert.deepEqual(yield* Ref.get(mcpConfigs), [undefined]);
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.effect("ProviderSessionManagerV2 honors a project browser-access opt-out", () =>
