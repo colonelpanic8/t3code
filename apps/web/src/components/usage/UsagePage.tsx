@@ -106,6 +106,7 @@ import {
   GROUPING_ADJECTIVES,
   GROUPING_NAMES,
   buildUsageChartSeries,
+  withoutChartProviders,
   type UsageChartSeries,
 } from "./usageSeries";
 
@@ -244,6 +245,9 @@ export function UsagePage() {
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
     useState<ReadonlySet<EnvironmentId> | null>(null);
   const hiddenProviders = new Set(preferences.hiddenProviders);
+  const [chartHiddenProviders, setChartHiddenProviders] = useState<ReadonlySet<UsageProviderKind>>(
+    () => new Set(),
+  );
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const {
@@ -397,6 +401,14 @@ export function UsagePage() {
   const chartSeries = buildUsageChartSeries(
     merged.entries,
     chartDimensions,
+    grouping,
+    periods,
+    metric === "tokens" ? "tokens" : "cost",
+  );
+  const plottedSeries = withoutChartProviders(
+    chartSeries,
+    merged.entries,
+    chartHiddenProviders,
     grouping,
     periods,
     metric === "tokens" ? "tokens" : "cost",
@@ -630,6 +642,15 @@ export function UsagePage() {
                 grouping={grouping}
                 chartDimensions={chartDimensions}
                 chartSeries={chartSeries}
+                plottedSeries={plottedSeries}
+                chartHiddenProviders={chartHiddenProviders}
+                onToggleChartProvider={(provider) =>
+                  setChartHiddenProviders((current) => {
+                    const next = new Set(current);
+                    if (!next.delete(provider)) next.add(provider);
+                    return next;
+                  })
+                }
                 tableView={tableView}
                 environmentLabels={environmentLabels}
                 onPreferencesChange={updatePreferences}
@@ -686,6 +707,9 @@ function UsageOverview({
   grouping,
   chartDimensions,
   chartSeries,
+  plottedSeries,
+  chartHiddenProviders,
+  onToggleChartProvider,
   tableView,
   environmentLabels,
   onPreferencesChange,
@@ -705,6 +729,9 @@ function UsageOverview({
   readonly grouping: UsageTimeGrouping;
   readonly chartDimensions: readonly UsageChartDimension[];
   readonly chartSeries: UsageChartSeries;
+  readonly plottedSeries: UsageChartSeries;
+  readonly chartHiddenProviders: ReadonlySet<UsageProviderKind>;
+  readonly onToggleChartProvider: (provider: UsageProviderKind) => void;
   readonly tableView: UsageTableView;
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   readonly onPreferencesChange: (patch: Partial<UsagePagePreferences>) => void;
@@ -843,8 +870,18 @@ function UsageOverview({
             }`;
             const providerLoading = loadingProviders.has(provider);
             const awaitingData = providerLoading && !providersWithData.has(provider);
+            const plotted = !chartHiddenProviders.has(provider);
             return (
-              <div key={provider} className="flex flex-col gap-1">
+              <button
+                key={provider}
+                type="button"
+                aria-pressed={plotted}
+                onClick={() => onToggleChartProvider(provider)}
+                className={cn(
+                  "-mx-2 flex flex-col gap-1 rounded-md px-2 py-1 text-left transition-opacity hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
+                  !plotted && "opacity-40",
+                )}
+              >
                 <div className="flex items-baseline justify-between gap-4">
                   <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
                     <span
@@ -892,7 +929,7 @@ function UsageOverview({
                     ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
                     : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -940,7 +977,7 @@ function UsageOverview({
             </div>
           </div>
           <UsageChart
-            series={chartSeries}
+            series={plottedSeries}
             grouping={grouping}
             metric={metric}
             environmentLabels={environmentLabels}
