@@ -18,10 +18,27 @@
   # A fork-assembler build records the upstream release its base descends
   # from, and takes that release's nightly branding.
   buildInfoPath = ../stack-build-info.json;
-  upstream =
+  buildInfo =
     if builtins.pathExists buildInfoPath
-    then (builtins.fromJSON (builtins.readFile buildInfoPath)).upstream
+    then builtins.fromJSON (builtins.readFile buildInfoPath)
     else {};
+  upstream = buildInfo.upstream or {};
+  # Electron's updater cannot replace a store path; the app instead reports
+  # newer builds published to the fork's assembled branch.
+  updateNoticeFlags =
+    lib.optionalString
+    (buildCommit != "" && buildInfo ? fork && lib.hasPrefix "https://github.com/" buildInfo.fork.remote)
+    (lib.escapeShellArgs [
+      "--set"
+      "T3CODE_UPDATE_NOTICE_REPOSITORY"
+      (lib.removeSuffix ".git" (lib.removePrefix "https://github.com/" buildInfo.fork.remote))
+      "--set"
+      "T3CODE_UPDATE_NOTICE_BRANCH"
+      buildInfo.fork.branch
+      "--set"
+      "T3CODE_UPDATE_NOTICE_COMMIT"
+      buildCommit
+    ]);
   shortCommit = builtins.substring 0 8;
   version =
     if upstream ? tag
@@ -231,7 +248,7 @@
           --add-flags "$out"/libexec/t3code/apps/server/dist/bin.mjs
         makeWrapper ${lib.getExe electron} "$out"/bin/t3code-desktop \
           --add-flags "$out"/libexec/t3code/apps/desktop \
-          --inherit-argv0
+          --inherit-argv0 ${updateNoticeFlags}
       ''
       + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
         find "$out"/libexec/t3code \
