@@ -260,6 +260,12 @@ describe("ClientSettings quit confirmation", () => {
   });
 });
 
+describe("ClientSettings sidebar", () => {
+  it("defaults large thread-row icons off", () => {
+    expect(decodeClientSettings({}).sidebarV2LargeIcons).toBe(false);
+  });
+});
+
 describe("provider enabled defaults", () => {
   it("resolves instance enabled state with explicit false winning", () => {
     const grok = ProviderDriverKind.make("grok");
