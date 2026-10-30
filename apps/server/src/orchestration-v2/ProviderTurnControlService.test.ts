@@ -142,8 +142,6 @@ it.effect(
         id: providerThreadId,
         driver,
         providerInstanceId,
-        // The restart command has already projected this replacement binding
-        // before the process-bound restart effect executes.
         providerSessionId: replacementSessionId,
         appThreadId: threadId,
         ownerNodeId: null,
@@ -212,9 +210,15 @@ it.effect(
         ProjectionStore.ProjectionStoreV2.of({
           apply: () => Effect.void,
           getLimitRecoveryCandidates: () => Effect.die("unused getLimitRecoveryCandidates"),
+          getOpenRemoteDelegatedTasks: Effect.die("unused getOpenRemoteDelegatedTasks"),
           getShellSnapshot: () => Effect.die("unused getShellSnapshot"),
+          listActiveSubagentThreadIds: () => Effect.die("unused listActiveSubagentThreadIds"),
+          countThreads: () => Effect.die("unused countThreads"),
+          listActiveShellIndex: () => Effect.die("unused listActiveShellIndex"),
+          listOlderSettledThreads: () => Effect.die("unused listOlderSettledThreads"),
           readShellSnapshot: () => Effect.die("unused readShellSnapshot"),
           getThreadShell: () => Effect.die("unused getThreadShell"),
+          findGuestShareThreadId: () => Effect.die("unused findGuestShareThreadId"),
           getThread: () => Ref.get(projection).pipe(Effect.map((state) => state.thread)),
           getSettlementCandidates: () => Effect.die("unused getSettlementCandidates"),
           getThreadsWithPullRequests: () => Effect.die("unused getThreadsWithPullRequests"),
@@ -254,6 +258,7 @@ it.effect(
               })),
             ),
           getCheckpointContext: () => Effect.die("not used"),
+          getCheckpointRollbackContext: () => Effect.die("unused rollback context"),
           getCheckpointCaptureContext: () => Effect.die("not used"),
           getRunMessage: () => Effect.die("not used"),
           isNodeStored: () => Effect.die("not used"),
@@ -273,6 +278,7 @@ it.effect(
             Effect.succeed(
               providerSessionId === oldSessionId ? Option.some(runtime) : Option.none(),
             ),
+          isLive: (providerSessionId) => Effect.succeed(providerSessionId === oldSessionId),
           close: () => Effect.void,
           closeInstance: () => Effect.void,
           release: () => Effect.void,
