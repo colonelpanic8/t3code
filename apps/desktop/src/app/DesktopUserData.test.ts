@@ -24,6 +24,8 @@ it.effect.each(["t3code", "T3 Code (Alpha)"])(
         appDataDirectory: directory,
         isDevelopment: false,
         platform: "win32",
+        storageLayout: "legacy",
+        electronUserDataPath: "/unused",
       });
       assert.equal(yield* fs.readFileString(path.join(destination, "Local State")), state);
       assert.equal(yield* fs.readFileString(path.join(source, "Local State")), state);
@@ -33,10 +35,24 @@ it.effect.each(["t3code", "T3 Code (Alpha)"])(
         appDataDirectory: directory,
         isDevelopment: false,
         platform: "win32",
+        storageLayout: "legacy",
+        electronUserDataPath: "/unused",
       });
       assert.equal(
         yield* fs.readFileString(path.join(destination, "Local State")),
         "existing V2 state",
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+it.effect("uses the split-layout Electron profile without probing legacy profile names", () =>
+  Effect.gen(function* () {
+    const userData = yield* resolveUserDataPath({
+      appDataDirectory: "/profiles",
+      isDevelopment: false,
+      platform: "win32",
+      storageLayout: "split",
+      electronUserDataPath: "/state/t3code/electron",
+    });
+    assert.equal(userData, "/state/t3code/electron");
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
