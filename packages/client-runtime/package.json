@@ -267,6 +267,10 @@
       "types": "./src/state/usageProgress.ts",
       "default": "./src/state/usageProgress.ts"
     },
+    "./usage-view": {
+      "types": "./src/usageView.ts",
+      "default": "./src/usageView.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"

@@ -11,17 +11,30 @@ import {
   usageProgress,
 } from "@t3tools/client-runtime/state/usage-progress";
 import {
-  isCompatibleUsageContractVersion,
-  isModelCostUnknown,
-  type DailyTotals,
-  type MergedUsage,
-} from "@t3tools/shared/usageMerge";
+  DEFAULT_USAGE_VIEW,
+  USAGE_CHART_DIMENSIONS,
+  USAGE_DAY_GROUPINGS,
+  USAGE_DIMENSION_NAMES,
+  USAGE_GROUPING_NAMES,
+  buildUsageChartSeries,
+  formatUsagePeriodShort,
+  usageSeriesLabels,
+  usageTableView,
+  withoutChartProviders,
+  type UsageChartDimension,
+  type UsageChartSeries,
+  type UsageLabelContext,
+} from "@t3tools/client-runtime/usage-view";
+import { isCompatibleUsageContractVersion, type MergedUsage } from "@t3tools/shared/usageMerge";
+import {
+  enumeratePeriods,
+  type UsagePivotMetric,
+  type UsageTimeGrouping,
+} from "@t3tools/shared/usagePivot";
 import {
   enumerateDays,
   enumerateHourStarts,
   formatCount,
-  formatDayShort,
-  formatHourShort,
   formatPercent,
   formatTokens,
   formatUsageContractMismatch,
@@ -43,6 +56,7 @@ import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "../settings/components/SettingsSection";
+import { UsageBreakdownSection } from "./UsageBreakdownSection";
 import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
 import { useRefreshLimits } from "./UsageLimitsSection";
@@ -51,10 +65,22 @@ import { Menu } from "../../components/ui/Menu";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
-import type { UsageChartMetric } from "./usageChartData";
-import { PROVIDER_LABEL, useProviderColors, useUsageMixColors } from "./usageProviders";
+import { ListFilterMenu } from "../workspace/ListFilterMenu";
+import {
+  PROVIDER_LABEL,
+  useProviderColors,
+  useUsageMixColors,
+  useUsageSeriesPalette,
+} from "./usageProviders";
+import { useUsageViewPreferences } from "./useUsageViewPreferences";
 
-type UsageView = UsageChartMetric | "limits";
+type UsageView = UsagePivotMetric | "limits";
+const GROUPING_ADJECTIVES: { readonly [Grouping in UsageTimeGrouping]: string } = {
+  hour: "Hourly",
+  day: "Daily",
+  week: "Weekly",
+  month: "Monthly",
+};
 const VIEW_OPTIONS = [
   { value: "cost", label: "Cost" },
   { value: "tokens", label: "Tokens" },
@@ -144,19 +170,53 @@ function UsageScreen(props: {
     isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
       ? enumerateHourStarts(window.sinceTime, window.untilTime)
       : days;
-  const chartTotals: readonly DailyTotals[] = isPast24Hours
-    ? merged.hourly.map((hour) => ({
-        day: hour.hourStart,
-        costUsd: hour.costUsd,
-        totalTokens: hour.totalTokens,
-        byProvider: hour.byProvider,
-      }))
-    : merged.daily;
 
   const [refreshingUsage, setRefreshingUsage] = useState(false);
   const refreshingRef = useRef(false);
   const showingLimits = view === "limits";
-  const metric: UsageChartMetric = view === "tokens" ? "tokens" : "cost";
+  const metric: UsagePivotMetric = view === "tokens" ? "tokens" : "cost";
+  const usageView = useUsageViewPreferences();
+  const palette = useUsageSeriesPalette();
+  const [chartHiddenProviders, setChartHiddenProviders] = useState<ReadonlySet<UsageProviderKind>>(
+    () => new Set(),
+  );
+  const grouping: UsageTimeGrouping = isPast24Hours
+    ? "hour"
+    : (usageView.view.timeGrouping ?? DEFAULT_USAGE_VIEW.timeGrouping);
+  const periods = enumeratePeriods(chartDays, grouping);
+  const chartDimensions = usageView.view.chartDimensions ?? DEFAULT_USAGE_VIEW.chartDimensions;
+  const chartSeries = buildUsageChartSeries(
+    merged.entries,
+    chartDimensions,
+    grouping,
+    periods,
+    metric,
+    palette,
+  );
+  const plottedSeries = withoutChartProviders(
+    chartSeries,
+    merged.entries,
+    chartHiddenProviders,
+    grouping,
+    periods,
+    metric,
+    palette,
+  );
+  const labelContext: UsageLabelContext = {
+    environmentLabels: new Map(
+      environments.map((environment) => [environment.environmentId, environment.label]),
+    ),
+    providerLabels: PROVIDER_LABEL,
+    grouping,
+    timeZone: window.timeZone,
+    hour12: true,
+  };
+  const toggleChartProvider = (provider: UsageProviderKind) =>
+    setChartHiddenProviders((current) => {
+      const next = new Set(current);
+      if (!next.delete(provider)) next.add(provider);
+      return next;
+    });
   const progress = usageProgress(selectedEnvironments, {
     refreshing: refreshingUsage,
     providerLabel,
@@ -188,18 +248,21 @@ function UsageScreen(props: {
 
   const chart = {
     merged,
-    days: chartDays,
-    daily: chartTotals,
     metric,
-    sinceDay: window.sinceDay,
-    untilDay: window.untilDay,
-    isPast24Hours,
-    timeZone: window.timeZone,
+    series: plottedSeries,
+    hasActivity: chartSeries.stack.series.length > 0,
+    labelContext,
+    onChartDimensionsChange: (chartDimensions: readonly UsageChartDimension[]) =>
+      usageView.update({ chartDimensions }),
+    onGroupingChange: (timeGrouping: (typeof USAGE_DAY_GROUPINGS)[number]) =>
+      usageView.update({ timeGrouping }),
   };
   const providers = (
     <ProviderSection
       merged={merged}
       metric={metric}
+      chartHiddenProviders={chartHiddenProviders}
+      onToggleChartProvider={toggleChartProvider}
       cursorAccessEnvironments={cursorAccessEnvironments}
       showCursorEnvironment={selectedEnvironments.length > 1}
       onCursorEnabled={refreshAfterCursorEnable}
@@ -417,7 +480,7 @@ function UsageScreen(props: {
                               {...chart}
                               height={WIDE_CHART_HEIGHT}
                               fill
-                              title={`${isPast24Hours ? "Hourly" : "Daily"} ${metric === "cost" ? "cost" : "processed tokens"}`}
+                              title={`${GROUPING_ADJECTIVES[grouping]} ${metric === "cost" ? "cost" : "processed tokens"}`}
                             />
                           </View>
                         </View>
@@ -433,7 +496,15 @@ function UsageScreen(props: {
                         columns={width >= 900 ? 6 : wide ? 3 : 2}
                       />
                       <CostSection merged={merged} wide={wide} />
-                      <ModelsSection merged={merged} metric={metric} columns={wide ? 2 : 1} />
+                      <UsageBreakdownSection
+                        entries={merged.entries}
+                        view={usageTableView(usageView.view, metric)}
+                        chartSeries={chartSeries}
+                        context={labelContext}
+                        metric={metric}
+                        wide={wide}
+                        onViewChange={usageView.update}
+                      />
                     </UsageUpdating>
                   </>
                 )}
@@ -587,31 +658,41 @@ function CursorEnableLimits({
 
 function ChartCard(props: {
   readonly merged: MergedUsage;
-  readonly days: readonly string[];
-  readonly daily: readonly DailyTotals[];
-  readonly metric: UsageChartMetric;
-  readonly sinceDay: string;
-  readonly untilDay: string;
-  readonly isPast24Hours: boolean;
-  readonly timeZone: string;
+  readonly metric: UsagePivotMetric;
+  /** What the chart plots: the full chart less any providers hidden from it. */
+  readonly series: UsageChartSeries;
+  /** Whether the window has anything to plot before providers are hidden. */
+  readonly hasActivity: boolean;
+  readonly labelContext: UsageLabelContext;
+  readonly onChartDimensionsChange: (dimensions: readonly UsageChartDimension[]) => void;
+  readonly onGroupingChange: (grouping: (typeof USAGE_DAY_GROUPINGS)[number]) => void;
   readonly height: number;
   /** Replaces the summary when it sits beside the chart. */
   readonly title?: string;
   /** Grows the chart past `height` to match a taller neighbouring column. */
   readonly fill?: boolean;
 }) {
-  const { merged, metric } = props;
-  const colors = useProviderColors();
-  const hasActivity = props.daily.some((period) => period.totalTokens > 0);
+  const { merged, metric, series, labelContext } = props;
+  const { grouping, timeZone, hour12 } = labelContext;
+  const { stack, dimensions } = series;
   const [fillHeight, setFillHeight] = useState(0);
   const height = props.fill ? Math.max(fillHeight, props.height) : props.height;
-  const chart = hasActivity ? (
-    <UsageDailyChart days={props.days} daily={props.daily} metric={metric} height={height} />
-  ) : (
-    <View style={{ height }} className="items-center justify-center">
-      <Text className="text-base text-foreground-muted">No activity in this window.</Text>
-    </View>
-  );
+  const labels = usageSeriesLabels(stack.series, dimensions, labelContext);
+  const periods = stack.columns.map((column) => column.period);
+  const firstPeriod = periods[0];
+  const lastPeriod = periods[periods.length - 1];
+  const chart =
+    stack.series.length > 0 ? (
+      <UsageDailyChart series={series} height={height} />
+    ) : (
+      <View style={{ height }} className="items-center justify-center">
+        <Text className="text-base text-foreground-muted">
+          {props.hasActivity
+            ? "Every provider is hidden from the chart."
+            : "No activity in this window."}
+        </Text>
+      </View>
+    );
 
   return (
     <View
@@ -622,6 +703,42 @@ function ChartCard(props: {
       ) : (
         <UsageSummary merged={merged} metric={metric} />
       )}
+
+      <View className="flex-row flex-wrap items-center justify-between gap-2">
+        <ListFilterMenu
+          label={
+            dimensions.length === 0
+              ? "Total"
+              : dimensions.map((dimension) => USAGE_DIMENSION_NAMES[dimension]).join(" · ")
+          }
+          accessibilityLabel="Chart by"
+          actions={USAGE_CHART_DIMENSIONS.map((dimension) => ({
+            id: dimension,
+            title: USAGE_DIMENSION_NAMES[dimension],
+            state: dimensions.includes(dimension) ? ("on" as const) : ("off" as const),
+          }))}
+          onSelect={(id) =>
+            props.onChartDimensionsChange(
+              USAGE_CHART_DIMENSIONS.filter((dimension) =>
+                dimension === id ? !dimensions.includes(dimension) : dimensions.includes(dimension),
+              ),
+            )
+          }
+        />
+        {grouping === "hour" ? null : (
+          <SegmentedControl
+            options={USAGE_DAY_GROUPINGS.map((option) => ({
+              value: option,
+              label: USAGE_GROUPING_NAMES[option],
+            }))}
+            selected={grouping}
+            onSelect={props.onGroupingChange}
+            size="compact"
+            variant="card"
+            className="w-48"
+          />
+        )}
+      </View>
 
       {props.fill ? (
         // Absolute so the measured slot can shrink again when the neighbour gets shorter.
@@ -639,25 +756,25 @@ function ChartCard(props: {
       <View className="gap-2">
         <View className="flex-row items-center justify-between">
           <Text className="text-xs text-foreground-tertiary">
-            {props.isPast24Hours
-              ? formatHourShort(props.days[0] ?? "", props.timeZone)
-              : formatDayShort(props.sinceDay)}
+            {firstPeriod === undefined
+              ? ""
+              : formatUsagePeriodShort(firstPeriod, grouping, timeZone, hour12)}
           </Text>
           <Text className="text-xs text-foreground-tertiary">
-            {props.isPast24Hours
-              ? formatHourShort(props.days[props.days.length - 1] ?? "", props.timeZone)
-              : formatDayShort(props.untilDay)}
+            {lastPeriod === undefined
+              ? ""
+              : formatUsagePeriodShort(lastPeriod, grouping, timeZone, hour12)}
           </Text>
         </View>
         <View className="flex-row flex-wrap items-center gap-x-4 gap-y-1">
-          {merged.providers.map((provider) => (
-            <View key={provider.provider} className="flex-row items-center gap-1.5">
+          {stack.series.map((entry, index) => (
+            <View key={entry.key} className="max-w-full flex-row items-center gap-1.5">
               <View
                 className="size-2 rounded-full"
-                style={{ backgroundColor: colors[provider.provider] }}
+                style={{ backgroundColor: series.colors.get(entry.key) }}
               />
-              <Text className="text-xs text-foreground-muted">
-                {PROVIDER_LABEL[provider.provider]}
+              <Text className="shrink text-xs text-foreground-muted" numberOfLines={1}>
+                {labels[index]}
               </Text>
             </View>
           ))}
@@ -667,7 +784,7 @@ function ChartCard(props: {
   );
 }
 
-function UsageSummary(props: { readonly merged: MergedUsage; readonly metric: UsageChartMetric }) {
+function UsageSummary(props: { readonly merged: MergedUsage; readonly metric: UsagePivotMetric }) {
   const { merged, metric } = props;
   return (
     <View className="gap-0.5">
@@ -688,10 +805,12 @@ function UsageSummary(props: { readonly merged: MergedUsage; readonly metric: Us
 
 function ProviderSection(props: {
   readonly merged: MergedUsage;
-  readonly metric: UsageChartMetric;
+  readonly metric: UsagePivotMetric;
   readonly cursorAccessEnvironments: readonly EnvironmentUsageStatus[];
   readonly showCursorEnvironment: boolean;
   readonly onCursorEnabled: () => void;
+  readonly chartHiddenProviders: ReadonlySet<UsageProviderKind>;
+  readonly onToggleChartProvider: (provider: UsageProviderKind) => void;
   /** Drops the share bar so the list fits beside the chart. */
   readonly compact: boolean;
 }) {
@@ -738,9 +857,15 @@ function ProviderSection(props: {
         }
         const provider = row.provider;
         const share = metric === "cost" ? provider.costShare : provider.tokenShare;
+        const plotted = !props.chartHiddenProviders.has(provider.provider);
         return (
-          <View
+          <Pressable
             key={provider.provider}
+            accessibilityRole="togglebutton"
+            accessibilityState={{ checked: plotted }}
+            accessibilityHint={plotted ? "Hides it from the chart" : "Shows it in the chart"}
+            onPress={() => props.onToggleChartProvider(provider.provider)}
+            style={{ opacity: plotted ? 1 : 0.4 }}
             className={cn(
               props.compact ? "gap-0.5 px-4 py-3" : "gap-2 p-4",
               index > 0 && "border-t border-border-subtle",
@@ -786,7 +911,7 @@ function ProviderSection(props: {
                 ? `${formatPercent(share)} of cost · ${formatTokens(provider.totalTokens)} tokens`
                 : `${formatPercent(share)} of tokens · ${formatUsd(provider.costUsd)}`}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
     </SettingsSection>
@@ -953,67 +1078,6 @@ function MetricCell(props: {
       <Text className="text-xl font-t3-medium tabular-nums text-foreground">{props.value}</Text>
       <Text className="text-xs text-foreground-tertiary">{props.detail}</Text>
     </View>
-  );
-}
-
-function ModelsSection(props: {
-  readonly merged: MergedUsage;
-  readonly metric: UsageChartMetric;
-  readonly columns: 1 | 2;
-}) {
-  const { merged, metric } = props;
-  const colors = useProviderColors();
-  if (merged.models.length === 0) return null;
-
-  // Hermes lacks toSorted.
-  const ordered = [...merged.models].sort((a, b) =>
-    metric === "cost"
-      ? b.costUsd - a.costUsd || b.totalTokens - a.totalTokens
-      : b.totalTokens - a.totalTokens || b.costUsd - a.costUsd,
-  );
-
-  return (
-    <SettingsSection title="By model">
-      <View className="flex-row flex-wrap">
-        {ordered.map((model, index) => (
-          <View
-            key={`${model.provider}:${model.model}`}
-            className={cn(
-              "flex-row items-center gap-3 p-4",
-              index >= props.columns && "border-t border-border-subtle",
-              index % props.columns === 1 && "border-l border-border-subtle",
-            )}
-            style={{ width: `${100 / props.columns}%` }}
-          >
-            <View
-              className="size-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: colors[model.provider] }}
-            />
-            <View className="min-w-0 flex-1 gap-0.5">
-              <Text className="text-base text-foreground" numberOfLines={1}>
-                {model.model}
-              </Text>
-              <Text className="text-sm text-foreground-muted">
-                {metric === "tokens"
-                  ? `${formatPercent(model.tokenShare)} of tokens · ${
-                      isModelCostUnknown(model) ? "no known rates" : formatUsd(model.costUsd)
-                    }`
-                  : isModelCostUnknown(model)
-                    ? `no known rates · ${formatTokens(model.totalTokens)} tokens`
-                    : `${formatPercent(model.costShare)} of cost · ${formatTokens(model.totalTokens)} tokens`}
-              </Text>
-            </View>
-            <Text className="text-base tabular-nums text-foreground">
-              {metric === "tokens"
-                ? formatTokens(model.totalTokens)
-                : isModelCostUnknown(model)
-                  ? "Unpriced"
-                  : formatUsd(model.costUsd)}
-            </Text>
-          </View>
-        ))}
-      </View>
-    </SettingsSection>
   );
 }
 
