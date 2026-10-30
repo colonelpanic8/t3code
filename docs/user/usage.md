@@ -66,7 +66,8 @@ last saved totals first, then updates them when Cursor's API responds. Environme
 disconnected or cannot report usage are listed separately; their last reported usage stays in the
 totals when available. If no selected environment can report usage, the page says usage is
 unavailable instead of showing zero activity. A page left open past midnight moves its window to
-the new day.
+the new day. The mobile app does the same: after a restart it shows each environment's usage from
+earlier the same day dimmed until the environment answers again.
 
 If recent work is missing or a new model shows no cost, refresh to rescan session history and
 update model pricing.
