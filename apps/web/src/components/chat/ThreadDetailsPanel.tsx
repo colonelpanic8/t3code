@@ -10,13 +10,13 @@ import type {
 import type { DraftId } from "../../composerDraftStore";
 import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
 import { type EnvMode, type EnvironmentOption } from "../BranchToolbar.logic";
-import { BranchToolbar } from "../BranchToolbar";
+import { BranchToolbar, type BranchToolbarHandle } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
-import { memo, useState, type ComponentProps } from "react";
+import { memo, useState, type ComponentProps, type Ref } from "react";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -71,6 +71,7 @@ interface ThreadDetailsPanelProps extends Pick<
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest: () => void;
+  branchToolbarRef?: Ref<BranchToolbarHandle>;
   onOpenChanges?: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
@@ -217,7 +218,12 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 >
                   <div className="flex flex-col">
                     {show.branch ? (
-                      <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
+                      <BranchToolbar
+                        {...(props.branchToolbarRef ? { ref: props.branchToolbarRef } : {})}
+                        layout="panel"
+                        panelSection="branch"
+                        {...branchToolbarProps}
+                      />
                     ) : null}
                     {show.git ? (
                       <GitActionsControl
