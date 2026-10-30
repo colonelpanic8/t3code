@@ -14,6 +14,10 @@ import {
   type PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
+import {
+  parseUsageViewPreferences,
+  type UsageViewPreferences,
+} from "@t3tools/client-runtime/usage-view";
 import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
@@ -131,6 +135,7 @@ export interface Preferences {
   readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestListFilters?: PullRequestListPreferences;
   readonly workspaceSelections?: WorkspaceSelections;
+  readonly usageView?: UsageViewPreferences;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -213,6 +218,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
     workspaceSelections?: WorkspaceSelections;
+    usageView?: UsageViewPreferences;
   } = {};
 
   if (Array.isArray(parsed.hiddenNavigationTabs)) {
@@ -369,6 +375,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isWorkspaceSelections(parsed.workspaceSelections)) {
     preferences.workspaceSelections = parsed.workspaceSelections;
+  }
+  if (parsed.usageView !== undefined) {
+    preferences.usageView = parseUsageViewPreferences(parsed.usageView);
   }
   return preferences;
 }
