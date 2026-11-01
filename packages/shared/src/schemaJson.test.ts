@@ -36,18 +36,23 @@ Done.`),
     ).toBe('{"message":"literal } brace","nested":{"ok":true}}');
   });
 
-  it("decodes JSON with comments and trailing commas", () => {
-    expect(
-      decodeLenientJson(`{
+  it.each(["\n", "\r\n", "\r"])(
+    "decodes comments and trailing commas with %j line endings",
+    (eol) => {
+      expect(
+        decodeLenientJson(
+          `{
         // Comments are valid in settings files.
         "enabled": /* See "https://example.com/config" // still in the block */ true,
         "values": [1, 2,],
-      }`),
-    ).toEqual({
-      enabled: true,
-      values: [1, 2],
-    });
-  });
+      }`.replaceAll("\n", eol),
+        ),
+      ).toEqual({
+        enabled: true,
+        values: [1, 2],
+      });
+    },
+  );
 
   it("preserves comment markers and commas before brackets inside string values", () => {
     expect(decodeLenientJson('"1/* https://example.com */2"')).toBe("1/* https://example.com */2");
@@ -100,5 +105,12 @@ Done.`),
     const diagnostic = formatSchemaError(cause);
     expect(diagnostic.match(/Invalid type/g)).toHaveLength(8);
     expect(diagnostic).toContain("... and 2 more issue(s)");
+  });
+
+  it("keeps properties after CR-terminated comments in mixed line endings", () => {
+    expect(decodeLenientJson('{\n"enabled":true,// comment\r"values":[1,2],\n}')).toEqual({
+      enabled: true,
+      values: [1, 2],
+    });
   });
 });
