@@ -67,6 +67,7 @@ export interface ServerLocationOverrides {
   readonly dataDir?: string | undefined;
   readonly cacheDir?: string | undefined;
 }
+
 export interface DeriveServerPathsOptions extends ServerLocationOverrides {
   readonly baseDirIsExplicit?: boolean;
 }
@@ -118,6 +119,10 @@ export class ServerConfig extends Context.Service<
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
+    /** The server config file read at startup, and its keys this release ignores. */
+    readonly serverConfigFile?:
+      | { readonly path: string; readonly unknownKeys: ReadonlyArray<string> }
+      | undefined;
   }
 >()("t3/config/ServerConfig") {
   static readonly layerTest = (
