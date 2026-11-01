@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import {
   AuthDiagnosticsReadScope,
   USAGE_CONTRACT_VERSION,
@@ -29,16 +30,19 @@ export interface EnvironmentUsageStatus {
   readonly needsCursorKeychainAccess: boolean;
 }
 
-const usageByWindowAtom = Atom.family((windowKey: string) =>
+export const usageByWindowAtom = Atom.family((windowKey: string) =>
   Atom.make((get): readonly EnvironmentUsageStatus[] => {
     const input = JSON.parse(windowKey) as UsageSummaryInput;
     const presentations = get(environmentPresentations.presentationsAtom);
 
     const statuses: EnvironmentUsageStatus[] = [];
     for (const [environmentId, presentation] of presentations) {
+      const { phase } = presentation.connection;
+      const isConnected = phase === "connected";
+      const isConnecting = phase === "connecting";
       const sessionResult = get(environmentSession.sessionStateAtom(environmentId));
       const access = resolveUsageAccess({
-        connectionPhase: presentation.connection.phase,
+        connectionPhase: phase,
         session: AsyncResult.getOrElse(sessionResult, () => null),
         hasSessionError: sessionResult._tag === "Failure",
       });
@@ -46,8 +50,8 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
         statuses.push({
           environmentId,
           label: presentation.entry.target.label,
-          isConnected: presentation.connection.phase === "connected",
-          isConnecting: presentation.connection.phase === "connecting",
+          isConnected,
+          isConnecting,
           ...access,
           summary: null,
           needsCursorKeychainAccess: false,
@@ -59,11 +63,21 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
       statuses.push({
         environmentId,
         label: presentation.entry.target.label,
-        isPending: result.waiting,
-        isConnected: presentation.connection.phase === "connected",
-        isConnecting: presentation.connection.phase === "connecting",
+        // A query waits out a dropped connection, so only a connected one is still scanning.
+        isPending: isConnected && result.waiting,
+        isConnected,
+        isConnecting,
         canReadDiagnostics: true,
-        error: result._tag === "Failure" ? "This environment could not report usage." : null,
+        error:
+          !isConnected && summary === null
+            ? phase === "available"
+              ? "This environment is not connected."
+              : connectionStatusTitle(presentation.connection)
+            : result._tag === "Failure"
+              ? "This environment could not report usage."
+              : !isConnected && !isConnecting && phase !== "reconnecting"
+                ? "This environment is not connected."
+                : null,
         summary,
         needsCursorKeychainAccess: needsCursorKeychainAccess(
           summary,
