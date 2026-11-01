@@ -179,7 +179,12 @@ import { resolveCompatibleRuntimeMode } from "./chat/runtimeModeConfig";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import { shortcutLabelForCommand } from "../keybindings";
+import {
+  shortcutLabelForCommand,
+  modelSelectTargetFromCommand,
+  reasoningEffortFromCommand,
+  applyComposerSelectionShortcut,
+} from "../keybindings";
 import { cn } from "~/lib/utils";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
@@ -2732,6 +2737,9 @@ export default function ChatView(props: ChatViewProps) {
       },
     },
     fallback: (command) => {
+      if (modelSelectTargetFromCommand(command) || reasoningEffortFromCommand(command)) {
+        return () => void applyComposerSelectionShortcut(command, composerRef.current);
+      }
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject || !canOperateTerminal) return undefined;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
