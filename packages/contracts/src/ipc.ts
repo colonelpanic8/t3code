@@ -304,6 +304,8 @@ export interface DesktopUpdateState {
   errorContext: "check" | "download" | "install" | null;
   canRetry: boolean;
   notAppliedVersion?: string;
+  /** Present when updates are applied outside the app; `url` is set while an update is available. */
+  manualUpdate?: { url: string | null };
 }
 
 export interface DesktopUpdateReleaseNote {
@@ -345,6 +347,7 @@ export const DesktopUpdateStateSchema = Schema.Struct({
   errorContext: Schema.NullOr(Schema.Literals(["check", "download", "install"])),
   canRetry: Schema.Boolean,
   notAppliedVersion: Schema.optionalKey(Schema.String),
+  manualUpdate: Schema.optionalKey(Schema.Struct({ url: Schema.NullOr(Schema.String) })),
 });
 
 export const DesktopCliCommandStateSchema = Schema.Struct({
