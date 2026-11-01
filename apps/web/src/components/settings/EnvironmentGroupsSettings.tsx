@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { environmentCatalog } from "../../connection/catalog";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
@@ -24,7 +25,7 @@ export function EnvironmentGroupsSettings() {
       id="environment-groups"
       title="Environment groups"
       headerAction={
-        <div className="flex gap-2">
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost-muted"
             size="xs"
@@ -44,7 +45,7 @@ export function EnvironmentGroupsSettings() {
         </div>
       }
     >
-      <p className="text-sm text-muted-foreground">
+      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
         Show or hide groups for this session. Connections and running work stay active. Reloading or
         restarting restores the declared defaults.
       </p>
@@ -79,17 +80,29 @@ export function EnvironmentGroupsSettings() {
           control={<Button onClick={refresh}>Retry</Button>}
         />
       ) : null}
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="px-3 py-2.5 text-xs text-destructive sm:px-4">
+          {error}
+        </p>
+      ) : null}
       {Object.entries(state.groups).map(([id, group]) => {
         const visible = state.overrides.get(id) ?? group.defaultVisible;
-        const known = group.environmentIds.filter((environmentId) =>
-          catalog.entries.has(environmentId),
-        ).length;
+        const total = group.environmentIds.length;
+        const missing =
+          total -
+          group.environmentIds.filter((environmentId) => catalog.entries.has(environmentId)).length;
         return (
           <SettingsRow
             key={id}
-            title={group.label}
-            description={`${known} of ${group.environmentIds.length} environments saved here · ${group.defaultVisible ? "Visible" : "Hidden"} by default`}
+            title={
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate">{group.label}</span>
+                <Badge variant="outline" size="sm">
+                  {group.defaultVisible ? "Shown" : "Hidden"} by default
+                </Badge>
+              </span>
+            }
+            description={`${total} ${total === 1 ? "environment" : "environments"}${missing > 0 ? ` · ${missing} not saved on this device` : ""}`}
             control={
               <Switch
                 checked={visible}
@@ -101,7 +114,7 @@ export function EnvironmentGroupsSettings() {
         );
       })}
       {state.isReady && Object.keys(state.groups).length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
           Import a group declaration or set environmentGroups in your client settings.
         </p>
       ) : null}
