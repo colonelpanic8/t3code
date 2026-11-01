@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { Command } from "effect/cli";
-import { makeTraceSpanSummary, traceCommand } from "./trace.ts";
+import { formatTraceSummary, makeTraceSpanSummary, traceCommand } from "./trace.ts";
 
 const MINUTE_MS = 60_000;
 
@@ -116,3 +116,13 @@ it.effect("summary reads the trace file and its rotation count from server.json"
     assert.notInclude(summary, "beyond-max-files");
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it("prints durations that round up to a second in seconds", () => {
+  const summarizer = makeTraceSpanSummary();
+  [span("rpc", 999.4, MINUTE_MS), span("rpc", 999.6, 2 * MINUTE_MS)].forEach(summarizer.addLine);
+
+  const row = formatTraceSummary(summarizer.finish(), 25)
+    .split("\n")
+    .find((line) => line.startsWith("rpc"));
+  assert.deepStrictEqual(row?.trim().split(/\s+/).slice(3, 6), ["999ms", "1s", "1s"]);
+});

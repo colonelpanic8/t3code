@@ -126,6 +126,25 @@ it("reads the served data dir back out of a split unit or plist", () => {
   expect(plist).toContain("    <key>T3CODE_HOME</key>\n    <string></string>");
 });
 
+it("protects the server unit from agents under CPU and memory pressure", () => {
+  const unit = BootService.renderBootServiceUnit({
+    program: ["/home/theo/.t3/runtime/versions/1.2.3/t3", "__service-launcher"],
+    baseDir: "/home/theo/.t3",
+    logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
+    unitPath: "/home/theo/.config/systemd/user/t3code.service",
+  });
+  const service = unit.slice(unit.indexOf("[Service]"), unit.indexOf("[Install]"));
+  for (const line of [
+    "CPUWeight=1000",
+    "IOWeight=1000",
+    "MemoryLow=1536M",
+    "OOMScoreAdjust=100",
+    "OOMPolicy=continue",
+  ]) {
+    expect(service.split("\n")).toContain(line);
+  }
+});
+
 it.each([
   ["a unit", '/home/theo/T3 "Data"/100%\\x', BootService.renderBootServiceUnit],
   [
@@ -276,6 +295,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
     serviceBaseDir = baseDir,
     storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
     insideService = false,
+    hostExecPath = "/usr/bin/t3",
   ) =>
     Effect.gen(function* () {
       const paths = pinnedRuntimePaths(path, serviceBaseDir, cliVersion, platform);
@@ -287,7 +307,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
         storageRoots,
         logsDir: path.join(serviceBaseDir, "userdata", "logs"),
         cliVersion,
-        host: { execPath: "/usr/bin/t3" },
+        host: { execPath: hostExecPath },
       });
     }).pipe(
       Effect.provideService(ProcessRunner.ProcessRunner, runner),
@@ -295,7 +315,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
         Layer.mergeAll(
           Layer.succeed(HostProcess.Platform, platform),
           Layer.succeed(HostProcess.UserId, 501),
-          Layer.succeed(HostProcess.ExecutablePath, "/usr/bin/t3"),
+          Layer.succeed(HostProcess.ExecutablePath, hostExecPath),
           Layer.succeed(
             HttpClient.HttpClient,
             HttpClient.make(() => Effect.die("no release download expected")),
@@ -988,6 +1008,29 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
 
       const restartedService = yield* makeService("/usr/local/bin:/usr/bin:/bin");
       expect((yield* restartedService.status).current).toBe(true);
+    }),
+  );
+
+  // regression: #17532
+  it.effect("puts the runtime an update installs on the launch agent PATH", () =>
+    Effect.gen(function* () {
+      const { makeService, fs, baseDir, runtime } = yield* makeHarness("darwin");
+      const path = yield* Path.Path;
+      const previous = runtime.versionDir;
+      const installed = pinnedRuntimePaths(path, baseDir, "1.2.4", "darwin").versionDir;
+      // The 1.2.3 CLI, or the 1.2.3 service's own PATH, installs 1.2.4.
+      const updated = yield* makeService(
+        `/usr/bin:${previous}:/bin`,
+        "1.2.4",
+        undefined,
+        false,
+        runtime.entryPath,
+      );
+      const plan = yield* updated.install();
+
+      expect(yield* fs.readFileString(plan.unitPath)).toContain(
+        `    <key>PATH</key>\n    <string>/usr/bin:${installed}:/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin</string>`,
+      );
     }),
   );
 
