@@ -1,5 +1,6 @@
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
+  type AgentProfileId,
   type ThreadLinkedPullRequest,
   CommandId,
   CheckpointId,
@@ -155,6 +156,7 @@ interface StartThreadBootstrap {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly createdAt: string;
+    readonly agentProfile?: AgentProfileId;
   };
   readonly prepareWorktree?: {
     readonly requireWorktree?: boolean;
@@ -720,6 +722,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       modelSelection: input.modelSelection ?? thread.modelSelection,
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
+      ...(bootstrap?.agentProfile === undefined ? {} : { agentProfile: bootstrap.agentProfile }),
       workspaceStrategy,
       initialMessage: {
         messageId: input.message.messageId,
