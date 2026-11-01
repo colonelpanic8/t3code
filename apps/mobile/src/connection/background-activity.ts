@@ -18,6 +18,7 @@ import { AppState } from "react-native";
 
 import * as MobileStorage from "../persistence/mobile-storage";
 import {
+  hasRetainedMobileCallActivity,
   observeMobileBackgroundActivitySubscription,
   onRetainedMobileBackgroundScopesChange,
   retainedMobileBackgroundScopes,
@@ -69,7 +70,11 @@ export const layerReporter = Layer.effectDiscard(
                 clientKind: "mobile",
                 visible: active,
                 focused: active,
-                recentlyInteracted: active,
+                // A Live Voice call is live interaction even while backgrounded. The
+                // client-local `call` scope cannot cross the wire until contracts grow a
+                // call variant, so this flag keeps the hosting server engaged.
+                recentlyInteracted:
+                  active || hasRetainedMobileCallActivity(environmentId as EnvironmentId),
                 appState: normalizeAppState(appState),
                 scopes: [
                   ...BASELINE_SCOPES,
