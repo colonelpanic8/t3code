@@ -2803,6 +2803,9 @@ const make = Effect.gen(function* () {
                   ...(parent.thread.linkOrigin === undefined
                     ? {}
                     : { linkOrigin: parent.thread.linkOrigin }),
+                  ...(parent.thread.agentProfile === undefined
+                    ? {}
+                    : { agentProfile: parent.thread.agentProfile }),
                 })
                 .pipe(
                   Effect.mapError((error) =>
