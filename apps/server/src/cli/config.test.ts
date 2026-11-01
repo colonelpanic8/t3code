@@ -119,6 +119,8 @@ const minimalDesktopFlags = (baseDir: string) => ({
   logWebSocketEvents: Option.none<boolean>(),
   tailscaleServeEnabled: Option.none<boolean>(),
   tailscaleServePort: Option.none<number>(),
+  sharedSettingsFile: Option.none(),
+  lan: Option.none(),
 });
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
   const defaultObservabilityConfig = {
@@ -400,6 +402,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
         sharedSettingsFile: Option.none<string>(),
+        lan: Option.none(),
       };
       const layerConfig = ConfigProvider.layer(
         ConfigProvider.fromEnv({
@@ -1798,6 +1801,7 @@ const storageFlags = (overrides: Partial<CliServerFlags> = {}): CliServerFlags =
   tailscaleServeEnabled: Option.none(),
   tailscaleServePort: Option.none(),
   sharedSettingsFile: Option.none(),
+  lan: Option.none(),
   ...overrides,
 });
 it.layer(NodeServices.layer)("storage layout", (it) => {

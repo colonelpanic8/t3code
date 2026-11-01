@@ -115,7 +115,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
       context: input.getShortcutContext(event.target),
     });
     const run = command
-      ? composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command]
+      ? composerShortcutCommands(input.composerRef, input.branchToolbarRefs)[command]
       : undefined;
     if (!run || run({ event, terminalFocusOwner: null }) === false) return;
     event.preventDefault();
