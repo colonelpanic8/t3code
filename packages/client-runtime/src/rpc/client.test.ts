@@ -72,7 +72,9 @@ const makeHarness = Effect.fn("TestEnvironmentRpc.makeHarness")(function* (optio
     prepared,
     connect: Effect.void,
     disconnect: Effect.void,
-    retryNow: options?.retryNow ?? Ref.update(retryCount, (count) => count + 1),
+    retryNow: Ref.update(retryCount, (count) => count + 1).pipe(
+      Effect.andThen(options?.retryNow ?? Effect.void),
+    ),
   } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
   return {
     activeSession,
@@ -269,11 +271,7 @@ describe("environment RPC", () => {
       yield* Fiber.interrupt(subscriptionFiber);
 
       expect(subscriptions).toEqual(["first", "second"]);
-      // The transport failure asks the supervisor for a new session. Nothing
-      // else guarantees one arrives: the supervisor replaces a session only
-      // when the socket reports closed or an `application-active` probe fails,
-      // so a stream that dies while the session stays usable would otherwise
-      // never resubscribe.
+      // Reconnect even when the socket has not reported that it closed.
       expect(yield* Ref.get(retryCount)).toBe(1);
     }),
   );
@@ -281,7 +279,7 @@ describe("environment RPC", () => {
   it.effect("asks the supervisor to reconnect when a subscription loses its transport", () =>
     Effect.gen(function* () {
       const client = {
-        [WS_METHODS.subscribeTerminalEvents]: () =>
+        [WS_METHODS.subscribeTerminalMetadata]: () =>
           Stream.fail(
             new RpcClientError.RpcClientError({
               reason: new RpcClientError.RpcClientDefect({
@@ -291,17 +289,18 @@ describe("environment RPC", () => {
             }),
           ),
       } as unknown as WsRpcProtocolClient;
-      const { activeSession, retryCount, supervisor } = yield* makeHarness();
+      const retryRequested = yield* Deferred.make<void>();
+      const { activeSession, retryCount, supervisor } = yield* makeHarness({
+        retryNow: Deferred.succeed(retryRequested, undefined),
+      });
 
-      const subscriptionFiber = yield* subscribe(WS_METHODS.subscribeTerminalEvents, {}).pipe(
+      const subscriptionFiber = yield* subscribe(WS_METHODS.subscribeTerminalMetadata, {}).pipe(
         Stream.runDrain,
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
         Effect.forkChild,
       );
       yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
-      for (let attempt = 0; attempt < 100 && (yield* Ref.get(retryCount)) < 1; attempt += 1) {
-        yield* Effect.yieldNow;
-      }
+      yield* Deferred.await(retryRequested);
       yield* Fiber.interrupt(subscriptionFiber);
 
       expect(yield* Ref.get(retryCount)).toBe(1);
@@ -323,12 +322,12 @@ describe("environment RPC", () => {
           }),
         );
       const client = {
-        [WS_METHODS.subscribeTerminalEvents]: failing,
+        [WS_METHODS.subscribeTerminalMetadata]: failing,
         [WS_METHODS.subscribeServerLifecycle]: failing,
       } as unknown as WsRpcProtocolClient;
       const { activeSession, retryCount, supervisor } = yield* makeHarness();
 
-      const terminalFiber = yield* subscribe(WS_METHODS.subscribeTerminalEvents, {}).pipe(
+      const terminalFiber = yield* subscribe(WS_METHODS.subscribeTerminalMetadata, {}).pipe(
         Stream.runDrain,
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
         Effect.forkChild,
@@ -352,7 +351,7 @@ describe("environment RPC", () => {
   it.effect("ignores a transport failure from a session that has already been replaced", () =>
     Effect.gen(function* () {
       const failingClient = {
-        [WS_METHODS.subscribeTerminalEvents]: () =>
+        [WS_METHODS.subscribeTerminalMetadata]: () =>
           Stream.fail(
             new RpcClientError.RpcClientError({
               reason: new RpcClientError.RpcClientDefect({
@@ -363,14 +362,14 @@ describe("environment RPC", () => {
           ),
       } as unknown as WsRpcProtocolClient;
       const replacementClient = {
-        [WS_METHODS.subscribeTerminalEvents]: () => Stream.never,
+        [WS_METHODS.subscribeTerminalMetadata]: () => Stream.never,
       } as unknown as WsRpcProtocolClient;
       const staleSession = session(failingClient);
       const replacementSession = session(replacementClient);
       const { activeSession, retryCount, supervisor } = yield* makeHarness();
 
       const subscriptionFiber = yield* subscribeDynamic(
-        WS_METHODS.subscribeTerminalEvents,
+        WS_METHODS.subscribeTerminalMetadata,
         (current) =>
           current === staleSession
             ? SubscriptionRef.set(activeSession, Option.some(replacementSession)).pipe(
@@ -395,10 +394,11 @@ describe("environment RPC", () => {
   it.effect("allows recovery to retry when a same-session resubscribe interrupts the signal", () =>
     Effect.gen(function* () {
       const attempts = yield* Ref.make(0);
+      const retrySignals = yield* Queue.unbounded<number>();
       const blockRecovery = yield* Deferred.make<void>();
       const resubscribe = yield* Queue.unbounded<void>();
       const failingClient = {
-        [WS_METHODS.subscribeTerminalEvents]: () =>
+        [WS_METHODS.subscribeTerminalMetadata]: () =>
           Stream.fail(
             new RpcClientError.RpcClientError({
               reason: new RpcClientError.RpcClientDefect({
@@ -409,13 +409,14 @@ describe("environment RPC", () => {
           ),
       } as unknown as WsRpcProtocolClient;
       const { activeSession, supervisor } = yield* makeHarness({
-        retryNow: Ref.update(attempts, (count) => count + 1).pipe(
+        retryNow: Ref.updateAndGet(attempts, (count) => count + 1).pipe(
+          Effect.tap((attempt) => Queue.offer(retrySignals, attempt)),
           Effect.andThen(Deferred.await(blockRecovery)),
         ),
       });
 
       const subscriptionFiber = yield* subscribe(
-        WS_METHODS.subscribeTerminalEvents,
+        WS_METHODS.subscribeTerminalMetadata,
         {},
         {
           resubscribe: Stream.fromQueue(resubscribe),
@@ -426,13 +427,9 @@ describe("environment RPC", () => {
         Effect.forkChild,
       );
       yield* SubscriptionRef.set(activeSession, Option.some(session(failingClient)));
-      for (let attempt = 0; attempt < 100 && (yield* Ref.get(attempts)) < 1; attempt += 1) {
-        yield* Effect.yieldNow;
-      }
+      expect(yield* Queue.take(retrySignals)).toBe(1);
       yield* Queue.offer(resubscribe, undefined);
-      for (let attempt = 0; attempt < 100 && (yield* Ref.get(attempts)) < 2; attempt += 1) {
-        yield* Effect.yieldNow;
-      }
+      expect(yield* Queue.take(retrySignals)).toBe(2);
       yield* Fiber.interrupt(subscriptionFiber);
 
       expect(yield* Ref.get(attempts)).toBe(2);
