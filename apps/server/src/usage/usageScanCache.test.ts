@@ -260,6 +260,21 @@ describe("scan cache round trip", () => {
     },
   );
 
+  it.each([9, 10])(
+    "re-parses a v%s Claude transcript cached before all usage was counted",
+    (version) => {
+      const original = cacheWith([["/claude.jsonl", 100, [record()]]]);
+      const previous = { ...JSON.parse(makeScanCacheWriter()(original, {})), version };
+
+      const restored = decodeScanCache(JSON.parse(JSON.stringify(previous)), TEST_FORMAT_MAP);
+      expect(restored.get("/claude.jsonl")).toEqual({
+        ...original.get("/claude.jsonl"),
+        size: -1,
+        position: { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
+      });
+    },
+  );
+
   it("rewrites only changed entries and still restores the whole cache", () => {
     const write = makeScanCacheWriter();
     const cache = cacheWith([
