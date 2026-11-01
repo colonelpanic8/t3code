@@ -36,6 +36,14 @@ export const describeServerProcess = Effect.fn("triage.describeServerProcess")(f
   return `running (pid ${String(state.value.pid)}, ${state.value.origin}, ${version})`;
 });
 
+export const describeServerConfigFile = (file: {
+  readonly path: string;
+  readonly unknownKeys: ReadonlyArray<string>;
+}) =>
+  file.unknownKeys.length === 0
+    ? file.path
+    : `${file.path} (ignored unknown keys: ${file.unknownKeys.join(", ")})`;
+
 /** The source cache the playbook clones into, one subdirectory per commit. */
 export const triageSourceCacheDir = (baseDir: string, path: Path.Path) =>
   path.join(baseDir, "source");
@@ -49,6 +57,7 @@ export const writeTriageSession = Effect.fn("triage.writeTriageSession")(functio
   readonly paths: ServerConfig.ServerDerivedPaths;
   readonly entry: TriageEntry;
   readonly server: string;
+  readonly serverConfigFile: string;
   readonly sourceClone?: TriageSourceClone | undefined;
   /** Where the boot service and desktop app write logs, when location overrides moved `paths.logsDir`. */
   readonly serviceLogsDir?: string | undefined;
@@ -89,6 +98,7 @@ export const writeTriageSession = Effect.fn("triage.writeTriageSession")(functio
           input.desktopLogsDir ?? paths.logsDir,
           "server-child*.log*",
         ),
+        serverConfigFile: input.serverConfigFile,
         serverTracePath: paths.serverTracePath,
         providerEventLogPath: paths.providerEventLogPath,
         terminalLogsDir: paths.terminalLogsDir,
