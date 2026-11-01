@@ -27,8 +27,10 @@ const StoredPreferencesSchema = Schema.Struct({
 
 export type UsageChartDimension = Exclude<UsageDimension, "period">;
 export const USAGE_CHART_DIMENSIONS = [
+  "host",
   "environment",
   "provider",
+  "account",
   "model",
 ] as const satisfies readonly UsageChartDimension[];
 export const USAGE_DAY_GROUPINGS = [
