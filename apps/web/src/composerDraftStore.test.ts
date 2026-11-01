@@ -8,6 +8,7 @@ import {
   type EnvironmentShellStatus,
 } from "@t3tools/client-runtime/state/shell";
 import { makeThreadProjectionFixture } from "./test-fixtures";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import {
@@ -1402,12 +1403,32 @@ function draftPromotionHarness() {
     }
     return atom;
   };
+  type PromotionDetail = { readonly projection: ReturnType<typeof makeThreadProjectionFixture> };
+  const detailAtoms = new Map<string, Atom.Writable<PromotionDetail | null>>();
+  const detailAtom = (ref: ScopedThreadRef) => {
+    const key = scopedThreadKey(ref);
+    let atom = detailAtoms.get(key);
+    if (!atom) {
+      atom = Atom.make<PromotionDetail | null>(null);
+      detailAtoms.set(key, atom);
+    }
+    return atom;
+  };
   onTestFinished(
-    subscribeDraftThreadPromotion({ registry, threadRefsAtom, threadShellAtom: shellAtom }),
+    subscribeDraftThreadPromotion({
+      registry,
+      threadRefsAtom,
+      threadShellAtom: shellAtom,
+      threadDetailAtom: detailAtom,
+    }),
   );
   flush();
   return {
     flush,
+    hydrateDetail(ref: ScopedThreadRef, projection: PromotionDetail["projection"]) {
+      registry.set(detailAtom(ref), { projection });
+      flush();
+    },
     arrive(ref: ScopedThreadRef, shell: PromotionShell | null = null) {
       registry.set(shellAtom(ref), shell);
       registry.set(threadRefsAtom, [...registry.get(threadRefsAtom), ref]);
@@ -1491,6 +1512,37 @@ describe("composerDraftStore draft promotion", () => {
     expect(state.getDraftSession(draftId)).toBeNull();
     expect(state.getPromotedDraftRedirect(draftId)).toEqual(threadRef);
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.prompt).toBe("typed during setup");
+  });
+
+  it("finalizes a sent draft from its reserved detail stream when the shell stream stalls", async () => {
+    const h = draftPromotionHarness();
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    markPromotedDraftThreadByRef(threadRef);
+    const projectionWithRun = (startedAt: string | null) => ({
+      ...makeThreadProjectionFixture(),
+      runs: [
+        {
+          id: preparingRun.runId,
+          ordinal: 1,
+          status: startedAt === null ? ("preparing" as const) : ("running" as const),
+          requestedAt: DateTime.makeUnsafe(preparingRun.requestedAt),
+          startedAt: startedAt === null ? null : DateTime.makeUnsafe(startedAt),
+          completedAt: null,
+        } as never,
+      ],
+    });
+
+    h.hydrateDetail(threadRef, projectionWithRun(null));
+    await waitForDraftHeroTransition();
+    expect(useComposerDraftStore.getState().getDraftSession(draftId)?.promotedTo).toEqual(
+      threadRef,
+    );
+
+    h.hydrateDetail(threadRef, projectionWithRun("2026-03-29T00:00:01.000Z"));
+    await waitForDraftHeroTransition();
+    expect(useComposerDraftStore.getState().getDraftSession(draftId)).toBeNull();
+    expect(useComposerDraftStore.getState().getPromotedDraftRedirect(draftId)).toEqual(threadRef);
   });
 
   it("holds a background submission on its draft until the send settles", async () => {
