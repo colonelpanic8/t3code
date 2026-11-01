@@ -341,6 +341,7 @@ describe("environment grouping", () => {
       projects: [project("other"), project("pinned", "2026-01-01T00:00:00.000Z"), current],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
     const entries = buildSidebarProjectPickerEntries({
