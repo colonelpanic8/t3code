@@ -1,5 +1,5 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
-import type { UsageChartMetric } from "./UsageProviderChart";
+import type { UsageChartMetric } from "./UsageChart";
 import { resolveShortcutCommand, type ShortcutEventLike } from "../../keybindings";
 
 export type UsageMetric = UsageChartMetric | "limits";
