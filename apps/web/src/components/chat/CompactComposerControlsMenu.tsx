@@ -87,9 +87,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         )}
         {agentProfile !== undefined && showsAgentProfileControl(agentProfile) ? (
           <>
-            {props.traitsMenuContent ||
-            props.showInteractionModeToggle ||
-            props.showPermissions !== false ? (
+            {props.showInteractionModeToggle || props.showPermissions !== false ? (
               <MenuDivider />
             ) : null}
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Profile</div>
