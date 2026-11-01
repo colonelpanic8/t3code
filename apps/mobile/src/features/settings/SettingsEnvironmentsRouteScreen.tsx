@@ -12,6 +12,7 @@ import { AndroidAnchoredMenu } from "../../components/ui/AndroidAnchoredMenu";
 import { AndroidHeaderIconButton } from "../../components/ui/AndroidScreenHeader";
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
+import { FleetEnrollmentKeySettings } from "../connection/FleetEnrollmentKeySettings";
 import { PullRequestRoutingSettings } from "../connection/PullRequestRoutingSettings";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -171,6 +172,7 @@ export function SettingsEnvironmentsRouteScreen() {
             : {})}
         />
         <PullRequestRoutingSettings />
+        <FleetEnrollmentKeySettings />
       </ScrollView>
     </SettingsScreen>
   );
