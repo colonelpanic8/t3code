@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   decodeScanCache,
+  dedupeWithinFile,
   makeScanCacheWriter,
   type CachedFile,
   type ScanCache,
@@ -58,6 +59,16 @@ function cacheWith(entries: readonly [string, number, readonly UsageRecord[]][])
 }
 
 describe("scan cache round trip", () => {
+  it("reparses upstream v7 Claude caches while retaining their history", () => {
+    const original = cacheWith([["/claude.jsonl", 100, [record()]]]);
+    const restored = decodeScanCache(
+      { ...JSON.parse(makeScanCacheWriter()(original, {})), version: 7 },
+      TEST_FORMAT_MAP,
+    );
+    expect(restored.get("/claude.jsonl")?.size).toBe(-1);
+    expect(restored.get("/claude.jsonl")?.records).toEqual(original.get("/claude.jsonl")?.records);
+  });
+
   it("restores cached history unchanged except for Claude local placeholders", () => {
     const original = cacheWith([
       [
@@ -161,7 +172,7 @@ describe("scan cache round trip", () => {
     expect(restored).toEqual(original);
   });
 
-  it.each([5, 6, 7, 8])(
+  it.each([5, 6, 7, 8, 9])(
     "retains v%s history and compatible positions but invalidates obsolete state",
     (version) => {
       const original = cacheWith([["/gone.jsonl", 100, [record({ speed: "fast" })]]]);
@@ -229,7 +240,7 @@ describe("scan cache round trip", () => {
         position: { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
       });
       expect(restored.get("/clean-codex.jsonl")).toEqual(
-        version >= 8
+        version >= 9
           ? cleanCodex
           : {
               ...cleanCodex,
@@ -249,17 +260,20 @@ describe("scan cache round trip", () => {
     },
   );
 
-  it("re-parses a Claude transcript cached before advisor usage was counted", () => {
-    const original = cacheWith([["/claude.jsonl", 100, [record()]]]);
-    const v9 = { ...JSON.parse(makeScanCacheWriter()(original, {})), version: 9 };
+  it.each([9, 10])(
+    "re-parses a v%s Claude transcript cached before all usage was counted",
+    (version) => {
+      const original = cacheWith([["/claude.jsonl", 100, [record()]]]);
+      const previous = { ...JSON.parse(makeScanCacheWriter()(original, {})), version };
 
-    const restored = decodeScanCache(JSON.parse(JSON.stringify(v9)), TEST_FORMAT_MAP);
-    expect(restored.get("/claude.jsonl")).toEqual({
-      ...original.get("/claude.jsonl"),
-      size: -1,
-      position: { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
-    });
-  });
+      const restored = decodeScanCache(JSON.parse(JSON.stringify(previous)), TEST_FORMAT_MAP);
+      expect(restored.get("/claude.jsonl")).toEqual({
+        ...original.get("/claude.jsonl"),
+        size: -1,
+        position: { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
+      });
+    },
+  );
 
   it("rewrites only changed entries and still restores the whole cache", () => {
     const write = makeScanCacheWriter();
@@ -323,5 +337,38 @@ describe("scan cache round trip", () => {
 
     const restored = decodeScanCache(JSON.parse(JSON.stringify(poisoned)), TEST_FORMAT_MAP);
     expect(restored.has("/a.jsonl")).toBe(false);
+  });
+});
+
+describe("dedupeWithinFile", () => {
+  const block = (dedupeKey: string, outputTokens: number, timestampMs: number) =>
+    record({ dedupeKey, timestampMs, totals: { ...record().totals, outputTokens } });
+
+  it("keeps the first of a main-session message's identical blocks", () => {
+    const kept = dedupeWithinFile([
+      block("msg_1:req_1", 50, 1),
+      block("msg_1:req_1", 50, 2),
+      block("msg_2:req_2", 7, 3),
+    ]);
+
+    expect(kept.map((r) => [r.dedupeKey, r.totals.outputTokens, r.timestampMs])).toEqual([
+      ["msg_1:req_1", 50, 1],
+      ["msg_2:req_2", 7, 3],
+    ]);
+  });
+
+  it("keeps the full output of a subagent message's last block", () => {
+    const kept = dedupeWithinFile([
+      block("msg_1:req_1", 2, 1),
+      block("msg_1:req_1", 2, 2),
+      block("msg_1:req_1", 1411, 3),
+      block("msg_2:req_2", 1, 4),
+      block("msg_2:req_2", 96, 5),
+    ]);
+
+    expect(kept.map((r) => [r.dedupeKey, r.totals.outputTokens])).toEqual([
+      ["msg_1:req_1", 1411],
+      ["msg_2:req_2", 96],
+    ]);
   });
 });
