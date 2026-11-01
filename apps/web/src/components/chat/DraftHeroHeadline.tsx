@@ -29,6 +29,7 @@ import {
 } from "~/sidebarProjectGrouping";
 import { useProjects, useThreadShells } from "~/state/entities";
 import {
+  appOwnsLocalEnvironment,
   useEnvironments,
   usePrimaryEnvironmentId,
   useEnvironmentProviders,
@@ -109,6 +110,7 @@ export function DraftHeroHeadline({
       projects,
       settings: projectGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: appOwnsLocalEnvironment(),
       resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
     }),
     threads,
