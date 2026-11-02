@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   layoutBreakdownTable,
+  usageShareMetric,
   usageTableView,
   withTableDimensions,
   withTableSort,
@@ -262,5 +263,25 @@ describe("usageTableView", () => {
       tableDimensions: ["provider", "period"],
       sort: [{ field: "period", direction: "ascending" }],
     });
+  });
+});
+
+describe("usageShareMetric", () => {
+  it("follows the first cost or token sort over the page's metric", () => {
+    expect(usageShareMetric([{ field: "totalTokens", direction: "descending" }], "cost")).toBe(
+      "tokens",
+    );
+    expect(
+      usageShareMetric(
+        [
+          { field: "label", direction: "ascending" },
+          { field: "costUsd", direction: "descending" },
+        ],
+        "tokens",
+      ),
+    ).toBe("cost");
+    expect(usageShareMetric([{ field: "period", direction: "ascending" }], "tokens")).toBe(
+      "tokens",
+    );
   });
 });

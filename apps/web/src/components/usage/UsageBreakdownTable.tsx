@@ -66,6 +66,18 @@ export function usageTableView(
   });
 }
 
+/** Share follows the first cost or token sort, else the page's metric. */
+export function usageShareMetric(
+  sort: readonly UsageSortCriterion[],
+  metric: UsagePivotMetric,
+): UsagePivotMetric {
+  for (const { field } of sort) {
+    if (field === "costUsd") return "cost";
+    if (field === "totalTokens") return "tokens";
+  }
+  return metric;
+}
+
 /** Sorting by period needs periods to sort, so it brings the dimension along. */
 export function withTableSort({ tableDimensions, sort }: UsageTableView): UsageTableView {
   const needsPeriod = sort.some((criterion) => criterion.field === "period");
@@ -213,7 +225,8 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
   const isRowLoading = (row: UsagePivotRow) =>
     row.provider === undefined ? loadingProviders.size > 0 : loadingProviders.has(row.provider);
 
-  const shareOf = (totals: UsageTotals) => modelShare(totals, metric);
+  const shareMetric = usageShareMetric(sort, metric);
+  const shareOf = (totals: UsageTotals) => modelShare(totals, shareMetric);
 
   return (
     <section className="flex flex-col gap-3">
@@ -269,7 +282,9 @@ export const UsageBreakdownTable = memo(function UsageBreakdownTable({
                       .join(" · ")}
               </th>
               <th className="py-2 pl-6 font-normal">Cost</th>
-              <th className="hidden py-2 pl-6 font-normal sm:table-cell">Share</th>
+              <th className="hidden py-2 pl-6 font-normal sm:table-cell">
+                {shareMetric === "cost" ? "Cost share" : "Token share"}
+              </th>
               <th className="py-2 pl-6 font-normal">Tokens</th>
             </tr>
           </thead>
