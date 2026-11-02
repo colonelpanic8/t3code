@@ -15,14 +15,26 @@ import * as ServiceProtection from "../cloud/serviceProtection.ts";
 import { compareExactServiceVersions, SERVICE_ENV_FILE } from "../cloud/serviceProtocol.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { installLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
+import {
+  installLocationFlags,
+  resolveCliAuthConfig,
+  resolveInstallLocations,
+  type ServerStorage,
+} from "./config.ts";
 import { resolveEntryPath } from "./invocation.ts";
 
-export const layer = (config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir">) =>
+/** The background service for these install locations, managed by `cliVersion` (this CLI by default). */
+export const layer = (
+  config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir"> & {
+    readonly storage: ServerStorage;
+  },
+  cliVersion: string = packageJson.version,
+) =>
   BootService.layer({
     baseDir: config.baseDir,
+    storageRoots: config.storage.roots,
     logsDir: config.logsDir,
-    cliVersion: packageJson.version,
+    cliVersion,
   }).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(FetchHttpClient.layer));
 
 export type ServiceReconcileResult =
