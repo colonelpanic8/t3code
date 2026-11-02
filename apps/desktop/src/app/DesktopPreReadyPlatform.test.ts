@@ -63,7 +63,7 @@ describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
     appendSwitchMock.mockReset();
     getSwitchValueMock.mockReset();
-    hasSwitchMock.mockReset();
+    hasSwitchMock.mockReset().mockReturnValue(false);
     registerSchemesMock.mockReset();
     setDesktopNameMock.mockReset();
     mkdirSyncMock.mockReset();
@@ -116,6 +116,23 @@ describe("DesktopPreReadyPlatform", () => {
     }).pipe(
       Effect.provideService(HostProcess.Platform, "linux"),
       Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    );
+  });
+
+  it.effect("flags a --client-dir switch whose value went to the next argument", () => {
+    hasSwitchMock.mockImplementation((switchName) => switchName === "client-dir");
+    getSwitchValueMock.mockReturnValue("");
+
+    return Effect.gen(function* () {
+      const options = yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
+
+      assert.isTrue(options.clientDirSwitchMissingValue);
+    }).pipe(
+      Effect.provide(
+        DesktopPreReadyPlatform.layer.pipe(
+          Layer.provide(Layer.succeed(HostProcess.Platform, "darwin")),
+        ),
+      ),
     );
   });
 
@@ -230,6 +247,7 @@ describe("DesktopPreReadyPlatform", () => {
           preReady: {
             linux: null,
             linuxPasswordStoreCommandLine: null,
+            clientDirSwitchMissingValue: false,
           },
         });
         assert.deepEqual(events, ["pre-ready", "clerk"]);
