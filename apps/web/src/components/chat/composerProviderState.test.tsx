@@ -9,6 +9,7 @@ import {
 import {
   getComposerProviderState,
   getComposerReasoningStep,
+  selectComposerReasoningEffort,
   withImplicitFastModeDefault,
 } from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
@@ -419,5 +420,79 @@ describe("getComposerReasoningStep", () => {
         selections(["reasoningEffort", to]),
       );
     }
+  });
+});
+
+describe("selectComposerReasoningEffort", () => {
+  const models = modelWith([
+    selectDescriptor(
+      "effort",
+      [
+        {
+          id: "low",
+          label: "Low",
+        },
+        {
+          id: "medium",
+          label: "Medium",
+          isDefault: true,
+        },
+        {
+          id: "high",
+          label: "High",
+        },
+        {
+          id: "ultrathink",
+          label: "Ultrathink",
+        },
+      ],
+      ["ultrathink"],
+    ),
+    booleanDescriptor("fastMode"),
+  ]);
+  function select(
+    effort: string,
+    prompt: string,
+    modelOptions?: ReadonlyArray<ProviderOptionSelection>,
+  ) {
+    const change = selectComposerReasoningEffort({
+      provider: PROVIDER,
+      model: MODEL,
+      models,
+      modelOptions,
+      prompt,
+      planModeEnabled: false,
+      effort,
+    });
+    return (
+      change && {
+        prompt: change.prompt,
+        options: change.modelOptions ?? null,
+      }
+    );
+  }
+  it("changes the primary select option and preserves other options", () => {
+    expect(select("high", "Fix it", selections(["effort", "medium"], ["fastMode", true]))).toEqual({
+      prompt: "Fix it",
+      options: selections(["effort", "high"], ["fastMode", true]),
+    });
+  });
+  it("rejects effort values the selected model does not support", () => {
+    expect(select("xhigh", "Fix it")).toBeNull();
+  });
+  it("enables ultrathink through the prompt prefix instead of the options", () => {
+    expect(select("ultrathink", "Fix it", selections(["effort", "high"]))).toEqual({
+      prompt: "Ultrathink:\nFix it",
+      options: null,
+    });
+  });
+  it("strips the ultrathink prefix when switching to another effort", () => {
+    expect(select("low", "Ultrathink:\nFix it")).toEqual({
+      prompt: "Fix it",
+      options: selections(["effort", "low"], ["fastMode", false]),
+    });
+  });
+  it("keeps ultrathink when the prompt body itself asks for it", () => {
+    expect(select("low", "Ultrathink:\nPlease ultrathink about this")).toBeNull();
   });
 });
