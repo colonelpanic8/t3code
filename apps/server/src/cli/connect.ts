@@ -581,29 +581,6 @@ const resolveServeNextStep = Effect.fn("cloud.cli.resolve_serve_next_step")(func
   } as const;
 });
 
-/** Offers the background service after `t3 connect` stores its authorization. */
-export const finishConnectSetup = Effect.fn("cloud.cli.finish_connect_setup")(function* (
-  locations: ConnectLocations,
-) {
-  const nextStep = yield* resolveServeNextStep(locations);
-  if (!nextStep.serviceUsesCommandLocations) {
-    yield* Console.log(
-      `\nSkipping background setup: the background service would not use this command's server locations.\n${nextStep.message}`,
-    );
-    return "skipped" as const;
-  }
-
-  const outcome = yield* CliService.recoverServiceOnboardingOffer(
-    CliService.offerServiceDuringOnboarding,
-  );
-  if (outcome === "skipped") {
-    yield* Console.log(nextStep.message);
-  } else {
-    yield* reportServiceOnboarding(outcome);
-  }
-  return outcome;
-});
-
 export const finishConnectLink = Effect.fn("cloud.cli.finish_connect_link")(function* (
   options: ConnectLocations & { readonly publishOnly: boolean },
 ) {
