@@ -14,7 +14,11 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { buildTriageAppPrompt, type TriageSourceClone } from "./triagePrompt.ts";
-import { triageSourceCacheDir, writeTriageSession } from "./triageSession.ts";
+import {
+  describeServerConfigFile,
+  triageSourceCacheDir,
+  writeTriageSession,
+} from "./triageSession.ts";
 
 const T3CODE_REPOSITORY_URL = "https://github.com/pingdotgg/t3code";
 
@@ -200,6 +204,10 @@ const make = Effect.gen(function* () {
         paths: config,
         entry: { kind: "app", client: describeClient(input.client) },
         server: `running (pid ${String(process.pid)}, version ${serverVersion}); this session runs inside it`,
+        serverConfigFile:
+          config.serverConfigFile === undefined
+            ? "none"
+            : describeServerConfigFile(config.serverConfigFile),
         sourceClone,
       }).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
