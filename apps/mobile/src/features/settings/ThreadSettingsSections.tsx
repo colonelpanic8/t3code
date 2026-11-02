@@ -8,7 +8,11 @@ import { AsyncResult } from "effect/reactivity";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  isSettingPathManaged,
+  type ServerSettings,
+} from "@t3tools/contracts";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { AppText as Text } from "../../components/ui/AppText";
 import { useEnvironments } from "../../state/environments";
@@ -98,6 +102,13 @@ export function AutoSettleSettingsRows(props: {
   );
 
   const disabled = !canWriteSettings || props.pending;
+  // Values fixed by an environment's system configuration; project overrides stay editable.
+  const disabledFor = (key: keyof ServerSettings) =>
+    disabled ||
+    (!projectSelected &&
+      displayTargets.some((target) =>
+        isSettingPathManaged(target.environment.serverConfig.managedSettingPaths, [key]),
+      ));
   const afterDays = referenceSettings.sidebarAutoSettleAfterDays;
 
   return (
@@ -109,7 +120,7 @@ export function AutoSettleSettingsRows(props: {
             label="Resume after usage limits"
             subtitle="Automatically resume threads when their usage limits reset. You can cancel auto-resume in each thread."
             value={uniformMobileSetting(displayTargets, "autoResumeLimitedThreads")}
-            disabled={disabled}
+            disabled={disabledFor("autoResumeLimitedThreads")}
             onValueChange={(value) => writeToAll({ autoResumeLimitedThreads: value })}
           />
           <SettingsSwitchRow
@@ -117,7 +128,7 @@ export function AutoSettleSettingsRows(props: {
             label="Snooze until limits reset"
             subtitle="Snooze threads until their usage limits reset. Enable auto-resume to continue the agent after the reset."
             value={uniformMobileSetting(displayTargets, "snoozeLimitedThreads")}
-            disabled={disabled}
+            disabled={disabledFor("snoozeLimitedThreads")}
             onValueChange={(value) => writeToAll({ snoozeLimitedThreads: value })}
           />
         </SettingsSection>
@@ -127,14 +138,14 @@ export function AutoSettleSettingsRows(props: {
           icon="arrow.triangle.branch"
           label="Auto-settle merged threads"
           value={referenceSettings.sidebarAutoSettleOnMerge}
-          disabled={disabled}
+          disabled={disabledFor("sidebarAutoSettleOnMerge")}
           onValueChange={(value) => writeToAll({ sidebarAutoSettleOnMerge: value })}
         />
         <SettingsSwitchRow
           icon="clock"
           label="Auto-settle inactive threads"
           value={afterDays !== null}
-          disabled={disabled}
+          disabled={disabledFor("sidebarAutoSettleAfterDays")}
           onValueChange={(value) =>
             writeToAll({ sidebarAutoSettleAfterDays: value ? AUTO_SETTLE_DEFAULT_DAYS : null })
           }
@@ -145,7 +156,7 @@ export function AutoSettleSettingsRows(props: {
             <Text className="flex-1 text-foreground text-lg android:text-base">Inactive days</Text>
             <AutoSettleDaysField
               value={afterDays}
-              disabled={disabled}
+              disabled={disabledFor("sidebarAutoSettleAfterDays")}
               onValueChange={(value) => writeToAll({ sidebarAutoSettleAfterDays: value })}
             />
           </View>
