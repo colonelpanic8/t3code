@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - the pre-ready password-store read uses synchronous Node IO.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
@@ -50,6 +51,7 @@ const layerClientFiles = (serverHome: string, clientDir: string) => {
     ),
     layerSafeStorage,
     NodeServices.layer,
+    NodeCrypto.layer,
   );
   return Layer.mergeAll(
     DesktopWindowState.layer.pipe(Layer.provideMerge(DesktopAppSettings.layer)),
