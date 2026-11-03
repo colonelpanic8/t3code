@@ -1,4 +1,6 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
+import * as NodeFS from "node:fs";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeZlib from "node:zlib";
 
@@ -50,6 +52,22 @@ const configuredDesktopUpdateRepository =
   process.env.GITHUB_REPOSITORY?.trim() ||
   "";
 const configuredFeatureSecrets = process.env.T3CODE_FEATURE_SECRETS?.trim() || "";
+// A fork-assembler build records its upstream base and carried branches in the
+// repository root. The commit holding that record cannot name itself, so the
+// packager passes it separately.
+const configuredAssemblyBuild = (() => {
+  let raw: string;
+  try {
+    raw = NodeFS.readFileSync(new URL("../../stack-build-info.json", import.meta.url), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw error;
+  }
+  return JSON.stringify({
+    ...JSON.parse(raw),
+    commit: process.env.T3CODE_ASSEMBLY_COMMIT?.trim() || null,
+  });
+})();
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
   if (explicitHostedAppUrl) {
@@ -320,6 +338,7 @@ export default defineConfig(() => {
       "import.meta.env.T3CODE_FEATURE_SECRETS": JSON.stringify(configuredFeatureSecrets),
       "import.meta.env.VITE_RELEASE_CHANNEL": JSON.stringify(configuredReleaseChannel),
       "import.meta.env.APP_VERSION": JSON.stringify(configuredAppVersion),
+      "import.meta.env.T3CODE_ASSEMBLY_BUILD": JSON.stringify(configuredAssemblyBuild),
     },
     resolve: {
       tsconfigPaths: true,
