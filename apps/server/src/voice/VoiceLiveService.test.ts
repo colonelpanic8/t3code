@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import {
@@ -90,6 +91,7 @@ const makeFakeHost = () => {
 
 const dependencies = Layer.mergeAll(
   NodeServices.layer,
+  NodeCrypto.layer,
   Layer.succeed(HttpServer.HttpServer, fakeHttpServer),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3code-voice-live-test-" }).pipe(
     Layer.provide(NodeServices.layer),

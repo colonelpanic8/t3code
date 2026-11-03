@@ -76,26 +76,30 @@ const VoiceMcpAuthMiddlewareLive = HttpRouter.middleware<{
   provides: VoiceMcpInvocationContext.VoiceMcpInvocationContext;
 }>()(makeVoiceMcpAuthMiddleware).layer;
 
-const VoiceMcpTransportLive = McpServer.layerHttp({
-  name: "T3 Code Voice",
-  version: packageJson.version,
-  path: "/mcp/voice",
-  protocols: [McpProtocol.v2025_06_18],
-}).pipe(Layer.provide(VoiceMcpAuthMiddlewareLive));
+// Tools declare `VoiceLiveService` as a request-level dependency; hand each call the one the
+// registration was built with. The auth middleware provides the invocation context per request.
+const VoiceLiveServiceMiddleware = McpServer.middleware<{ provides: VoiceLiveService }>()(
+  VoiceLiveService.pipe(
+    Effect.map(
+      (voiceLive) => (effect) => Effect.provideService(effect, VoiceLiveService, voiceLive),
+    ),
+  ),
+);
 
-// Like `McpHttpServer.toolkitRegistration`: the auth middleware provides the
-// invocation context per request, so registration must not capture one.
-const registration = McpServer.toolkit(VoiceToolkit);
-// @effect-diagnostics-next-line unsafeEffectTypeAssertion:off - the auth middleware provides it per request.
-const registered = registration as Layer.Layer<
-  never,
-  never,
-  Exclude<Layer.Services<typeof registration>, VoiceMcpInvocationContext.VoiceMcpInvocationContext>
->;
+const registration = McpServer.toolkit(VoiceToolkit).pipe(
+  Layer.provide(VoiceLiveServiceMiddleware.layer),
+  Layer.provide(VoiceToolkitHandlersLive),
+);
 
-// `McpServer.toolkit` and `McpServer.layerHttp` both build the one global
-// `McpServer.layer`, so in a shared memo map /mcp and /mcp/voice would serve a
-// single registry. A fresh memo map gives this transport its own.
+// Each transport builds the one global `McpServer.layer`, so in a shared memo
+// map /mcp and /mcp/voice would serve a single registry. A fresh memo map gives
+// this transport its own.
 export const layer = Layer.fresh(
-  registered.pipe(Layer.provide(VoiceToolkitHandlersLive), Layer.provide(VoiceMcpTransportLive)),
+  McpServer.layerHttp({
+    name: "T3 Code Voice",
+    version: packageJson.version,
+    path: "/mcp/voice",
+    protocols: [McpProtocol.v2025_06_18],
+    registrations: registration,
+  }).pipe(Layer.provide(VoiceMcpAuthMiddlewareLive)),
 );

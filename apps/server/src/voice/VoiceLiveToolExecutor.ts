@@ -9,7 +9,7 @@ import {
   type VoiceLiveToolExecuteResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -104,7 +104,7 @@ const isoOrNull = (value: DateTime.DateTime | null | undefined): string | null =
   value == null ? null : DateTime.formatIso(value);
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
@@ -114,7 +114,7 @@ const make = Effect.gen(function* () {
       Effect.mapError((cause) => errorResult(`Invalid arguments: ${cause.message}`)),
     );
 
-  const mintId = crypto.randomUUIDv4().pipe(Effect.orDie);
+  const mintId = random.uuidV4();
 
   const threadShell = Effect.fn("VoiceLiveToolExecutor.threadShell")(function* (
     threadId: ThreadId,

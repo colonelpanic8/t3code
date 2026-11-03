@@ -34,15 +34,15 @@ const MainToolkit = Toolkit.make(
   }),
 );
 
-const mainServer = McpHttpServer.toolkitRegistration(
-  MainToolkit,
-  McpToolAccess.toLayer(MainToolkit, {
-    main_probe: McpToolAccess.reads(() => Effect.succeed({ ok: true })),
-  }),
-).pipe(
-  Layer.provideMerge(
-    McpHttpServer.layerMcpTransport.pipe(Layer.provide(ServerSettings.layerTest())),
+const mainServer = McpHttpServer.layerMcpTransport(
+  McpHttpServer.toolkitRegistration(
+    MainToolkit,
+    McpToolAccess.toLayer(MainToolkit, {
+      main_probe: McpToolAccess.reads(() => Effect.succeed({ ok: true })),
+    }),
   ),
+).pipe(
+  Layer.provide(ServerSettings.layerTest()),
   Layer.provide(
     Layer.mock(McpSessionRegistry.McpSessionRegistry)({
       resolve: (token) =>

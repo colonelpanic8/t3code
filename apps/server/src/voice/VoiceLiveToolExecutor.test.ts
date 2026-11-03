@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -32,7 +33,7 @@ const withExecutor = <A, E>(
   }).pipe(
     Effect.provide(
       VoiceLiveToolExecutor.layer.pipe(
-        Layer.provide(Layer.mergeAll(NodeServices.layer, dependencies)),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, dependencies)),
       ),
     ),
   );

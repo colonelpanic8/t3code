@@ -17,7 +17,8 @@ import {
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -159,7 +160,8 @@ const CODEX_DRIVER_KIND = ProviderDriverKind.make("codex");
 const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
   options: VoiceLiveServiceOptions,
 ) {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
   const config = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettingsService;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -175,8 +177,8 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
     : "http://127.0.0.1/mcp/voice";
 
   const hashToken = (token: string) =>
-    crypto
-      .digest("SHA-256", new TextEncoder().encode(token))
+    digest
+      .digest(Digest.sha256, new TextEncoder().encode(token))
       .pipe(Effect.map(bytesToHex), Effect.orDie);
 
   const emit = (record: VoiceCallRecord, event: VoiceLiveStreamEventBody) =>
@@ -259,7 +261,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
   const start: VoiceLiveService["Service"]["start"] = Effect.fn("VoiceLiveService.start")(
     function* (input, owner) {
       const ownerKey = ownerKeyOf(owner);
-      const liveSessionId: VoiceLiveSessionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+      const liveSessionId: VoiceLiveSessionId = yield* random.uuidV4();
       const reserved = yield* SynchronizedRef.modify(state, (current) => {
         if (current.owners.has(ownerKey)) return [false, current] as const;
         const owners = new Map(current.owners);
@@ -277,7 +279,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
       const record = yield* Effect.gen(function* () {
         const codexSettings = yield* resolveCodexSettings(input.providerInstanceId);
         const crossHostRouting = input.crossHostRouting !== false;
-        const rawToken = yield* crypto.randomBytes(32).pipe(
+        const rawToken = yield* random.randomBytes(32).pipe(
           Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
           Effect.orDie,
         );
@@ -495,7 +497,7 @@ const makeWithOptions = Effect.fn("VoiceLiveService.make")(function* (
       (request.kind === "list_hosts"
         ? DEFAULT_LIST_HOSTS_TIMEOUT_MS
         : DEFAULT_EXECUTE_TOOL_TIMEOUT_MS);
-    const requestId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+    const requestId = yield* random.uuidV4();
     const deferred = yield* Deferred.make<VoiceLiveRouteResult, VoiceLiveError>();
     const registered = yield* SynchronizedRef.modify(state, (current) => {
       const record = current.calls.get(liveSessionId);
