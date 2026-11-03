@@ -12,6 +12,7 @@ import { useRemoteConnections } from "../../state/use-remote-environment-registr
 import { LocalEnvironmentList } from "./LocalEnvironmentList";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { LinkedEnvironmentsSection } from "./LinkedEnvironmentsSection";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 
 export function ConnectionsRouteScreen() {
   const {
@@ -61,6 +62,7 @@ export function ConnectionsRouteScreen() {
           paddingTop: 16,
         }}
       >
+        <EnvironmentGroupsSettings />
         <LocalEnvironmentList
           environments={connectedEnvironments}
           expandedId={expandedId}
