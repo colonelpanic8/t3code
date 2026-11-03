@@ -1339,4 +1339,42 @@ describe("persisted environment queries", () => {
       }),
     ),
   );
+
+  it.effect("shows persisted data before a live request finishes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const response = yield* Deferred.make<string>();
+        const seeded = yield* Deferred.make<void>();
+        const refreshed = yield* Deferred.make<void>();
+        const harness = yield* makeEnvironmentQueryHarness(Deferred.await(response), {
+          persistence: {
+            load: () => Effect.succeedSome("cached"),
+            save: () => Effect.void,
+          },
+        });
+        const registry = yield* mountEnvironmentQuery(harness.atom);
+        const unsubscribe = registry.subscribe(
+          harness.atom,
+          (value) => {
+            if (Option.getOrNull(AsyncResult.value(value)) === "cached")
+              Deferred.doneUnsafe(seeded, Exit.void);
+            if (Option.getOrNull(AsyncResult.value(value)) === "fresh")
+              Deferred.doneUnsafe(refreshed, Exit.void);
+          },
+          { immediate: true },
+        );
+        yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+        yield* Deferred.await(seeded);
+        expect(registry.get(harness.atom)).toMatchObject({
+          _tag: "Success",
+          value: "cached",
+          waiting: true,
+        });
+        yield* Deferred.succeed(response, "fresh");
+        yield* Deferred.await(refreshed);
+        expect(yield* readEnvironmentQuery(registry, harness.atom)).toBe("fresh");
+        expect(registry.get(harness.atom).waiting).toBe(false);
+      }),
+    ),
+  );
 });
