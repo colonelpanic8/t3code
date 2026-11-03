@@ -2,14 +2,25 @@ import type {
   AuthAccessSnapshot,
   AuthAccessStreamEvent,
   AuthAccessStreamSnapshotEvent,
+  AuthGrantScope,
+  AuthSessionId,
 } from "@t3tools/contracts";
 import { WS_METHODS } from "@t3tools/contracts";
 import * as Stream from "effect/Stream";
+import type { HttpClient } from "effect/http";
 import { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { subscribe } from "../rpc/client.ts";
-import { createEnvironmentSubscriptionAtomFamily } from "./runtime.ts";
+/** @public Required to name the error in consumers' inferred auth command results. */
+export { EnvironmentNotConnectedError } from "./authHttp.ts";
+import {
+  createEnvironmentPairingCredential,
+  revokeEnvironmentClientSession,
+  revokeEnvironmentPairingLink,
+  revokeOtherEnvironmentClientSessions,
+} from "./authHttp.ts";
+import { createEnvironmentCommand, createEnvironmentSubscriptionAtomFamily } from "./runtime.ts";
 
 export const EMPTY_AUTH_ACCESS_SNAPSHOT: AuthAccessSnapshot = {
   pairingLinks: [],
@@ -76,7 +87,7 @@ function projectAuthAccessSnapshot(
 }
 
 export function createAuthEnvironmentAtoms<R, E>(
-  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
+  runtime: Atom.AtomRuntime<EnvironmentRegistry | HttpClient.HttpClient | R, E>,
 ) {
   return {
     accessChanges: createEnvironmentSubscriptionAtomFamily(runtime, {
@@ -85,6 +96,26 @@ export function createAuthEnvironmentAtoms<R, E>(
         subscribe(WS_METHODS.subscribeAuthAccess, {}).pipe(
           Stream.mapAccum(() => EMPTY_AUTH_ACCESS_SNAPSHOT, projectAuthAccessSnapshot),
         ),
+    }),
+    createPairingCredential: createEnvironmentCommand(runtime, {
+      label: "environment-command:server:create-pairing-credential",
+      execute: (input: {
+        readonly label?: string;
+        readonly scopes?: ReadonlyArray<AuthGrantScope>;
+      }) => createEnvironmentPairingCredential(input),
+    }),
+    revokePairingLink: createEnvironmentCommand(runtime, {
+      label: "environment-command:server:revoke-pairing-link",
+      execute: (input: { readonly id: string }) => revokeEnvironmentPairingLink(input),
+    }),
+    revokeClientSession: createEnvironmentCommand(runtime, {
+      label: "environment-command:server:revoke-client-session",
+      execute: (input: { readonly sessionId: AuthSessionId }) =>
+        revokeEnvironmentClientSession(input),
+    }),
+    revokeOtherClientSessions: createEnvironmentCommand(runtime, {
+      label: "environment-command:server:revoke-other-client-sessions",
+      execute: (_input: null) => revokeOtherEnvironmentClientSessions(),
     }),
   };
 }
