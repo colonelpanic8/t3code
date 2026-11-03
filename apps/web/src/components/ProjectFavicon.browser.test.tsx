@@ -13,6 +13,7 @@ vi.mock(import("../state/assets"), () => ({
     return state.favicon;
   },
 }));
+vi.mock(import("../assets/assetUrls"), () => ({ useProjectFaviconRefresh: () => () => {} }));
 
 function setup() {
   const activeResources = new Set<string>();
