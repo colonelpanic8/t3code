@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as BootService from "../cloud/bootService.ts";
+import * as ManagedEndpointRuntime from "../cloud/ManagedEndpointRuntime.ts";
 import type * as ServerConfig from "../config.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 import {
@@ -89,6 +90,7 @@ export const writeTriageSession = Effect.fn("triage.writeTriageSession")(functio
           input.desktopLogsDir ?? paths.logsDir,
           "server-child*.log*",
         ),
+        relayClientLogPath: path.join(paths.logsDir, ManagedEndpointRuntime.RELAY_CLIENT_LOG_FILE),
         serverTracePath: paths.serverTracePath,
         providerEventLogPath: paths.providerEventLogPath,
         terminalLogsDir: paths.terminalLogsDir,
