@@ -167,6 +167,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server executes routed Live Voice tools (voice.live.tool.execute).
       Checked per target host before a client routes a tool call there. */
   voiceLiveToolExecution: Schema.optionalKey(Schema.Boolean),
+  /** Server accepts `{ type: "once" }` scheduled tasks; older servers reject them on save. */
+  oneTimeSchedules: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
