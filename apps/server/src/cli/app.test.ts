@@ -240,14 +240,13 @@ describe("t3 app", () => {
                     else process.env.TMPDIR = previousTmpdir;
                   }),
               );
-              const baseDir = NodePath.join(root, ".t3");
               const userId = yield* HostProcess.UserId;
               assert(userId !== undefined);
               const expectedUserId =
                 unsafe === "missing owner" ? undefined : unsafe === "owner" ? userId + 1 : userId;
-              const desktop = yield* fakeDesktop({ baseDir }).pipe(
-                Effect.provideService(HostProcess.UserId, expectedUserId),
-              );
+              const desktop = yield* fakeDesktop({
+                stateDir: splitStateDir(root, "t3code"),
+              }).pipe(Effect.provideService(HostProcess.UserId, expectedUserId));
               const directory = desktop.directory;
               assert(directory !== null);
               if (unsafe === "permissions") {
