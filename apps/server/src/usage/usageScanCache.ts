@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema";
 import { CLAUDE_SYNTHETIC_MODEL } from "../provider/Drivers/claudeUsage.ts";
 import { GUARD_LENGTH, type TranscriptParsePosition } from "./usageTranscriptReader.ts";
 
-const USAGE_SCAN_CACHE_VERSION = 11 as const;
+const USAGE_SCAN_CACHE_VERSION = 12 as const;
 const SPEED_COMPATIBLE_SINCE_VERSION = 4;
 
 /**
@@ -17,8 +17,9 @@ const SPEED_COMPATIBLE_SINCE_VERSION = 4;
  * replace it, dropping saved usage for deleted transcripts. Separate files keep
  * both.
  */
-export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v11.json";
+export const SCAN_CACHE_FILE_NAME = "usage-scan-cache-v12.json";
 export const LEGACY_SCAN_CACHE_FILE_NAMES = [
+  "usage-scan-cache-v11.json",
   "usage-scan-cache-v10.json",
   "usage-scan-cache-v9.json",
   "usage-scan-cache-v8.json",
@@ -298,6 +299,9 @@ export function decodeScanCache(
     // A corrupt state disqualifies the entry: resuming with it would attach
     // appended usage to the wrong model or replay fork-copied history.
     if (!legacy && !isValidState.get(entry.p)?.(entry.cs)) continue;
+    // Before v12 a clean scan could end past an interrupted request whose usage its state dropped,
+    // so a grown file re-parses whole instead of resuming.
+    const resumable = !legacy && !(entry.p === "codex" && version < 12);
 
     const provider = entry.p;
     const records = decodeRecords(entry.r, provider);
@@ -311,22 +315,23 @@ export function decodeScanCache(
       records,
       tailRecords,
       malformedRecords,
-      position: legacy
-        ? { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null }
-        : {
+      position: resumable
+        ? {
             resumeOffset: entry.o,
             guardLength: entry.gl,
             guardHash: entry.gh,
             state: entry.cs,
-          },
+          }
+        : { resumeOffset: 0, guardLength: 0, guardHash: 0, state: null },
     });
   }
 
   return cache;
 }
 
-// Upstream and this parser independently used v9; older Claude entries may
-// omit subagent output, and older malformed Codex entries may skip requests.
+// This parser runs one version ahead of upstream, whose v11 files cannot be
+// told apart from ours: older Claude entries may omit subagent output, and
+// older malformed Codex entries may skip requests.
 function predatesParseChange(
   provider: UsageProviderKind,
   format: TranscriptUsageFormat<unknown>,
@@ -336,8 +341,8 @@ function predatesParseChange(
   return (
     (format.state !== undefined &&
       (version < 6 ||
-        (provider === "codex" && (version < 9 || (version < 10 && malformedRecords > 0))))) ||
-    (provider === "claude" && version < 11)
+        (provider === "codex" && (version < 9 || (version < 12 && malformedRecords > 0))))) ||
+    (provider === "claude" && version < 12)
   );
 }
 
