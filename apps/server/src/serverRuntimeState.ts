@@ -34,6 +34,7 @@ export const makePersistedServerRuntimeState = (input: {
   >;
   readonly port: number;
   readonly serviceManaged?: boolean;
+  readonly managedPolicy?: PersistedServerRuntimeState["managedPolicy"];
 }): Effect.Effect<PersistedServerRuntimeState> =>
   Effect.map(DateTime.now, (now) => ({
     version: 1,
@@ -46,6 +47,7 @@ export const makePersistedServerRuntimeState = (input: {
     startedAt: DateTime.formatIso(now),
     ...(input.serviceManaged ? { serviceManaged: true } : {}),
     serverVersion: packageJson.version,
+    ...(input.managedPolicy === undefined ? {} : { managedPolicy: input.managedPolicy }),
   }));
 
 export const persistServerRuntimeState = (input: {

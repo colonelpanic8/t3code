@@ -24,6 +24,16 @@ export const PersistedServerRuntimeState = Schema.Struct({
    */
   serviceManaged: Schema.optional(Schema.Boolean),
   serverVersion: Schema.optional(Schema.String),
+  // The managed policy this server loaded at startup, null for none; absent from older servers.
+  managedPolicy: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        source: Schema.String,
+        organization: Schema.String,
+        fingerprint: Schema.String,
+      }),
+    ),
+  ),
 });
 export type PersistedServerRuntimeState = typeof PersistedServerRuntimeState.Type;
 

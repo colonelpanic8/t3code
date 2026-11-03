@@ -7,7 +7,7 @@ import {
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useClientSettings } from "../hooks/useSettings";
 import { getProjectOrderKey } from "@t3tools/client-runtime/state/project-grouping";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useProjects, useVisibleThreadShells } from "../state/entities";
 import {
   useEnvironments,
   usePrimaryEnvironmentId,
@@ -59,7 +59,7 @@ export const selectCommandPaletteClientSettings = (settings: ClientSettings) => 
 
 export function useSortedProjectGroups(environmentLabelById: ReadonlyMap<EnvironmentId, string>) {
   const projects = useProjects();
-  const threads = useThreadShells();
+  const threads = useVisibleThreadShells();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const clientSettings = useClientSettings(selectCommandPaletteClientSettings);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
