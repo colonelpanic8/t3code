@@ -197,24 +197,18 @@ export function ComposerControlsBar(props: {
       ]
     : [];
 
-  restingBlockDefs.push(
-    ...[
-      ...(!showsAgentProfileControl(agentProfile)
-        ? []
-        : [
-            {
-              id: "profile",
-              content: (
-                <ComposerAgentProfileControl
-                  {...agentProfile}
-                  size={composerControlsCollapsed ? "xs" : "sm"}
-                  hidden={composerControlsHidden || profileHidden}
-                />
-              ),
-            },
-          ]),
-    ],
-  );
+  if (showsAgentProfileControl(agentProfile)) {
+    restingBlockDefs.push({
+      id: "profile",
+      content: (
+        <ComposerAgentProfileControl
+          {...agentProfile}
+          size={composerControlsCollapsed ? "xs" : "sm"}
+          hidden={composerControlsHidden || profileHidden}
+        />
+      ),
+    });
+  }
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const composerModelPicker = (
     <ComposerModelPicker
