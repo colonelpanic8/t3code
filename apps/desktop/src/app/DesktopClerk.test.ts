@@ -66,7 +66,9 @@ const layerDesktopClerk = (
   listeners = new Map<string, (...args: unknown[]) => void>(),
 ) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
-    stateDir: clerkStateDir,
+    clientRoots: {
+      stateDir: clerkStateDir,
+    },
     isDevelopment,
     appDataDirectory: "/tmp/app-data",
     platform,

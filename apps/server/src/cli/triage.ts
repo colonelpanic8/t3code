@@ -18,6 +18,8 @@ import {
   writeTriageSession,
 } from "../triage/triageSession.ts";
 import {
+  currentStorageHost,
+  resolveClientStorageRoots,
   resolveInstallLocations,
   resolveServerConfigFilePath,
   resolveServerLocations,
@@ -140,7 +142,15 @@ export const triageCommand = Command.make("triage", {
 
       // The service and the desktop app write their logs where the storage
       // layout puts them, whatever location overrides this shell sets.
-      const installLogsDir = (yield* resolveInstallLocations(flags)).logsDir;
+      const install = yield* resolveInstallLocations(flags);
+      const desktopLogsDir = path.join(
+        (yield* resolveClientStorageRoots({
+          serverRoots: install.storage.roots,
+          isDevelopment: false,
+          host: yield* currentStorageHost,
+        })).stateDir,
+        "logs",
+      );
       // A broken server config file is something to triage, not a reason to stop.
       const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
       const serverConfig = yield* readServerConfigFile(configFile.path, {
@@ -182,8 +192,8 @@ export const triageCommand = Command.make("triage", {
         },
         server: yield* describeServerProcess(paths.serverRuntimeStatePath),
         serverConfigFile: serverConfig.description,
-        serviceLogsDir: installLogsDir,
-        desktopLogsDir: installLogsDir,
+        serviceLogsDir: install.logsDir,
+        desktopLogsDir,
       });
 
       const installed: Array<TriageAgent> = [];
