@@ -1,3 +1,5 @@
+import { VoiceLiveService } from "./voice/VoiceLiveService.ts";
+import { VoiceLiveToolExecutor } from "./voice/VoiceLiveToolExecutor.ts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -729,6 +731,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
   Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
   Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+  Layer.mock(VoiceLiveService)({}),
+  Layer.mock(VoiceLiveToolExecutor)({}),
 );
 
 const layerConfigSources = Layer.mergeAll(
