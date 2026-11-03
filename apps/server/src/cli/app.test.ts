@@ -245,9 +245,9 @@ describe("t3 app", () => {
               assert(userId !== undefined);
               const expectedUserId =
                 unsafe === "missing owner" ? undefined : unsafe === "owner" ? userId + 1 : userId;
-              const desktop = yield* fakeDesktop({ baseDir }).pipe(
-                Effect.provideService(HostProcess.UserId, expectedUserId),
-              );
+              const desktop = yield* fakeDesktop({
+                stateDir: NodePath.join(baseDir, "userdata"),
+              }).pipe(Effect.provideService(HostProcess.UserId, expectedUserId));
               const directory = desktop.directory;
               assert(directory !== null);
               if (unsafe === "permissions") {

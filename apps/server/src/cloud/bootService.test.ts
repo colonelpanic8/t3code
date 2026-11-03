@@ -130,6 +130,7 @@ it("protects the server unit from agents under CPU and memory pressure", () => {
   const unit = BootService.renderBootServiceUnit({
     program: ["/home/theo/.t3/runtime/versions/1.2.3/t3", "__service-launcher"],
     baseDir: "/home/theo/.t3",
+    storageRoots: legacyRoots("/home/theo/.t3"),
     logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
     unitPath: "/home/theo/.config/systemd/user/t3code.service",
   });
@@ -1093,6 +1094,7 @@ it.layer(NodeServices.layer)("boot service install", (it) => {
       const updated = yield* makeService(
         `/usr/bin:${previous}:/bin`,
         "1.2.4",
+        undefined,
         undefined,
         false,
         runtime.entryPath,
