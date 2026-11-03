@@ -68,6 +68,18 @@ it.layer(NodeServices.layer)("t3 update under a managed policy", (it) => {
     runUpdate({
       baseDir: "/unused",
       logsDir: "/unused",
+      storage: {
+        roots: {
+          layout: "legacy",
+          legacyBaseDir: "/unused",
+          configDir: "/unused",
+          dataDir: "/unused",
+          stateDir: "/unused",
+          cacheDir: "/unused",
+          runtimeDir: "/unused",
+        },
+        baseDirIsExplicit: true,
+      },
       serverRuntimeStatePath: "/unused",
       channel: input.channel,
       requestedVersion: input.requestedVersion,
