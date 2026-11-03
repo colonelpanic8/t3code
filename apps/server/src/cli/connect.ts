@@ -51,8 +51,8 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ExternalLauncher from "../process/externalLauncher.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
-import { resolveCliCommand } from "./invocation.ts";
+import { serverLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
+import { resolveCliCommand, shellWord } from "./invocation.ts";
 import * as CliService from "./service.ts";
 
 const jsonFlag = Flag.Boolean("json").pipe(
@@ -533,6 +533,7 @@ export const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel, options);
+  const serviceLocations = yield* resolveInstallLocations(flags);
   const minimumLogLevel = options?.quietLogs ? "Error" : config.logLevel;
   const layerRuntime = Layer.mergeAll(
     ServerSecretStore.layer,
@@ -542,7 +543,7 @@ export const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function
     ),
     RelayClient.layerCloudflared({ baseDir: config.baseDir }),
     EnvironmentAuth.layerRuntime,
-    CliService.layer(config),
+    CliService.layer(serviceLocations),
     RelayTracing.layerHeadlessRelayClient.pipe(Layer.provide(ManagedPolicy.layer)),
   ).pipe(
     Layer.provideMerge(FetchHttpClient.layer),
@@ -550,6 +551,44 @@ export const runCloudCommand = Effect.fn("cloud.cli.run_cloud_command")(function
     Layer.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel)),
   );
   return yield* run.pipe(Effect.provide(layerRuntime));
+});
+
+const SERVER_LOCATION_FLAGS = [
+  ["configDir", "--server-config-dir"],
+  ["dataDir", "--server-data-dir"],
+  ["cacheDir", "--server-cache-dir"],
+] as const;
+
+interface ConnectLocations {
+  readonly command: ServerConfig.ServerDerivedPaths;
+  readonly service: ServerConfig.ServerDerivedPaths;
+}
+
+/**
+ * The background service records only the T3 home, so it cannot start this
+ * command's server locations; the next step names them on `t3 serve` instead.
+ */
+const resolveServeNextStep = Effect.fn("cloud.cli.resolve_serve_next_step")(function* (
+  locations: ConnectLocations,
+) {
+  const unservedLocations = SERVER_LOCATION_FLAGS.filter(
+    ([key]) => locations.command[key] !== locations.service[key],
+  );
+  const serveCommand = [
+    yield* resolveCliCommand("serve"),
+    ...unservedLocations.flatMap(([key, flag]) => [flag, shellWord(locations.command[key])]),
+  ].join(" ");
+  return `\nNext\n  Start the server with \`${serveCommand}\` to make this machine reachable.`;
+});
+
+export const finishConnectLink = Effect.fn("cloud.cli.finish_connect_link")(function* (
+  options: ConnectLocations & { readonly publishOnly: boolean },
+) {
+  if (options.publishOnly) {
+    yield* Console.log("\nNext\n  Start T3 to publish agent activity (no managed tunnel).");
+    return;
+  }
+  yield* Console.log(yield* resolveServeNextStep(options));
 });
 
 /** Status, unlink, and logout stay available so a machine can leave Connect the policy turned off. */
@@ -608,7 +647,7 @@ const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(functi
 export { linkEnvironmentForConnect };
 
 const connectLoginCommand = Command.make("login", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   headless: headlessFlag,
 }).pipe(
   Command.withDescription("Authorize the T3 Connect CLI without enabling remote access."),
@@ -626,7 +665,7 @@ const connectLoginCommand = Command.make("login", {
 );
 
 const connectLinkCommand = Command.make("link", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   headless: headlessFlag,
   publishOnly: Flag.Boolean("publish-only").pipe(
     Flag.withDescription(
@@ -644,12 +683,12 @@ const connectLinkCommand = Command.make("link", {
         yield* Console.log("T3 Connect\n");
         const linked = yield* linkEnvironmentForConnect(flags);
         if (linked) {
-          const serveCommand = yield* resolveCliCommand("serve");
-          yield* Console.log(
-            flags.publishOnly
-              ? `✓ Authorized${connectedAs(linked.identity)}\n\nNext\n  Start T3 to publish agent activity (no managed tunnel).`
-              : `✓ Authorized${connectedAs(linked.identity)}\n\nNext\n  Start the server with \`${serveCommand}\` to make this machine reachable.`,
-          );
+          yield* Console.log(`✓ Authorized${connectedAs(linked.identity)}`);
+          yield* finishConnectLink({
+            publishOnly: flags.publishOnly,
+            command: yield* ServerConfig.ServerConfig,
+            service: yield* resolveInstallLocations(flags),
+          });
         }
       }),
     ),
@@ -657,7 +696,7 @@ const connectLinkCommand = Command.make("link", {
 );
 
 const connectStatusCommand = Command.make("status", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
@@ -719,7 +758,7 @@ const connectStatusCommand = Command.make("status", {
 );
 
 const connectPublishCommand = Command.make("publish", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   disable: Flag.Boolean("disable").pipe(
     Flag.withDescription("Stop publishing agent activity to your mobile clients."),
     Flag.withDefault(false),
@@ -781,7 +820,7 @@ const connectPublishCommand = Command.make("publish", {
 );
 
 const connectUnlinkCommand = Command.make("unlink", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
 }).pipe(
   Command.withDescription("Disable T3 Connect while retaining the stored authorization."),
   Command.withHandler((flags) =>
@@ -790,7 +829,7 @@ const connectUnlinkCommand = Command.make("unlink", {
 );
 
 const connectLogoutCommand = Command.make("logout", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
 }).pipe(
   Command.withDescription("Disable T3 Connect and clear the stored CLI authorization."),
   Command.withHandler((flags) =>
