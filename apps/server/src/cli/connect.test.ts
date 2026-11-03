@@ -1,4 +1,5 @@
 import * as Console from "effect/Console";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
@@ -54,7 +55,7 @@ it.effect("does not install the relay client when the user declines the managed 
 
 /** Captures console lines from a successful local disconnect report. */
 
-it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))(
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))(
   "connect with server location overrides",
   (it) => {
     const runHarness = Effect.fn("connectTest.runHarness")(function* <A, E, R>(
