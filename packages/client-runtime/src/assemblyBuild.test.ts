@@ -5,7 +5,7 @@ import {
   githubBranchUrl,
   githubCommitUrl,
   parseAssemblyBuild,
-} from "./assemblyBuild";
+} from "./assemblyBuild.ts";
 
 const record = {
   schemaVersion: 1,
