@@ -69,6 +69,26 @@ const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unkno
 const encodeUnknownJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeUnknownJsonString = Schema.decodeSync(Schema.fromJsonString(Schema.Unknown));
 
+/**
+ * One content block of a streamed subagent message: early blocks report a
+ * partial `output_tokens`, the last reports the message's full count.
+ */
+function claudeBlock(id: number, outputTokens: number, block: string): string {
+  return `${JSON.stringify({
+    type: "assistant",
+    timestamp: "2026-08-01T10:00:00Z",
+    requestId: `req_${id}`,
+    sessionId: "session-1",
+    isSidechain: true,
+    message: {
+      id: `msg_${id}`,
+      model: "claude-fable-5",
+      content: [{ type: block }],
+      usage: { input_tokens: 2, cache_read_input_tokens: 100, output_tokens: outputTokens },
+    },
+  })}\n`;
+}
+
 function claudeLine(
   id: number,
   outputTokens: number,
@@ -2710,7 +2730,7 @@ describe("UsageService", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.live.each([4, 5, 6, 7, 8, 10])(
+  it.live.each([4, 5, 6, 7, 8, 9, 10, 11])(
     "upgrades a v%s cache: reparses live Codex usage, keeps deleted rollouts and the old file",
     (version) =>
       Effect.gen(function* () {
@@ -2809,7 +2829,7 @@ describe("UsageService", () => {
             60 + 20 * (version === 4 ? 1 : 2),
           );
           yield* upgraded.awaitPersisted;
-          assert.strictEqual(SCAN_CACHE_FILE_NAME, "usage-scan-cache-v11.json");
+          assert.strictEqual(SCAN_CACHE_FILE_NAME, "usage-scan-cache-v12.json");
           assert.strictEqual(
             yield* Effect.promise(() => NodeFSP.readFile(legacyPath, "utf8")),
             legacy,
@@ -2836,104 +2856,236 @@ describe("UsageService", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.live("re-parses a clean v10 Codex rollout that grew after an interrupted request", () =>
+  it.live("counts a subagent message by its last block, including one landing in an append", () =>
     Effect.gen(function* () {
       const { home, settings } = yield* setup;
-      const sessions = NodePath.join(home, "codex", "sessions");
-      const live = NodePath.join(sessions, "live.jsonl");
-      const usage = (input: number, output: number) => ({
-        input_tokens: input,
-        output_tokens: output,
-        total_tokens: input + output,
-      });
-      const lines = (values: readonly unknown[]) =>
-        values.map((value) => `${encodeUnknownJsonString(value)}\n`).join("");
-      const request = (second: number, last: unknown) => ({
-        type: "token_usage_record",
-        timestamp: `2026-08-01T10:00:0${second}Z`,
-        payload: { usage: last },
-      });
-      const tokenCount = (second: number, last: unknown, total: unknown) => ({
-        type: "event_msg",
-        timestamp: `2026-08-01T10:00:0${second}Z`,
-        payload: {
-          type: "token_count",
-          info: { last_token_usage: last, total_token_usage: total },
-        },
-      });
+      const subagents = NodePath.join(home, "claude", "projects", "proj", "session-1", "subagents");
+      const transcript = NodePath.join(subagents, "agent-a1.jsonl");
       yield* Effect.promise(async () => {
-        await NodeFSP.mkdir(sessions, { recursive: true });
+        await NodeFSP.mkdir(subagents, { recursive: true });
         await NodeFSP.writeFile(
-          live,
-          lines([
-            { type: "session_meta", payload: { id: "live" } },
-            { type: "turn_context", payload: { turn_id: "turn-1", model: "gpt-6-astra" } },
-            request(1, usage(100, 20)),
-            tokenCount(1, usage(100, 20), usage(100, 20)),
-            // Interrupted after this request finished: no token_count reports it.
-            request(2, usage(150, 10)),
-          ]),
+          transcript,
+          claudeBlock(1, 2, "thinking") + claudeBlock(1, 2, "tool_use"),
         );
       });
-
       yield* Effect.gen(function* () {
-        const { stateDir } = yield* ServerConfig.ServerConfig;
-        const tokens = (summary: UsageSummary) =>
-          summary.buckets.reduce((sum, bucket) => sum + totalTokens(bucket.totals), 0);
-        const first = yield* UsageService.make;
-        assert.strictEqual(tokens(yield* first.readSummary(WINDOW)), 120);
-        yield* first.awaitPersisted;
+        const service = yield* UsageService.make;
+        assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 2);
 
+        yield* Effect.promise(() =>
+          NodeFSP.appendFile(
+            transcript,
+            claudeBlock(1, 1411, "tool_use") +
+              claudeBlock(2, 1, "thinking") +
+              claudeBlock(2, 96, "text"),
+          ),
+        );
+        const grown = yield* service.readSummary(WINDOW);
+        assert.strictEqual(totalOutputTokens(grown), 1507);
+        assert.strictEqual(
+          grown.buckets.reduce((sum, bucket) => sum + bucket.totals.cachedInputTokens, 0),
+          200,
+        );
+
+        yield* service.awaitPersisted;
+        const restarted = yield* UsageService.make;
+        assert.strictEqual(totalOutputTokens(yield* restarted.readSummary(WINDOW)), 1507);
+      }).pipe(
+        // Scoped inside the state directory, so pending cache writes land
+        // before it is removed.
+        Effect.scoped,
+        Effect.provide(layerService({ prefix: "usage-service-subagent-blocks", home, settings })),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("counts a subagent message's last block while its line is still unterminated", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      const subagents = NodePath.join(home, "claude", "projects", "proj", "session-1", "subagents");
+      const transcript = NodePath.join(subagents, "agent-a1.jsonl");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(subagents, { recursive: true });
+        await NodeFSP.writeFile(
+          transcript,
+          claudeBlock(1, 2, "thinking") + claudeBlock(1, 1411, "text").trimEnd(),
+        );
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 1411);
+
+        yield* Effect.promise(() =>
+          NodeFSP.appendFile(transcript, `\n${claudeBlock(2, 96, "text")}`),
+        );
+        assert.strictEqual(totalOutputTokens(yield* service.readSummary(WINDOW)), 1507);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          layerService({ prefix: "usage-service-subagent-tail-block", home, settings }),
+        ),
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live(
+    "upgrades a v5 cache: re-parses live Claude transcripts, keeps deleted ones, leaves v5 intact",
+    () =>
+      Effect.gen(function* () {
+        const { home, settings } = yield* setup;
+        const subagents = NodePath.join(home, "claude", "projects", "proj", "s", "subagents");
+        const live = NodePath.join(subagents, "agent-live.jsonl");
+        const deleted = NodePath.join(subagents, "agent-deleted.jsonl");
         yield* Effect.promise(async () => {
-          const cachePath = NodePath.join(stateDir, SCAN_CACHE_FILE_NAME);
-          const document = decodeUnknownJsonString(await NodeFSP.readFile(cachePath, "utf8")) as {
-            files: Record<string, { cs: Record<string, unknown> }>;
-          };
-          // The v10 parser ignored `token_usage_record`, so its clean state held nothing pending.
-          for (const file of Object.values(document.files)) {
-            file.cs = Object.fromEntries(
-              Object.entries(file.cs).filter(([key]) => !key.startsWith("unreported")),
-            );
-          }
-          await NodeFSP.rm(cachePath);
+          await NodeFSP.mkdir(subagents, { recursive: true });
           await NodeFSP.writeFile(
-            NodePath.join(stateDir, "usage-scan-cache-v10.json"),
-            encodeUnknownJsonString({ ...document, version: 10 }),
+            live,
+            claudeBlock(1, 2, "thinking") + claudeBlock(1, 1411, "text"),
           );
-          await NodeFSP.appendFile(
+          await NodeFSP.writeFile(
+            deleted,
+            claudeBlock(2, 3, "thinking") + claudeBlock(2, 40, "text"),
+          );
+        });
+
+        yield* Effect.gen(function* () {
+          const { stateDir } = yield* ServerConfig.ServerConfig;
+          const cachePath = NodePath.join(stateDir, SCAN_CACHE_FILE_NAME);
+          const v5Path = NodePath.join(stateDir, "usage-scan-cache-v5.json");
+          const first = yield* UsageService.make;
+          assert.strictEqual(totalOutputTokens(yield* first.readSummary(WINDOW)), 1451);
+          yield* first.awaitPersisted;
+
+          // Rewrite the cache as a v5 server left it: each message counted by
+          // its first block's partial output.
+          const v5 = yield* Effect.promise(async () => {
+            const document = decodeUnknownJsonString(await NodeFSP.readFile(cachePath, "utf8")) as {
+              files: Record<string, { r: unknown[][] }>;
+            };
+            for (const [path, file] of Object.entries(document.files)) {
+              const partial = path === live ? 2 : 3;
+              file.r = file.r.map((row) => [...row.slice(0, 6), partial, ...row.slice(7)]);
+            }
+            const text = encodeUnknownJsonString({ ...document, version: 5 });
+            await NodeFSP.writeFile(v5Path, text);
+            await NodeFSP.rm(cachePath);
+            await NodeFSP.rm(deleted);
+            return text;
+          });
+
+          const summary = yield* (yield* UsageService.make).readSummary(WINDOW);
+          // The live transcript re-parses to its full count; the deleted one
+          // keeps its saved v5 usage.
+          assert.strictEqual(totalOutputTokens(summary), 1414);
+          // A v5 server sharing this state directory still finds its own cache.
+          assert.strictEqual(yield* Effect.promise(() => NodeFSP.readFile(v5Path, "utf8")), v5);
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(layerService({ prefix: "usage-service-v5-upgrade-test", home, settings })),
+        );
+      }).pipe(Effect.scoped),
+  );
+
+  it.live.each([10, 11])(
+    "re-parses a clean v%s Codex rollout that grew after an interrupted request",
+    (version) =>
+      Effect.gen(function* () {
+        const { home, settings } = yield* setup;
+        const sessions = NodePath.join(home, "codex", "sessions");
+        const live = NodePath.join(sessions, "live.jsonl");
+        const usage = (input: number, output: number) => ({
+          input_tokens: input,
+          output_tokens: output,
+          total_tokens: input + output,
+        });
+        const lines = (values: readonly unknown[]) =>
+          values.map((value) => `${encodeUnknownJsonString(value)}\n`).join("");
+        const request = (second: number, last: unknown) => ({
+          type: "token_usage_record",
+          timestamp: `2026-08-01T10:00:0${second}Z`,
+          payload: { usage: last },
+        });
+        const tokenCount = (second: number, last: unknown, total: unknown) => ({
+          type: "event_msg",
+          timestamp: `2026-08-01T10:00:0${second}Z`,
+          payload: {
+            type: "token_count",
+            info: { last_token_usage: last, total_token_usage: total },
+          },
+        });
+        yield* Effect.promise(async () => {
+          await NodeFSP.mkdir(sessions, { recursive: true });
+          await NodeFSP.writeFile(
             live,
             lines([
-              { type: "turn_context", payload: { turn_id: "turn-2", model: "gpt-6-astra" } },
-              request(5, usage(200, 30)),
-              tokenCount(5, usage(200, 30), usage(450, 60)),
+              { type: "session_meta", payload: { id: "live" } },
+              { type: "turn_context", payload: { turn_id: "turn-1", model: "gpt-6-astra" } },
+              request(1, usage(100, 20)),
+              tokenCount(1, usage(100, 20), usage(100, 20)),
+              // Interrupted after this request finished: no token_count reports it.
+              request(2, usage(150, 10)),
             ]),
           );
         });
 
-        const upgraded = yield* UsageService.make;
-        const summary = yield* upgraded.readSummary(WINDOW);
-        assert.deepStrictEqual(
-          {
-            tokens: tokens(summary),
-            malformedRecords: summary.sources.find(
-              (source) => source.fingerprint.provider === "codex",
-            )?.malformedRecords,
-          },
-          { tokens: 510, malformedRecords: 0 },
-        );
-      }).pipe(
-        Effect.provide(
-          layerService({
-            prefix: "usage-service-cache-v10-interrupted-test",
-            home,
-            settings,
-            ratesDocument: {
-              "gpt-6-astra": { input_cost_per_token: 0, output_cost_per_token: 1 },
+        yield* Effect.gen(function* () {
+          const { stateDir } = yield* ServerConfig.ServerConfig;
+          const tokens = (summary: UsageSummary) =>
+            summary.buckets.reduce((sum, bucket) => sum + totalTokens(bucket.totals), 0);
+          const first = yield* UsageService.make;
+          assert.strictEqual(tokens(yield* first.readSummary(WINDOW)), 120);
+          yield* first.awaitPersisted;
+
+          yield* Effect.promise(async () => {
+            const cachePath = NodePath.join(stateDir, SCAN_CACHE_FILE_NAME);
+            const document = decodeUnknownJsonString(await NodeFSP.readFile(cachePath, "utf8")) as {
+              files: Record<string, { cs: Record<string, unknown> }>;
+            };
+            // Older parsers ignored `token_usage_record`, so their clean state held nothing pending.
+            for (const file of Object.values(document.files)) {
+              file.cs = Object.fromEntries(
+                Object.entries(file.cs).filter(([key]) => !key.startsWith("unreported")),
+              );
+            }
+            await NodeFSP.rm(cachePath);
+            await NodeFSP.writeFile(
+              NodePath.join(stateDir, `usage-scan-cache-v${version}.json`),
+              encodeUnknownJsonString({ ...document, version }),
+            );
+            await NodeFSP.appendFile(
+              live,
+              lines([
+                { type: "turn_context", payload: { turn_id: "turn-2", model: "gpt-6-astra" } },
+                request(5, usage(200, 30)),
+                tokenCount(5, usage(200, 30), usage(450, 60)),
+              ]),
+            );
+          });
+
+          const upgraded = yield* UsageService.make;
+          const summary = yield* upgraded.readSummary(WINDOW);
+          assert.deepStrictEqual(
+            {
+              tokens: tokens(summary),
+              malformedRecords: summary.sources.find(
+                (source) => source.fingerprint.provider === "codex",
+              )?.malformedRecords,
             },
-          }),
-        ),
-      );
-    }).pipe(Effect.scoped),
+            { tokens: 510, malformedRecords: 0 },
+          );
+        }).pipe(
+          Effect.provide(
+            layerService({
+              prefix: `usage-service-cache-v${version}-interrupted-test`,
+              home,
+              settings,
+              ratesDocument: {
+                "gpt-6-astra": { input_cost_per_token: 0, output_cost_per_token: 1 },
+              },
+            }),
+          ),
+        );
+      }).pipe(Effect.scoped),
   );
 
   it.live("preserves saved tokens, costs and sessions after transcript cleanup and restart", () =>
