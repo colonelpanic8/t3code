@@ -480,11 +480,8 @@ describe("selectComposerReasoningEffort", () => {
   it("rejects effort values the selected model does not support", () => {
     expect(select("xhigh", "Fix it")).toBeNull();
   });
-  it("enables ultrathink through the prompt prefix instead of the options", () => {
-    expect(select("ultrathink", "Fix it", selections(["effort", "high"]))).toEqual({
-      prompt: "Ultrathink:\nFix it",
-      options: null,
-    });
+  it("does not offer prompt-injected levels as effort choices", () => {
+    expect(select("ultrathink", "Fix it", selections(["effort", "high"]))).toBeNull();
   });
   it("strips the ultrathink prefix when switching to another effort", () => {
     expect(select("low", "Ultrathink:\nFix it")).toEqual({

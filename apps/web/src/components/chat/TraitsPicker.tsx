@@ -306,7 +306,8 @@ export function getReasoningTraitSelection(input: {
   if (
     selected.modelIsUnavailable ||
     selected.ultrathinkInBodyText ||
-    !descriptor?.options.some((option) => option.id === input.effort)
+    !descriptor ||
+    !selectableProviderOptionChoices(descriptor).some((option) => option.id === input.effort)
   ) {
     return null;
   }

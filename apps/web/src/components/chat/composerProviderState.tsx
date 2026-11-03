@@ -197,10 +197,6 @@ export function getComposerReasoningStep(input: {
   };
 }
 
-/**
- * The composer's traits input with the model's implicit defaults applied, so a pick writes what
- * the composer would send. Null without a draft or thread to persist to.
- */
 /** Applies a direct reasoning effort shortcut with the same rules as the composer's traits picker. */
 export function selectComposerReasoningEffort(input: {
   provider: ProviderDriverKind;
@@ -221,6 +217,10 @@ export function selectComposerReasoningEffort(input: {
   return getReasoningTraitSelection({ ...input, modelOptions: selections });
 }
 
+/**
+ * The composer's traits input with the model's implicit defaults applied, so a pick writes what
+ * the composer would send. Null without a draft or thread to persist to.
+ */
 export function resolveComposerTraitsInput(
   input: ComposerTraitsTarget,
 ): TraitsSelectionInput | null {
