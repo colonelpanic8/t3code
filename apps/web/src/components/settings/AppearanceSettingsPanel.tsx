@@ -164,6 +164,7 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow
+          settingKeys={["appearanceContrast"]}
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
           resetAction={
@@ -212,6 +213,7 @@ export function AppearanceSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["glassOpacity"]}
           {...searchableSetting("setting-glass-opacity")}
           description="Higher values make menus, dialogs, and the composer more solid."
           resetAction={
@@ -258,6 +260,7 @@ export function AppearanceSettingsPanel() {
         />
 
         <SettingsRow
+          settingKeys={["chatWidth"]}
           {...searchableSetting("chat-width")}
           description="Set how wide messages and the composer can grow on large screens."
           resetAction={
@@ -358,6 +361,7 @@ export function AppearanceSettingsPanel() {
           ]}
         >
           <SettingsRow
+            settingKeys={["panelAnimationDurationMs"]}
             {...searchableSetting("panel-animations")}
             description="Set how fast panels open and close."
             control={
@@ -409,6 +413,7 @@ export function AppearanceSettingsPanel() {
             }
           />
           <SettingsRow
+            settingKeys={["environmentIdentificationMode"]}
             {...searchableSetting("environment-identification")}
             description={environmentIdentificationDescription}
             resetAction={
@@ -451,6 +456,7 @@ export function AppearanceSettingsPanel() {
             }
           />
           <SettingsRow
+            settingKeys={["persistComposerContextStrip"]}
             {...searchableSetting("composer-context")}
             description="Keep branch and worktree controls below the composer after a thread starts."
             resetAction={
