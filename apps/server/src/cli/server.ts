@@ -10,6 +10,8 @@ import * as ServerConfig from "../config.ts";
 import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
+/** Every location flag is present once the command line is parsed. */
+type ServerCommandFlags = Required<CliServerFlags>;
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 // The desktop launcher reads this process's stdout and stderr. Once it is gone,
@@ -20,7 +22,7 @@ function ignoreClosedLauncherPipe(error: NodeJS.ErrnoException): void {
 }
 
 const runServerCommand = Effect.fn("server.runServerCommand")(function* (
-  flags: CliServerFlags,
+  flags: ServerCommandFlags,
   options?: {
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
@@ -47,7 +49,7 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
 });
 
 export const runDefaultServerCommand = Effect.fn("server.runDefaultServerCommand")(function* (
-  flags: CliServerFlags,
+  flags: ServerCommandFlags,
 ) {
   if (Option.isSome(flags.cwd)) {
     const cwd = flags.cwd.value.trim();
