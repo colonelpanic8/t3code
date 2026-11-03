@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -6,6 +7,7 @@ const AssemblyBuildEntry = Schema.Struct({
   kind: Schema.String,
   status: Schema.String,
   commit: Schema.String,
+  date: Schema.optionalKey(Schema.String),
   branch: Schema.optionalKey(Schema.String),
   remote: Schema.optionalKey(Schema.String),
   pr: Schema.optionalKey(Schema.Number),
@@ -17,6 +19,7 @@ export type AssemblyBuildEntry = typeof AssemblyBuildEntry.Type;
 
 const AssemblyBuild = Schema.Struct({
   commit: Schema.NullOr(Schema.String),
+  commitDate: Schema.optionalKey(Schema.NullOr(Schema.String)),
   fork: Schema.optionalKey(
     Schema.Struct({
       remote: Schema.NullOr(Schema.String),
@@ -82,6 +85,15 @@ export function assemblyEntryRemote(
   entry: AssemblyBuildEntry,
 ): string | null {
   return entry.remote ?? build.fork?.remote ?? null;
+}
+
+export function formatCommitDate(date: string | null | undefined): string | null {
+  if (!date) return null;
+  return Option.getOrNull(
+    Option.map(DateTime.make(date), (parsed) =>
+      DateTime.formatLocal(parsed, { dateStyle: "medium", timeStyle: "short" }),
+    ),
+  );
 }
 
 export function shortCommit(commit: string): string {

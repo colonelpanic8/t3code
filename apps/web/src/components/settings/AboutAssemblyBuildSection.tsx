@@ -7,6 +7,7 @@ import {
   githubBranchUrl,
   githubCommitUrl,
   githubCompareUrl,
+  formatCommitDate,
   githubPullRequestUrl,
   shortCommit,
   parseAssemblyBuild,
@@ -32,11 +33,25 @@ function ExternalLink({
   );
 }
 
-function CommitLink({ remote, commit }: { remote: string | null | undefined; commit: string }) {
+function CommitLink({
+  remote,
+  commit,
+  date,
+}: {
+  remote: string | null | undefined;
+  commit: string;
+  date: string | null | undefined;
+}) {
+  const formattedDate = formatCommitDate(date);
   return (
-    <ExternalLink href={githubCommitUrl(remote, commit)} tone="default">
-      <code className="text-xs">{shortCommit(commit)}</code>
-    </ExternalLink>
+    <span className="flex shrink-0 flex-col items-end gap-0.5">
+      <ExternalLink href={githubCommitUrl(remote, commit)} tone="default">
+        <code className="text-xs">{shortCommit(commit)}</code>
+      </ExternalLink>
+      {formattedDate ? (
+        <span className="text-xs whitespace-nowrap text-muted-foreground">{formattedDate}</span>
+      ) : null}
+    </span>
   );
 }
 
@@ -45,11 +60,9 @@ export const ASSEMBLY_BUILD = parseAssemblyBuild(import.meta.env.T3CODE_ASSEMBLY
 export function AboutAssemblyBuildSection({ build }: { build: AssemblyBuild }) {
   const forkRemote = build.fork?.remote ?? null;
   const { upstream } = build;
-  const upstreamDetails = [
-    upstream.subject,
-    upstream.tag,
-    upstream.date ? new Date(upstream.date).toLocaleString() : undefined,
-  ].filter((detail) => detail !== undefined && detail !== "");
+  const upstreamDetails = [upstream.subject, upstream.tag].filter(
+    (detail) => detail !== undefined && detail !== "",
+  );
 
   return (
     <SettingsSection id="assembly-build" title="Assembly build">
@@ -75,7 +88,9 @@ export function AboutAssemblyBuildSection({ build }: { build: AssemblyBuild }) {
           )
         }
         control={
-          build.commit === null ? null : <CommitLink remote={forkRemote} commit={build.commit} />
+          build.commit === null ? null : (
+            <CommitLink remote={forkRemote} commit={build.commit} date={build.commitDate} />
+          )
         }
       />
       <SettingsRow
@@ -88,7 +103,9 @@ export function AboutAssemblyBuildSection({ build }: { build: AssemblyBuild }) {
           </span>
         }
         description={upstreamDetails.join(" · ")}
-        control={<CommitLink remote={upstream.remote} commit={upstream.commit} />}
+        control={
+          <CommitLink remote={upstream.remote} commit={upstream.commit} date={upstream.date} />
+        }
       />
       <SettingsRow
         title={`Carried branches (${build.entries.length})`}
@@ -121,7 +138,9 @@ export function AboutAssemblyBuildSection({ build }: { build: AssemblyBuild }) {
                     <p className="text-xs text-muted-foreground">{entry.summary}</p>
                   ) : null}
                 </div>
-                {entry.commit ? <CommitLink remote={remote} commit={entry.commit} /> : null}
+                {entry.commit ? (
+                  <CommitLink remote={remote} commit={entry.commit} date={entry.date} />
+                ) : null}
               </li>
             );
           })}

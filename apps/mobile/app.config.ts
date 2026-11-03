@@ -463,7 +463,10 @@ const config: ExpoConfig = {
       process.env.T3CODE_FEATURE_SECRETS?.trim().toLowerCase() ?? "",
     ),
     // The assembly's Android CI builds from the pushed assembled commit.
-    assemblyBuild: readAssemblyBuild(process.env.T3CODE_ASSEMBLY_COMMIT ?? process.env.GITHUB_SHA),
+    assemblyBuild: readAssemblyBuild(
+      process.env.T3CODE_ASSEMBLY_COMMIT ?? process.env.GITHUB_SHA,
+      process.env.T3CODE_ASSEMBLY_COMMIT_DATE,
+    ),
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
