@@ -62,6 +62,36 @@ describe("desktop update button state", () => {
     };
     expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
   });
+
+  it("opens the published build instead of downloading when updates are applied outside the app", () => {
+    const url = "https://github.com/owner/fork/compare/aaaaaaaa...bbbbbbbb";
+    const available: DesktopUpdateState = {
+      ...baseState,
+      status: "available",
+      availableVersion: "bbbbbbbb",
+      manualUpdate: { url },
+    };
+    expect(resolveDesktopUpdateButtonAction(available)).toBe("open");
+    expect(getDesktopUpdateButtonTooltip(available)).toBe(
+      "Assembly build bbbbbbbb is published. Rebuild to update.",
+    );
+    expect(
+      resolveDesktopUpdateButtonAction({
+        ...available,
+        status: "error",
+        errorContext: "download",
+        manualUpdate: { url: null },
+      }),
+    ).toBe("none");
+    expect(
+      resolveDesktopUpdateButtonAction({
+        ...available,
+        status: "downloaded",
+        downloadedVersion: "bbbbbbbb",
+        manualUpdate: { url: null },
+      }),
+    ).toBe("none");
+  });
 });
 
 describe("desktop update UI helpers", () => {
