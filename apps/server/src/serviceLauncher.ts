@@ -823,6 +823,7 @@ export function serviceLauncherBaseDir(
 ): string | undefined {
   return env.T3CODE_HOME?.trim() || env.T3CODE_DATA_DIR?.trim() || undefined;
 }
+
 export async function main(): Promise<void> {
   const baseDir = serviceLauncherBaseDir(process.env);
   if (baseDir === undefined) {
