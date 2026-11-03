@@ -13,9 +13,8 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { Command } from "effect/cli";
 import { makeCli } from "../binCli.ts";
-import * as BootService from "../cloud/bootService.ts";
 import * as ServerConfig from "../config.ts";
-import { acquireRelayClientForLink, finishConnectLink, finishConnectSetup } from "./connect.ts";
+import { acquireRelayClientForLink, finishConnectLink } from "./connect.ts";
 
 const managedExecutable = {
   status: "available",
@@ -58,80 +57,24 @@ it.effect("does not install the relay client when the user declines the managed 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))(
   "connect with server location overrides",
   (it) => {
-    const runHarness = Effect.fn("connectTest.runHarness")(function* <A, E, R>(
-      overrides: ServerConfig.ServerLocationOverrides,
-      finish: (locations: Parameters<typeof finishConnectSetup>[0]) => Effect.Effect<A, E, R>,
-    ) {
-      const logs: Array<string> = [];
-      let statusCalls = 0;
-      const service = BootService.BootService.of({
-        install: () => Effect.die("unexpected service install"),
-        restart: Effect.die("unexpected service restart"),
-        withStopped: () => Effect.die("unexpected service pause"),
-        uninstall: Effect.die("unexpected service uninstall"),
-        status: Effect.sync(() => {
-          statusCalls += 1;
-          return {
-            supported: false,
-            installed: false,
-            current: false,
-            unitPath: "",
-            logPath: "",
-          };
-        }),
-      });
-      yield* finish({
-        command: yield* ServerConfig.deriveServerPaths("/srv/home", undefined, overrides),
-        service: yield* ServerConfig.deriveServerPaths("/srv/home", undefined),
-      }).pipe(
-        Effect.provideService(BootService.BootService, service),
-        Effect.provideService(HostProcess.Arguments, ["node", "/usr/local/bin/t3"]),
-        Effect.provideService(Console.Console, {
-          ...globalThis.console,
-          log: (...args: ReadonlyArray<unknown>) => {
-            logs.push(args.map(String).join(" "));
-          },
-        }),
-      );
-      return {
-        logs,
-        statusCalls,
-      };
-    });
-    const setupHarness = (overrides: ServerConfig.ServerLocationOverrides) =>
-      runHarness(overrides, finishConnectSetup);
-    it.effect("skips the background service when connect runs with other server locations", () =>
-      Effect.gen(function* () {
-        const { logs, statusCalls } = yield* setupHarness({
-          dataDir: "/srv/t3 data",
-        });
-        assert.equal(statusCalls, 0);
-        assert.deepEqual(logs, [
-          "\nSkipping background setup: the background service would not use this command's server locations.\n\nNext\n  Start the server with `t3 serve --server-data-dir '/srv/t3 data'` to make this machine reachable.",
-        ]);
-      }),
-    );
-    it.effect("offers the background service when the locations match the service", () =>
-      Effect.gen(function* () {
-        const { logs, statusCalls } = yield* setupHarness({});
-        assert.equal(statusCalls, 1);
-        assert.deepEqual(logs, [
-          "\nNext\n  Start the server with `t3 serve` to make this machine reachable.",
-        ]);
-      }),
-    );
     it.effect("names this command's server locations in the link next step", () =>
       Effect.gen(function* () {
-        const { logs } = yield* runHarness(
-          {
+        const logs: Array<string> = [];
+        yield* finishConnectLink({
+          command: yield* ServerConfig.deriveServerPaths("/srv/home", undefined, {
             configDir: "/srv/t3 config",
             dataDir: "/srv/t3 data",
-          },
-          (locations) =>
-            finishConnectLink({
-              ...locations,
-              publishOnly: false,
-            }),
+          }),
+          service: yield* ServerConfig.deriveServerPaths("/srv/home", undefined),
+          publishOnly: false,
+        }).pipe(
+          Effect.provideService(HostProcess.Arguments, ["node", "/usr/local/bin/t3"]),
+          Effect.provideService(Console.Console, {
+            ...globalThis.console,
+            log: (...args: ReadonlyArray<unknown>) => {
+              logs.push(args.map(String).join(" "));
+            },
+          }),
         );
         assert.deepEqual(logs, [
           "\nNext\n  Start the server with `t3 serve --server-config-dir '/srv/t3 config' --server-data-dir '/srv/t3 data'` to make this machine reachable.",

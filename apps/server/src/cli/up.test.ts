@@ -3,12 +3,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as Cause from "effect/Cause";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Terminal from "effect/Terminal";
 import * as TestConsole from "effect/testing/TestConsole";
@@ -275,6 +277,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
       const fs = yield* FileSystem.FileSystem;
       const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-up-test-" });
       yield* fs.writeFileString(`${baseDir}/service.env`, input.env);
+      const path = yield* Path.Path;
       let installs = 0;
       let restarts = 0;
       const status = {
@@ -306,6 +309,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
                     return {
                       program: ["t3"],
                       baseDir,
+                      storageRoots: resolveLegacyT3StorageRoots({
+                        baseDir,
+                        stateDirectoryName: "userdata",
+                        path,
+                      }),
                       unitPath: status.unitPath,
                       logPath: status.logPath,
                     };
