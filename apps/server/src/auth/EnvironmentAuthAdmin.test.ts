@@ -2,6 +2,7 @@ import { AuthStandardClientScopes, type ManagedPolicyDocument } from "@t3tools/c
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, expect, it } from "@effect/vitest";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
@@ -60,11 +61,18 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
 
         const error = yield* environmentAuth.issuePairingCredential().pipe(Effect.flip);
+        const fleetError = yield* environmentAuth
+          .createFleetEnrollment({ ttl: Duration.days(1), label: "phones" })
+          .pipe(Effect.flip);
         const startup = yield* environmentAuth.issueStartupPairingCredential();
 
         assert.equal(
           error.message,
           "Example Corp's policy does not allow remote clients, so this server cannot create pairing links.",
+        );
+        assert.equal(
+          fleetError.message,
+          "Example Corp's policy does not allow remote clients, so this server cannot create fleet enrollments.",
         );
         assert.isAbove(startup.credential.length, 0);
       }).pipe(Effect.provide(layerEnvironmentAuth(undefined, desktopAndLocalOnly))),
@@ -85,6 +93,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         const startupPhone = yield* startup("192.168.1.20");
         const startupBrowser = yield* startup("127.0.0.1");
         yield* environmentAuth.createPairingLink({ subject: "one-time-token" });
+        const enrollment = yield* environmentAuth.createFleetEnrollment({
+          ttl: Duration.days(1),
+          label: "phones",
+        });
+        const fleetPhone = yield* sessions.issue({ subject: `fleet-enrollment:${enrollment.id}` });
 
         yield* EnvironmentAuth.make.pipe(
           Effect.provide(
@@ -95,6 +108,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         const remaining = (yield* sessions.listActive()).map((session) => session.sessionId);
         assert.notInclude(remaining, phone.sessionId);
         assert.notInclude(remaining, startupPhone.sessionId);
+        assert.notInclude(remaining, fleetPhone.sessionId);
         assert.include(remaining, startupBrowser.sessionId);
         assert.include(remaining, bot.sessionId);
         assert.lengthOf(yield* pairingLinks.listActive(), 0);
