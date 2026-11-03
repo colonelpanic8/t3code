@@ -11,8 +11,8 @@ import {
   managedCapabilityDenial,
   type AuthEnvironmentScope,
   type AuthGrantScope,
-  type AuthPairingCredentialResult,
   type AdvertisedEndpoint,
+  type EnvironmentId,
 } from "@t3tools/contracts";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
@@ -20,12 +20,13 @@ import * as Cause from "effect/Cause";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
-import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   canRevokeOtherClients,
   isQrShareableEndpoint,
   selectQrEndpointOption,
   togglePairingScopeSelection,
+  resolveFallbackPairingUrl,
+  isLoopbackUrl,
 } from "./ConnectionsSettings.logic";
 import { useNowSecond } from "../../hooks/useNowSecond";
 import { Input } from "../ui/input";
@@ -47,14 +48,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import {
-  createServerPairingCredential,
-  isLoopbackHostname,
   type ServerClientSessionRecord,
   type ServerPairingLinkRecord,
 } from "~/environments/primary";
 import { readEnvironmentScope } from "~/state/session";
-import { usePrimaryEnvironmentId } from "~/state/environments";
-import { usePrimaryManagedPolicy } from "~/state/managedPolicy";
+import { useManagedPolicy, usePrimaryManagedPolicy } from "~/state/managedPolicy";
 import { ManagedControl } from "../ManagedPolicy";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
@@ -64,7 +62,6 @@ import {
   isTailscaleHttpsEndpoint,
   endpointDefaultPreferenceKey,
   resolveAdvertisedEndpointPairingUrl,
-  resolveCurrentOriginPairingUrl,
   isHostedAppPairingUrl,
   endpointShareHint,
 } from "./ConnectionsSettings.logic";
@@ -124,6 +121,8 @@ type PairingLinkListRowProps = {
   pairingLink: ServerPairingLinkRecord;
   credential: string | undefined;
   endpointUrl: string | null | undefined;
+  /** Whether this page's own origin reaches the environment when it has no endpoint URL. */
+  shareCurrentOrigin: boolean;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
   defaultEndpointKey: string | null;
   revokingPairingLinkId: string | null;
@@ -135,6 +134,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   pairingLink,
   credential,
   endpointUrl,
+  shareCurrentOrigin,
   endpoints,
   defaultEndpointKey,
   revokingPairingLinkId,
@@ -148,11 +148,13 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   const [qrEndpointId, setQrEndpointId] = useState<string | null>(null);
   const qrPanelId = useId();
 
-  const currentOriginPairingUrl = credential ? resolveCurrentOriginPairingUrl(credential) : null;
-  const hostedPairingUrl =
-    credential && endpointUrl != null && endpointUrl !== ""
-      ? resolveHostedPairingUrl(endpointUrl, credential)
-      : null;
+  const fallbackPairingUrl = credential
+    ? resolveFallbackPairingUrl({
+        credential,
+        endpointUrl,
+        pageUrl: shareCurrentOrigin ? window.location.href : null,
+      })
+    : null;
   const endpointPairingUrl = (() => {
     const endpoint = selectPairingEndpoint(endpoints, defaultEndpointKey);
     return endpoint && credential
@@ -185,19 +187,14 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     }
     return options;
   })();
-  const shareablePairingUrl =
-    endpointPairingUrl ??
-    (credential && endpointUrl != null && endpointUrl !== ""
-      ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, credential))
-      : isLoopbackHostname(window.location.hostname)
-        ? null
-        : currentOriginPairingUrl);
+  const shareablePairingUrl = endpointPairingUrl ?? fallbackPairingUrl;
   const [failedCopyValue, setFailedCopyValue] = useState<string | null>(null);
   const revealValue = failedCopyValue ?? shareablePairingUrl ?? credential ?? "";
   const isRevealValueUrl = revealValue !== credential;
   const isRevealValueHostedAppPairingUrl = isRevealValueUrl && isHostedAppPairingUrl(revealValue);
   const isRevealValueQrShareable =
-    endpointCopyOptions.find((option) => option.url === revealValue)?.qrShareable ?? true;
+    endpointCopyOptions.find((option) => option.url === revealValue)?.qrShareable ??
+    !isLoopbackUrl(revealValue);
   const canCopyToClipboard =
     typeof window !== "undefined" &&
     window.isSecureContext &&
@@ -265,7 +262,8 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     defaultEndpointKey,
   );
   const qrPairingUrl = selectedQrOption?.url ?? shareablePairingUrl;
-  const canRenderQrForSelection = selectedQrOption?.qrShareable ?? true;
+  const canRenderQrForSelection =
+    selectedQrOption?.qrShareable ?? (qrPairingUrl !== null && !isLoopbackUrl(qrPairingUrl));
   if (expiresAtMs <= nowMs) {
     return null;
   }
@@ -565,22 +563,26 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
 });
 
 type AuthorizedClientsHeaderActionProps = {
-  onPairingLinkCreated: (result: AuthPairingCredentialResult) => void;
   clientSessions: ReadonlyArray<ServerClientSessionRecord> | null;
   isRevokingOtherClients: boolean;
   onRevokeOtherClients: () => void;
+  environmentId: EnvironmentId;
   delegatableScopes: ReadonlyArray<AuthEnvironmentScope>;
+  onCreatePairingLink: (input: {
+    readonly label: string;
+    readonly scopes: ReadonlyArray<AuthGrantScope>;
+  }) => Promise<void>;
 };
 
 export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
-  onPairingLinkCreated,
   clientSessions,
   isRevokingOtherClients,
   onRevokeOtherClients,
+  environmentId,
   delegatableScopes,
+  onCreatePairingLink,
 }: AuthorizedClientsHeaderActionProps) {
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const pairingDenial = managedCapabilityDenial(usePrimaryManagedPolicy(), "remoteClients");
+  const pairingDenial = managedCapabilityDenial(useManagedPolicy(environmentId), "remoteClients");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
   const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthGrantScope>>([
@@ -591,19 +593,17 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
 
   const handleCreatePairingLink = async () => {
     if (
-      primaryEnvironmentId === null ||
       selectedScopes.length === 0 ||
-      !readEnvironmentScope(primaryEnvironmentId, AuthAccessWriteScope) ||
-      !selectedScopes.every((scope) => readEnvironmentScope(primaryEnvironmentId, scope))
+      !readEnvironmentScope(environmentId, AuthAccessWriteScope) ||
+      !selectedScopes.every((scope) => readEnvironmentScope(environmentId, scope))
     )
       return;
     setIsCreatingPairingLink(true);
     const settled = await settlePromise(async () => {
-      const created = await createServerPairingCredential({
+      await onCreatePairingLink({
         label: pairingLabel,
         scopes: selectedScopes,
       });
-      onPairingLinkCreated(created);
       setPairingLabel("");
       setPairingScopes(
         AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
@@ -786,6 +786,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
 
 type PairingClientsListProps = {
   endpointUrl: string | null | undefined;
+  shareCurrentOrigin: boolean;
   endpoints: ReadonlyArray<AdvertisedEndpoint>;
   defaultEndpointKey: string | null;
   isLoading: boolean;
@@ -801,6 +802,7 @@ type PairingClientsListProps = {
 
 export const PairingClientsList = memo(function PairingClientsList({
   endpointUrl,
+  shareCurrentOrigin,
   endpoints,
   defaultEndpointKey,
   isLoading,
@@ -821,6 +823,7 @@ export const PairingClientsList = memo(function PairingClientsList({
           pairingLink={pairingLink}
           credential={createdPairingCredentials.get(pairingLink.id)}
           endpointUrl={endpointUrl}
+          shareCurrentOrigin={shareCurrentOrigin}
           endpoints={endpoints}
           defaultEndpointKey={defaultEndpointKey}
           revokingPairingLinkId={revokingPairingLinkId}
