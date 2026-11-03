@@ -2,9 +2,11 @@ import { SettingsGroup } from "./SettingsGroup";
 import { AuthSettingsWriteScope } from "@t3tools/contracts";
 import { usePrimaryEnvironmentId, usePrimaryEnvironment } from "../../state/environments";
 import { useEnvironmentScope, useEnvironmentsWithScope } from "../../state/session";
+import { useServerConfigs } from "../../state/entities";
 import { InfoIcon, Undo2Icon } from "lucide-react";
 import {
   DEFAULT_SERVER_SETTINGS,
+  isManagedSettingPath,
   isSettingPathManaged,
   ServerSettings,
   type UnifiedSettings,
@@ -42,6 +44,7 @@ import {
 } from "./SettingInheritance";
 
 const EMPTY_SETTING_KEYS: readonly (keyof UnifiedSettings)[] = [];
+const EMPTY_MANAGED_PATHS: readonly string[] = [];
 const SERVER_SETTING_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
 const isServerSettingKey = (key: keyof UnifiedSettings): key is keyof ServerSettings =>
   SERVER_SETTING_KEYS.has(key);
@@ -317,7 +320,9 @@ export function SettingsRow({
   control,
   serverScoped = false,
   settingKeys = EMPTY_SETTING_KEYS,
+  managedPaths = EMPTY_MANAGED_PATHS,
   mixed: mixedOverride,
+  managed,
   children,
   className,
   ...rowProps
@@ -330,7 +335,11 @@ export function SettingsRow({
   control?: ReactNode;
   serverScoped?: boolean;
   settingKeys?: readonly (keyof UnifiedSettings)[];
+  /** Dot paths inside a setting, such as `storageCleanup.logsAfterDays`, an administrator can lock. */
+  managedPaths?: readonly string[];
   mixed?: boolean;
+  /** Why an administrator's policy turns this row's control off, from the contract's denial helpers. */
+  managed?: string | undefined;
   children?: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLDivElement>(rowProps.id);
@@ -349,6 +358,22 @@ export function SettingsRow({
     ? context.connectedEnvironments.length > 0 &&
       context.connectedEnvironments.every((target) => writableIds.has(target.environmentId))
     : primaryCanWrite;
+  const serverConfigs = useServerConfigs();
+  // An administrator's lock on any target wins over every other reason a control is inert.
+  const lockablePaths = [...settingKeys, ...managedPaths];
+  const managedBy =
+    lockablePaths.length === 0
+      ? undefined
+      : (context
+          ? context.connectedEnvironments.map((environment) => environment.serverConfig)
+          : [primaryEnvironmentId === null ? undefined : serverConfigs.get(primaryEnvironmentId)]
+        )
+          .map((config) => config?.managedPolicy)
+          .find(
+            (policy) =>
+              policy !== undefined &&
+              lockablePaths.some((path) => isManagedSettingPath(policy, path)),
+          )?.organization;
   const clearOverrides = useClearScopedSettings();
   const clearProjectOverrides = useClearProjectOverrides();
   const isProjectScope =
@@ -382,14 +407,17 @@ export function SettingsRow({
     ? context.connectedEnvironments.map((target) => target.serverConfig?.managedSettingPaths)
     : [primaryServerConfig?.managedSettingPaths];
   // Project overrides stay editable; the managed layer fixes environment values.
-  const managed =
+  const systemManaged =
     settingKeys.some((key) => Object.hasOwn(managedClientSettings, key)) ||
     (!isProjectScope &&
       serverKeys.some((key) =>
         managedPathSets.some((paths) => isSettingPathManaged(paths, [key])),
       ));
   const renderedReset =
-    unavailable || managed ? null : isProjectScope && scopedKeys.length > 0 ? (
+    unavailable ||
+    systemManaged ||
+    managedBy !== undefined ||
+    managed !== undefined ? null : isProjectScope && scopedKeys.length > 0 ? (
       source === "project" || source === "mixed" ? (
         <SettingResetButton
           label={typeof title === "string" ? title : "override"}
@@ -421,26 +449,30 @@ export function SettingsRow({
     </Tooltip>
   );
   const renderedControl =
-    managed && control
-      ? inertControl(MANAGED_SETTING_MESSAGE)
-      : unavailable && control
-        ? inertControl(
-            !canWriteSettings
-              ? `This connection lacks permission to change settings on ${
-                  context
-                    ? context.connectedEnvironments
-                        .filter((target) => !writableIds.has(target.environmentId))
-                        .map((target) => target.label)
-                        .join(", ") || "the selected environment"
-                    : (primaryEnvironment?.label ?? "the primary environment")
-                }.`
-              : context
-                ? "Reconnect the selected environment to change this setting."
-                : PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
-          )
-        : environmentWide && control
-          ? inertControl("Environment-wide setting. Select an environment to change it.")
-          : control;
+    managed !== undefined && control
+      ? inertControl(managed)
+      : managedBy !== undefined && control
+        ? inertControl(`Managed by ${managedBy}.`)
+        : systemManaged && control
+          ? inertControl(MANAGED_SETTING_MESSAGE)
+          : unavailable && control
+            ? inertControl(
+                !canWriteSettings
+                  ? `This connection lacks permission to change settings on ${
+                      context
+                        ? context.connectedEnvironments
+                            .filter((target) => !writableIds.has(target.environmentId))
+                            .map((target) => target.label)
+                            .join(", ") || "the selected environment"
+                        : (primaryEnvironment?.label ?? "the primary environment")
+                    }.`
+                  : context
+                    ? "Reconnect the selected environment to change this setting."
+                    : PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
+              )
+            : environmentWide && control
+              ? inertControl("Environment-wide setting. Select an environment to change it.")
+              : control;
   const customized =
     context !== null &&
     serverKeys.some((key) =>
@@ -480,7 +512,7 @@ export function SettingsRow({
           : {})}
       />
     ) : null;
-  const renderedStatus = managed ? (
+  const renderedStatus = systemManaged ? (
     <>
       {status}
       {status ? " · " : null}
@@ -538,7 +570,7 @@ export function SettingsRow({
           </div>
         ) : null}
       </div>
-      {(unavailable || managed) && children ? (
+      {(unavailable || systemManaged) && children ? (
         <div inert className="opacity-50">
           {children}
         </div>
