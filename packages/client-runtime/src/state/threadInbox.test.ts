@@ -5,6 +5,7 @@ import {
   createInboxReturnTracker,
   isThreadWorking,
   sortInboxThreadsByReturn,
+  sortThreadsByCriteria,
   sortWorkingThreadsBySend,
 } from "./threadInbox.ts";
 
@@ -239,5 +240,80 @@ describe("sortWorkingThreadsBySend", () => {
     expect(
       sortWorkingThreadsBySend([launched, sentFirst, sentLast]).map((thread) => thread.id),
     ).toEqual(["sent-last", "sent-first", "launched"]);
+  });
+});
+
+describe("sortThreadsByCriteria", () => {
+  const at = (minute: number) => `2026-06-01T00:${String(minute).padStart(2, "0")}:00.000Z`;
+  const shell = (
+    id: string,
+    overrides: Partial<{
+      createdAt: string;
+      latestUserMessageAt: string | null;
+      hasPendingApprovals: boolean;
+      activeOrderKey: string | null;
+      completedAt: string;
+    }> = {},
+  ) => ({
+    ...thread(id, false),
+    createdAt: overrides.createdAt ?? at(0),
+    hasPendingApprovals: overrides.hasPendingApprovals ?? false,
+    latestUserMessageAt: overrides.latestUserMessageAt ?? null,
+    activeOrderKey: overrides.activeOrderKey ?? null,
+    lastVisitedAt: null,
+    latestRun:
+      overrides.completedAt === undefined
+        ? null
+        : {
+            runId: RunId.make(`run-${id}`),
+            status: "completed" as const,
+            requestedAt: overrides.completedAt,
+            startedAt: overrides.completedAt,
+            completedAt: overrides.completedAt,
+            assistantMessageId: null,
+          },
+  });
+  const ids = (threads: ReadonlyArray<{ readonly id: string }>) => threads.map(({ id }) => id);
+
+  it("breaks each criterion's ties with the next one", () => {
+    const threads = [
+      shell("old-question", { createdAt: at(1), hasPendingApprovals: true }),
+      shell("busy", { createdAt: at(2), completedAt: at(30) }),
+      shell("new-question", { createdAt: at(5), hasPendingApprovals: true }),
+      shell("quiet", { createdAt: at(9) }),
+    ];
+    expect(
+      ids(
+        sortThreadsByCriteria(threads, [
+          { key: "needs_input", reverse: false },
+          { key: "last_activity", reverse: false },
+        ]),
+      ),
+    ).toEqual(["new-question", "old-question", "busy", "quiet"]);
+    expect(
+      ids(
+        sortThreadsByCriteria(threads, [
+          { key: "needs_input", reverse: true },
+          { key: "created", reverse: true },
+        ]),
+      ),
+    ).toEqual(["busy", "quiet", "old-question", "new-question"]);
+  });
+
+  it("orders arranged threads manually and leaves the rest to later criteria", () => {
+    const threads = [
+      shell("arranged-second", { activeOrderKey: "n", latestUserMessageAt: at(50) }),
+      shell("loose-old", { latestUserMessageAt: at(10) }),
+      shell("arranged-first", { activeOrderKey: "c", latestUserMessageAt: at(5) }),
+      shell("loose-new", { latestUserMessageAt: at(40) }),
+    ];
+    expect(
+      ids(
+        sortThreadsByCriteria(threads, [
+          { key: "manual", reverse: false },
+          { key: "last_user_message", reverse: false },
+        ]),
+      ),
+    ).toEqual(["loose-new", "loose-old", "arranged-first", "arranged-second"]);
   });
 });
