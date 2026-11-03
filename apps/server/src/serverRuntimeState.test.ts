@@ -4,6 +4,7 @@ import * as NodeSqlite from "node:sqlite";
 
 import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import { assert, describe, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
@@ -153,7 +154,7 @@ describe("server ownership", () => {
       }),
     ),
     Layer.succeed(HostProcess.Environment, {}),
-  ).pipe(Layer.provideMerge(NodeServices.layer));
+  ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
   const makeState = ServerRuntimeState.makePersistedServerRuntimeState({
     config: { host: undefined, devUrl: undefined },
     port: 3773,
@@ -381,7 +382,7 @@ describe("server ownership", () => {
           assert.include(result.failure.message, "t3 service restart");
           assert.include(result.failure.message, "No server was stopped");
         }
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
 
     it.effect(
@@ -400,7 +401,7 @@ describe("server ownership", () => {
           if (result._tag !== "Failure") return;
           assert.equal(result.failure._tag, "OlderBootServiceError");
           assert.equal(Runtime.getErrorExitCode(result.failure), 78);
-        }).pipe(Effect.provide(NodeServices.layer)),
+        }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
 
     it.effect("refuses while the loaded service has not restarted into its lock-aware update", () =>
@@ -414,7 +415,7 @@ describe("server ownership", () => {
           },
         });
         assert.equal(result._tag === "Failure" && result.failure._tag, "OlderBootServiceError");
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
 
     it.effect("allows lock-aware stable services that are loaded or stopped and enabled", () =>
@@ -437,7 +438,7 @@ describe("server ownership", () => {
           const { result } = yield* startBesideBootService({ ...fixture, activeVersion: "0.1.0" });
           assert.equal(result._tag, "Success");
         }
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
 
     it.effect("allows services that cannot compete for this home", () =>
@@ -474,7 +475,7 @@ describe("server ownership", () => {
           const { result } = yield* startBesideBootService(fixture);
           assert.equal(result._tag, "Success");
         }
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
 
     it.effect("allows startup when the service configuration or manager is unavailable", () =>
@@ -492,7 +493,7 @@ describe("server ownership", () => {
           const { result } = yield* startBesideBootService({ platform: "darwin", ...fixture });
           assert.equal(result._tag, "Success");
         }
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
     );
   });
 });
