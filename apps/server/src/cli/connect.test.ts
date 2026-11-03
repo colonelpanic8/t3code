@@ -15,7 +15,7 @@ import { Command } from "effect/cli";
 import { makeCli } from "../binCli.ts";
 import * as BootService from "../cloud/bootService.ts";
 import * as ServerConfig from "../config.ts";
-import { acquireRelayClientForLink, finishConnectLink, finishConnectSetup } from "./connect.ts";
+import { acquireRelayClientForLink, finishConnectLink } from "./connect.ts";
 
 const managedExecutable = {
   status: "available",
@@ -60,7 +60,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
   (it) => {
     const runHarness = Effect.fn("connectTest.runHarness")(function* <A, E, R>(
       overrides: ServerConfig.ServerLocationOverrides,
-      finish: (locations: Parameters<typeof finishConnectSetup>[0]) => Effect.Effect<A, E, R>,
+      finish: (
+        locations: Omit<Parameters<typeof finishConnectLink>[0], "publishOnly">,
+      ) => Effect.Effect<A, E, R>,
     ) {
       const logs: Array<string> = [];
       let statusCalls = 0;
@@ -98,28 +100,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
         statusCalls,
       };
     });
-    const setupHarness = (overrides: ServerConfig.ServerLocationOverrides) =>
-      runHarness(overrides, finishConnectSetup);
-    it.effect("skips the background service when connect runs with other server locations", () =>
-      Effect.gen(function* () {
-        const { logs, statusCalls } = yield* setupHarness({
-          dataDir: "/srv/t3 data",
-        });
-        assert.equal(statusCalls, 0);
-        assert.deepEqual(logs, [
-          "\nSkipping background setup: the background service would not use this command's server locations.\n\nNext\n  Start the server with `t3 serve --server-data-dir '/srv/t3 data'` to make this machine reachable.",
-        ]);
-      }),
-    );
-    it.effect("offers the background service when the locations match the service", () =>
-      Effect.gen(function* () {
-        const { logs, statusCalls } = yield* setupHarness({});
-        assert.equal(statusCalls, 1);
-        assert.deepEqual(logs, [
-          "\nNext\n  Start the server with `t3 serve` to make this machine reachable.",
-        ]);
-      }),
-    );
     it.effect("names this command's server locations in the link next step", () =>
       Effect.gen(function* () {
         const { logs } = yield* runHarness(

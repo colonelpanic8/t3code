@@ -119,6 +119,7 @@ const minimalDesktopFlags = (baseDir: string) => ({
   logWebSocketEvents: Option.none<boolean>(),
   tailscaleServeEnabled: Option.none<boolean>(),
   tailscaleServePort: Option.none<number>(),
+  sharedSettingsFile: Option.none<string>(),
   lan: Option.none<boolean>(),
 });
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
@@ -1800,6 +1801,7 @@ const storageFlags = (overrides: Partial<CliServerFlags> = {}): CliServerFlags =
   tailscaleServeEnabled: Option.none(),
   tailscaleServePort: Option.none(),
   sharedSettingsFile: Option.none(),
+  lan: Option.none(),
   ...overrides,
 });
 it.layer(NodeServices.layer)("storage layout", (it) => {
@@ -2083,7 +2085,7 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
       }).toEqual(resolved);
     }),
   );
-  it.effect("does not chmod the legacy state directory as a runtime directory", () =>
+  it.effect("restricts the legacy state directory to owner-only access", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -2097,7 +2099,7 @@ it.layer(NodeServices.layer)("storage layout", (it) => {
         baseDir: Option.some(path.join(root, "t3")),
       });
       expect(resolved.layout).toBe("legacy");
-      expect((yield* fs.stat(userdata)).mode & 0o777).toBe(0o750);
+      expect((yield* fs.stat(userdata)).mode & 0o777).toBe(0o700);
     }),
   );
   it.effect("rejects a split runtime directory symlink without chmodding its target", () =>
