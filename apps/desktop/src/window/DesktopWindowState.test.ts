@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -30,7 +31,7 @@ const layerWindowState = (baseDir: string) =>
   DesktopWindowState.layer.pipe(
     Layer.provideMerge(DesktopAppSettings.layer),
     Layer.provideMerge(layerEnvironment(baseDir)),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
 // Each call builds fresh services over the same files, like an app restart.
@@ -65,6 +66,7 @@ const startAppObserved = (baseDir: string) =>
           Layer.provideMerge(
             Layer.mergeAll(
               NodeServices.layer,
+              NodeCrypto.layer,
               NodeHttpClient.layerUndici,
               DesktopConfig.layerTest({}),
             ),
