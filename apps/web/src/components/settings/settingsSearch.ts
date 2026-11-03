@@ -454,6 +454,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "active-thread-order",
+    title: "Active thread order",
+    to: "/settings/general",
+    searchTerms: ["sort order inbox sidebar recent activity last message unread needs input"],
+  },
+  {
     id: "boring-sidebar",
     title: "Boring sidebar (group by project)",
     to: "/settings/labs",
