@@ -68,6 +68,22 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+export const SidebarActiveSortKey = Schema.Literals([
+  "needs_input",
+  "working",
+  "unread",
+  "last_user_message",
+  "last_activity",
+  "created",
+  "manual",
+]);
+export type SidebarActiveSortKey = typeof SidebarActiveSortKey.Type;
+export const SidebarActiveSortCriterion = Schema.Struct({
+  key: SidebarActiveSortKey,
+  reverse: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+});
+export type SidebarActiveSortCriterion = typeof SidebarActiveSortCriterion.Type;
+
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
   "repository_path",
@@ -512,6 +528,10 @@ export const ClientSettingsSchema = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
   ),
   sidebarV2LargeIcons: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  // Empty keeps the built-in Active order.
+  sidebarActiveThreadSort: Schema.Array(SidebarActiveSortCriterion).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
   ),
@@ -1872,6 +1892,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarV2LargeIcons: Schema.optionalKey(Schema.Boolean),
+  sidebarActiveThreadSort: Schema.optionalKey(Schema.Array(SidebarActiveSortCriterion)),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),
   snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),

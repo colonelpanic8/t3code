@@ -1,6 +1,7 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
-import { toSortableTimestamp } from "./threadSort.ts";
+import type { SidebarActiveSortCriterion, SidebarActiveSortKey } from "@t3tools/contracts/settings";
+import { sortActiveThreadsByOrderKey, toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
 type WorkingThreadInput = Pick<
@@ -86,6 +87,114 @@ function sortNewestFirst<T extends Pick<EnvironmentThreadShell, "id" | "environm
       left.id.localeCompare(right.id) ||
       left.environmentId.localeCompare(right.environmentId),
   );
+}
+
+type CriteriaSortInput = WorkingThreadInput &
+  InboxThreadInput &
+  Pick<EnvironmentThreadShell, "activeOrderKey" | "latestUserMessageAt" | "lastVisitedAt"> &
+  Partial<Pick<EnvironmentThreadShell, "latestUserAuthoredMessageAt">>;
+
+function threadNeedsInput(thread: CriteriaSortInput): boolean {
+  return (
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    thread.pendingSubagentRequest != null
+  );
+}
+
+function threadHasUnseenResult(thread: CriteriaSortInput): boolean {
+  const completedAtMs = toSortableTimestamp(thread.latestRun?.completedAt ?? undefined);
+  const lastVisitedAtMs = toSortableTimestamp(thread.lastVisitedAt ?? undefined);
+  if (thread.latestRun?.status === "failed" && thread.lastVisitedAt != null) {
+    return completedAtMs === null || lastVisitedAtMs === null || completedAtMs > lastVisitedAtMs;
+  }
+  // Matches the row's "Done" badge: a thread never opened has nothing to mark read.
+  if (completedAtMs === null || !thread.lastVisitedAt) return false;
+  return lastVisitedAtMs === null || completedAtMs > lastVisitedAtMs;
+}
+
+function latestTimestampMs(values: ReadonlyArray<string | null | undefined>): number {
+  let latest = 0;
+  for (const value of values) {
+    latest = Math.max(latest, toSortableTimestamp(value ?? undefined) ?? 0);
+  }
+  return latest;
+}
+
+function criterionValue(
+  thread: CriteriaSortInput,
+  key: SidebarActiveSortKey,
+  manualRank: ReadonlyMap<CriteriaSortInput, number> | undefined,
+): number {
+  switch (key) {
+    case "needs_input":
+      return threadNeedsInput(thread) ? 1 : 0;
+    case "working":
+      return isThreadWorking(thread) ? 1 : 0;
+    case "unread":
+      return threadHasUnseenResult(thread) ? 1 : 0;
+    case "last_user_message":
+      return latestTimestampMs([
+        thread.latestUserAuthoredMessageAt ?? thread.latestUserMessageAt ?? thread.createdAt,
+      ]);
+    case "last_activity":
+      return latestTimestampMs([
+        thread.createdAt,
+        thread.unsettledAt,
+        thread.latestUserMessageAt,
+        thread.latestUserAuthoredMessageAt,
+        thread.latestRun?.requestedAt,
+        thread.latestRun?.startedAt,
+        thread.latestRun?.completedAt,
+      ]);
+    case "created":
+      return latestTimestampMs([thread.createdAt]);
+    case "manual":
+      // Undragged threads tie above the arranged ones, so later criteria order them.
+      return manualRank?.get(thread) ?? 1;
+  }
+}
+
+/** Whether the criteria order the Active list by themselves, leaving no room to drag. */
+export function activeSortCriteriaAreAutomatic(
+  criteria: ReadonlyArray<SidebarActiveSortCriterion>,
+): boolean {
+  return criteria.length > 0 && criteria[0]!.key !== "manual";
+}
+
+/**
+ * Orders threads by each criterion in turn; later criteria only break ties.
+ * Flags put matching threads first and times put the newest first, unless the
+ * criterion is reversed.
+ */
+export function sortThreadsByCriteria<T extends CriteriaSortInput>(
+  threads: readonly T[],
+  criteria: ReadonlyArray<SidebarActiveSortCriterion>,
+): T[] {
+  if (threads.length < 2 || criteria.length === 0) return [...threads];
+  const manualRank = criteria.some((criterion) => criterion.key === "manual")
+    ? new Map<CriteriaSortInput, number>(
+        sortActiveThreadsByOrderKey(threads.filter((thread) => thread.activeOrderKey != null)).map(
+          (thread, index) => [thread, -index],
+        ),
+      )
+    : undefined;
+  return threads
+    .map((thread) => ({
+      thread,
+      values: criteria.map((criterion) => criterionValue(thread, criterion.key, manualRank)),
+    }))
+    .sort((left, right) => {
+      for (const [index, criterion] of criteria.entries()) {
+        const difference = right.values[index]! - left.values[index]!;
+        if (difference !== 0) return criterion.reverse ? -difference : difference;
+      }
+      return (
+        left.thread.id.localeCompare(right.thread.id) ||
+        left.thread.environmentId.localeCompare(right.thread.environmentId)
+      );
+    })
+    .map(({ thread }) => thread);
 }
 
 type TrackedInboxThread = WorkingThreadInput &
