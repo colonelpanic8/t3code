@@ -362,6 +362,7 @@ function BrowserViewportSetting({ disabled }: { readonly disabled: boolean }) {
 
   return (
     <SettingsRow
+      settingKeys={["browserDefaultViewport"]}
       {...searchableSetting("browser-default-viewport")}
       description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar."
       resetAction={
@@ -470,6 +471,7 @@ function BrowserZoomSetting({ disabled }: { readonly disabled: boolean }) {
 
   return (
     <SettingsRow
+      settingKeys={["browserDefaultZoomFactor"]}
       {...searchableSetting("browser-default-zoom")}
       description="Page zoom applied to new browser tabs."
       resetAction={
@@ -513,6 +515,7 @@ function BrowserAppearanceSetting({ disabled }: { readonly disabled: boolean }) 
 
   return (
     <SettingsRow
+      settingKeys={["browserDefaultAppearance"]}
       {...searchableSetting("browser-default-appearance")}
       description="The color scheme pages are told to prefer. System follows your OS setting."
       resetAction={
@@ -560,6 +563,7 @@ function BrowserRecordingInputSettings({ disabled }: { readonly disabled: boolea
   return (
     <>
       <SettingsRow
+        settingKeys={["browserRecordingShowKeyPresses"]}
         {...searchableSetting("browser-recording-key-presses")}
         description="Show pressed keys and shortcuts in new recordings. Password fields are excluded."
         control={
@@ -574,6 +578,7 @@ function BrowserRecordingInputSettings({ disabled }: { readonly disabled: boolea
         }
       />
       <SettingsRow
+        settingKeys={["browserRecordingShowMousePresses"]}
         {...searchableSetting("browser-recording-mouse-presses")}
         description="Highlight mouse presses and held buttons in new recordings."
         control={
@@ -597,6 +602,7 @@ function BrowserRecordingFrameRateSetting({ disabled }: { readonly disabled: boo
 
   return (
     <SettingsRow
+      settingKeys={["browserRecordingFrameRate"]}
       {...searchableSetting("browser-recording-frame-rate")}
       description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother."
       resetAction={
@@ -651,6 +657,7 @@ function BrowserLinkTargetSetting({ disabled }: { readonly disabled: boolean }) 
 
   return (
     <SettingsRow
+      settingKeys={["browserLinkTarget"]}
       {...searchableSetting("browser-link-target")}
       description="Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way."
       resetAction={
@@ -1073,6 +1080,7 @@ function BrowserAutoShowFloatingPreviewSetting({ disabled }: { readonly disabled
 
   return (
     <SettingsRow
+      settingKeys={["browserAutoShowFloatingPreview"]}
       {...searchableSetting("browser-auto-show-floating-preview")}
       description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise."
       resetAction={
@@ -1291,6 +1299,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
 
   return (
     <SettingsRow
+      settingKeys={["browserProfiles", "browserDefaultProfileId"]}
       {...searchableSetting("browser-profiles")}
       description="Profiles separate cookies and logins. Incognito data is cleared when the app closes."
       control={
