@@ -6,7 +6,7 @@ import {
   RouteIcon,
 } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useEffectEvent, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import {
   AuthRelayWriteScope,
   type EnvironmentId,
@@ -20,6 +20,7 @@ import {
   hasSavedBearerRoute,
   connectionStatusText,
   environmentMcpUrl,
+  isManagedConnectionTarget,
 } from "@t3tools/client-runtime/connection";
 import * as Option from "effect/Option";
 
@@ -40,6 +41,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/men
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Badge } from "../ui/badge";
 import { Button, InlineButton } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import {
@@ -80,35 +82,63 @@ type SavedBackendListRowProps = {
   onAddRoute: (environment: EnvironmentPresentation) => void;
 };
 
-function savedBackendStatus(environment: EnvironmentPresentation): {
-  readonly text: string;
-  readonly tone: "muted" | "error";
-} {
+type SavedBackendStatus = {
+  readonly label: string;
+  readonly variant: "secondary" | "success" | "warning" | "error";
+  readonly detail: string | null;
+};
+
+function savedBackendStatus(environment: EnvironmentPresentation): SavedBackendStatus {
   if (!environment.entry.enabled && environment.connection.phase !== "unsupported")
-    return { text: "Off", tone: "muted" };
+    return { label: "Off", variant: "secondary", detail: null };
   const { connection } = environment;
   switch (connection.phase) {
     case "connected":
-      return { text: "Connected", tone: "muted" };
+      return { label: "Connected", variant: "success", detail: null };
     case "connecting":
-      return { text: "Connecting", tone: "muted" };
+      return { label: "Connecting", variant: "warning", detail: null };
     case "reconnecting":
-      return {
-        text: connection.error ? `Reconnecting: ${connection.error}` : "Reconnecting",
-        tone: "error",
-      };
+      return { label: "Reconnecting", variant: "warning", detail: connection.error ?? null };
     case "unsupported":
-      return { text: "Client not supported", tone: "muted" };
+      return { label: "Client not supported", variant: "secondary", detail: null };
     case "error":
-      return {
-        text: connection.error ? `Connection failed: ${connection.error}` : "Connection failed",
-        tone: "error",
-      };
+      return { label: "Connection failed", variant: "error", detail: connection.error ?? null };
     case "offline":
-      return { text: "Offline", tone: "muted" };
+      return { label: "Offline", variant: "secondary", detail: null };
     case "available":
-      return { text: "Not connected", tone: "muted" };
+      return { label: "Not connected", variant: "secondary", detail: null };
   }
+}
+
+function DisclosureToggle({
+  open,
+  controls,
+  onToggle,
+  children,
+}: {
+  readonly open: boolean;
+  readonly controls?: string;
+  readonly onToggle: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={controls}
+      onClick={onToggle}
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+    >
+      {children}
+      <ChevronRightIcon
+        aria-hidden
+        className={cn(
+          "size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
+          open && "rotate-90",
+        )}
+      />
+    </button>
+  );
 }
 
 export function SavedBackendListRow({
@@ -174,6 +204,7 @@ export function SavedBackendListRow({
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
   const status = savedBackendStatus(environment);
+  const isManagedEnvironment = isManagedConnectionTarget(environment.entry.target);
   const serverVersion = environment.serverConfig?.environment.serverVersion ?? null;
   // Discovery empties its map on every refresh, so hold the last descriptor
   // seen or the glyph would blink back to the generic one each time.
@@ -213,16 +244,18 @@ export function SavedBackendListRow({
       (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
   );
   const routeCount = connectionRoutes(environment.entry).length;
-  const subtitleText = [
-    environmentTransportLabel(environment, connectedTarget),
-    // The headline below names the failure in full.
-    diagnosis ? null : resumingServerUpdate ? "Restarting" : status.text,
-    enabled && versionMismatch ? serverVersion : null,
-  ]
-    .filter((value): value is string => value !== null)
-    .join(" · ");
+  const transportLabel = environmentTransportLabel(environment, connectedTarget);
+  // The diagnosis headline below names a failure in full.
+  const statusBadge = diagnosis
+    ? null
+    : resumingServerUpdate
+      ? ({ label: "Restarting", variant: "warning", detail: null } as const)
+      : status;
+  const statusDetail = enabled && statusBadge?.detail ? statusBadge.detail : null;
+  const mismatchedServerVersion = enabled && versionMismatch ? serverVersion : null;
 
   const showUpdateAction =
+    !isManagedEnvironment &&
     enabled &&
     isConnected &&
     versionMismatch !== null &&
@@ -245,87 +278,72 @@ export function SavedBackendListRow({
       kind={machineKind}
       label={environment.label}
       dimmed={!enabled}
-      subtitle={
-        <span className="flex min-w-0 items-center gap-1">
-          <Tooltip>
-            {/* The status can change while the tooltip is open, and base-ui only
-                re-measures the popup when the trigger's payload changes. */}
-            <TooltipTrigger
-              payload={statusTooltip}
-              render={
-                <span
-                  className={cn(
-                    "min-w-0 truncate",
-                    enabled &&
-                      status.tone === "error" &&
-                      !resumingServerUpdate &&
-                      !diagnosis &&
-                      "text-destructive",
-                  )}
-                />
-              }
-            >
-              {subtitleText}
-            </TooltipTrigger>
-            <TooltipPopup side="top" className="whitespace-pre-wrap">
-              {statusTooltip}
-            </TooltipPopup>
-          </Tooltip>
-          <span aria-hidden className="shrink-0">
-            ·
-          </span>
-          <button
-            type="button"
-            aria-expanded={routesOpen}
-            onClick={() => setRoutesOpen((open) => !open)}
-            className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            {routeCount === 1 ? "Routes" : `${routeCount} routes`}
-            <ChevronRightIcon
-              aria-hidden
-              className={cn(
-                "size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
-                routesOpen && "rotate-90",
-              )}
-            />
-          </button>
-          <span aria-hidden className="shrink-0">
-            ·
-          </span>
-          <button
-            type="button"
-            aria-expanded={permissionsOpen}
-            aria-controls={`remote-permissions-${environmentId}`}
-            onClick={() => setPermissionsOpen((open) => !open)}
-            className="inline-flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            Permissions
-            <ChevronRightIcon
-              aria-hidden
-              className={cn(
-                "size-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none",
-                permissionsOpen && "rotate-90",
-              )}
-            />
-          </button>
-        </span>
+      labelAccessory={
+        <>
+          {statusBadge ? (
+            <Tooltip>
+              {/* The status can change while the tooltip is open, and base-ui only
+                  re-measures the popup when the trigger's payload changes. */}
+              <TooltipTrigger
+                payload={statusTooltip}
+                render={<Badge variant={statusBadge.variant} size="sm" />}
+              >
+                {statusBadge.label}
+              </TooltipTrigger>
+              <TooltipPopup side="top" className="whitespace-pre-wrap">
+                {statusTooltip}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {isManagedEnvironment ? (
+            <Tooltip>
+              <TooltipTrigger render={<Badge variant="outline" size="sm" />}>
+                Managed
+              </TooltipTrigger>
+              <TooltipPopup side="top">Managed by system configuration</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {mismatchedServerVersion ? (
+            <code className="min-w-0 truncate text-xs text-muted-foreground">
+              {mismatchedServerVersion}
+            </code>
+          ) : null}
+        </>
       }
+      subtitle={transportLabel}
       below={
         <>
-          {diagnosis ? (
-            <ConnectionDiagnosisSummary
-              diagnosis={diagnosis}
-              retryAt={connectionState.phase === "backoff" ? connectionState.retryAt : null}
-              attempt={connectionState.attempt}
-              expanded={diagnosisOpen}
-              onToggle={() => setDiagnosisOpen((open) => !open)}
-            />
+          {statusDetail ? (
+            <p className="mt-1 line-clamp-2 text-xs text-destructive">{statusDetail}</p>
           ) : null}
-          {serverUpdateState.status !== "idle" ? (
+          {diagnosis ? (
+            <div className="mt-1">
+              <ConnectionDiagnosisSummary
+                diagnosis={diagnosis}
+                retryAt={connectionState.phase === "backoff" ? connectionState.retryAt : null}
+                attempt={connectionState.attempt}
+                expanded={diagnosisOpen}
+                onToggle={() => setDiagnosisOpen((open) => !open)}
+              />
+            </div>
+          ) : null}
+          {!isManagedEnvironment && serverUpdateState.status !== "idle" ? (
             <div className="mt-1 max-w-md">
               <ServerUpdateProgress state={serverUpdateState} />
             </div>
           ) : null}
+          <div className="mt-1.5 flex items-center gap-3 text-xs">
+            <DisclosureToggle open={routesOpen} onToggle={() => setRoutesOpen((open) => !open)}>
+              {routeCount === 1 ? "Routes" : `${routeCount} routes`}
+            </DisclosureToggle>
+            <DisclosureToggle
+              open={permissionsOpen}
+              controls={`remote-permissions-${environmentId}`}
+              onToggle={() => setPermissionsOpen((open) => !open)}
+            >
+              Permissions
+            </DisclosureToggle>
+          </div>
         </>
       }
       detail={
@@ -341,7 +359,7 @@ export function SavedBackendListRow({
           {routesOpen && (
             <EnvironmentRoutesList
               environment={environment}
-              onAddRoute={() => onAddRoute(environment)}
+              onAddRoute={isManagedEnvironment ? null : () => onAddRoute(environment)}
             />
           )}
           {permissionsOpen && (
@@ -359,7 +377,8 @@ export function SavedBackendListRow({
         </>
       }
     >
-      {unsupported &&
+      {!isManagedEnvironment &&
+      unsupported &&
       environment.entry.serverUpdateRequired === true &&
       serverUpdateState.status !== "running" ? (
         <OutdatedServerUpdateAction
@@ -388,14 +407,20 @@ export function SavedBackendListRow({
             <Switch
               size="sm"
               checked={enabled}
-              disabled={isRemoving || blocked}
+              disabled={isRemoving || blocked || isManagedEnvironment}
               aria-label={`${enabled ? "Switch off" : "Switch on"} ${environment.label}`}
               onCheckedChange={(checked) => onSetEnabled(environmentId, checked)}
             />
           }
         />
         <TooltipPopup side="top">
-          {blocked ? "Client not supported" : enabled ? "Switch off" : "Switch on"}
+          {blocked
+            ? "Client not supported"
+            : isManagedEnvironment
+              ? "Managed by system configuration"
+              : enabled
+                ? "Switch off"
+                : "Switch on"}
         </TooltipPopup>
       </Tooltip>
       <Menu>
@@ -427,10 +452,14 @@ export function SavedBackendListRow({
           {errorTraceId ? (
             <MenuItem onClick={() => copyTraceId(errorTraceId)}>Copy trace ID</MenuItem>
           ) : null}
-          <MenuSeparator />
-          <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
-            {isRemoving ? "Removing…" : "Remove from this device…"}
-          </MenuItem>
+          {isManagedEnvironment ? null : (
+            <>
+              <MenuSeparator />
+              <MenuItem variant="destructive" onClick={() => onRemove(environment)}>
+                {isRemoving ? "Removing…" : "Remove from this device…"}
+              </MenuItem>
+            </>
+          )}
         </MenuPopup>
       </Menu>
     </EnvironmentRow>
