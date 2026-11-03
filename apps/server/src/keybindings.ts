@@ -3,6 +3,7 @@ import {
   KeybindingsConfigError,
   KeybindingShortcut,
   KeybindingWhenNode,
+  ManagedSettingWriteError,
   MAX_KEYBINDINGS_COUNT,
   ResolvedKeybindingRule,
   ResolvedKeybindingsConfig,
@@ -142,6 +143,30 @@ function replaceTargetFromUpsertInput(input: ServerUpsertKeybindingInput): Keybi
     : { key: input.replace.key, command: input.replace.command, when: input.replace.when };
 }
 
+/**
+ * Managed rules replace every user rule for the same command or the same
+ * shortcut context, and come last so they also win any remaining overlap.
+ */
+function resolveKeybindings(
+  userRules: readonly KeybindingRule[],
+  managedRules: readonly KeybindingRule[],
+): ResolvedKeybindingsConfig {
+  const retained = userRules.filter((rule) => !isManagedKeybinding(managedRules, rule));
+  return mergeWithDefaultKeybindings([
+    ...compileResolvedKeybindingsConfig(retained),
+    ...compileResolvedKeybindingsConfig(managedRules).map((rule) => ({ ...rule, managed: true })),
+  ]);
+}
+
+function isManagedKeybinding(
+  managedRules: readonly KeybindingRule[],
+  rule: KeybindingRule,
+): boolean {
+  return managedRules.some(
+    (managed) => managed.command === rule.command || hasSameShortcutContext(managed, rule),
+  );
+}
+
 function encodeShortcut(shortcut: KeybindingShortcut): string | null {
   const modifiers: string[] = [];
   if (shortcut.modKey) modifiers.push("mod");
@@ -173,6 +198,7 @@ const RawKeybindingsEntriesPrettyJson = fromJsonStringPretty(Schema.Array(Schema
 const decodeKeybindingRuleExit = Schema.decodeUnknownExit(KeybindingRule);
 const decodeResolvedKeybindingFromConfigExit = Schema.decodeExit(ResolvedKeybindingFromConfig);
 const decodeRawKeybindingsEntriesExit = Schema.decodeUnknownExit(RawKeybindingsEntries);
+const decodeRawKeybindingsEntries = Schema.decodeEffect(RawKeybindingsEntries);
 const encodeRawKeybindingsEntriesPrettyJson = Schema.encodeEffect(RawKeybindingsEntriesPrettyJson);
 
 export interface KeybindingsConfigState {
@@ -233,16 +259,16 @@ export class Keybindings extends Context.Service<
      */
     readonly upsertKeybindingRule: (
       input: ServerUpsertKeybindingInput,
-    ) => Effect.Effect<KeybindingsConfigState, KeybindingsConfigError>;
+    ) => Effect.Effect<KeybindingsConfigState, KeybindingsConfigError | ManagedSettingWriteError>;
 
     readonly removeKeybindingRule: (
       input: ServerRemoveKeybindingInput,
-    ) => Effect.Effect<KeybindingsConfigState, KeybindingsConfigError>;
+    ) => Effect.Effect<KeybindingsConfigState, KeybindingsConfigError | ManagedSettingWriteError>;
   }
 >()("t3/keybindings") {}
 
 const make = Effect.gen(function* () {
-  const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+  const { keybindingsConfigPath, managedKeybindingsPath } = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const upsertSemaphore = yield* Semaphore.make(1);
@@ -414,9 +440,45 @@ const make = Effect.gen(function* () {
     );
   };
 
-  const loadConfigStateFromDisk = loadRuntimeCustomKeybindingsConfig().pipe(
-    Effect.map(({ keybindings, issues }) => ({
-      keybindings: mergeWithDefaultKeybindings(compileResolvedKeybindingsConfig(keybindings)),
+  // Read on every load like keybindings.json. Invalid entries are skipped and an
+  // unreadable file leaves the user's rules in charge.
+  const loadManagedKeybindings = Effect.gen(function* () {
+    if (managedKeybindingsPath === undefined) return [];
+    const raw = yield* fs.readFileString(managedKeybindingsPath);
+    const entries = yield* decodeRawKeybindingsEntries(raw);
+    return Array.filterMap(entries, (entry) => {
+      const decoded = decodeKeybindingRuleExit(entry);
+      return decoded._tag === "Success" &&
+        decodeResolvedKeybindingFromConfigExit(decoded.value)._tag === "Success"
+        ? Result.succeed(decoded.value)
+        : Result.failVoid;
+    });
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.logWarning("ignoring managed keybindings file", {
+        path: managedKeybindingsPath,
+        cause,
+      }).pipe(Effect.as([])),
+    ),
+  );
+
+  const ensureNotManaged = Effect.fn(function* (rules: ReadonlyArray<KeybindingRule | null>) {
+    const managedRules = yield* loadManagedKeybindings;
+    const managed = rules.find(
+      (rule): rule is KeybindingRule => rule !== null && isManagedKeybinding(managedRules, rule),
+    );
+    if (managed !== undefined) {
+      return yield* new ManagedSettingWriteError({ setting: managed.command });
+    }
+    return managedRules;
+  });
+
+  const loadConfigStateFromDisk = Effect.all([
+    loadRuntimeCustomKeybindingsConfig(),
+    loadManagedKeybindings,
+  ]).pipe(
+    Effect.map(([{ keybindings, issues }, managedRules]) => ({
+      keybindings: resolveKeybindings(keybindings, managedRules),
       issues,
     })),
   );
@@ -633,9 +695,10 @@ const make = Effect.gen(function* () {
     upsertKeybindingRule: (input) =>
       upsertSemaphore.withPermits(1)(
         Effect.gen(function* () {
-          const customConfig = yield* loadWritableCustomKeybindingsConfig();
           const rule = keybindingRuleFromInput(input);
           const replaceTarget = replaceTargetFromUpsertInput(input);
+          yield* ensureNotManaged([rule, replaceTarget]);
+          const customConfig = yield* loadWritableCustomKeybindingsConfig();
           const nextConfig = [
             ...customConfig.filter(({ rule: entry }) => {
               if (!entry) return true;
@@ -665,8 +728,9 @@ const make = Effect.gen(function* () {
     removeKeybindingRule: (input) =>
       upsertSemaphore.withPermits(1)(
         Effect.gen(function* () {
-          const customConfig = yield* loadWritableCustomKeybindingsConfig();
           const target = keybindingRuleFromInput(input);
+          yield* ensureNotManaged([target]);
+          const customConfig = yield* loadWritableCustomKeybindingsConfig();
           const nextConfig = customConfig.filter(
             ({ rule }) => !rule || !isSameKeybindingRule(rule, target),
           );
