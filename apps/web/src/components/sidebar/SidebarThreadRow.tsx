@@ -1126,7 +1126,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const remoteMachineIcon =
     isRemote && !showsScratchMachine ? (
-      <span className="inline-flex shrink-0 items-center gap-1 text-sidebar-muted-foreground/70">
+      <span className="inline-flex shrink-0 items-center gap-1 text-sidebar-muted-foreground/70 text-xs">
         {props.environmentLabel ? (
           <span className="max-w-24 truncate">{props.environmentLabel}</span>
         ) : null}
