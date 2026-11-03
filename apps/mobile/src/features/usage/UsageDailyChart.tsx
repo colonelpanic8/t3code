@@ -1,40 +1,37 @@
 import { View } from "react-native";
 
-import type { DailyTotals } from "@t3tools/shared/usageMerge";
-
-import { buildChartDays, type UsageChartMetric } from "./usageChartData";
-import { useProviderColors } from "./usageProviders";
+import type { UsageChartSeries } from "@t3tools/client-runtime/usage-view";
 
 export interface UsageDailyChartProps {
-  readonly days: readonly string[];
-  readonly daily: readonly DailyTotals[];
-  readonly metric: UsageChartMetric;
+  readonly series: UsageChartSeries;
   readonly height: number;
 }
 
-export function UsageDailyChart({ days, daily, metric, height }: UsageDailyChartProps) {
-  const colors = useProviderColors();
-  const chartDays = buildChartDays(days, daily, metric);
-  const max = chartDays.reduce((peak, day) => Math.max(peak, day.total), 0);
+export function UsageDailyChart({ series, height }: UsageDailyChartProps) {
+  const { stack, colors } = series;
+  const max = stack.peak;
 
   return (
     <View style={{ height }} className="flex-row items-end gap-px">
-      {/* Use column-reverse: provider values are bottom-first and Hermes lacks toReversed. */}
-      {chartDays.map((day) => (
+      {/* Use column-reverse: series values are bottom-first and Hermes lacks toReversed. */}
+      {stack.columns.map((column) => (
         <View
-          key={day.day}
-          style={{ height: max === 0 ? 0 : (day.total / max) * height }}
+          key={column.period}
+          style={{ height: max === 0 ? 0 : (column.total / max) * height }}
           className="flex-1 flex-col-reverse overflow-hidden rounded-t-sm"
         >
-          {day.values.map((entry) => (
-            <View
-              key={entry.provider}
-              style={{
-                height: max === 0 ? 0 : (entry.value / max) * height,
-                backgroundColor: colors[entry.provider],
-              }}
-            />
-          ))}
+          {column.values.map((value, index) => {
+            const key = stack.series[index]?.key ?? String(index);
+            return value > 0 ? (
+              <View
+                key={key}
+                style={{
+                  height: (value / max) * height,
+                  backgroundColor: colors.get(key),
+                }}
+              />
+            ) : null;
+          })}
         </View>
       ))}
     </View>
