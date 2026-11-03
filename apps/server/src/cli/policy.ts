@@ -9,7 +9,7 @@ import * as CliError from "effect/cli/CliError";
 
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { resolveCliAuthConfig, serverLocationFlags } from "./config.ts";
 
 const describePolicy = (
   policy: ManagedPolicy.ManagedPolicy["Service"],
@@ -62,7 +62,7 @@ export const describeRunningServer = Effect.fn("cli.policy.describeRunningServer
   return `${server} loaded ${what}. Restart T3 Code to apply the installed policy.`;
 });
 
-const showCommand = Command.make("show", projectLocationFlags).pipe(
+const showCommand = Command.make("show", serverLocationFlags).pipe(
   Command.withDescription(
     "Show the policy installed on this machine, and whether the running server loaded it.",
   ),
