@@ -9,7 +9,8 @@ import {
   githubCompareUrl,
   githubPullRequestUrl,
   shortCommit,
-} from "../../assemblyBuild";
+  parseAssemblyBuild,
+} from "@t3tools/client-runtime/assembly-build";
 import { InlineButton } from "../ui/button";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
@@ -38,6 +39,8 @@ function CommitLink({ remote, commit }: { remote: string | null | undefined; com
     </ExternalLink>
   );
 }
+
+export const ASSEMBLY_BUILD = parseAssemblyBuild(import.meta.env.T3CODE_ASSEMBLY_BUILD);
 
 export function AboutAssemblyBuildSection({ build }: { build: AssemblyBuild }) {
   const forkRemote = build.fork?.remote ?? null;

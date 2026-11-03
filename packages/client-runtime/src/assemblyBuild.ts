@@ -42,8 +42,6 @@ export function parseAssemblyBuild(raw: string): AssemblyBuild | null {
   return raw.trim() === "" ? null : Option.getOrNull(decodeAssemblyBuild(raw));
 }
 
-export const ASSEMBLY_BUILD = parseAssemblyBuild(import.meta.env.T3CODE_ASSEMBLY_BUILD ?? "");
-
 /** The repository's web URL, or null when it is not hosted on GitHub. */
 function githubRepositoryUrl(remote: string | null | undefined): string | null {
   const match = remote

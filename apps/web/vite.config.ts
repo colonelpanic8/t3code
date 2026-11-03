@@ -1,6 +1,4 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
-import * as NodeFS from "node:fs";
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- Vite config runs before any Effect runtime.
 import * as NodeFSP from "node:fs/promises";
 import * as NodeZlib from "node:zlib";
 
@@ -20,6 +18,7 @@ import {
   DEV_PROXIED_PATH_PREFIXES,
 } from "@t3tools/shared/devProxy";
 
+import { readAssemblyBuild } from "../../scripts/lib/assembly-build";
 import { loadRepoEnv } from "../../scripts/lib/public-config";
 import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses";
 import { tailwindPlugins } from "./vite/tailwind";
@@ -52,22 +51,7 @@ const configuredDesktopUpdateRepository =
   process.env.GITHUB_REPOSITORY?.trim() ||
   "";
 const configuredFeatureSecrets = process.env.T3CODE_FEATURE_SECRETS?.trim() || "";
-// A fork-assembler build records its upstream base and carried branches in the
-// repository root. The commit holding that record cannot name itself, so the
-// packager passes it separately.
-const configuredAssemblyBuild = (() => {
-  let raw: string;
-  try {
-    raw = NodeFS.readFileSync(new URL("../../stack-build-info.json", import.meta.url), "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
-    throw error;
-  }
-  return JSON.stringify({
-    ...JSON.parse(raw),
-    commit: process.env.T3CODE_ASSEMBLY_COMMIT?.trim() || null,
-  });
-})();
+const configuredAssemblyBuild = readAssemblyBuild(process.env.T3CODE_ASSEMBLY_COMMIT);
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
   if (explicitHostedAppUrl) {
