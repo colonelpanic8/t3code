@@ -1,9 +1,20 @@
+import * as Console from "effect/Console";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import { acquireRelayClientForLink } from "./connect.ts";
+import * as Path from "effect/Path";
+import { Command } from "effect/cli";
+import { makeCli } from "../binCli.ts";
+import * as ServerConfig from "../config.ts";
+import { acquireRelayClientForLink, finishConnectLink } from "./connect.ts";
 
 const managedExecutable = {
   status: "available",
@@ -39,4 +50,74 @@ it.effect("does not install the relay client when the user declines the managed 
     assert.isTrue(Option.isNone(result));
     assert.equal(installCalls, 0);
   }),
+);
+
+/** Captures console lines from a successful local disconnect report. */
+
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))(
+  "connect with server location overrides",
+  (it) => {
+    it.effect("names this command's server locations in the link next step", () =>
+      Effect.gen(function* () {
+        const logs: Array<string> = [];
+        yield* finishConnectLink({
+          command: yield* ServerConfig.deriveServerPaths("/srv/home", undefined, {
+            configDir: "/srv/t3 config",
+            dataDir: "/srv/t3 data",
+          }),
+          service: yield* ServerConfig.deriveServerPaths("/srv/home", undefined),
+          publishOnly: false,
+        }).pipe(
+          Effect.provideService(HostProcess.Arguments, ["node", "/usr/local/bin/t3"]),
+          Effect.provideService(Console.Console, {
+            ...globalThis.console,
+            log: (...args: ReadonlyArray<unknown>) => {
+              logs.push(args.map(String).join(" "));
+            },
+          }),
+        );
+        assert.deepEqual(logs, [
+          "\nNext\n  Start the server with `t3 serve --server-config-dir '/srv/t3 config' --server-data-dir '/srv/t3 data'` to make this machine reachable.",
+        ]);
+      }),
+    );
+    it.effect("reads status and signs out without creating anything under the T3 home", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-connect-locations-",
+        });
+        const home = path.join(root, "home");
+        const locationArgs = [
+          "--base-dir",
+          home,
+          "--server-config-dir",
+          path.join(root, "config"),
+          "--server-data-dir",
+          path.join(root, "data"),
+          "--server-cache-dir",
+          path.join(root, "cache"),
+        ];
+        const runCli = (args: ReadonlyArray<string>) =>
+          Command.runWith(
+            makeCli({
+              cloudEnabled: true,
+            }),
+            {
+              version: "0.0.0",
+            },
+          )(args).pipe(
+            Effect.provideService(Console.Console, {
+              ...globalThis.console,
+              log: () => {},
+            }),
+          );
+        yield* runCli(["connect", "status", "--json", ...locationArgs]);
+        yield* runCli(["connect", "logout", ...locationArgs]);
+        assert.isFalse(yield* fs.exists(home));
+        assert.isTrue(yield* fs.exists(path.join(root, "data")));
+      }),
+    );
+  },
 );
