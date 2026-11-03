@@ -745,12 +745,14 @@ export const make = Effect.gen(function* () {
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
   const isWindows = (yield* HostProcess.Platform) === "win32";
   const foldWorktreeCase = isWindows;
-  // The data dir holds triage scratch directories that agents run in.
+  // The state dir holds triage scratch directories that agents run in.
   const serverDirs = [
     serverConfig.baseDir,
     serverConfig.configDir,
     serverConfig.dataDir,
+    serverConfig.stateDir,
     serverConfig.cacheDir,
+    serverConfig.runtimeDir,
   ].map((directory) => normalizeForWorktreeMatch(path.resolve(directory), foldWorktreeCase));
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;
