@@ -51,7 +51,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ExternalLauncher from "../process/externalLauncher.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { serverLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
+import { serverConfigFileFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
 import { resolveCliCommand, shellWord } from "./invocation.ts";
 import * as CliService from "./service.ts";
 
@@ -673,7 +673,7 @@ const linkEnvironmentForConnect = Effect.fn("cloud.cli.link_environment")(functi
 export { linkEnvironmentForConnect };
 
 const connectLoginCommand = Command.make("login", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   headless: headlessFlag,
 }).pipe(
   Command.withDescription("Authorize the T3 Connect CLI without enabling remote access."),
@@ -691,7 +691,7 @@ const connectLoginCommand = Command.make("login", {
 );
 
 const connectLinkCommand = Command.make("link", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   headless: headlessFlag,
   publishOnly: Flag.Boolean("publish-only").pipe(
     Flag.withDescription(
@@ -722,7 +722,7 @@ const connectLinkCommand = Command.make("link", {
 );
 
 const connectStatusCommand = Command.make("status", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
@@ -784,7 +784,7 @@ const connectStatusCommand = Command.make("status", {
 );
 
 const connectPublishCommand = Command.make("publish", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   disable: Flag.Boolean("disable").pipe(
     Flag.withDescription("Stop publishing agent activity to your mobile clients."),
     Flag.withDefault(false),
@@ -846,7 +846,7 @@ const connectPublishCommand = Command.make("publish", {
 );
 
 const connectUnlinkCommand = Command.make("unlink", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
 }).pipe(
   Command.withDescription("Disable T3 Connect while retaining the stored authorization."),
   Command.withHandler((flags) =>
@@ -855,7 +855,7 @@ const connectUnlinkCommand = Command.make("unlink", {
 );
 
 const connectLogoutCommand = Command.make("logout", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
 }).pipe(
   Command.withDescription("Disable T3 Connect and clear the stored CLI authorization."),
   Command.withHandler((flags) =>
