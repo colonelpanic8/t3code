@@ -16,6 +16,7 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
+  type ManagedPolicySummary,
   globalIdleCompaction,
   withIdleCompaction,
 } from "@t3tools/contracts";
@@ -53,6 +54,7 @@ import {
   isModelSelectionProviderEnabled,
 } from "@t3tools/shared/serverSettings";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
+import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 import { secretProviderDefinitions } from "./secrets/secretProviderDefinitions.ts";
 import {
   readSecretFieldValues,
@@ -229,6 +231,9 @@ export class ServerSettingsService extends Context.Service<
 
     readonly ready: Effect.Effect<void, ServerSettingsError>;
 
+    /** The administrator's policy as clients see it; absent when unmanaged. */
+    readonly managedPolicy?: ManagedPolicySummary | undefined;
+
     readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
     readonly updateSettings: (
@@ -250,11 +255,15 @@ export class ServerSettingsService extends Context.Service<
     readonly subscribeChanges: Effect.Effect<Stream.Stream<ServerSettings>, never, Scope.Scope>;
   }
 >()("t3/serverSettings/ServerSettingsService") {
-  static readonly layerTest = (overrides: DeepPartial<ServerSettings> = {}) => layerTest(overrides);
+  static readonly layerTest = (
+    overrides: DeepPartial<ServerSettings> = {},
+    managedPolicy?: ManagedPolicySummary,
+  ) => layerTest(overrides, managedPolicy);
 }
 
 const makeTest = Effect.fn("serverSettings.makeTest")(function* (
   overrides: DeepPartial<ServerSettings> = {},
+  managedPolicy?: ManagedPolicySummary,
 ) {
   const { automaticGitFetchInterval, providerHealthRefreshInterval, ...overridesForMerge } =
     overrides;
@@ -285,6 +294,7 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
     );
 
   return {
+    managedPolicy,
     start: Effect.void,
     ready: Effect.void,
     getSettings,
@@ -307,8 +317,11 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
   } satisfies ServerSettingsService["Service"];
 });
 
-export const layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
-  Layer.effect(ServerSettingsService, makeTest(overrides));
+/** Test settings; `managedPolicy` only tells consumers a policy applies, it does not lock values. */
+export const layerTest = (
+  overrides: DeepPartial<ServerSettings> = {},
+  managedPolicy?: ManagedPolicySummary,
+) => Layer.effect(ServerSettingsService, makeTest(overrides, managedPolicy));
 
 // Accept retired token delivery only on load so one old value cannot reset all settings.
 const PersistedResponseStreamingMode = Schema.Union([
@@ -339,6 +352,7 @@ const PersistedServerSettings = Schema.Struct({
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 const decodePersistedServerSettingsExit = Schema.decodeUnknownExit(PersistedServerSettings);
+// Parse first and decode second, so a managed policy can fill its defaults in between.
 const decodeSettingsDocumentExit = Schema.decodeUnknownExit(
   fromLenientJson(Schema.Record(Schema.String, Schema.Unknown)),
 );
@@ -532,17 +546,33 @@ function selectionSupportsTextGeneration(
   return settings.providerInstances[selection.instanceId]?.driver !== ACP_REGISTRY_DRIVER;
 }
 
-function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  return isModelSelectionProviderEnabled(settings, settings.textGenerationModelSelection) &&
-    selectionSupportsTextGeneration(settings, settings.textGenerationModelSelection)
+type DriverAllowed = (driver: ProviderDriverKind) => boolean;
+const anyDriver: DriverAllowed = () => true;
+
+function resolveTextGenerationProvider(
+  settings: ServerSettings,
+  isDriverAllowed: DriverAllowed = anyDriver,
+): ServerSettings {
+  const selection = settings.textGenerationModelSelection;
+  return isModelSelectionProviderEnabled(settings, selection) &&
+    selectionSupportsTextGeneration(settings, selection) &&
+    isDriverAllowed(
+      settings.providerInstances[selection.instanceId]?.driver ??
+        ProviderDriverKind.make(selection.instanceId),
+    )
     ? settings
-    : fallbackTextGenerationProvider(settings);
+    : fallbackTextGenerationProvider(settings, isDriverAllowed);
 }
 
-function fallbackTextGenerationProvider(settings: ServerSettings): ServerSettings {
+function fallbackTextGenerationProvider(
+  settings: ServerSettings,
+  isDriverAllowed: DriverAllowed,
+): ServerSettings {
   const fallback = fallbackTextGenerationModelSelection(
     settings.providerInstances,
     (instanceId, driver) =>
+      // A default instance id can be configured with another driver.
+      isDriverAllowed(settings.providerInstances[instanceId]?.driver ?? driver) &&
       resolveProviderInstanceEnabled(
         settings.providerInstances[instanceId] ?? { driver, config: {} },
       ),
@@ -562,6 +592,10 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "fallbackModelSelection",
   "pullRequestMergeMethod",
   "worktreeCleanup",
+  // Empty by default, these hold one whole value, which a managed policy can default.
+  ...Object.entries(DEFAULT_SERVER_SETTINGS).flatMap(([key, value]) =>
+    value === null ? [key] : [],
+  ),
 ]);
 
 // Maps whose entries are compared as a whole: a partial entry fails to decode,
@@ -870,6 +904,17 @@ const make = Effect.gen(function* () {
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const sql = yield* SqlClient.SqlClient;
+  const {
+    settings: managed,
+    providers: managedProviders,
+    summary: managedPolicy,
+  } = yield* ManagedPolicy.ManagedPolicy;
+  // Locks are laid over every settings value that leaves this service, never persisted.
+  const toEffective = (settings: ServerSettings) =>
+    resolveTextGenerationProvider(
+      managedProviders.applyLimits(managed.applyLocks(settings)),
+      managedProviders.isDriverAllowed,
+    );
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
   const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
@@ -903,6 +948,7 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  // The file before this write, parsed; read for policy defaults and kept local keys.
   const readLocalDocument = Effect.gen(function* () {
     if (!(yield* readConfigExists)) return {};
     const document = decodeSettingsDocumentExit(yield* readRawConfig);
@@ -911,11 +957,17 @@ const make = Effect.gen(function* () {
 
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings, layer: SettingsLayer) {
-      const sparse = (stripDefaultServerSettings(settings, layer.baseline) ??
+      const stripped = (stripDefaultServerSettings(settings, layer.baseline) ??
         {}) as SettingsDocument;
-      const document = layer.keepLocalKeys
-        ? restoreDocumentKeys(sparse, settings, yield* readLocalDocument)
-        : sparse;
+      const local =
+        managed.keepStored !== undefined || layer.keepLocalKeys ? yield* readLocalDocument : {};
+      const sparse =
+        managed.keepStored === undefined
+          ? stripped
+          : (managed.keepStored(stripped, settings, local, (key) =>
+              ATOMIC_SETTINGS_KEYS.has(key),
+            ) as SettingsDocument);
+      const document = layer.keepLocalKeys ? restoreDocumentKeys(sparse, settings, local) : sparse;
       const encoded = yield* encodeServerSettingsDocument(document);
       // Some fields encode null as a missing key, which would let the shared value win again.
       const nulls = Object.keys(document).filter(
@@ -1032,7 +1084,7 @@ const make = Effect.gen(function* () {
       Effect.as<SharedSettings>({
         // It may hold an opt-out we can no longer read; never resume threads on a guess.
         document: { continueThreadsAfterServerUpdate: false },
-        baseline: { ...DEFAULT_SERVER_SETTINGS, continueThreadsAfterServerUpdate: false },
+        baseline: { ...managed.defaults, continueThreadsAfterServerUpdate: false },
         status: "unusable",
       }),
     );
@@ -1052,7 +1104,7 @@ const make = Effect.gen(function* () {
       yield* Effect.logWarning("shared settings file not found, ignoring it", {
         path: sharedSettingsPath,
       });
-      return { document: {}, baseline: DEFAULT_SERVER_SETTINGS, status: "missing" } as const;
+      return { document: {}, baseline: managed.defaults, status: "missing" } as const;
     }
     const contents = yield* Effect.exit(fs.readFileString(sharedSettingsPath));
     if (Exit.isFailure(contents)) return yield* unusableSharedSettings(contents.cause);
@@ -1062,7 +1114,7 @@ const make = Effect.gen(function* () {
     const { projectSettingsFolded: _machineLocal, ...raw } = parsed.value;
     const { document, duplicates } = canonicalizeSecretFields(raw);
     yield* warnDuplicateSecretHosts(sharedSettingsPath, duplicates);
-    const decoded = decodePersistedServerSettingsExit(document);
+    const decoded = decodePersistedServerSettingsExit(managed.withDefaults(document));
     if (Exit.isFailure(decoded)) return yield* unusableSharedSettings(Cause.pretty(decoded.cause));
     const baseline = yield* Effect.exit(normalizeServerSettings(decoded.value));
     if (Exit.isFailure(baseline)) return yield* unusableSharedSettings(baseline.cause);
@@ -1078,7 +1130,7 @@ const make = Effect.gen(function* () {
       shared === undefined
         ? settings
         : { ...settings, backgroundActivity: normalizeServerBackgroundActivitySettings(settings) };
-    const baseline = normalizeBackgroundActivity(shared?.baseline ?? DEFAULT_SERVER_SETTINGS);
+    const baseline = normalizeBackgroundActivity(shared?.baseline ?? managed.defaults);
     const layer: SettingsLayer = {
       baseline,
       keepLocalKeys: shared !== undefined && shared.status !== "loaded",
@@ -1101,9 +1153,11 @@ const make = Effect.gen(function* () {
       const decoded = Exit.isFailure(document)
         ? Exit.failCause(document.cause)
         : decodePersistedServerSettingsExit(
-            shared === undefined || local === undefined
-              ? document.value
-              : layerSettingsDocuments(shared.document, local.document),
+            managed.withDefaults(
+              shared === undefined || local === undefined
+                ? document.value
+                : layerSettingsDocuments(shared.document, local.document),
+            ),
           );
       const legacySettings = decodeLegacyProviderSettingsJsonExit(raw);
       if (legacySettings._tag === "Success") {
@@ -1340,7 +1394,7 @@ const make = Effect.gen(function* () {
       if (materialized?.source === source) return Effect.succeed(materialized.value);
       const generation = secretWriteGeneration;
       return materializeSettingsSecrets(source).pipe(
-        Effect.map(resolveTextGenerationProvider),
+        Effect.map(toEffective),
         Effect.tap((value) =>
           Effect.sync(() => {
             if (generation === secretWriteGeneration) materialized = { source, value };
@@ -1364,7 +1418,7 @@ const make = Effect.gen(function* () {
           ),
         ),
       ),
-      Stream.map(resolveTextGenerationProvider),
+      Stream.map(toEffective),
     );
 
   type SecretChange = {
@@ -1559,6 +1613,7 @@ const make = Effect.gen(function* () {
   };
 
   const updateAndPersistSettings = (
+    patch: ServerSettingsPatch,
     update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
@@ -1573,7 +1628,39 @@ const make = Effect.gen(function* () {
           });
         }
         const updated = yield* update(current);
-        const persisted = yield* persistSettingsSecrets(current, updated, state.baseline);
+        // Vet before secrets: a variable the policy hides from clients is not one they removed.
+        const vetted = managed.vetWrite(current, yield* normalizeServerSettings(updated), patch);
+        if (vetted._tag === "Locked") {
+          return yield* new ServerSettingsError({
+            settingsPath,
+            operation: "write-managed-setting",
+            managedSetting: vetted.path,
+            managedBy: managedPolicy?.organization,
+          });
+        }
+        const vettedProviders = managedProviders.vetWrite(current, vetted.settings);
+        if (vettedProviders._tag === "Locked") {
+          return yield* new ServerSettingsError({
+            settingsPath,
+            operation: "write-managed-setting",
+            managedSetting: vettedProviders.path,
+            managedBy: managedPolicy?.organization,
+          });
+        }
+        if (vettedProviders._tag === "Disallowed") {
+          return yield* new ServerSettingsError({
+            settingsPath,
+            operation: "use-disallowed-provider",
+            providerInstanceId: vettedProviders.instanceId,
+            providerLabel: vettedProviders.label,
+            managedBy: managedPolicy?.organization,
+          });
+        }
+        const persisted = yield* persistSettingsSecrets(
+          current,
+          vettedProviders.settings,
+          state.baseline,
+        );
         const next = yield* normalizeServerSettings(persisted.settings);
         const materializedNext = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
@@ -1597,7 +1684,7 @@ const make = Effect.gen(function* () {
           settings: next,
           parseFailure: Option.none(),
         });
-        const resolved = resolveTextGenerationProvider(materializedNext);
+        const resolved = toEffective(materializedNext);
         materialized = { source: next, value: resolved };
         yield* emitChange(next);
         return resolved;
@@ -1727,17 +1814,18 @@ const make = Effect.gen(function* () {
   });
 
   return {
+    managedPolicy,
     start,
     ready: Deferred.await(startedDeferred),
     getSettings: getMaterializedSettings,
     updateSettings: (patch) =>
-      updateAndPersistSettings((current) =>
+      updateAndPersistSettings(patch, (current) =>
         ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
           Effect.as(applyServerSettingsPatch(current, patch)),
         ),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
-      updateAndPersistSettings((current) =>
+      updateAndPersistSettings(patch, (current) =>
         Effect.gen(function* () {
           yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
           yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
