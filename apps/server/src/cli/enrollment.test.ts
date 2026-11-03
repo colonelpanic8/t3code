@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { decodeFleetEnrollment } from "@t3tools/shared/fleetEnrollment";
 import * as NetService from "@t3tools/shared/Net";
@@ -147,7 +148,7 @@ const withAuth = <A, E>(
     Effect.provide(EnvironmentAuth.layerRuntime.pipe(Layer.provide(ServerConfig.layer(config)))),
   );
 
-it.layer(Layer.mergeAll(NodeServices.layer, TestConsole.layer))(
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, TestConsole.layer))(
   "t3 auth enrollment export",
   (it) => {
     it.effect("publishes an enrollment that redeems on this server and replaces the old file", () =>

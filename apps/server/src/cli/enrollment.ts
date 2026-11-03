@@ -2,7 +2,6 @@ import { ServerFleetEnvironment } from "@t3tools/contracts";
 import { encodeFleetEnrollment, isPlainFleetOriginPair } from "@t3tools/shared/fleetEnrollment";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Console from "effect/Console";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -15,6 +14,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Hex from "effect/encoding/Hex";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { Command, Flag, GlobalFlag } from "effect/cli";
@@ -212,10 +212,10 @@ const writeFleetEnrollmentExport = Effect.fn("writeFleetEnrollmentExport")(funct
   const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
 
   const outputPath = path.resolve(input.output);
-  const suffix = Hex.encode(yield* crypto.randomBytes(6));
+  const suffix = Hex.encode(yield* random.randomBytes(6));
   const partialPath = path.join(
     path.dirname(outputPath),
     `.${path.basename(outputPath)}.${suffix}.partial`,
