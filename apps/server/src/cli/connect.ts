@@ -578,33 +578,7 @@ const resolveServeNextStep = Effect.fn("cloud.cli.resolve_serve_next_step")(func
     yield* resolveCliCommand("serve"),
     ...unservedLocations.flatMap(([key, flag]) => [flag, shellWord(locations.command[key])]),
   ].join(" ");
-  return {
-    serviceUsesCommandLocations: unservedLocations.length === 0,
-    message: `\nNext\n  Start the server with \`${serveCommand}\` to make this machine reachable.`,
-  } as const;
-});
-
-/** Offers the background service after `t3 connect` stores its authorization. */
-export const finishConnectSetup = Effect.fn("cloud.cli.finish_connect_setup")(function* (
-  locations: ConnectLocations,
-) {
-  const nextStep = yield* resolveServeNextStep(locations);
-  if (!nextStep.serviceUsesCommandLocations) {
-    yield* Console.log(
-      `\nSkipping background setup: the background service would not use this command's server locations.\n${nextStep.message}`,
-    );
-    return "skipped" as const;
-  }
-
-  const outcome = yield* CliService.recoverServiceOnboardingOffer(
-    CliService.offerServiceDuringOnboarding,
-  );
-  if (outcome === "skipped") {
-    yield* Console.log(nextStep.message);
-  } else {
-    yield* reportServiceOnboarding(outcome);
-  }
-  return outcome;
+  return `\nNext\n  Start the server with \`${serveCommand}\` to make this machine reachable.`;
 });
 
 export const finishConnectLink = Effect.fn("cloud.cli.finish_connect_link")(function* (
@@ -614,7 +588,7 @@ export const finishConnectLink = Effect.fn("cloud.cli.finish_connect_link")(func
     yield* Console.log("\nNext\n  Start T3 to publish agent activity (no managed tunnel).");
     return;
   }
-  yield* Console.log((yield* resolveServeNextStep(options)).message);
+  yield* Console.log(yield* resolveServeNextStep(options));
 });
 
 /** Status, unlink, and logout stay available so a machine can leave Connect the policy turned off. */

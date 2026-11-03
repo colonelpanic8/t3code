@@ -5,6 +5,7 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 import { FetchHttpClient } from "effect/http";
@@ -326,7 +327,7 @@ const confirm = (yes: boolean, message: string) =>
   yes ? Effect.succeed(true) : Prompt.run(Prompt.Confirm({ message, initial: false }));
 
 const serviceProtectCommand = Command.make("protect", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   undo: Flag.Boolean("undo").pipe(
     Flag.withDescription("Remove the protection this command set up."),
     Flag.withDefault(false),
