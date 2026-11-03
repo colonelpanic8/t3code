@@ -6,6 +6,7 @@ import {
   githubCompareUrl,
   githubPullRequestUrl,
   parseAssemblyBuild,
+  formatCommitDate,
   shortCommit,
 } from "@t3tools/client-runtime/assembly-build";
 import Constants from "expo-constants";
@@ -42,11 +43,25 @@ function GitHubLink({
   );
 }
 
-function CommitLink({ remote, commit }: { remote: string | null | undefined; commit: string }) {
+function CommitLink({
+  remote,
+  commit,
+  date,
+}: {
+  remote: string | null | undefined;
+  commit: string;
+  date: string | null | undefined;
+}) {
+  const formattedDate = formatCommitDate(date);
   return (
-    <GitHubLink url={githubCommitUrl(remote, commit)} className="font-mono text-sm">
-      {shortCommit(commit)}
-    </GitHubLink>
+    <View className="items-end gap-0.5">
+      <GitHubLink url={githubCommitUrl(remote, commit)} className="font-mono text-sm">
+        {shortCommit(commit)}
+      </GitHubLink>
+      {formattedDate ? (
+        <Text className="text-xs text-foreground-muted">{formattedDate}</Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -75,11 +90,9 @@ function BuildRow({
 function AssemblyBuildCards({ build }: { build: AssemblyBuild }) {
   const forkRemote = build.fork?.remote ?? null;
   const { upstream } = build;
-  const upstreamDetails = [
-    upstream.subject,
-    upstream.tag,
-    upstream.date ? new Date(upstream.date).toLocaleString() : undefined,
-  ].filter((detail) => detail !== undefined && detail !== "");
+  const upstreamDetails = [upstream.subject, upstream.tag].filter(
+    (detail) => detail !== undefined && detail !== "",
+  );
 
   return (
     <>
@@ -88,7 +101,9 @@ function AssemblyBuildCards({ build }: { build: AssemblyBuild }) {
           first
           title={<Text className="text-base text-foreground">Assembled commit</Text>}
           commit={
-            build.commit === null ? null : <CommitLink remote={forkRemote} commit={build.commit} />
+            build.commit === null ? null : (
+              <CommitLink remote={forkRemote} commit={build.commit} date={build.commitDate} />
+            )
           }
         >
           {build.commit === null ? (
@@ -123,7 +138,9 @@ function AssemblyBuildCards({ build }: { build: AssemblyBuild }) {
               </GitHubLink>
             </>
           }
-          commit={<CommitLink remote={upstream.remote} commit={upstream.commit} />}
+          commit={
+            <CommitLink remote={upstream.remote} commit={upstream.commit} date={upstream.date} />
+          }
         >
           <Text className="text-sm text-foreground-muted">{upstreamDetails.join(" · ")}</Text>
         </BuildRow>
@@ -161,7 +178,11 @@ function AssemblyBuildCards({ build }: { build: AssemblyBuild }) {
                   )}
                 </>
               }
-              commit={entry.commit ? <CommitLink remote={remote} commit={entry.commit} /> : null}
+              commit={
+                entry.commit ? (
+                  <CommitLink remote={remote} commit={entry.commit} date={entry.date} />
+                ) : null
+              }
             >
               {entry.summary ? (
                 <Text className="text-xs text-foreground-muted">{entry.summary}</Text>

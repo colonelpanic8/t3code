@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   assemblyEntryRemote,
+  formatCommitDate,
   githubBranchUrl,
   githubCommitUrl,
   parseAssemblyBuild,
@@ -27,6 +28,7 @@ const record = {
       kind: "branch",
       status: "merged",
       commit: "1bdc29f9385e26bab993efcfa8bb4458318afde1",
+      date: "2026-11-02T14:03:11-08:00",
       branch: "t3code/main/pr-4257",
       pr: 4257,
       summary: "Directory-path Tab completion",
@@ -44,6 +46,8 @@ describe("parseAssemblyBuild", () => {
       "patches/glue.patch",
     ]);
     expect(build?.commit).toBe(record.commit);
+    expect(formatCommitDate(build?.entries[0]?.date)).not.toBeNull();
+    expect(formatCommitDate(build?.entries[1]?.date)).toBeNull();
   });
 
   it("is absent outside an assembly build or for an unreadable record", () => {

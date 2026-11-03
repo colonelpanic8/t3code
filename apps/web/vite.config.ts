@@ -51,7 +51,10 @@ const configuredDesktopUpdateRepository =
   process.env.GITHUB_REPOSITORY?.trim() ||
   "";
 const configuredFeatureSecrets = process.env.T3CODE_FEATURE_SECRETS?.trim() || "";
-const configuredAssemblyBuild = readAssemblyBuild(process.env.T3CODE_ASSEMBLY_COMMIT);
+const configuredAssemblyBuild = readAssemblyBuild(
+  process.env.T3CODE_ASSEMBLY_COMMIT,
+  process.env.T3CODE_ASSEMBLY_COMMIT_DATE,
+);
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
   if (explicitHostedAppUrl) {
