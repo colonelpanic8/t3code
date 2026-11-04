@@ -184,6 +184,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
     },
     {
       label: "the local network opens",
+      prints: "Run `t3 pair --base-dir <baseDir>`.",
       installed: true,
       env: "T3CODE_LAN=false\n",
       args: ["--lan"],
@@ -345,7 +346,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
         ),
       );
       if (input.prints !== undefined) {
-        expect(lines.join("\n")).toContain(input.prints);
+        expect(lines.join("\n")).toContain(input.prints.replace("<baseDir>", baseDir));
       }
       expect(exit._tag).toBe(input.restartFails === true ? "Failure" : "Success");
       expect({ installs, restarts }).toEqual({
