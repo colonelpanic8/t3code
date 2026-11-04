@@ -366,8 +366,10 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
   const [createdPairingCredentials, setCreatedPairingCredentials] = useState<
     ReadonlyMap<string, string>
   >(() => new Map());
+  const [newestPairingLinkId, setNewestPairingLinkId] = useState<string | null>(null);
   const handlePairingLinkCreated = (created: AuthPairingCredentialResult) => {
     setCreatedPairingCredentials((current) => new Map(current).set(created.id, created.credential));
+    setNewestPairingLinkId(created.id);
   };
   const [revokingDesktopPairingLinkId, setRevokingDesktopPairingLinkId] = useState<string | null>(
     null,
@@ -1165,11 +1167,47 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
       managed={tailscaleHttpsEndpoint?.status === "available" ? undefined : remoteClientsDenial}
     />
   );
+  const newestPairingLink = visibleDesktopPairingLinks.find(
+    (pairingLink) => pairingLink.id === newestPairingLinkId,
+  );
+  const renderPairingClientsList = (
+    pairingLinks: typeof visibleDesktopPairingLinks,
+    clientSessions: typeof desktopClientSessions,
+  ) =>
+    accessEnvironment === null ? null : (
+      <PairingClientsList
+        endpointUrl={
+          isAccessEnvironmentPrimary
+            ? desktopServerExposureState?.endpointUrl
+            : environmentPairingBaseUrl(accessEnvironment.entry)
+        }
+        shareCurrentOrigin={isAccessEnvironmentPrimary}
+        endpoints={
+          isAccessEnvironmentPrimary ? visibleDesktopAdvertisedEndpoints : EMPTY_ADVERTISED_ENDPOINTS
+        }
+        defaultEndpointKey={isAccessEnvironmentPrimary ? defaultDesktopAdvertisedEndpointKey : null}
+        isLoading={isLoadingDesktopAccessManagement}
+        pairingLinks={pairingLinks}
+        createdPairingCredentials={createdPairingCredentials}
+        sharedPairingLinkId={newestPairingLinkId}
+        clientSessions={clientSessions}
+        revokingPairingLinkId={revokingDesktopPairingLinkId}
+        revokingClientSessionId={revokingDesktopClientSessionId}
+        onRevokePairingLink={handleRevokeDesktopPairingLink}
+        onRevokeClientSession={handleRevokeDesktopClientSession}
+        canRevoke={canWriteAccess}
+      />
+    );
   const renderAccessManagement = () =>
     accessEnvironment === null ? null : (
       <FoldedSettingsSection
         id="authorized-clients"
         title="Authorized clients"
+        collapsedContent={
+          canReadAccess && newestPairingLink
+            ? renderPairingClientsList([newestPairingLink], [])
+            : undefined
+        }
         summary={summarizeAuthorizedClients(desktopClientSessions, visibleDesktopPairingLinks)}
         control={
           <div className="flex items-center gap-2">
@@ -1231,31 +1269,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
                   <p className="text-xs text-destructive">{desktopAccessManagementError}</p>
                 </div>
               ) : null}
-              <PairingClientsList
-                endpointUrl={
-                  isAccessEnvironmentPrimary
-                    ? desktopServerExposureState?.endpointUrl
-                    : environmentPairingBaseUrl(accessEnvironment.entry)
-                }
-                shareCurrentOrigin={isAccessEnvironmentPrimary}
-                endpoints={
-                  isAccessEnvironmentPrimary
-                    ? visibleDesktopAdvertisedEndpoints
-                    : EMPTY_ADVERTISED_ENDPOINTS
-                }
-                defaultEndpointKey={
-                  isAccessEnvironmentPrimary ? defaultDesktopAdvertisedEndpointKey : null
-                }
-                isLoading={isLoadingDesktopAccessManagement}
-                pairingLinks={visibleDesktopPairingLinks}
-                createdPairingCredentials={createdPairingCredentials}
-                clientSessions={desktopClientSessions}
-                revokingPairingLinkId={revokingDesktopPairingLinkId}
-                revokingClientSessionId={revokingDesktopClientSessionId}
-                onRevokePairingLink={handleRevokeDesktopPairingLink}
-                onRevokeClientSession={handleRevokeDesktopClientSession}
-                canRevoke={canWriteAccess}
-              />
+              {renderPairingClientsList(visibleDesktopPairingLinks, desktopClientSessions)}
             </>
           ) : (
             <p className="px-4 py-3 text-xs text-muted-foreground">
