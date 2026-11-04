@@ -20,6 +20,7 @@ import expo.modules.t3evaextension.assistant.AssistantRequestEntry
 import expo.modules.t3evaextension.assistant.Capability
 import expo.modules.t3evaextension.assistant.EvaProtocol
 import expo.modules.t3evaextension.assistant.InvalidArgumentsException
+import expo.modules.t3evaextension.assistant.LookupScope
 import expo.modules.t3evaextension.assistant.ReceiptState
 import expo.modules.t3evaextension.assistant.ReceiptUpdate
 import expo.modules.t3evaextension.assistant.StrictJson
@@ -226,8 +227,8 @@ class EvaExtensionService : Service() {
           "The lookup deadline expired."
         )
       }
-      val rows = AssistantQueries(this, minOf(17_000L, remaining)).query(uri).use { cursor ->
-        buildList {
+      return AssistantQueries(this, minOf(17_000L, remaining)).query(uri).use { cursor ->
+        val rows = buildList {
           while (cursor.moveToNext()) {
             add(
               cursor.columnNames.mapIndexed { index, name ->
@@ -240,8 +241,12 @@ class EvaExtensionService : Service() {
             )
           }
         }
+        val scope =
+          cursor.extras.getString(LOOKUP_SCOPE_EXTRA)
+            ?.let { LookupScope.fromMap(StrictJson.parseObject(it)) }
+            ?: LookupScope.live
+        EvaProtocol.lookupReply(invocationId, lookup.table, rows, scope)
       }
-      return EvaProtocol.lookupReply(invocationId, lookup.table, rows)
     }
     val journal = AssistantJobs.journal(this)
 

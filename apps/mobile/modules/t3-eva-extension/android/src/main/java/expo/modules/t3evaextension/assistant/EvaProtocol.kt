@@ -115,31 +115,44 @@ object EvaProtocol {
     receipt: Map<String, Any?>
   ): String = envelope("completed", null, messageFor(receipt), receipt)
 
-  /** Preserve complete rows where possible and always fit EVA's advertised Binder result budget. */
-  fun lookupReply(invocationId: String, table: String, rows: List<Map<String, Any?>>): String {
+  /**
+   * Preserve complete rows where possible and always fit EVA's advertised Binder result budget.
+   * Rows travel only as structured data; the text says how complete they are.
+   */
+  fun lookupReply(
+    invocationId: String,
+    table: String,
+    rows: List<Map<String, Any?>>,
+    scope: LookupScope = LookupScope.live
+  ): String {
+    val tool = AssistantLookups.all.firstOrNull { it.table == table }?.capability?.name
     val bounded = rows.map { it.toMutableMap() }.toMutableList()
-    var truncated = false
+    var clipped = false
     while (true) {
+      val coverage = LookupCoverage.fields(table, scope, bounded, clipped)
       val result = linkedMapOf<String, Any?>(
         "state" to "completed",
         "invocationId" to invocationId,
         "table" to table,
         "rows" to bounded,
-        "truncated" to truncated,
+        "truncated" to clipped,
       )
-      val text = StrictJson.stringify(result)
+      result.putAll(coverage)
       val json = StrictJson.stringify(
         linkedMapOf(
           "protocolVersion" to EVA_PROTOCOL_VERSION,
           "status" to "completed",
           "reasonCode" to null,
-          "truncated" to truncated,
-          "content" to listOf(mapOf("type" to "text", "text" to text)),
+          "truncated" to clipped,
+          "content" to
+            listOf(
+              mapOf("type" to "text", "text" to LookupCoverage.summary(table, tool, coverage))
+            ),
           "structuredContent" to result,
         )
       )
       if (StrictJson.utf8Size(json) <= RESULT_MAX_BYTES) return json
-      truncated = true
+      clipped = true
       if (bounded.size > 1) {
         bounded.removeAt(bounded.lastIndex)
       } else {

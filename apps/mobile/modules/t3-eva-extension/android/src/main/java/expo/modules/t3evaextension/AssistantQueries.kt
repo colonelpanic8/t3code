@@ -4,7 +4,12 @@ import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Bundle
 import expo.modules.t3evaextension.assistant.CreatedCatalogRows
+import expo.modules.t3evaextension.assistant.LookupScope
+import expo.modules.t3evaextension.assistant.MAX_CATALOG_OFFSET
+import expo.modules.t3evaextension.assistant.StrictJson
+import expo.modules.t3evaextension.assistant.ThreadActivity
 import expo.modules.t3evaextension.assistant.parseIsoTimestamp
 import org.json.JSONArray
 import org.json.JSONException
@@ -201,10 +206,13 @@ private val LIVE_TABLES =
 // Which query parameters filter which catalog table.
 private val CATALOG_FILTERS =
   mapOf(
-    "environments" to setOf("q", "limit"),
-    "projects" to setOf("environmentId", "q", "limit"),
-    "threads" to setOf("environmentId", "projectId", "q", "limit"),
+    "environments" to setOf("q", "limit", "offset"),
+    "projects" to setOf("environmentId", "q", "limit", "offset"),
+    "threads" to setOf("environmentId", "projectId", "activity", "q", "limit", "offset"),
   )
+
+/** Cursor extra holding the [LookupScope] JSON, so callers can tell a partial page from all rows. */
+internal const val LOOKUP_SCOPE_EXTRA = "lookupScope"
 
 /** Shared reads after the content provider or extension service authenticates its caller. */
 internal class AssistantQueries(
@@ -239,9 +247,14 @@ internal class AssistantQueries(
     val stray = uri.queryParameterNames.firstOrNull { it !in allowed }
     require(stray == null) { "$stray does not filter $table" }
     val limit = parseLimit(uri.getQueryParameter("limit"), DEFAULT_LIMIT, MAX_LIMIT)
+    val offset = parseOffset(uri.getQueryParameter("offset"))
     val query = param(uri, "q")?.lowercase()
     val environmentId = param(uri, "environmentId")
     val projectId = param(uri, "projectId")
+    val activity = param(uri, "activity")
+    require(activity == null || activity in ThreadActivity.values) {
+      "activity must be one of ${ThreadActivity.values.joinToString()}"
+    }
 
     val catalog = readCatalog()
     val published = catalog?.optJSONArray(table).toList()
@@ -249,12 +262,40 @@ internal class AssistantQueries(
       (createdRows(table, catalog, published) + published).filter { row ->
         (environmentId == null || row.optString("environmentId") == environmentId) &&
           (projectId == null || row.optString("projectId") == projectId) &&
+          (activity == null || ThreadActivity.of(row.optString("status")) == activity) &&
           (
             query == null ||
               columns.any { column -> row.optString(column).lowercase().contains(query) }
             )
       }
-    return cursorOf(requested, rows, limit)
+    val scopedEnvironments = catalog?.optJSONArray("environments").toList().filter {
+      environmentId == null || it.optString("id") == environmentId
+    }
+    val scope =
+      LookupScope(
+        source = LookupScope.CATALOG,
+        offset = offset.toLong(),
+        matched = rows.size.toLong(),
+        catalogAvailable = catalog != null,
+        catalogCapturedAt = catalog?.optString("capturedAt")?.ifEmpty { null },
+        // The cap drops rows before any filter, so a filtered query reports the whole cap.
+        catalogOmitted = catalog?.optJSONObject("omitted")?.optLong(table) ?: 0L,
+        staleEnvironments =
+          if (table == "environments") {
+            emptyList()
+          } else {
+            scopedEnvironments
+              .filter { it.optInt("connected") == 0 }
+              .map {
+                linkedMapOf(
+                  "id" to it.optString("id"),
+                  "name" to it.optString("name"),
+                  "status" to it.optString("status"),
+                )
+              }
+          },
+      )
+    return cursorOf(requested, rows.drop(offset), limit).withScope(scope)
   }
 
   /**
@@ -345,6 +386,21 @@ internal class AssistantQueries(
       )
     }
     return cursor
+  }
+
+  private fun Cursor.withScope(scope: LookupScope): Cursor {
+    (this as MatrixCursor).extras =
+      Bundle().apply { putString(LOOKUP_SCOPE_EXTRA, StrictJson.stringify(scope.toMap())) }
+    return this
+  }
+
+  private fun parseOffset(raw: String?): Int {
+    if (raw == null) return 0
+    val offset = raw.toIntOrNull()
+    require(offset != null && offset in 0..MAX_CATALOG_OFFSET) {
+      "offset must be 0..$MAX_CATALOG_OFFSET"
+    }
+    return offset
   }
 
   private fun param(uri: Uri, name: String): String? = uri.getQueryParameter(

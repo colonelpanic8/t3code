@@ -31,15 +31,153 @@ class EvaProtocolTest {
     AssistantLookups.byName("list_requests")!!.capability.validate(emptyMap())
   }
 
+  private fun threadRow(
+    index: Int,
+    environment: String = "railbird-sf"
+  ) = linkedMapOf<String, Any?>(
+    "id" to "0b5f7a9e-3c1d-4f2a-9e8b-%012d".format(index),
+    "environmentId" to "fleet:$environment",
+    "environmentName" to environment,
+    "projectId" to "6a1c2d3e-4f50-4617-8293-a4b5c6d7e8f9",
+    "projectName" to "railbird",
+    "title" to "Investigate flaky upload retries in the ingest worker $index",
+    "branch" to "t3/%08x".format(index),
+    "worktreePath" to "/home/imalison/.t3/worktrees/railbird/t3-%08x".format(index),
+    "provider" to "codex",
+    "model" to "gpt-5.5",
+    "status" to "completed",
+    "lastActivityAt" to "2026-11-04T12:34:56.789Z",
+  )
+
+  private fun lookup(
+    table: String,
+    rows: List<Map<String, Any?>>,
+    scope: LookupScope
+  ): Pair<Map<String, Any?>, Map<*, *>> {
+    val json = EvaProtocol.lookupReply("i", table, rows, scope)
+    assertTrue(StrictJson.utf8Size(json) <= 16_384)
+    val reply = StrictJson.parseObject(json)
+    return reply to reply["structuredContent"] as Map<*, *>
+  }
+
+  private fun text(reply: Map<String, Any?>) =
+    ((reply["content"] as List<*>).single() as Map<*, *>)["text"] as String
+
   @Test
-  fun lookupRepliesIncludeRowsInBothTextAndStructuredResults() {
-    val rows = listOf(mapOf("id" to "e", "name" to "desktop", "connected" to 1L))
-    val reply = StrictJson.parseObject(EvaProtocol.lookupReply("i", "environments", rows))
-    val result = reply["structuredContent"] as Map<*, *>
+  fun aCatalogListShorterThanTheLimitIsComplete() {
+    val rows = List(17) { threadRow(it) }
+    val (reply, result) =
+      lookup("threads", rows, LookupScope(LookupScope.CATALOG, matched = 17))
     assertEquals(rows, result["rows"])
     assertEquals(false, reply["truncated"])
-    val text = ((reply["content"] as List<*>).single() as Map<*, *>)["text"] as String
-    assertEquals(result, StrictJson.parseObject(text))
+    assertEquals(true, result["complete"])
+    assertEquals(emptyList<String>(), result["incompleteReasons"])
+    assertEquals(null, result["nextOffset"])
+    assertTrue(text(reply).startsWith("All 17 open threads that match."))
+  }
+
+  @Test
+  fun rowsThatOverflowTheReplyBudgetArePagedByOffset() {
+    val all = List(60) { threadRow(it) }
+    val (first, page) = lookup("threads", all, LookupScope(LookupScope.CATALOG, matched = 60))
+    val returned = (page["rows"] as List<*>).size
+    // Rows used to be sent twice, as text and data, which capped this at 17.
+    assertTrue("returned $returned", returned in 25 until 60)
+    assertEquals(true, first["truncated"])
+    assertEquals(false, page["complete"])
+    assertEquals(listOf("response_size"), page["incompleteReasons"])
+    assertEquals(returned.toLong(), page["nextOffset"])
+    assertTrue(
+      text(first).contains("list_threads again with the same filters and offset=$returned")
+    )
+
+    val rest = all.drop(returned)
+    val (last, tail) =
+      lookup(
+        "threads",
+        rest,
+        LookupScope(LookupScope.CATALOG, offset = returned.toLong(), matched = 60)
+      )
+    assertEquals(rest, tail["rows"])
+    assertEquals(false, last["truncated"])
+    assertEquals(true, tail["complete"])
+    assertEquals(null, tail["nextOffset"])
+  }
+
+  @Test
+  fun aLimitBelowTheMatchCountIsIncompleteWithoutBeingTruncated() {
+    val (reply, result) =
+      lookup("threads", List(5) { threadRow(it) }, LookupScope(LookupScope.CATALOG, matched = 9))
+    assertEquals(false, reply["truncated"])
+    assertEquals(false, result["complete"])
+    assertEquals(listOf("page_limit"), result["incompleteReasons"])
+    assertEquals(5L, result["nextOffset"])
+    assertTrue(text(reply).startsWith("Showing open threads 1-5 of 9 that match."))
+  }
+
+  @Test
+  fun catalogGapsAndDisconnectedEnvironmentsAreNamed() {
+    val rows = listOf(threadRow(0), threadRow(1, environment = "ryzen-shine"))
+    val offline = mapOf("id" to "fleet:jay-lenovo", "name" to "jay-lenovo", "status" to "offline")
+    val (reply, result) = lookup(
+      "threads",
+      rows,
+      LookupScope(
+        LookupScope.CATALOG,
+        matched = 2,
+        catalogOmitted = 3,
+        staleEnvironments = listOf(offline)
+      ),
+    )
+    assertEquals(false, result["complete"])
+    assertEquals(listOf("catalog_cap"), result["incompleteReasons"])
+    assertEquals(null, result["nextOffset"])
+    assertEquals(listOf(offline), result["staleEnvironments"])
+    assertTrue(text(reply).contains("leaves out 3 older open threads"))
+    assertTrue(text(reply).contains("may be stale or missing: jay-lenovo"))
+
+    val (missing, empty) =
+      lookup(
+        "threads",
+        emptyList(),
+        LookupScope(LookupScope.CATALOG, matched = 0, catalogAvailable = false)
+      )
+    assertEquals(false, empty["complete"])
+    assertEquals(listOf("no_catalog"), empty["incompleteReasons"])
+    assertTrue(text(missing).startsWith("Not an empty result"))
+  }
+
+  @Test
+  fun liveNoticesAreUnavailableRatherThanEmpty() {
+    val notice = mapOf("id" to "t", "environmentId" to "e", "status" to "notice", "note" to "busy")
+    val (reply, result) = lookup("thread_status", listOf(notice), LookupScope.live)
+    assertEquals(false, result["complete"])
+    assertEquals(listOf("unavailable"), result["incompleteReasons"])
+    assertEquals(1L, result["unavailableRows"])
+    assertEquals(null, result["matched"])
+    assertTrue(text(reply).contains("not an empty result"))
+
+    val (_, read) = lookup(
+      "thread_status",
+      listOf(notice + ("status" to "running")),
+      LookupScope.live
+    )
+    assertEquals(true, read["complete"])
+  }
+
+  @Test
+  fun threadActivityGroupsRunStatuses() {
+    assertEquals(
+      listOf("working", "working", "needs_input", "idle", "idle", "idle"),
+      listOf("running", "queued", "needs_input", "completed", "interrupted", "idle")
+        .map(ThreadActivity::of),
+    )
+    AssistantLookups.byName("list_threads")!!.capability.validate(
+      mapOf("activity" to "working", "offset" to 25L)
+    )
+    assertThrows(IllegalArgumentException::class.java) {
+      AssistantLookups.byName("list_threads")!!.capability.validate(mapOf("activity" to "open"))
+    }
   }
 
   @Test

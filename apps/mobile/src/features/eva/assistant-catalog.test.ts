@@ -65,6 +65,26 @@ describe("buildAssistantCatalog", () => {
       lastActivityAt: "2026-10-17T00:00:00.000Z",
     });
     expect(catalog.threads[2]).toMatchObject({ environmentName: "Desktop", projectName: "" });
+    expect(catalog.omitted).toEqual({ projects: 0, threads: 0 });
+  });
+
+  it("counts open threads the size cap leaves out, not archived ones", () => {
+    const capped = buildAssistantCatalog({
+      now: new Date("2026-10-18T12:00:00.000Z"),
+      environments: [{ id: laptop, name: "Laptop", status: "connected" }],
+      projects: [],
+      threads: [
+        ...Array.from({ length: 402 }, (_, index) =>
+          thread(laptop, `t${index}`, new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString()),
+        ),
+        thread(laptop, "archived", "2026-10-12T00:00:00.000Z", {
+          archivedAt: "2026-10-12T00:00:00.000Z",
+        }),
+      ],
+    });
+    expect(capped.threads).toHaveLength(400);
+    expect(capped.threads.at(-1)?.id).toBe("t2");
+    expect(capped.omitted).toEqual({ projects: 0, threads: 2 });
   });
 
   it("orders projects by their threads' activity and names the repository", () => {

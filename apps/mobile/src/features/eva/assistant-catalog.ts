@@ -51,6 +51,8 @@ export interface AssistantCatalog {
   readonly environments: ReadonlyArray<AssistantEnvironmentRow>;
   readonly projects: ReadonlyArray<AssistantProjectRow>;
   readonly threads: ReadonlyArray<AssistantThreadRow>;
+  /** Rows the size caps left out, so a lookup can say it is incomplete. */
+  readonly omitted: { readonly projects: number; readonly threads: number };
 }
 
 type CatalogProject = Pick<
@@ -135,7 +137,7 @@ export function buildAssistantCatalog(input: {
   const projectNames = new Map(
     input.projects.map((project) => [projectKey(project.environmentId, project.id), project.title]),
   );
-  const threads = input.threads
+  const openThreads = input.threads
     .filter((thread) => thread.archivedAt === null && thread.deletedAt === null)
     .map((thread) =>
       assistantThreadRow({
@@ -144,8 +146,8 @@ export function buildAssistantCatalog(input: {
         projectName: projectNames.get(projectKey(thread.environmentId, thread.projectId)) ?? "",
       }),
     )
-    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
-    .slice(0, MAX_THREADS);
+    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
+  const threads = openThreads.slice(0, MAX_THREADS);
   const projectActivity = new Map<string, string>();
   for (const thread of threads) {
     const key = projectKey(thread.environmentId, thread.projectId);
@@ -178,5 +180,9 @@ export function buildAssistantCatalog(input: {
     })),
     projects,
     threads,
+    omitted: {
+      projects: Math.max(0, input.projects.length - MAX_PROJECTS),
+      threads: openThreads.length - threads.length,
+    },
   };
 }
