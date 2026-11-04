@@ -107,6 +107,7 @@ interface TranscriptSource {
   readonly dir: string;
   readonly volumeId: string;
   readonly fileName?: string;
+  readonly accounts: NonNullable<UsageSource["accounts"]>;
 }
 
 const RatesCacheFile = Schema.Struct({
@@ -354,14 +355,27 @@ export const make = Effect.gen(function* () {
     retentionCutoffMs: number,
   ) {
     const dirs: Array<TranscriptSource> = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     for (const { driver, reader } of transcriptReaders) {
       const { provider, format } = reader;
       const directories = yield* Effect.forEach(
         yield* usageInstances(driver, settings),
-        (instance) => reader.directories(instance),
+        (instance) =>
+          reader.directories(instance).pipe(
+            Effect.map((directories) =>
+              directories.map((directory) => ({
+                ...directory,
+                account: {
+                  id: instance.instanceId,
+                  label:
+                    settings.providerInstances[instance.instanceId]?.displayName ??
+                    instance.instanceId,
+                },
+              })),
+            ),
+          ),
       );
-      for (const { dir: directory, fileName } of directories.flat()) {
+      for (const { dir: directory, fileName, account } of directories.flat()) {
         const sourceKey = provider + "\0" + directory;
         const previous = sourceCache.get(sourceKey);
         const dir = yield* fileSystem
@@ -386,13 +400,21 @@ export const make = Effect.gen(function* () {
           cacheDirty = true;
         }
         const key = `${provider}\0${dir}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const index = seen.get(key);
+        if (index !== undefined) {
+          const source = dirs[index];
+          if (source !== undefined && !source.accounts.some(({ id }) => id === account.id)) {
+            dirs[index] = { ...source, accounts: [...source.accounts, account] };
+          }
+          continue;
+        }
+        seen.set(key, dirs.length);
         dirs.push({
           provider,
           format,
           dir,
           volumeId,
+          accounts: [account],
           ...(fileName === undefined ? {} : { fileName }),
         });
       }
@@ -583,6 +605,7 @@ export const make = Effect.gen(function* () {
     readonly dir: string;
     readonly volumeId: string;
     readonly hostId?: string;
+    readonly accounts?: UsageSource["accounts"];
     readonly status?: UsageSource["status"];
     readonly message?: string;
     readonly action?: UsageSource["action"];
@@ -600,11 +623,11 @@ export const make = Effect.gen(function* () {
     source: TranscriptSource,
     windowStartMs: number,
   ) {
-    const { provider, format, dir, volumeId, fileName } = source;
+    const { provider, format, dir, volumeId, fileName, accounts } = source;
     const exists = yield* fileSystem
       .exists(dir)
       .pipe(Effect.catchCause(() => Effect.succeed(false)));
-    if (!exists) return { provider, dir, volumeId, files: null } satisfies ScannedDir;
+    if (!exists) return { provider, dir, volumeId, accounts, files: null } satisfies ScannedDir;
     const { files, failedPaths } = yield* Effect.promise(() =>
       listTranscriptFiles(dir, windowStartMs, fileName === undefined ? undefined : { fileName }),
     );
@@ -642,6 +665,7 @@ export const make = Effect.gen(function* () {
       dir,
       volumeId,
       files: parsedFiles,
+      accounts,
       ...(unread > 0
         ? {
             status: "partial",
@@ -837,7 +861,18 @@ export const make = Effect.gen(function* () {
 
     for (const [
       index,
-      { provider, dir, volumeId, files, status, message, action, refreshing, hostId: sourceHostId },
+      {
+        provider,
+        dir,
+        volumeId,
+        files,
+        status,
+        message,
+        action,
+        refreshing,
+        accounts,
+        hostId: sourceHostId,
+      },
     ] of scannedDirs.entries()) {
       let scannedFiles = 0;
       let skippedFiles = 0;
@@ -883,6 +918,7 @@ export const make = Effect.gen(function* () {
         message ?? (files === null ? "No transcript directory on this environment." : null);
       sources.push({
         fingerprint: { hostId: sourceHostId ?? hostId, provider, resolvedHomePath: dir, volumeId },
+        ...(accounts === undefined ? {} : { accounts }),
         status:
           files === null && scannedFiles === 0
             ? "missing"
