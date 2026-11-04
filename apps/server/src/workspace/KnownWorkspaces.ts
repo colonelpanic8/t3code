@@ -1,4 +1,5 @@
-// Client-supplied worktrees count only under managed folders or when Git lists them for the project.
+// Client-supplied worktrees count only under managed folders, when Git lists them for the project,
+// or where the worktree path template places them for a registered project.
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Context from "effect/Context";
@@ -13,6 +14,7 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { matchesWorktreePathTemplate } from "../vcs/worktreePathTemplate.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
 
 export class UnknownWorkspaceError extends Schema.TaggedError<UnknownWorkspaceError>()(
@@ -87,8 +89,24 @@ export const make = Effect.gen(function* () {
       if (managed.some(within)) return true;
 
       const projects = yield* projectStore.listShells().pipe(Effect.orElseSucceed(() => []));
+      const worktreePathTemplate = yield* ServerSettings.readWorktreePathTemplate(settings);
       for (const project of projects) {
-        if (within(yield* resolveRoot(project.workspaceRoot))) return true;
+        const projectRoot = yield* resolveRoot(project.workspaceRoot);
+        if (within(projectRoot)) return true;
+        if (
+          projectRoot !== null &&
+          managed.some((worktreesDir) =>
+            matchesWorktreePathTemplate(path, {
+              candidate: realPath,
+              cwd: project.workspaceRoot,
+              resolvedRepoRoot: projectRoot,
+              worktreesDir,
+              template: worktreePathTemplate,
+            }),
+          )
+        ) {
+          return true;
+        }
       }
 
       const threads = yield* sql<{ readonly worktreePath: string; readonly projectId: string }>`
