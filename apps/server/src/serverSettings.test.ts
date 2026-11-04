@@ -2307,6 +2307,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
       const sharedRaw = yield* writeSharedSettings(SHARED_SETTINGS);
       const forClient = ServerSettingsModule.redactServerSettingsForClient(
         yield* service.getSettings,
+        { secretReferences: true },
       );
       yield* service.updateSettings({
         enableAgentBrowserAccess: false,
@@ -2579,6 +2580,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
       yield* writeSharedSettings(SHARED_SETTINGS);
       const forClient = ServerSettingsModule.redactServerSettingsForClient(
         yield* service.getSettings,
+        { secretReferences: true },
       );
       const updated = yield* service.updateProviderInstance({
         operation: "upsert",
@@ -3836,6 +3838,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
         Effect.gen(function* () {
           const forClient = ServerSettingsModule.redactServerSettingsForClient(
             yield* service.getSettings,
+            { secretReferences: true },
           );
           return yield* service.updateProviderInstance({
             operation: "upsert",
@@ -3972,6 +3975,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
           Effect.gen(function* () {
             const forClient = ServerSettingsModule.redactServerSettingsForClient(
               yield* service.getSettings,
+              { secretReferences: true },
             );
             yield* service.updateProviderInstance({
               operation: "upsert",
@@ -4004,6 +4008,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
       });
       const forClient = ServerSettingsModule.redactServerSettingsForClient(
         yield* service.getSettings,
+        { secretReferences: true },
       );
       const updated = yield* service.updateSettings({
         usageLimitSources: {
