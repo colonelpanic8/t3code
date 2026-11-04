@@ -2820,7 +2820,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           const service = yield* ServerSettingsModule.ServerSettingsService;
           const settings = yield* service.getSettings;
           assert.notInclude(
-            JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
+            JSON.stringify(
+              ServerSettingsModule.redactServerSettingsForClient(settings, {
+                secretReferences: true,
+              }),
+            ),
             "sk-file",
           );
           assert.deepEqual(
@@ -2902,7 +2906,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         assert.isTrue(settings.defaultAutoPull);
         assert.deepEqual(yield* service.managedSettingPaths, [["defaultAutoPull"]]);
         assert.notInclude(
-          JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
+          JSON.stringify(
+            ServerSettingsModule.redactServerSettingsForClient(settings, {
+              secretReferences: true,
+            }),
+          ),
           "sk-FILESECRET",
         );
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
@@ -3038,7 +3046,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
         assert.equal(Object.values(settings.usageLimitSources)[0]?.managementKey, "sk-FILESECRET");
         assert.equal(settings.easDeviceHosts[0]?.accessToken, "sk-FILESECRET");
         assert.notInclude(
-          JSON.stringify(ServerSettingsModule.redactServerSettingsForClient(settings)),
+          JSON.stringify(
+            ServerSettingsModule.redactServerSettingsForClient(settings, {
+              secretReferences: true,
+            }),
+          ),
           "sk-FILESECRET",
         );
       }).pipe(Effect.provide(layerServerSettingsWithManagedFile(baseDir)));
@@ -3172,8 +3184,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           "github.com": "file-token",
         });
         assert.notDeepEqual(
-          ServerSettingsModule.redactServerSettingsForClient(settings).sourceControlHosts.github
-            ?.tokens,
+          ServerSettingsModule.redactServerSettingsForClient(settings, { secretReferences: true })
+            .sourceControlHosts.github?.tokens,
           {
             "github.com": "file-token",
           },
@@ -3364,6 +3376,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
       const sharedRaw = yield* writeSharedSettings(SHARED_SETTINGS);
       const forClient = ServerSettingsModule.redactServerSettingsForClient(
         yield* service.getSettings,
+        { secretReferences: true },
       );
       yield* service.updateSettings({
         enableAgentBrowserAccess: false,
@@ -3636,6 +3649,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
       yield* writeSharedSettings(SHARED_SETTINGS);
       const forClient = ServerSettingsModule.redactServerSettingsForClient(
         yield* service.getSettings,
+        { secretReferences: true },
       );
       const updated = yield* service.updateProviderInstance({
         operation: "upsert",
@@ -4897,6 +4911,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
         Effect.gen(function* () {
           const forClient = ServerSettingsModule.redactServerSettingsForClient(
             yield* service.getSettings,
+            { secretReferences: true },
           );
           return yield* service.updateProviderInstance({
             operation: "upsert",
@@ -5033,6 +5048,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
           Effect.gen(function* () {
             const forClient = ServerSettingsModule.redactServerSettingsForClient(
               yield* service.getSettings,
+              { secretReferences: true },
             );
             yield* service.updateProviderInstance({
               operation: "upsert",
@@ -5065,6 +5081,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("shared server se
       });
       const forClient = ServerSettingsModule.redactServerSettingsForClient(
         yield* service.getSettings,
+        { secretReferences: true },
       );
       const updated = yield* service.updateSettings({
         usageLimitSources: {
@@ -5222,6 +5239,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         const codexWork = ProviderInstanceId.make("codex_work");
         const forClient = ServerSettingsModule.redactServerSettingsForClient(
           yield* service.getSettings,
+          { secretReferences: true },
         );
         const updated = yield* service.updateSettings({
           enableAgentBrowserAccess: false,
@@ -5344,7 +5362,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           assert.deepEqual(yield* service.managedSettingPaths, [
             ["sourceControlHosts", "github", "tokens", "github.com"],
           ]);
-          const redacted = ServerSettingsModule.redactServerSettingsForClient(settings);
+          const redacted = ServerSettingsModule.redactServerSettingsForClient(settings, {
+            secretReferences: true,
+          });
           yield* service.updateSettings({
             defaultAutoPull: true,
             sourceControlHosts: redacted.sourceControlHosts,
@@ -5459,6 +5479,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           Effect.gen(function* () {
             const forClient = ServerSettingsModule.redactServerSettingsForClient(
               yield* service.getSettings,
+              { secretReferences: true },
             );
             yield* service.updateProviderInstance({
               operation: "upsert",

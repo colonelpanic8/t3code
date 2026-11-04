@@ -1933,8 +1933,12 @@ const make = Effect.gen(function* () {
     const managed = current.managed;
     if (managed === undefined) return Effect.succeed(updated);
     return Effect.gen(function* () {
-      const before = yield* encodeServerSettings(redactServerSettingsForClient(current.effective));
-      const after = yield* encodeServerSettings(redactServerSettingsForClient(updated));
+      const before = yield* encodeServerSettings(
+        redactServerSettingsForClient(current.effective, { secretReferences: true }),
+      );
+      const after = yield* encodeServerSettings(
+        redactServerSettingsForClient(updated, { secretReferences: true }),
+      );
       const changed = managed.paths.find(
         (path) => !Equal.equals(readSettingsPath(after, path), readSettingsPath(before, path)),
       );
