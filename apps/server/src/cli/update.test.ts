@@ -508,6 +508,18 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
       const output = yield* runUpdate({
         baseDir,
         logsDir: baseDir,
+        storage: {
+          roots: {
+            layout: "legacy",
+            legacyBaseDir: baseDir,
+            configDir: baseDir,
+            dataDir: baseDir,
+            stateDir: baseDir,
+            cacheDir: baseDir,
+            runtimeDir: baseDir,
+          },
+          baseDirIsExplicit: true,
+        },
         serverRuntimeStatePath: path.join(baseDir, "server-runtime.json"),
         channel: undefined,
         requestedVersion: version,
