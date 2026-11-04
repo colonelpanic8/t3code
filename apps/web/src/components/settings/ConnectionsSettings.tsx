@@ -1183,7 +1183,9 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
         }
         shareCurrentOrigin={isAccessEnvironmentPrimary}
         endpoints={
-          isAccessEnvironmentPrimary ? visibleDesktopAdvertisedEndpoints : EMPTY_ADVERTISED_ENDPOINTS
+          isAccessEnvironmentPrimary
+            ? visibleDesktopAdvertisedEndpoints
+            : EMPTY_ADVERTISED_ENDPOINTS
         }
         defaultEndpointKey={isAccessEnvironmentPrimary ? defaultDesktopAdvertisedEndpointKey : null}
         isLoading={isLoadingDesktopAccessManagement}
