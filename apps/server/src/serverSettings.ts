@@ -21,6 +21,8 @@ import {
   type ServerSettingsPatch,
   type ManagedPolicySummary,
   globalIdleCompaction,
+  isSecretReference,
+  type SecretReference,
   withIdleCompaction,
   UsageLimitSourceConfig,
 } from "@t3tools/contracts";
@@ -65,7 +67,12 @@ import {
   sourceControlHostSecretName,
 } from "./sourceControl/sourceControlHostSecrets.ts";
 
-import { mapSettingsSecrets, SECRET_REDACTED, type SettingsSecret } from "./settingsSecrets.ts";
+import {
+  mapSettingsSecrets,
+  mapSettingsSecretValues,
+  SECRET_REDACTED,
+  type SettingsSecret,
+} from "./settingsSecrets.ts";
 
 export {
   resolveReviewGuideModelSelection,
@@ -139,13 +146,35 @@ const normalizeServerSettings = (
     ),
   );
 
-export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
+export function redactServerSettingsForClient(
+  settings: ServerSettings,
+  client: { readonly secretReferences: boolean },
+): ServerSettings {
   const redacted = mapSettingsSecrets(settings, (secret) =>
     secret.sensitive
       ? { value: "", redacted: secret.redacted || secret.value.length > 0 }
       : { value: secret.value, redacted: false },
   );
-  return { ...redacted, secretProviders: withoutUnknownSecretProviderConfigs(redacted) };
+  // Older clients decode secret fields as strings and fail on a reference, so they see a saved secret.
+  const shaped = client.secretReferences
+    ? redacted
+    : mapSettingsSecretValues(redacted, (value) =>
+        isSecretReference(value) ? SECRET_REDACTED : value,
+      );
+  return { ...shaped, secretProviders: withoutUnknownSecretProviderConfigs(shaped) };
+}
+
+/** A client shown a reference as a saved secret sends that marker back; it keeps the reference. */
+function withEchoedSecretReferences(current: ServerSettings, next: ServerSettings): ServerSettings {
+  const references = new Map<string, SecretReference>();
+  mapSettingsSecretValues(current, (value, secretName) => {
+    if (isSecretReference(value)) references.set(secretName, value);
+    return value;
+  });
+  if (references.size === 0) return next;
+  return mapSettingsSecretValues(next, (value, secretName) =>
+    value === SECRET_REDACTED ? (references.get(secretName) ?? value) : value,
+  );
 }
 
 // A newer kind's config may hold credentials this build cannot recognize, so it never leaves the server.
@@ -2032,9 +2061,10 @@ const make = Effect.gen(function* () {
 
   const persistSettingsSecrets = Effect.fn("serverSettings.persistSettingsSecrets")(function* (
     current: ServerSettings,
-    next: ServerSettings,
+    requested: ServerSettings,
     baseline: ServerSettings,
   ) {
+    const next = withEchoedSecretReferences(current, requested);
     const previous = new Map<string, SettingsSecret>();
     mapSettingsSecrets(current, (secret) => {
       previous.set(secret.secretName, secret);
