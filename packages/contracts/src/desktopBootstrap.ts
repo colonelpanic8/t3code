@@ -4,6 +4,8 @@ import { PortSchema, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts
 
 // A supervisor must not restart a server refused by the state-directory owner.
 export const SERVER_EXIT_CODE_STATE_DIR_OWNED = 78;
+// A server the managed policy refused, so the desktop app blames the policy rather than the release.
+export const SERVER_EXIT_CODE_MANAGED_POLICY = 77;
 
 // Split-layout roots the desktop selected. A legacy-layout desktop sends t3Home instead.
 export const DesktopBackendStorageRoots = Schema.Struct({

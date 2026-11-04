@@ -802,9 +802,13 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
     readonly storageHost?: StorageHost;
+    readonly selectAutomaticPort?: (
+      preferred: number,
+    ) => Effect.Effect<number, NetService.NetError | CliError.UserError>;
   },
 ) {
   const { findAvailablePort } = yield* NetService.NetService;
+  const selectAutomaticPort = options?.selectAutomaticPort ?? findAvailablePort;
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const env = yield* EnvServerConfig;
@@ -870,7 +874,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
         if (mode === "desktop") {
           return Effect.succeed(ServerConfig.DEFAULT_PORT);
         }
-        return findAvailablePort(ServerConfig.DEFAULT_PORT);
+        return selectAutomaticPort(ServerConfig.DEFAULT_PORT);
       },
     },
   );
