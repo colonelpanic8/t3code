@@ -7,9 +7,10 @@ describe("desktop-approved window capture shortcut labels", () => {
     ["Press <Shift><Control>2", ["Ctrl", "⇧", "2"]],
     ["Ctrl+Shift+8", ["Ctrl", "⇧", "8"]],
     ["Meta+F12", ["Super", "F12"]],
-    ["<Primary><Alt>Return", ["Ctrl", "Alt", "Enter"]],
-    ["<Super>Left", ["Super", "Left"]],
-    ["<Control>space", ["Ctrl", "Space"]],
+    ["Super+F8", ["Super", "F8"]],
+    ["<Primary><Alt>Return", ["Ctrl", "Alt", "⏎"]],
+    ["<Super>Left", ["Super", "←"]],
+    ["<Control>space", ["Ctrl", "␣"]],
     ["<Control>plus", ["Ctrl", "+"]],
     ["Ctrl++", ["Ctrl", "+"]],
   ])("formats %s using the shared keycap labels", (label, expected) => {
