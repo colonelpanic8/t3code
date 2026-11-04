@@ -1,27 +1,22 @@
 import { Chart, Host, type ChartDataPoint } from "@expo/ui/swift-ui";
 import { frame } from "@expo/ui/swift-ui/modifiers";
 
-import type { DailyTotals } from "@t3tools/shared/usageMerge";
-
-import { buildChartDays, type UsageChartMetric } from "./usageChartData";
-import { useProviderColors } from "./usageProviders";
+import type { UsageChartSeries } from "@t3tools/client-runtime/usage-view";
 
 export interface UsageDailyChartProps {
-  readonly days: readonly string[];
-  readonly daily: readonly DailyTotals[];
-  readonly metric: UsageChartMetric;
+  readonly series: UsageChartSeries;
   readonly height: number;
 }
 
-export function UsageDailyChart({ days, daily, metric, height }: UsageDailyChartProps) {
-  const colors = useProviderColors();
+export function UsageDailyChart({ series, height }: UsageDailyChartProps) {
+  const { stack, colors } = series;
 
-  const data: ChartDataPoint[] = buildChartDays(days, daily, metric).flatMap((day) =>
-    day.values.map((entry) => ({
-      x: day.day,
-      y: entry.value,
-      color: colors[entry.provider],
-    })),
+  // Bars at one x stack in data order, so the first series sits on the baseline.
+  const data: ChartDataPoint[] = stack.columns.flatMap((column) =>
+    column.values.map((value, index) => {
+      const color = colors.get(stack.series[index]?.key ?? "");
+      return { x: column.period, y: value, ...(color === undefined ? {} : { color }) };
+    }),
   );
 
   return (
