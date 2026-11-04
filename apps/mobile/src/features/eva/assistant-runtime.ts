@@ -37,6 +37,7 @@ import type { AssistantCatalogEnvironment } from "./assistant-catalog";
 import type {
   AssistantEnvironmentClient,
   AssistantEnvironmentConnection,
+  CurrentBranch,
   DispatchOutcome,
   PreparedWorkspace,
   SendMessagePlan,
@@ -144,7 +145,7 @@ export function classifyDispatch(result: AtomCommandResult<unknown, unknown>): D
     : { kind: "transient", message };
 }
 
-async function currentBranch(environmentId: EnvironmentId, cwd: string): Promise<string | null> {
+async function currentBranch(environmentId: EnvironmentId, cwd: string): Promise<CurrentBranch> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), BRANCH_TIMEOUT_MS);
   try {
@@ -153,7 +154,9 @@ async function currentBranch(environmentId: EnvironmentId, cwd: string): Promise
       vcsEnvironment.status({ environmentId, input: { cwd } }),
       { signal: controller.signal },
     );
-    return AsyncResult.isSuccess(result) ? (result.value?.refName ?? null) : null;
+    if (!AsyncResult.isSuccess(result)) return { kind: "unreadable" };
+    const name = result.value?.refName;
+    return name ? { kind: "branch", name } : { kind: "detached" };
   } finally {
     clearTimeout(timer);
   }

@@ -19,6 +19,7 @@ import {
   type AssistantRequestJob,
   type AssistantRequestPlan,
   type AssistantRequestUpdate,
+  type CurrentBranch,
   type DispatchOutcome,
 } from "./assistant-requests";
 
@@ -64,7 +65,7 @@ function fakeClient(outcome: DispatchOutcome = { kind: "accepted" }) {
           })
         : null,
     providers: () => [provider()],
-    currentBranch: async () => "main",
+    currentBranch: async (): Promise<CurrentBranch> => ({ kind: "branch", name: "main" }),
     newWorktreeBranchName: () => "t3code/feedbeef",
     startThread: async (plan) => {
       dispatched.push(plan);
@@ -260,6 +261,22 @@ describe("runAssistantRequest", () => {
         branch: "t3code/feedbeef",
       },
     });
+  });
+
+  it("says whether a worktree lacks a base branch or the branch could not be read", async () => {
+    const worktree = job({
+      arguments: { environmentId, projectId: "proj-1", prompt: "x", workspace: "worktree" },
+    });
+    for (const [current, code] of [
+      [{ kind: "detached" }, "no_base_branch"],
+      [{ kind: "unreadable" }, "base_branch_unavailable"],
+    ] as const) {
+      const { environment, dispatched } = fakeClient();
+      environment.currentBranch = async () => current;
+      const updates = await run(worktree, { kind: "connected", environment });
+      expect(dispatched).toEqual([]);
+      expect(updates[0]).toMatchObject({ state: "rejected", error: { code } });
+    }
   });
 
   it("sends to an existing thread with its own modes, steering by default", async () => {

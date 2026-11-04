@@ -176,10 +176,16 @@ export type WorkspaceRequest =
   | { readonly kind: "branch"; readonly cwd: string; readonly branch: string }
   | { readonly kind: "pull_request"; readonly cwd: string; readonly reference: string };
 
+/** A checkout's branch; `detached` covers detached HEAD and non-repositories. */
+export type CurrentBranch =
+  | { readonly kind: "branch"; readonly name: string }
+  | { readonly kind: "detached" }
+  | { readonly kind: "unreadable" };
+
 /** What the executor needs from one connected environment. */
 export interface AssistantEnvironmentClient extends ThreadActionEnvironment {
   project(projectId: string): EnvironmentProject | null;
-  currentBranch(cwd: string): Promise<string | null>;
+  currentBranch(cwd: string): Promise<CurrentBranch>;
   newWorktreeBranchName(): string;
   /** Not deduplicated by the server: repeating it must reuse what an earlier run made. */
   prepareWorkspace(request: WorkspaceRequest): Promise<PreparedWorkspace>;
@@ -284,14 +290,7 @@ export async function planStartThread(input: {
     if (prepared.kind === "transient") throw new Error(prepared.message);
     workspace = { mode: "local", branch: prepared.branch, worktreePath: prepared.worktreePath };
   } else if (args.workspace === "worktree") {
-    const baseBranch = args.baseBranch ?? (await environment.currentBranch(project.workspaceRoot));
-    if (!baseBranch) {
-      throw stop(
-        "rejected",
-        "no_base_branch",
-        "The project has no current branch to start a worktree from; pass baseBranch.",
-      );
-    }
+    const baseBranch = args.baseBranch ?? (await currentBaseBranch(environment, project));
     workspace = {
       mode: "worktree",
       projectCwd: project.workspaceRoot,
@@ -515,4 +514,26 @@ export async function runAssistantRequest(
     if (error instanceof Outcome) await report(error.update).catch(() => undefined);
   }
   await queue;
+}
+
+async function currentBaseBranch(
+  environment: AssistantEnvironmentClient,
+  project: EnvironmentProject,
+): Promise<string> {
+  const current = await environment.currentBranch(project.workspaceRoot);
+  if (current.kind === "branch") return current.name;
+  if (current.kind === "detached") {
+    throw stop(
+      "rejected",
+      "no_base_branch",
+      `${project.title} is not on a branch (detached HEAD or not a git repository), so ` +
+        "there is no default to start a worktree from. Pass baseBranch, such as main.",
+    );
+  }
+  throw stop(
+    "rejected",
+    "base_branch_unavailable",
+    `T3 Code could not read ${project.title}'s current branch in time, so it did not start ` +
+      "the thread. Pass baseBranch, such as main, or try again.",
+  );
 }
