@@ -24,6 +24,14 @@ import * as SshAuth from "./auth.ts";
 import { SshCommandError, SshPasswordPromptError } from "./errors.ts";
 import * as SshTunnel from "./tunnel.ts";
 
+// The scripts under test resolve node and sh through the host PATH.
+const HOST_PATH = process.env.PATH ?? "";
+
+class LaunchedServerExited extends Schema.TaggedError<LaunchedServerExited>()(
+  "LaunchedServerExited",
+  {},
+) {}
+
 const isSshCommandError = Schema.is(SshCommandError);
 
 const makeSuccessfulProcess = (stdout: string) => {
@@ -546,7 +554,7 @@ if (args[0] === "serve") {
         };
         const stateKey = "location-test";
         const env = {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
           T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
@@ -559,7 +567,12 @@ if (args[0] === "serve") {
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
-            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.flatMap((pid) =>
+              Effect.try({
+                try: () => process.kill(Number(pid.trim())),
+                catch: () => new LaunchedServerExited(),
+              }),
+            ),
             Effect.ignore,
           ),
         );
@@ -635,13 +648,18 @@ if (args[0] === "serve") {
         };
         const stateKey = "split-test";
         const env = {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
-            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.flatMap((pid) =>
+              Effect.try({
+                try: () => process.kill(Number(pid.trim())),
+                catch: () => new LaunchedServerExited(),
+              }),
+            ),
             Effect.ignore,
           ),
         );
@@ -685,13 +703,18 @@ if (args[0] === "serve") {
       };
       const stateKey = "migrated-test";
       const env = {
-        PATH: process.env.PATH ?? "",
+        PATH: HOST_PATH,
         HOME: home,
         T3_FAKE_RECORD: record,
       };
       yield* Effect.addFinalizer(() =>
         fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
-          Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+          Effect.flatMap((pid) =>
+            Effect.try({
+              try: () => process.kill(Number(pid.trim())),
+              catch: () => new LaunchedServerExited(),
+            }),
+          ),
           Effect.ignore,
         ),
       );
@@ -738,13 +761,18 @@ if (args[0] === "serve") {
         };
         const stateKey = "pending-test";
         const env = {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
-            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.flatMap((pid) =>
+              Effect.try({
+                try: () => process.kill(Number(pid.trim())),
+                catch: () => new LaunchedServerExited(),
+              }),
+            ),
             Effect.ignore,
           ),
         );
@@ -796,7 +824,7 @@ if (args[0] === "serve") {
         }),
         ["split-reuse"],
         {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
           XDG_RUNTIME_DIR: `${root}/run`,
@@ -840,14 +868,19 @@ if (args[0] === "serve") {
         const stateKey = "profile-test";
         // An inherited home must not reach a server the launch serves in the split layout.
         const env = {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
           T3CODE_HOME: `${root}/inherited-home`,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
-            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.flatMap((pid) =>
+              Effect.try({
+                try: () => process.kill(Number(pid.trim())),
+                catch: () => new LaunchedServerExited(),
+              }),
+            ),
             Effect.ignore,
           ),
         );
@@ -889,7 +922,7 @@ if (args[0] === "serve") {
           `${candidates}T3_STORAGE=split\nDEFAULT_RUNTIME_FILE=/h/.t3/userdata/server-runtime.json\nruntime_file_candidates >&2`,
           [],
           {
-            PATH: process.env.PATH ?? "",
+            PATH: HOST_PATH,
             HOME: "/h",
             XDG_RUNTIME_DIR: "/run/x",
             TMPDIR: "/t",
@@ -926,7 +959,7 @@ if (args[0] === "serve") {
         }),
         [],
         {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
           ...extraEnv,
