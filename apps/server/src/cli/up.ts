@@ -18,7 +18,7 @@ import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { installLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
 import {
   connectSubcommands,
   disconnectCloud,
@@ -419,7 +419,7 @@ const setUp = Effect.fn("cli.up")(function* (flags: {
 });
 
 export const upCommand = Command.make("up", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   connect: Flag.Boolean("connect").pipe(
     Flag.withDescription(
       "Allow access through T3 Connect with your T3 account. Turn off with --no-connect.",
@@ -456,7 +456,7 @@ export const upCommand = Command.make("up", {
 );
 
 export const connectCommand = Command.make("connect", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   headless: headlessFlag,
 }).pipe(
   Command.withDescription("Set up T3 Connect for this machine. Same as `t3 up --connect`."),
@@ -492,7 +492,7 @@ const setupJson = (setup: Setup) =>
   );
 
 export const statusCommand = Command.make("status", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   json: Flag.Boolean("json").pipe(
     Flag.withDescription("Print the settings as JSON. Does not test connections."),
     Flag.withDefault(false),
@@ -511,9 +511,10 @@ export const statusCommand = Command.make("status", {
       // Only what readSetup reads: no database, unlike the T3 Connect commands.
       const setup = yield* readSetup().pipe(
         Effect.provide(
-          Layer.merge(CliService.layer(config), ServerSecretStore.layer).pipe(
-            Layer.provideMerge(ServerConfig.layer(config)),
-          ),
+          Layer.merge(
+            CliService.layer(yield* resolveInstallLocations(flags)),
+            ServerSecretStore.layer,
+          ).pipe(Layer.provideMerge(ServerConfig.layer(config))),
         ),
       );
       yield* Console.log(
