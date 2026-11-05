@@ -147,7 +147,6 @@ export function NewTaskEnvironmentRouteScreen({
       <AppBar
         title={screenTitle}
         subtitle={incomingShareSubtitle ?? undefined}
-        sidebar={false}
         options={{ headerBackVisible: true }}
         hideBottomBorder
         onBack={() => navigation.goBack()}
