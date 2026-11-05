@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./fleetEnrollment": {
+      "types": "./src/fleetEnrollment.ts",
+      "import": "./src/fleetEnrollment.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"
