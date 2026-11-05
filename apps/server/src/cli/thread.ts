@@ -30,7 +30,7 @@ import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import { mcpToolSession, type McpToolSession } from "../mcp/AcpMcpStdioBridge.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { serverLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 /**
  * Short enough that a run which stops to ask the user something is noticed
@@ -560,7 +560,7 @@ const decodeThreadId = (value: string) =>
   );
 
 const threadListCommand = Command.make("list", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   project: Flag.String("project").pipe(
     Flag.withDescription("Project id or a path inside the project. Defaults to this directory."),
     Flag.withDefault("."),
@@ -596,7 +596,7 @@ const threadListCommand = Command.make("list", {
 );
 
 const threadStartCommand = Command.make("start", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or a path inside the project, such as ."),
   ),
@@ -675,7 +675,7 @@ const threadStartCommand = Command.make("start", {
 );
 
 const threadSendCommand = Command.make("send", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   thread: threadArgument,
   message: messageArgument,
   wait: waitFlag,
@@ -709,7 +709,7 @@ const threadSendCommand = Command.make("send", {
 );
 
 const threadShowCommand = Command.make("show", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   thread: threadArgument,
   messages: Flag.Int("messages").pipe(
     Flag.withDescription("How many of the latest messages to print."),

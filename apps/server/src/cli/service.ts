@@ -5,6 +5,7 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
 import { FetchHttpClient } from "effect/http";
@@ -15,10 +16,10 @@ import * as ServiceProtection from "../cloud/serviceProtection.ts";
 import { compareExactServiceVersions, SERVICE_ENV_FILE } from "../cloud/serviceProtocol.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { installLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
 import { resolveEntryPath } from "./invocation.ts";
 
-export const layer = (config: ServerConfig.ServerConfig["Service"]) =>
+export const layer = (config: Pick<ServerConfig.ServerConfig["Service"], "baseDir" | "logsDir">) =>
   BootService.layer({
     baseDir: config.baseDir,
     logsDir: config.logsDir,
@@ -183,16 +184,25 @@ function formatServiceStatus(
 }
 
 const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E, R>(
-  flags: { readonly baseDir: Parameters<typeof resolveCliAuthConfig>[0]["baseDir"] },
+  flags: Parameters<typeof resolveInstallLocations>[0],
   run: Effect.Effect<A, E, R>,
 ) {
+  const locations = yield* resolveInstallLocations(flags);
   const logLevel = yield* GlobalFlag.LogLevel;
-  const config = yield* resolveCliAuthConfig(flags, logLevel);
-  return yield* run.pipe(Effect.provide(Layer.merge(layer(config), ServerConfig.layer(config))));
+  const config = yield* resolveCliAuthConfig(
+    {
+      baseDir: flags.baseDir,
+      serverConfigDir: Option.some(locations.configDir),
+      serverDataDir: Option.some(locations.dataDir),
+      serverCacheDir: Option.some(locations.cacheDir),
+    },
+    logLevel,
+  );
+  return yield* run.pipe(Effect.provide(Layer.merge(layer(locations), ServerConfig.layer(config))));
 });
 
 const serviceReconcileFlags = {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   allowDowngrade: Flag.Boolean("allow-downgrade").pipe(
     Flag.withDescription("Allow replacing a newer installed service with this older CLI version."),
     Flag.withDefault(false),
@@ -246,7 +256,7 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
   ),
 );
 
-const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe(
+const serviceRestartCommand = Command.make("restart", installLocationFlags).pipe(
   Command.withDescription(
     "Restart the background service. Picks up a version installed by `t3 update` that was not restarted at the time.",
   ),
@@ -271,7 +281,7 @@ const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe
   ),
 );
 
-const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).pipe(
+const serviceUninstallCommand = Command.make("uninstall", installLocationFlags).pipe(
   Command.withDescription("Stop and remove the T3 Code background service."),
   Command.withHandler((flags) =>
     runServiceCommand(
@@ -303,7 +313,7 @@ const serviceUninstallCommand = Command.make("uninstall", projectLocationFlags).
   ),
 );
 
-const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
+const serviceStatusCommand = Command.make("status", installLocationFlags).pipe(
   Command.withDescription("Show whether the T3 Code background service is installed."),
   Command.withHandler((flags) =>
     runServiceCommand(
@@ -333,7 +343,7 @@ const confirm = (yes: boolean, message: string) =>
   yes ? Effect.succeed(true) : Prompt.run(Prompt.Confirm({ message, initial: false }));
 
 const serviceProtectCommand = Command.make("protect", {
-  ...projectLocationFlags,
+  ...installLocationFlags,
   undo: Flag.Boolean("undo").pipe(
     Flag.withDescription("Remove the protection this command set up."),
     Flag.withDefault(false),
