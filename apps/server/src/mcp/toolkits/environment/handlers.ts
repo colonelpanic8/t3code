@@ -63,7 +63,15 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
         yield* check;
         const { settings } = yield* access;
         return preferences(
-          yield* settings.updateSettings(patch).pipe(Effect.mapError(unavailable)),
+          yield* settings.updateSettings(patch).pipe(
+            Effect.catchTags({
+              ManagedSettingWriteError: (error) =>
+                Effect.fail(
+                  new OrchestratorMcpFailure({ code: "capability_denied", message: error.message }),
+                ),
+              ServerSettingsError: () => Effect.fail(unavailable()),
+            }),
+          ),
         );
       });
       return yield* scope.thread === undefined

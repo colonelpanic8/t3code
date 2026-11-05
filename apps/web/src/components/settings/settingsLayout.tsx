@@ -7,16 +7,22 @@ import { InfoIcon, Undo2Icon } from "lucide-react";
 import {
   DEFAULT_SERVER_SETTINGS,
   isManagedSettingPath,
-  type ServerSettings,
+  isSettingPathManaged,
+  ServerSettings,
+  type UnifiedSettings,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import * as Equal from "effect/Equal";
+import * as Struct from "effect/Struct";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { createContext, type ComponentPropsWithoutRef, type ReactNode, useContext } from "react";
 
 import {
   PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
+  useManagedClientSettings,
   usePrimarySettingsAvailable,
 } from "../../hooks/useSettings";
+import { primaryServerConfigAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { WorkspacePageContainer, type WorkspacePageWidth } from "../WorkspacePageContainer";
 import { Button } from "../ui/button";
@@ -37,8 +43,13 @@ import {
   type SettingOverridingProject,
 } from "./SettingInheritance";
 
-const EMPTY_SETTING_KEYS: readonly (keyof ServerSettings)[] = [];
+const EMPTY_SETTING_KEYS: readonly (keyof UnifiedSettings)[] = [];
 const EMPTY_MANAGED_PATHS: readonly string[] = [];
+const SERVER_SETTING_KEYS = new Set<string>(Struct.keys(ServerSettings.fields));
+const isServerSettingKey = (key: keyof UnifiedSettings): key is keyof ServerSettings =>
+  SERVER_SETTING_KEYS.has(key);
+
+export const MANAGED_SETTING_MESSAGE = "Managed by system configuration";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -323,7 +334,7 @@ export function SettingsRow({
   onResetOverride?: () => void;
   control?: ReactNode;
   serverScoped?: boolean;
-  settingKeys?: readonly (keyof ServerSettings)[];
+  settingKeys?: readonly (keyof UnifiedSettings)[];
   /** Dot paths inside a setting, such as `storageCleanup.logsAfterDays`, an administrator can lock. */
   managedPaths?: readonly string[];
   mixed?: boolean;
@@ -332,6 +343,8 @@ export function SettingsRow({
   children?: ReactNode;
 }) {
   const targetRef = useSettingsSearchTarget<HTMLDivElement>(rowProps.id);
+  const managedClientSettings = useManagedClientSettings();
+  const primaryServerConfig = useAtomValue(primaryServerConfigAtom);
   const primarySettingsAvailable = usePrimarySettingsAvailable();
   const context = useOptionalSettingsScope();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -365,10 +378,11 @@ export function SettingsRow({
   const clearProjectOverrides = useClearProjectOverrides();
   const isProjectScope =
     context !== null && (context.scope.kind === "project" || context.scope.kind === "checkout");
-  const scopedKeys = settingKeys.filter(isProjectScopedSettingKey);
+  const serverKeys = settingKeys.filter(isServerSettingKey);
+  const scopedKeys = serverKeys.filter(isProjectScopedSettingKey);
   const environmentWide = isProjectScope && serverScoped && scopedKeys.length === 0;
   const mixed =
-    mixedOverride ?? (context !== null && scopedSettingsAreMixed(context.targets, settingKeys));
+    mixedOverride ?? (context !== null && scopedSettingsAreMixed(context.targets, serverKeys));
   const source =
     context && isProjectScope ? scopedSettingsSource(context.targets, scopedKeys) : null;
   const unavailable =
@@ -389,9 +403,21 @@ export function SettingsRow({
     ),
   );
   const overridingProjects = isProjectScope ? [] : projectOverrides(context, scopedKeys);
+  const managedPathSets = context
+    ? context.connectedEnvironments.map((target) => target.serverConfig?.managedSettingPaths)
+    : [primaryServerConfig?.managedSettingPaths];
+  // Project overrides stay editable; the managed layer fixes environment values.
+  const systemManaged =
+    settingKeys.some((key) => Object.hasOwn(managedClientSettings, key)) ||
+    (!isProjectScope &&
+      serverKeys.some((key) =>
+        managedPathSets.some((paths) => isSettingPathManaged(paths, [key])),
+      ));
   const renderedReset =
-    unavailable || managedBy !== undefined || managed !== undefined ? null : isProjectScope &&
-      scopedKeys.length > 0 ? (
+    unavailable ||
+    systemManaged ||
+    managedBy !== undefined ||
+    managed !== undefined ? null : isProjectScope && scopedKeys.length > 0 ? (
       source === "project" || source === "mixed" ? (
         <SettingResetButton
           label={typeof title === "string" ? title : "override"}
@@ -427,27 +453,29 @@ export function SettingsRow({
       ? inertControl(managed)
       : managedBy !== undefined && control
         ? inertControl(`Managed by ${managedBy}.`)
-        : unavailable && control
-          ? inertControl(
-              !canWriteSettings
-                ? `This connection lacks permission to change settings on ${
-                    context
-                      ? context.connectedEnvironments
-                          .filter((target) => !writableIds.has(target.environmentId))
-                          .map((target) => target.label)
-                          .join(", ") || "the selected environment"
-                      : (primaryEnvironment?.label ?? "the primary environment")
-                  }.`
-                : context
-                  ? "Reconnect the selected environment to change this setting."
-                  : PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
-            )
-          : environmentWide && control
-            ? inertControl("Environment-wide setting. Select an environment to change it.")
-            : control;
+        : systemManaged && control
+          ? inertControl(MANAGED_SETTING_MESSAGE)
+          : unavailable && control
+            ? inertControl(
+                !canWriteSettings
+                  ? `This connection lacks permission to change settings on ${
+                      context
+                        ? context.connectedEnvironments
+                            .filter((target) => !writableIds.has(target.environmentId))
+                            .map((target) => target.label)
+                            .join(", ") || "the selected environment"
+                        : (primaryEnvironment?.label ?? "the primary environment")
+                    }.`
+                  : context
+                    ? "Reconnect the selected environment to change this setting."
+                    : PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
+              )
+            : environmentWide && control
+              ? inertControl("Environment-wide setting. Select an environment to change it.")
+              : control;
   const customized =
     context !== null &&
-    settingKeys.some((key) =>
+    serverKeys.some((key) =>
       context.targets.some((candidate) => {
         const environmentSettings = environmentSettingsById.get(candidate.environmentId);
         return (
@@ -468,13 +496,13 @@ export function SettingsRow({
             ? { state: "environment", summary: "Set on the environment" }
             : { state: "default", summary: "Built-in default" };
   const renderedInheritance =
-    context && serverScoped && settingKeys.length > 0 ? (
+    context && serverScoped && serverKeys.length > 0 ? (
       <SettingInheritance
         state={inheritance.state}
         summary={inheritance.summary}
         targets={context.targets}
         environments={context.connectedEnvironments}
-        keys={settingKeys}
+        keys={serverKeys}
         overridingProjects={overridingProjects}
         {...(canWriteSettings
           ? {
@@ -484,7 +512,15 @@ export function SettingsRow({
           : {})}
       />
     ) : null;
-  const renderedStatus = status;
+  const renderedStatus = systemManaged ? (
+    <>
+      {status}
+      {status ? " · " : null}
+      {MANAGED_SETTING_MESSAGE}
+    </>
+  ) : (
+    status
+  );
 
   return (
     <div
@@ -534,7 +570,7 @@ export function SettingsRow({
           </div>
         ) : null}
       </div>
-      {unavailable && children ? (
+      {(unavailable || systemManaged) && children ? (
         <div inert className="opacity-50">
           {children}
         </div>
