@@ -12,7 +12,7 @@ import { AsyncResult } from "effect/reactivity";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, isSettingPathManaged } from "@t3tools/contracts";
 import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { AppText as Text } from "../../components/ui/AppText";
 import { useEnvironments } from "../../state/environments";
@@ -106,8 +106,16 @@ export function AutoSettleSettingsRows(props: {
   );
 
   const disabled = !canWriteSettings || props.pending;
+  // Values fixed by an environment's system configuration; project overrides stay editable.
   const disabledFor = (...keys: string[]) =>
-    disabled || managedSettingReason(displayTargets, ...keys) !== undefined;
+    disabled ||
+    managedSettingReason(displayTargets, ...keys) !== undefined ||
+    (!projectSelected &&
+      displayTargets.some((target) =>
+        keys.some((key) =>
+          isSettingPathManaged(target.environment.serverConfig.managedSettingPaths, [key]),
+        ),
+      ));
   const afterDays = referenceSettings.sidebarAutoSettleAfterDays;
 
   return (
