@@ -1,4 +1,3 @@
-import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
 import * as DateTime from "effect/DateTime";
 
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
@@ -20,59 +19,15 @@ import {
   type DesktopSshEnvironmentTarget,
   type DesktopUpdateState,
   type DesktopWslState,
+  type EnvironmentId,
   type RunningLocalServer,
 } from "@t3tools/contracts";
+import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
+import type { EnvironmentPresentation } from "../../state/environments";
 import {
   getDesktopUpdateDownloadedVersion,
   resolveDesktopUpdateButtonAction,
 } from "../desktopUpdate.logic";
-import * as Option from "effect/Option";
-import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
-import { isLoopbackHostname } from "../../environments/primary/target";
-import type { EnvironmentPresentation } from "../../state/environments";
-export function environmentPairingBaseUrl(entry: ConnectionCatalogEntry): string | null {
-  switch (entry.target._tag) {
-    case "PrimaryConnectionTarget":
-      return entry.target.httpBaseUrl;
-    case "BearerConnectionTarget":
-      return Option.isSome(entry.profile) && entry.profile.value._tag === "BearerConnectionProfile"
-        ? entry.profile.value.httpBaseUrl
-        : null;
-    case "RelayConnectionTarget":
-    case "SshConnectionTarget":
-      return null;
-  }
-}
-export function isLoopbackUrl(url: string): boolean {
-  try {
-    return isLoopbackHostname(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The link a new pairing credential is shared as when no advertised endpoint
- * applies, or null to share the code alone. `pageUrl` is only passed for the
- * environment serving this page: a relay or SSH environment has no address
- * another device could open.
- */
-export function resolveFallbackPairingUrl(input: {
-  readonly credential: string;
-  readonly endpointUrl: string | null | undefined;
-  readonly pageUrl: string | null;
-}): string | null {
-  if (input.endpointUrl) {
-    return (
-      resolveHostedPairingUrl(input.endpointUrl, input.credential) ??
-      resolveDesktopPairingUrl(input.endpointUrl, input.credential)
-    );
-  }
-  if (input.pageUrl === null || isLoopbackUrl(input.pageUrl)) {
-    return null;
-  }
-  return setPairingTokenOnUrl(new URL("/pair", input.pageUrl), input.credential).toString();
-}
 
 /** Keep terminal:read with terminal:operate to avoid creating unseen shells on every script run. */
 export function togglePairingScopeSelection(
@@ -98,50 +53,8 @@ export function canRevokeOtherClients(
 ): boolean {
   return clientSessions === null || clientSessions.some((session) => !session.current);
 }
-type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
-export type LocalServerPairingStatus = "pair" | "pair-again" | "paired" | "version-mismatch";
-export interface LocalServerPairingCandidate {
-  readonly server: RunningLocalServer;
-  readonly status: LocalServerPairingStatus;
-}
 
-/**
- * Discovered servers this client could pair with. This machine's own and
- * desktop-managed backends are never candidates. A saved environment is only
- * offered again once its connection has failed.
- */
-export function selectLocalServerPairingCandidates(
-  servers: ReadonlyArray<RunningLocalServer>,
-  environments: ReadonlyArray<
-    Pick<EnvironmentPresentation, "environmentId" | "entry" | "connection">
-  >,
-): ReadonlyArray<LocalServerPairingCandidate> {
-  return servers.flatMap((server): LocalServerPairingCandidate[] => {
-    const saved = environments.find(
-      (environment) => environment.environmentId === server.environmentId,
-    );
-    if (
-      saved?.entry.target._tag === "PrimaryConnectionTarget" ||
-      (saved !== undefined && isDesktopLocalConnectionTarget(saved.entry.target))
-    ) {
-      return [];
-    }
-    const status: LocalServerPairingStatus =
-      saved !== undefined && saved.connection.phase !== "error"
-        ? "paired"
-        : server.pairing === "version-mismatch"
-          ? "version-mismatch"
-          : saved !== undefined
-            ? "pair-again"
-            : "pair";
-    return [
-      {
-        server,
-        status,
-      },
-    ];
-  });
-}
+type WslEnableBridge = Pick<DesktopBridge, "setWslBackendEnabled" | "setWslDistro" | "setWslOnly">;
 
 /** Never offer loopback URLs as QR targets; scanning devices would connect to themselves. */
 export function isQrShareableEndpoint(endpoint: AdvertisedEndpoint): boolean {
@@ -498,6 +411,11 @@ export function resolveAdvertisedEndpointPairingUrl(
   return resolveDesktopPairingUrl(endpoint.httpBaseUrl, credential);
 }
 
+export function resolveCurrentOriginPairingUrl(credential: string): string {
+  const url = new URL("/pair", window.location.href);
+  return setPairingTokenOnUrl(url, credential).toString();
+}
+
 export function isHostedAppPairingUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -521,4 +439,67 @@ export function endpointShareHint(endpoint: AdvertisedEndpoint, url: string): st
     case "loopback":
       return "Clients on this machine";
   }
+}
+
+/** An explicit choice while it is listed, else the primary, else a connected environment. */
+export function resolveAccessEnvironmentId(input: {
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly environments: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly connected: boolean;
+  }>;
+  readonly selected: EnvironmentId | null;
+}): EnvironmentId | null {
+  const isListed = (environmentId: EnvironmentId | null) =>
+    input.environments.some((environment) => environment.environmentId === environmentId);
+  if (isListed(input.selected)) return input.selected;
+  if (isListed(input.primaryEnvironmentId)) return input.primaryEnvironmentId;
+  return (
+    (input.environments.find((environment) => environment.connected) ?? input.environments[0])
+      ?.environmentId ?? null
+  );
+}
+
+export type LocalServerPairingStatus = "pair" | "pair-again" | "paired" | "version-mismatch";
+export interface LocalServerPairingCandidate {
+  readonly server: RunningLocalServer;
+  readonly status: LocalServerPairingStatus;
+}
+
+/**
+ * Discovered servers this client could pair with. This machine's own and
+ * desktop-managed backends are never candidates. A saved environment is only
+ * offered again once its connection has failed.
+ */
+export function selectLocalServerPairingCandidates(
+  servers: ReadonlyArray<RunningLocalServer>,
+  environments: ReadonlyArray<
+    Pick<EnvironmentPresentation, "environmentId" | "entry" | "connection">
+  >,
+): ReadonlyArray<LocalServerPairingCandidate> {
+  return servers.flatMap((server): LocalServerPairingCandidate[] => {
+    const saved = environments.find(
+      (environment) => environment.environmentId === server.environmentId,
+    );
+    if (
+      saved?.entry.target._tag === "PrimaryConnectionTarget" ||
+      (saved !== undefined && isDesktopLocalConnectionTarget(saved.entry.target))
+    ) {
+      return [];
+    }
+    const status: LocalServerPairingStatus =
+      saved !== undefined && saved.connection.phase !== "error"
+        ? "paired"
+        : server.pairing === "version-mismatch"
+          ? "version-mismatch"
+          : saved !== undefined
+            ? "pair-again"
+            : "pair";
+    return [
+      {
+        server,
+        status,
+      },
+    ];
+  });
 }

@@ -3,14 +3,12 @@ import {
   PrimaryConnectionTarget,
   type ConnectionCatalogEntry,
 } from "@t3tools/client-runtime/connection";
-import { EnvironmentId, type DesktopWslState, type RunningLocalServer } from "@t3tools/contracts";
+import { type DesktopWslState, EnvironmentId, type RunningLocalServer } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { getPairingTokenFromUrl } from "@t3tools/shared/remote";
 import {
   applyWslEnableSelection,
-  isLoopbackUrl,
-  resolveFallbackPairingUrl,
+  resolveAccessEnvironmentId,
   selectLocalServerPairingCandidates,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
@@ -52,43 +50,6 @@ describe("togglePairingScopeSelection", () => {
   });
 });
 
-describe("resolveFallbackPairingUrl", () => {
-  it("shares only the code for an environment without an address another device can open", () => {
-    expect(
-      resolveFallbackPairingUrl({
-        credential: "secret",
-        endpointUrl: null,
-        pageUrl: null,
-      }),
-    ).toBeNull();
-  });
-  it("falls back to this page's origin unless the page is loopback", () => {
-    const url = resolveFallbackPairingUrl({
-      credential: "secret",
-      endpointUrl: undefined,
-      pageUrl: "http://box.tail.ts.net:3773/settings/connections",
-    });
-    expect(url).not.toBeNull();
-    expect(new URL(url!).origin + new URL(url!).pathname).toBe("http://box.tail.ts.net:3773/pair");
-    expect(getPairingTokenFromUrl(new URL(url!))).toBe("secret");
-    expect(
-      resolveFallbackPairingUrl({
-        credential: "secret",
-        endpointUrl: undefined,
-        pageUrl: "http://127.0.0.1:3773/settings/connections",
-      }),
-    ).toBeNull();
-  });
-  it("shares a loopback environment address as a link but never as a QR code", () => {
-    const url = resolveFallbackPairingUrl({
-      credential: "secret",
-      endpointUrl: "http://127.0.0.1:3773/",
-      pageUrl: null,
-    });
-    expect(url).not.toBeNull();
-    expect(isLoopbackUrl(url!)).toBe(true);
-  });
-});
 describe("resolveTailscaleServeBaseUrl", () => {
   it.each([
     ["https://host.tail.ts.net:441/", 443, "https://host.tail.ts.net"],
@@ -191,6 +152,63 @@ describe("selectQrEndpointOption", () => {
     );
   });
 });
+
+describe("resolveAccessEnvironmentId", () => {
+  const primary = EnvironmentId.make("primary");
+  const service = EnvironmentId.make("service");
+  const laptop = EnvironmentId.make("laptop");
+  it.each([
+    {
+      label: "defaults to the primary environment",
+      primaryEnvironmentId: primary,
+      environments: [
+        { environmentId: primary, connected: true },
+        { environmentId: service, connected: true },
+      ],
+      selected: null,
+      expected: primary,
+    },
+    {
+      label: "falls back to a connected saved environment without a primary",
+      primaryEnvironmentId: null,
+      environments: [
+        { environmentId: laptop, connected: false },
+        { environmentId: service, connected: true },
+      ],
+      selected: null,
+      expected: service,
+    },
+    {
+      label: "keeps an explicit choice",
+      primaryEnvironmentId: primary,
+      environments: [
+        { environmentId: primary, connected: true },
+        { environmentId: laptop, connected: false },
+      ],
+      selected: laptop,
+      expected: laptop,
+    },
+    {
+      label: "drops a choice that is no longer listed",
+      primaryEnvironmentId: null,
+      environments: [{ environmentId: service, connected: true }],
+      selected: laptop,
+      expected: service,
+    },
+    {
+      label: "has nothing to show without environments",
+      primaryEnvironmentId: null,
+      environments: [],
+      selected: null,
+      expected: null,
+    },
+  ])("$label", ({ primaryEnvironmentId, environments, selected, expected }) => {
+    expect(resolveAccessEnvironmentId({ primaryEnvironmentId, environments, selected })).toBe(
+      expected,
+    );
+  });
+});
+
 describe("selectLocalServerPairingCandidates", () => {
   const server = {
     environmentId: EnvironmentId.make("environment-local"),
