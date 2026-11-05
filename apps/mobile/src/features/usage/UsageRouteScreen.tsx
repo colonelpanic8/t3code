@@ -41,7 +41,7 @@ import {
   usageSourceMessages,
 } from "@t3tools/shared/usageFormat";
 import { use, useRef, useState, type ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, View, useWindowDimensions } from "react-native";
 import { RefreshControl } from "../../components/ui/RefreshControl";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -55,6 +55,8 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { NativeWorkspaceTabActivityContext } from "../../native/v5-workspace-context";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { SettingsSection } from "../settings/components/SettingsSection";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { DEFAULT_BASE_FONT_SIZE } from "../../lib/appearancePreferences";
 import { UsageBreakdownSection } from "./UsageBreakdownSection";
 import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
@@ -90,6 +92,7 @@ const WINDOW_OPTIONS = [
 ] as const;
 
 const CHART_HEIGHT = 180;
+const GROUPING_CONTROL_WIDTH = 192;
 const WIDE_CHART_HEIGHT = 260;
 // Below this the page keeps the phone's single column.
 const WIDE_WIDTH = 600;
@@ -507,6 +510,12 @@ function ChartCard(props: {
   const { grouping, timeZone, hour12 } = labelContext;
   const { stack, dimensions } = series;
   const [fillHeight, setFillHeight] = useState(0);
+  const { fontScale } = useWindowDimensions();
+  const { appearance } = useAppearancePreferences();
+  // Labels grow with both text-size settings; a fixed width wraps "Month".
+  const groupingControlWidth =
+    GROUPING_CONTROL_WIDTH *
+    Math.max(1, (appearance.baseFontSize / DEFAULT_BASE_FONT_SIZE) * fontScale);
   const height = props.fill ? Math.max(fillHeight, props.height) : props.height;
   const labels = usageSeriesLabels(stack.series, dimensions, labelContext);
   const periods = stack.columns.map((column) => column.period);
@@ -557,17 +566,18 @@ function ChartCard(props: {
           }
         />
         {grouping === "hour" ? null : (
-          <SegmentedControl
-            options={USAGE_DAY_GROUPINGS.map((option) => ({
-              value: option,
-              label: USAGE_GROUPING_NAMES[option],
-            }))}
-            selected={grouping}
-            onSelect={props.onGroupingChange}
-            size="compact"
-            variant="card"
-            className="w-48"
-          />
+          <View style={{ width: groupingControlWidth }}>
+            <SegmentedControl
+              options={USAGE_DAY_GROUPINGS.map((option) => ({
+                value: option,
+                label: USAGE_GROUPING_NAMES[option],
+              }))}
+              selected={grouping}
+              onSelect={props.onGroupingChange}
+              size="compact"
+              variant="card"
+            />
+          </View>
         )}
       </View>
 
