@@ -527,6 +527,10 @@
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
     },
+    "./state/voice-live": {
+      "types": "./src/state/voiceLive.ts",
+      "default": "./src/state/voiceLive.ts"
+    },
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"

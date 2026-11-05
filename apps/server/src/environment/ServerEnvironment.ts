@@ -270,6 +270,8 @@ export const make = Effect.gen(function* () {
       projectOrganization: true,
       ignoredFileListing: true,
       triage: true,
+      voiceLive: true,
+      voiceLiveToolExecution: true,
       oneTimeSchedules: true,
       npmReleaseLookup: true,
       ...(serverSelfUpdate === null ? {} : { serverSelfUpdate }),
