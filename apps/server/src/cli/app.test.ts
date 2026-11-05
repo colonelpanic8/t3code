@@ -248,7 +248,7 @@ describe("t3 app", () => {
               const expectedUserId =
                 unsafe === "missing owner" ? undefined : unsafe === "owner" ? userId + 1 : userId;
               const desktop = yield* fakeDesktop({
-                stateDir: splitStateDir(root, "t3code"),
+                stateDir: splitStateDir(root, "t3code-client"),
               }).pipe(Effect.provideService(HostProcess.UserId, expectedUserId));
               const directory = desktop.directory;
               assert(directory !== null);
@@ -302,10 +302,10 @@ describe("t3 app", () => {
     withTempDirectory("t3-app-preferred-test-", (root) =>
       Effect.gen(function* () {
         const desktop = yield* fakeDesktop({
-          stateDir: splitStateDir(root, "t3code"),
+          stateDir: splitStateDir(root, "t3code-client"),
         });
         const development = yield* fakeDesktop({
-          stateDir: splitStateDir(root, "t3code-dev"),
+          stateDir: splitStateDir(root, "t3code-client-dev"),
         });
 
         yield* runCli(["app"]);
@@ -341,7 +341,7 @@ describe("t3 app", () => {
       Effect.gen(function* () {
         const baseDir = NodePath.join(root, ".t3");
         const development = yield* fakeDesktop({
-          stateDir: splitStateDir(root, "t3code-dev"),
+          stateDir: splitStateDir(root, "t3code-client-dev"),
         });
 
         yield* runCli(["app"]);
@@ -377,7 +377,7 @@ describe("t3 app", () => {
       withTempDirectory("t3-app-response-test-", (root) =>
         Effect.gen(function* () {
           const desktop = yield* fakeDesktop({
-            stateDir: splitStateDir(root, "t3code"),
+            stateDir: splitStateDir(root, "t3code-client"),
             reply: (request) =>
               responseKind === "failure"
                 ? {
@@ -390,7 +390,7 @@ describe("t3 app", () => {
                 : { invalid: true },
           });
           const development = yield* fakeDesktop({
-            stateDir: splitStateDir(root, "t3code-dev"),
+            stateDir: splitStateDir(root, "t3code-client-dev"),
           });
 
           const error = yield* runCli(["app"]).pipe(Effect.flip);
