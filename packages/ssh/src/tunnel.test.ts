@@ -22,6 +22,14 @@ import * as SshAuth from "./auth.ts";
 import { SshCommandError, SshPasswordPromptError } from "./errors.ts";
 import * as SshTunnel from "./tunnel.ts";
 
+// The scripts under test resolve node and sh through the host PATH.
+const HOST_PATH = process.env.PATH ?? "";
+
+class LaunchedServerExited extends Schema.TaggedError<LaunchedServerExited>()(
+  "LaunchedServerExited",
+  {},
+) {}
+
 const isSshCommandError = Schema.is(SshCommandError);
 
 const makeSuccessfulProcess = (stdout: string) => {
@@ -533,14 +541,19 @@ if (args[0] === "serve") {
         };
         const stateKey = "location-test";
         const env = {
-          PATH: process.env.PATH ?? "",
+          PATH: HOST_PATH,
           HOME: home,
           T3_FAKE_RECORD: record,
           T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
         };
         yield* Effect.addFinalizer(() =>
           fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
-            Effect.flatMap((pid) => Effect.try(() => process.kill(Number(pid.trim())))),
+            Effect.flatMap((pid) =>
+              Effect.try({
+                try: () => process.kill(Number(pid.trim())),
+                catch: () => new LaunchedServerExited(),
+              }),
+            ),
             Effect.ignore,
           ),
         );
