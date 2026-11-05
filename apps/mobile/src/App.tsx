@@ -75,6 +75,7 @@ import {
 } from "./lib/foundation-fast-refresh";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { installUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { installSettingsFeedSync } from "./features/settings-feed/SettingsFeedSync";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { installSubscriptionUsageRefresh } from "./widgets/useSubscriptionUsage";
 import { GlobalVoiceInputControl } from "./features/voice-input/GlobalVoiceInputControl";
@@ -194,6 +195,7 @@ const appServiceDisposers = [
     shellStateAtom: environmentShell.stateAtom,
   }),
   installAppearanceRuntime(),
+  installSettingsFeedSync(),
   installSubscriptionUsageRefresh(),
   installPermissionUpdateNotice(),
   installThreadOutboxDelivery(),
