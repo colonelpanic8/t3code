@@ -85,7 +85,7 @@ function RestoreBranchHarness(props: {
     gitStatusQuery: { refresh: props.refreshGitStatus },
     nowMinute: "",
     composerRef: { current: { focusAtEnd: props.focusComposer } } as never,
-    composerDraftTarget: { kind: "thread", ref: props.thread.activeThreadRef } as never,
+    composerDraftTarget: props.thread.activeThreadRef,
     sendInFlightRef: { current: false },
     setOptimisticUserMessages: () => undefined,
     setThreadError: () => undefined,
