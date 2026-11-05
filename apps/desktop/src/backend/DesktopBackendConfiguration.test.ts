@@ -246,6 +246,7 @@ describe("DesktopBackendConfiguration", () => {
         assert.equal(first.bootstrap.port, 4888);
         assert.equal(first.bootstrap.host, "0.0.0.0");
         assert.equal(first.bootstrap.t3Home, environment.baseDir);
+        assert.isUndefined(first.bootstrap.storageRoots);
         assert.equal(first.bootstrap.tailscaleServeEnabled, true);
         assert.equal(first.bootstrap.tailscaleServePort, 8443);
         assert.match(first.bootstrap.desktopBootstrapSecret ?? "", /^[0-9a-f]{64}$/i);
@@ -741,9 +742,15 @@ describe("DesktopBackendConfiguration", () => {
         assert.equal(config.env.OPENAI_API_KEY, "openai-key");
         assert.equal(config.env.ANTHROPIC_API_KEY, "anthropic-key");
         assert.equal(config.env.T3CODE_OTLP_PROTOCOL, "http/protobuf");
+        assert.isUndefined(config.env.t3code_home);
+        assert.isUndefined(config.env.XDG_CONFIG_HOME);
+        assert.isUndefined(config.env.XDG_DATA_HOME);
+        assert.isUndefined(config.env.XDG_STATE_HOME);
+        assert.isUndefined(config.env.XDG_CACHE_HOME);
+        assert.isUndefined(config.env.XDG_RUNTIME_DIR);
         assert.equal(
           config.env.WSLENV,
-          "GOPATH/p:OPENAI_API_KEY/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u:ANTHROPIC_API_KEY:T3CODE_OTLP_HEADERS:T3CODE_OTLP_PROTOCOL",
+          "GOPATH/p:openai_api_key/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u:ANTHROPIC_API_KEY:T3CODE_OTLP_HEADERS:T3CODE_OTLP_PROTOCOL",
         );
       }).pipe(
         Effect.provide(
@@ -762,11 +769,17 @@ describe("DesktopBackendConfiguration", () => {
           ),
         ),
         Effect.provideService(HostProcess.Environment, {
-          WSLENV: "GOPATH/p:OPENAI_API_KEY/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u",
+          WSLENV: "GOPATH/p:openai_api_key/u:EMPTY::AZURE_DEVOPS_EXT_PAT/u",
           OPENAI_API_KEY: "openai-key",
           ANTHROPIC_API_KEY: "anthropic-key",
           T3CODE_OTLP_HEADERS: 'authorization="Bearer%20my-token"',
           T3CODE_OTLP_PROTOCOL: "http/protobuf",
+          t3code_home: "C:\\t3code",
+          XDG_CONFIG_HOME: "C:\\xdg\\config",
+          XDG_DATA_HOME: "C:\\xdg\\data",
+          XDG_STATE_HOME: "C:\\xdg\\state",
+          XDG_CACHE_HOME: "C:\\xdg\\cache",
+          XDG_RUNTIME_DIR: "C:\\xdg\\runtime",
         }),
       );
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
