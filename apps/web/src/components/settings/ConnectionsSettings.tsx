@@ -1,3 +1,4 @@
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import { SessionPermissions } from "./SessionPermissions";
 import { ChevronRightIcon, EllipsisIcon, RefreshCwIcon, TerminalIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
@@ -1682,6 +1683,7 @@ function ConnectionsSettingsContent({
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {desktopBridge ? (
         <SettingsSection id="this-app" title="This app">
           <LocalEnvironmentSetting />
