@@ -14,6 +14,7 @@ import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
 import { FleetEnrollmentKeySettings } from "../connection/FleetEnrollmentKeySettings";
 import { PullRequestRoutingSettings } from "../connection/PullRequestRoutingSettings";
+import { SettingsFeedSection } from "../settings-feed/SettingsFeedSection";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -173,6 +174,7 @@ export function SettingsEnvironmentsRouteScreen() {
         />
         <PullRequestRoutingSettings />
         <FleetEnrollmentKeySettings />
+        <SettingsFeedSection />
       </ScrollView>
     </SettingsScreen>
   );
