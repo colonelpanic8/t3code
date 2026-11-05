@@ -1,19 +1,16 @@
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
-import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppBar } from "../../components/ui/AppBar";
-import { useSettingsPageBack } from "./useSettingsPageBack";
 import { AppText as Text } from "../../components/ui/AppText";
-import { NativeStackScreenOptions } from "../../native/StackHeader";
 import {
   DEFAULT_COMPOSER_ENTER_BEHAVIOR,
   type ComposerEnterBehavior,
 } from "../../lib/composerEnterBehavior";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
+import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
 import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
@@ -36,7 +33,6 @@ const ENTER_BEHAVIOR_OPTIONS: ReadonlyArray<{
 ];
 
 export function SettingsKeyboardRouteScreen() {
-  const back = useSettingsPageBack();
   const insets = useSafeAreaInsets();
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
@@ -47,13 +43,7 @@ export function SettingsKeyboardRouteScreen() {
     : null;
 
   return (
-    <View collapsable={false} className="flex-1 bg-sheet">
-      {Platform.OS === "android" ? (
-        <>
-          <NativeStackScreenOptions options={{ headerShown: false }} />
-          <AppBar embedded title="Keyboard" onBack={back} />
-        </>
-      ) : null}
+    <SettingsScreen title="Keyboard">
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -79,6 +69,6 @@ export function SettingsKeyboardRouteScreen() {
           Applies to the composer when a hardware keyboard is connected.
         </Text>
       </ScrollView>
-    </View>
+    </SettingsScreen>
   );
 }
