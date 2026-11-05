@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./assembly-build": {
+      "types": "./src/assemblyBuild.ts",
+      "default": "./src/assemblyBuild.ts"
+    },
     "./assembly-highlighting": {
       "types": "./src/assemblyHighlighting.ts",
       "default": "./src/assemblyHighlighting.ts"
