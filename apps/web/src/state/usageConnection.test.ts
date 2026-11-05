@@ -41,6 +41,7 @@ const mocks = await vi.hoisted(async () => {
       Atom.make<AsyncResult.AsyncResult<UsageSummary, Error>>(AsyncResult.initial(true)),
     ),
     providers: Atom.make(null),
+    usageModelFilter: Atom.make(undefined),
   };
 });
 vi.mock("./presentation", () => ({ environmentPresentations: mocks }));
@@ -52,6 +53,7 @@ vi.mock("./server", () => ({
   serverEnvironment: {
     usageSummary: (target: unknown) => mocks.query(JSON.stringify(target)),
     providersValueAtom: () => mocks.providers,
+    usageModelFilterAtom: () => mocks.usageModelFilter,
   },
 }));
 
