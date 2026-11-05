@@ -37,6 +37,7 @@ const mocks = await vi.hoisted(async () => {
     ),
     query: Atom.make<AsyncResult.AsyncResult<UsageSummary, Error>>(AsyncResult.initial(true)),
     providers: Atom.make(null),
+    usageModelFilter: Atom.make(undefined),
   };
 });
 vi.mock("./atom-registry", () => ({ appAtomRegistry: null }));
@@ -49,6 +50,7 @@ vi.mock("./server", () => ({
   serverEnvironment: {
     usageSummary: () => mocks.query,
     providersValueAtom: () => mocks.providers,
+    usageModelFilterAtom: () => mocks.usageModelFilter,
   },
 }));
 
