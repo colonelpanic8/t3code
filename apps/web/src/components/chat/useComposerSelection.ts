@@ -4,6 +4,7 @@ import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import {
+  type AgentProfileId,
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
@@ -115,6 +116,12 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   };
   const toggleInteractionModeStable = useStableCallback(toggleInteractionMode);
+  const handleAgentProfileChange = (profile: AgentProfileId | null) => {
+    if (!isLocalDraftThread) return;
+    setDraftThreadContext(composerDraftTarget, { agentProfile: profile });
+    scheduleComposerFocus();
+  };
+  const handleAgentProfileChangeStable = useStableCallback(handleAgentProfileChange);
   const openProviderSetup = (instanceId: ProviderInstanceId) => {
     void navigate({
       to: "/settings/providers",
@@ -255,6 +262,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   };
   return {
     getModelDisabledReason,
+    handleAgentProfileChangeStable,
     handleInteractionModeChange,
     handleInteractionModeChangeStable,
     handleRuntimeModeChangeStable,

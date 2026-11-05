@@ -7,6 +7,8 @@ export function resolveComposerControlsOwnership(input: {
   /** Permissions hide while the mode is the default, or while the new-thread strip names it. */
   readonly matchesDefault: boolean;
   readonly planModeUiEnabled: boolean;
+  /** The agent profile picker, which overflows as its own block. */
+  readonly hasProfile: boolean;
   readonly collapsed: boolean;
   /** How many trailing blocks the width measurement moved into the overflow menu. */
   readonly measuredHiddenBlockCount: number;
@@ -17,8 +19,15 @@ export function resolveComposerControlsOwnership(input: {
       ? ("icon" as const)
       : ("label" as const);
   const showModeBlock = accessDisplay !== "hidden" || input.planModeUiEnabled;
-  const modeHidden = showModeBlock && input.measuredHiddenBlockCount > 0;
-  const hiddenBlockIds = modeHidden ? (["mode"] as const) : ([] as const);
+  const blockIds = [
+    ...(showModeBlock ? ["mode" as const] : []),
+    ...(input.hasProfile ? ["profile" as const] : []),
+  ];
+  const hiddenBlockIds = blockIds.slice(
+    Math.max(0, blockIds.length - input.measuredHiddenBlockCount),
+  );
+  const modeHidden = hiddenBlockIds.includes("mode");
+  const profileHidden = hiddenBlockIds.includes("profile");
   // An overflowed chip needs a home for Permissions only when the Plan toggle is not there to fill
   // the overflow menu; otherwise Permissions stay in the model picker.
   const overflowShowsPermissions =
@@ -28,6 +37,7 @@ export function resolveComposerControlsOwnership(input: {
     showModeBlock,
     hiddenBlockCount: hiddenBlockIds.length,
     hiddenBlockIds,
+    profileHidden,
     overflowShowsPermissions,
     /** Without a visible chip or an overflow menu holding it, the model picker answers composer.mode. */
     pickerOwnsModeShortcut: !overflowShowsPermissions && (accessDisplay === "hidden" || modeHidden),
