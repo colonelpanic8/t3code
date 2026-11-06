@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   groupCoordinatorInbox,
   type CoordinatorChoice,
@@ -62,6 +62,7 @@ const KIND_PRESENTATION: Record<
 };
 
 export function SidebarCoordinatorInbox(props: {
+  readonly activeThreadKey: string | null;
   readonly onOpenThread: (ref: ScopedThreadRef) => void;
 }) {
   const choice = useDefaultCoordinator();
@@ -83,6 +84,7 @@ export function SidebarCoordinatorInbox(props: {
     <CoordinatorInboxGroup
       key={`${choice.environmentId}:${choice.coordinator.id}`}
       choice={choice}
+      activeThreadKey={props.activeThreadKey}
       onOpenThread={props.onOpenThread}
     />
   );
@@ -90,10 +92,12 @@ export function SidebarCoordinatorInbox(props: {
 
 function CoordinatorInboxGroup(props: {
   readonly choice: CoordinatorChoice;
+  readonly activeThreadKey: string | null;
   readonly onOpenThread: (ref: ScopedThreadRef) => void;
 }) {
   const { environmentId, coordinator } = props.choice;
   const threadRef = coordinatorThreadRef(props.choice);
+  const active = threadRef !== null && scopedThreadKey(threadRef) === props.activeThreadKey;
   const inbox = useEnvironmentQuery(
     serverEnvironment.coordinatorInboxLive({
       environmentId,
@@ -187,8 +191,11 @@ function CoordinatorInboxGroup(props: {
             type="button"
             className={cn(
               headerClassName,
-              "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+              active
+                ? "bg-sidebar-row-active text-sidebar-foreground"
+                : "hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
             )}
+            aria-current={active ? "page" : undefined}
             onClick={() => props.onOpenThread(threadRef)}
           >
             {headerTitle}

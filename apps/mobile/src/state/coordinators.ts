@@ -3,6 +3,7 @@ import {
   resolveDefaultCoordinator,
   type CoordinatorChoice,
 } from "@t3tools/client-runtime/state/coordinator-inbox";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -10,6 +11,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { mobilePreferencesAtom } from "./preferences";
 import { connectedEnvironmentIdsAtom } from "./presentation";
 import { environmentServerConfigsAtom, serverEnvironment } from "./server";
+import { environmentThreadShells } from "./threads";
 
 const coordinatorEnvironmentIdsAtom = Atom.make((get) => {
   const configs = get(environmentServerConfigsAtom);
@@ -47,3 +49,21 @@ export function useCoordinatorChoices() {
     : null;
   return { choices, chosen, resolved: resolveDefaultCoordinator(chosen, choices) };
 }
+
+/** Thread shells for thread lists: a coordinator's thread lives in the Inbox tab instead. */
+export const listedThreadShellsAtom = Atom.make((get) => {
+  const threads = get(environmentThreadShells.navigationThreadShellsAtom);
+  const coordinatorKeys = new Set(
+    get(coordinatorChoicesAtom).flatMap((choice) =>
+      choice.coordinator.threadId === null
+        ? []
+        : [scopedThreadKey(scopeThreadRef(choice.environmentId, choice.coordinator.threadId))],
+    ),
+  );
+  return coordinatorKeys.size === 0
+    ? threads
+    : threads.filter(
+        (thread) =>
+          !coordinatorKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+      );
+}).pipe(Atom.withLabel("mobile:listed-thread-shells"));

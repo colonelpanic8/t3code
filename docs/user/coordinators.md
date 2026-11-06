@@ -30,7 +30,8 @@ Coordinators are set in the machine's `settings.json`, under `coordinators`:
   and the current inbox. **New session** in the inbox does the same at once. Each session starts
   without the earlier ones in context, so a coordinator keeps what matters in files in its folder.
 
-T3 Code creates the coordinator's thread and pins it. To see other machines' threads in its inbox,
+T3 Code creates the coordinator's thread. It is kept out of the thread list: open it from the
+coordinator at the top of the sidebar or the **Inbox** tab on mobile. To see other machines' threads in its inbox,
 turn on **Settings → Labs → Linked environments** on every machine involved and link them.
 
 ## Use the inbox
