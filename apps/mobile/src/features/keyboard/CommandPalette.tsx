@@ -53,6 +53,7 @@ import { requestThreadMessageJump } from "../threads/threadMessageJump";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "../../state/server";
+import { coordinatorsAvailableAtom, useCoordinatorChoices } from "../../state/coordinators";
 import { useWorkspaceEnvironments } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -93,6 +94,7 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   appearance: "paintbrush",
   environments: "desktopcomputer",
   usage: "chart.bar.xaxis",
+  coordinator: "sparkles",
   archive: "archivebox",
   files: "doc.text",
   terminal: "terminal",
@@ -268,6 +270,8 @@ export function CommandPalette(props: {
     environmentLabels === undefined ? {} : { environmentLabels },
   );
   const serverConfigs = useServerConfigs();
+  const coordinatorsAvailable = useAtomValue(coordinatorsAvailableAtom);
+  const coordinator = useCoordinatorChoices().resolved;
   const startTriage = useStartTriage();
   const newTaskFlow = useNewTaskFlow();
   const draftEnvironmentId =
@@ -347,6 +351,27 @@ export function CommandPalette(props: {
         run: () => openSettings(navigation, "SettingsArchive"),
       },
     ];
+    if (coordinatorsAvailable) {
+      const threadId = coordinator?.coordinator.threadId ?? null;
+      actions.push({
+        key: "coordinator",
+        kind: "action",
+        title: "Open coordinator",
+        ...(coordinator ? { detail: coordinator.coordinator.name } : {}),
+        searchTerms: ["coordinator", "inbox", "needs you"],
+        // Without a single coordinator to open, the Inbox asks which one.
+        run: () =>
+          coordinator && threadId !== null
+            ? selectDetail({
+                name: "Thread",
+                params: {
+                  environmentId: String(coordinator.environmentId),
+                  threadId: String(threadId),
+                },
+              })
+            : selectTab("inbox"),
+      });
+    }
     if (canTriage) {
       actions.push({
         key: "triage",
@@ -466,6 +491,8 @@ export function CommandPalette(props: {
     activeThreadRef,
     environments.length,
     canTriage,
+    coordinator,
+    coordinatorsAvailable,
     navigation,
     projects,
     runCommand,
