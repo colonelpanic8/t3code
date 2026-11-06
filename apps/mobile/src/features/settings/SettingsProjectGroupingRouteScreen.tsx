@@ -13,6 +13,7 @@ import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import {
+  EvaSettingsSection,
   LinkSettingsSection,
   NewThreadSettingsSection,
   WorkingSectionSettings,
@@ -74,6 +75,7 @@ export function SettingsProjectGroupingRouteScreen() {
         <WorkingSectionSettings />
         <NewThreadSettingsSection />
         <LinkSettingsSection />
+        <EvaSettingsSection />
       </ScrollView>
     </SettingsScreen>
   );
