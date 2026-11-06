@@ -344,7 +344,7 @@ class EvaProtocolTest {
   @Test
   fun descriptorUsesOnlyKeywordsEvaAccepts() {
     val allowed = setOf("type", "description", "enum", "minLength", "maxLength")
-    val describe = EvaProtocol.describeReply()
+    val describe = EvaProtocol.describeReply(setOf("confirmation"))
     assertTrue(StrictJson.utf8Size(describe) <= 65_536)
     val descriptor = StrictJson.parseObject(describe)["descriptor"] as Map<*, *>
     for (entry in descriptor["capabilities"] as List<*>) {
@@ -369,6 +369,50 @@ class EvaProtocolTest {
         """{"protocolVersion":2,"supportedProtocolVersions":[2]}"""
       )
     )
+  }
+
+  @Test
+  fun startThreadAsksEvaToConfirmParametersOnlyWhenEvaOffersConfirmation() {
+    fun describe(features: String): Pair<Map<*, *>, Map<Any?, Map<*, *>>> {
+      val request = """{"protocolVersion":1,"supportedProtocolVersions":[1]$features}"""
+      val descriptor =
+        StrictJson.parseObject(
+          EvaProtocol.describeReply(EvaProtocol.describeFeatures(request))
+        )["descriptor"] as Map<*, *>
+      val byName =
+        (descriptor["capabilities"] as List<*>).associate {
+          val entry = it as Map<*, *>
+          (entry["tool"] as Map<*, *>)["name"] to entry
+        }
+      return descriptor to byName
+    }
+    val (offered, byName) = describe(""","features":["secrets","confirmation","later"]""")
+    val expected =
+      StrictJson.parseObject(
+        """
+        {"parameters":{
+          "environmentId":{"resolve":"confirm","label":"Host","choicesFrom":"list_environments"},
+          "projectId":{"resolve":"confirm","label":"Project","choicesFrom":"list_projects"},
+          "provider":{"resolve":"confirm","label":"Provider","choicesFrom":"list_models"},
+          "model":{"resolve":"confirm","label":"Model","choicesFrom":"list_models"},
+          "modelOptions":{"resolve":"confirm","label":"Model options","choicesFrom":"list_models"},
+          "workspace":{"resolve":"confirm","label":"Workspace"}
+        }}
+        """.trimIndent()
+      )
+    assertEquals(expected, byName.getValue("start_thread")["confirmation"])
+    val parameters = expected["parameters"] as Map<*, *>
+    parameters.values.mapNotNull { (it as Map<*, *>)["choicesFrom"] }.forEach {
+      assertTrue("$it", byName.containsKey(it))
+    }
+    byName.filterKeys { it != "start_thread" }.forEach { (name, entry) ->
+      assertFalse("$name", entry.containsKey("confirmation"))
+    }
+    for (features in listOf("", ""","features":["secrets"]""", ""","features":"confirmation"""")) {
+      val (descriptor, older) = describe(features)
+      assertFalse(features, older.values.any { it.containsKey("confirmation") })
+      assertEquals(offered["descriptorRevision"], descriptor["descriptorRevision"])
+    }
   }
 
   @Test

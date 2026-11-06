@@ -4,6 +4,7 @@ const val EVA_PROTOCOL_VERSION = 1L
 private const val AUTHORIZATION_SCOPE_REVISION = "t3code-environments-1"
 private const val RESULT_MAX_BYTES = 16_384
 private const val MAX_TEXT_CODE_POINTS = 2_000
+private const val CONFIRMATION_FEATURE = "confirmation"
 
 /** EVA installed-app extension protocol v1: descriptor and reply envelopes. */
 object EvaProtocol {
@@ -19,9 +20,9 @@ object EvaProtocol {
       "additionalProperties" to true,
     )
 
-  private val capabilities: List<Map<String, Any?>> =
+  private fun capabilities(confirmation: Boolean): List<Map<String, Any?>> =
     AssistantCapabilities.all.map { capability ->
-      linkedMapOf(
+      linkedMapOf<String, Any?>(
         "tool" to
           linkedMapOf(
             "name" to capability.name,
@@ -43,23 +44,43 @@ object EvaProtocol {
             "maxWaitMillis" to capability.maxWaitMillis
           ),
         "result" to linkedMapOf("maxBytes" to RESULT_MAX_BYTES.toLong()),
-      )
+      ).apply {
+        if (confirmation) capability.confirmation()?.let { put("confirmation", it) }
+      }
     }
 
-  /** Changes whenever any descriptor content does, and only then. */
+  private val withConfirmation = capabilities(confirmation = true)
+  private val withoutConfirmation = capabilities(confirmation = false)
+
+  /**
+   * Changes whenever any descriptor content does, and only then. It covers the optional
+   * blocks too, so every feature variant of the descriptor shares one revision.
+   */
   val descriptorRevision: String =
     "t3code-v1." +
       AssistantJournal.sha256(
         StrictJson.canonical(
           mapOf(
             "scope" to AUTHORIZATION_SCOPE_REVISION,
-            "capabilities" to capabilities
+            "capabilities" to withConfirmation
           )
         )
       )
         .take(24)
 
-  fun describeReply(): String =
+  /** Feature names EVA's describe request offers; empty when the list is missing or malformed. */
+  fun describeFeatures(requestJson: String): Set<String> =
+    try {
+      (StrictJson.parseObject(requestJson)["features"] as? List<*>)
+        ?.filterIsInstance<String>()
+        ?.toSet()
+        .orEmpty()
+    } catch (_: StrictJsonException) {
+      emptySet()
+    }
+
+  /** Older EVA builds reject the whole descriptor if it carries blocks they don't know. */
+  fun describeReply(features: Set<String>): String =
     StrictJson.stringify(
       linkedMapOf(
         "protocolVersion" to EVA_PROTOCOL_VERSION,
@@ -73,7 +94,8 @@ object EvaProtocol {
             "descriptorRevision" to descriptorRevision,
             "authorizationScopeRevision" to AUTHORIZATION_SCOPE_REVISION,
             "title" to "T3 Code",
-            "capabilities" to capabilities,
+            "capabilities" to
+              if (CONFIRMATION_FEATURE in features) withConfirmation else withoutConfirmation,
           ),
       ),
     )

@@ -155,6 +155,14 @@ sealed class Field(val name: String, val description: String) {
   }
 }
 
+/** A parameter EVA reads back for the user to confirm when they did not state it. */
+class ConfirmedParameter(val label: String, val choicesFrom: String? = null) {
+  fun descriptor(): Map<String, Any?> =
+    linkedMapOf<String, Any?>("resolve" to "confirm", "label" to label).apply {
+      choicesFrom?.let { put("choicesFrom", it) }
+    }
+}
+
 @Suppress("LongParameterList")
 class Capability(
   val name: String,
@@ -165,8 +173,25 @@ class Capability(
   val fields: List<Field>,
   val required: List<String>,
   /** Field combinations the flat schema cannot express. */
-  private val checkCombination: (Map<String, Any?>) -> Unit = {}
+  private val checkCombination: (Map<String, Any?>) -> Unit = {},
+  val confirmedParameters: Map<String, ConfirmedParameter> = emptyMap()
 ) {
+  init {
+    val unknown = confirmedParameters.keys - fields.map { it.name }.toSet()
+    require(unknown.isEmpty()) { "$name confirms unknown parameters $unknown" }
+  }
+
+  /** EVA's capability-level confirmation block, or null when nothing needs confirming. */
+  fun confirmation(): Map<String, Any?>? =
+    confirmedParameters.takeIf { it.isNotEmpty() }?.let { parameters ->
+      linkedMapOf(
+        "parameters" to
+          parameters.entries.associateTo(linkedMapOf()) { (name, parameter) ->
+            name to parameter.descriptor()
+          }
+      )
+    }
+
   fun inputSchema(): Map<String, Any?> =
     linkedMapOf(
       "type" to "object",
@@ -241,6 +266,7 @@ private fun write(
   description: String,
   fields: List<Field>,
   required: List<String>,
+  confirmedParameters: Map<String, ConfirmedParameter> = emptyMap(),
   checkCombination: (Map<String, Any?>) -> Unit = {}
 ) = Capability(
   name = operation.wire,
@@ -251,6 +277,7 @@ private fun write(
   fields = fields,
   required = required,
   checkCombination = checkCombination,
+  confirmedParameters = confirmedParameters,
 )
 
 private fun requireOnlyWith(
@@ -337,6 +364,15 @@ object AssistantCapabilities {
           ),
         ),
       required = listOf("environmentId", "projectId", "prompt"),
+      confirmedParameters =
+        linkedMapOf(
+          "environmentId" to ConfirmedParameter("Host", "list_environments"),
+          "projectId" to ConfirmedParameter("Project", "list_projects"),
+          "provider" to ConfirmedParameter("Provider", "list_models"),
+          "model" to ConfirmedParameter("Model", "list_models"),
+          "modelOptions" to ConfirmedParameter("Model options", "list_models"),
+          "workspace" to ConfirmedParameter("Workspace"),
+        ),
     ) { arguments ->
       val workspace = arguments["workspace"]
       requireOnlyWith(

@@ -70,7 +70,7 @@ class EvaExtensionService : Service() {
               "T3 Code only speaks EVA extension protocol version 1."
             )
           } else {
-            EvaProtocol.describeReply()
+            EvaProtocol.describeReply(EvaProtocol.describeFeatures(requestJson))
           }
         }
       }
