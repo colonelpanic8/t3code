@@ -7,7 +7,8 @@ export type ConnectionWakeup =
   | "application-active-probe"
   | "application-active-long"
   | "credentials-changed"
-  | "network-changed";
+  | "network-changed"
+  | "resync-requested";
 
 function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
   return (
@@ -22,7 +23,7 @@ export function resetsRetryBackoff(reason: ConnectionWakeup): boolean {
 }
 
 export function shouldResubscribeAfterWakeup(reason: ConnectionWakeup): boolean {
-  return isApplicationActiveWakeup(reason);
+  return isApplicationActiveWakeup(reason) || reason === "resync-requested";
 }
 
 export class ConnectionWakeups extends Context.Service<
