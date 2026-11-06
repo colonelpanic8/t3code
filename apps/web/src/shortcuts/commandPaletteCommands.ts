@@ -13,7 +13,8 @@ import { getThemeSnapshot, setAppearanceMode } from "../hooks/useTheme";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { resolveThreadRouteTarget } from "../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../threadRoutes";
+import { coordinatorThreadRef, readDefaultCoordinator } from "../state/coordinators";
 
 function consume(event: KeyboardEvent): void {
   event.preventDefault();
@@ -91,6 +92,17 @@ export function installCommandPaletteCommands(
         consume(event);
         dispatchCommandPalette({ _tag: "SetOpen", open: false });
         void router.navigate({ to: "/usage" });
+      },
+      "coordinator.open": (event) => {
+        const coordinator = readDefaultCoordinator();
+        const threadRef = coordinator === null ? null : coordinatorThreadRef(coordinator);
+        if (threadRef === null) return false;
+        consume(event);
+        dispatchCommandPalette({ _tag: "SetOpen", open: false });
+        void router.navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(threadRef),
+        });
       },
       "commandPalette.toggle": toggleOverlay("commandPalette.toggle"),
       "filePicker.toggle": toggleOverlay("filePicker.toggle"),

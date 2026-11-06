@@ -2,11 +2,13 @@ import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { createContext, use, useState, type Dispatch, type ReactNode } from "react";
 
+import { coordinatorsAvailableAtom } from "../../../state/coordinators";
 import { mobilePreferencesAtom } from "../../../state/preferences";
 import {
   navigationCustomizationAvailable,
   resolveHiddenNavigationTabs,
   resolveSelectedNavigationTab,
+  unavailableNavigationTabs,
 } from "./navigation-tab-order";
 import {
   initialWorkspaceTabsState,
@@ -38,12 +40,16 @@ type MobilePreferencesResult = Atom.Type<typeof mobilePreferencesAtom>;
 function resolveWorkspaceTabsSelection(
   state: WorkspaceTabsState,
   preferences: MobilePreferencesResult,
+  coordinators: boolean,
 ): WorkspaceTabsState {
   const saved = AsyncResult.isSuccess(preferences) ? preferences.value : undefined;
   const order = resolveWorkspaceTabOrder(saved?.navigationTabOrder);
-  const hidden = navigationCustomizationAvailable()
-    ? resolveHiddenNavigationTabs(saved?.hiddenNavigationTabs)
-    : [];
+  const hidden = [
+    ...(navigationCustomizationAvailable()
+      ? resolveHiddenNavigationTabs(saved?.hiddenNavigationTabs)
+      : []),
+    ...unavailableNavigationTabs({ coordinators }),
+  ];
   const selected = resolveSelectedNavigationTab(order, hidden, state.selectedTab);
   return selected && selected !== state.selectedTab
     ? workspaceTabsReducer(state, { type: "select", tab: selected })
@@ -56,6 +62,7 @@ function createWorkspaceTabsModel() {
   const stored = Atom.make(initialWorkspaceTabsState());
   const scrollOffsets: Record<WorkspaceSearchTab, number> = {
     threads: 0,
+    inbox: 0,
     pullRequests: 0,
     usage: 0,
     settings: 0,
@@ -63,7 +70,11 @@ function createWorkspaceTabsModel() {
   return {
     stored,
     resolved: Atom.make((get) =>
-      resolveWorkspaceTabsSelection(get(stored), get(mobilePreferencesAtom)),
+      resolveWorkspaceTabsSelection(
+        get(stored),
+        get(mobilePreferencesAtom),
+        get(coordinatorsAvailableAtom),
+      ),
     ),
     getScrollOffset: (tab: WorkspaceSearchTab) => scrollOffsets[tab],
     recordScrollOffset: (tab: WorkspaceSearchTab, offset: number) => {
