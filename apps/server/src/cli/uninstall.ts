@@ -87,6 +87,7 @@ export const keptStorageMessage = (input: {
     : "";
   return `${kept} To remove them too, move anything you want out of ${input.worktreesDir}, then delete ${home} entirely${others}; a later install keeps using anything left in it.`;
 };
+
 // cmd.exe needs verbatim quoting and a literal path, with delayed expansion disabled.
 export function spawnWindowsRemoval(comspec: string, dir: string) {
   return NodeChildProcess.spawn(
