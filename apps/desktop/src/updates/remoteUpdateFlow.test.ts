@@ -50,6 +50,33 @@ describe("nextRemoteDesktopUpdateStep", () => {
     );
   });
 
+  it("reports a published build instead of downloading when updates are applied outside the app", () => {
+    assert.deepEqual(
+      nextRemoteDesktopUpdateStep(
+        makeState({
+          status: "available",
+          availableVersion: "bbbbbbbb",
+          manualUpdate: { url: "https://github.com/owner/fork/compare/a...b" },
+        }),
+        NO_ATTEMPTS,
+        null,
+      ),
+      {
+        action: "done",
+        outcome: "failed",
+        reason: "Build bbbbbbbb is published. This machine applies updates outside the app.",
+      },
+    );
+    assert.deepEqual(
+      nextRemoteDesktopUpdateStep(
+        makeState({ status: "up-to-date", manualUpdate: { url: null } }),
+        { checks: 1, downloads: 0 },
+        null,
+      ),
+      { action: "done", outcome: "up-to-date" },
+    );
+  });
+
   it("fails immediately when updates are disabled, preferring the known reason", () => {
     const state = makeState({ enabled: false, status: "disabled" });
     assert.deepEqual(nextRemoteDesktopUpdateStep(state, NO_ATTEMPTS, "dev build"), {
