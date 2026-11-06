@@ -20,6 +20,7 @@
 - [Usage and limits](./user/usage.md)
 - [Secrets](./user/secrets.md)
 - [Product usage data](./user/telemetry.md)
+- [Coordinators](./user/coordinators.md)
 - [Remote access](./user/remote-access.md)
 - [Guest links](./user/guest-links.md)
 - [T3 Connect troubleshooting](./user/t3-connect-troubleshooting.md)
