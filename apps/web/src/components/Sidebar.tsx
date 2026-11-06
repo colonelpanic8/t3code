@@ -136,6 +136,7 @@ import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
+import { useCopyThreadMarkdown } from "../hooks/useCopyThreadMarkdown";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -973,6 +974,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
+  const copyThreadMarkdown = useCopyThreadMarkdown();
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
     onCopy: ({ threadId }) => {
       toastManager.add({
@@ -2814,6 +2816,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             void copyThreadReference(
               threadChipCopyTarget(threadRef, thread.title, configuredHostedAppUrl()),
             );
+            return;
+          case "copy-thread-markdown":
+            await copyThreadMarkdown(threadRef);
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
