@@ -93,7 +93,6 @@ const makeService = (stateConfig: ServerConfig.ServerConfig["Service"]) =>
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: (threadId) =>
               Ref.get(threads).pipe(Effect.map((map) => map.get(threadId) ?? null)),
-            dispatch: () => Effect.succeed({} as Orchestrator.OrchestratorV2DispatchResult),
             getShellSnapshot: () =>
               Effect.succeed({
                 schemaVersion: 1,

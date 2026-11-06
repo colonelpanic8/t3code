@@ -212,7 +212,7 @@ const make = Effect.gen(function* () {
   const hereId = yield* environment.getEnvironmentId;
   const hereLabel = environment.getDescriptor.pipe(Effect.map((descriptor) => descriptor.label));
 
-  /** Makes sure the coordinator's project and thread exist; a new thread is pinned once. */
+  /** Makes sure the coordinator's project and thread exist. */
   const reconcileOne = Effect.fn("CoordinatorService.reconcileOne")(function* (
     id: CoordinatorId,
     coordinatorConfig: CoordinatorConfig,
@@ -265,13 +265,6 @@ const make = Effect.gen(function* () {
       createdBy: "system",
       creationSource: "server",
     });
-    yield* threads
-      .dispatch({
-        type: "thread.pin",
-        commandId: CommandId.make(`coordinator:${id}:pin:${threadId}`),
-        threadId,
-      })
-      .pipe(Effect.ignoreCause({ log: true }));
     return { projectId, threadId };
   });
 
