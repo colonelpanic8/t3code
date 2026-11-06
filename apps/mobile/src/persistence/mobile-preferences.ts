@@ -14,7 +14,7 @@ import {
   type PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
-import { ToolCallVisibility } from "@t3tools/contracts/settings";
+import { DefaultCoordinatorRef, ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
@@ -87,6 +87,7 @@ const ThreadProject = Schema.Struct({
   projectId: Schema.NonEmptyString,
 });
 const isThreadProject = Schema.is(ThreadProject);
+const isDefaultCoordinatorRef = Schema.is(DefaultCoordinatorRef);
 
 export interface Preferences {
   readonly navigationTabOrder?: readonly string[];
@@ -130,6 +131,8 @@ export interface Preferences {
   readonly threadListFilters?: ThreadListFilters;
   readonly pullRequestListFilters?: PullRequestListPreferences;
   readonly workspaceSelections?: WorkspaceSelections;
+  /** Null or unset: the only coordinator, if there is exactly one. */
+  readonly defaultCoordinator?: DefaultCoordinatorRef | null;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -211,6 +214,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListFilters?: ThreadListFilters;
     pullRequestListFilters?: PullRequestListPreferences;
     workspaceSelections?: WorkspaceSelections;
+    defaultCoordinator?: DefaultCoordinatorRef | null;
   } = {};
 
   if (Array.isArray(parsed.hiddenNavigationTabs)) {
@@ -364,6 +368,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isWorkspaceSelections(parsed.workspaceSelections)) {
     preferences.workspaceSelections = parsed.workspaceSelections;
+  }
+  if (parsed.defaultCoordinator === null || isDefaultCoordinatorRef(parsed.defaultCoordinator)) {
+    preferences.defaultCoordinator = parsed.defaultCoordinator;
   }
   return preferences;
 }
