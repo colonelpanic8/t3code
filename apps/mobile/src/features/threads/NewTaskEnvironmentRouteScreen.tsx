@@ -22,7 +22,7 @@ import { cn } from "../../lib/cn";
 import { useProjects, useServerConfigs, useThreadShells } from "../../state/entities";
 import { useWorkspaceState } from "../../state/workspace";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
-import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
+import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 import {
   buildNewTaskEnvironmentItems,
   deriveNewTaskPickerEmptyState,
