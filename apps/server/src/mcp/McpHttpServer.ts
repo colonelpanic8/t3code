@@ -67,6 +67,8 @@ import {
 } from "./toolkits/preview/tools.ts";
 import * as WorktreeHandlers from "./toolkits/worktree/handlers.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
+import { CoordinatorToolkit } from "./toolkits/coordinator/tools.ts";
+import * as CoordinatorHandlers from "./toolkits/coordinator/handlers.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
@@ -1157,6 +1159,8 @@ export const layerOrchestratorToolkit = toolkitRegistration(
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
 
+const layerCoordinatorToolkit = toolkitRegistration(CoordinatorToolkit, CoordinatorHandlers.layer);
+
 const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
   WorktreeHandlers.layer,
@@ -1238,6 +1242,7 @@ export const layerTools = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
+  layerCoordinatorToolkit,
   layerPullRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
