@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   resolveDefaultCoordinator,
   type CoordinatorChoice,
@@ -57,4 +57,20 @@ export function readDefaultCoordinator(): CoordinatorChoice | null {
     getClientSettings().defaultCoordinator,
     appAtomRegistry.get(coordinatorChoicesAtom),
   );
+}
+
+const coordinatorThreadKeysAtom = Atom.make(
+  (get): ReadonlySet<string> =>
+    new Set(
+      get(coordinatorChoicesAtom).flatMap((choice) =>
+        choice.coordinator.threadId === null
+          ? []
+          : [scopedThreadKey(scopeThreadRef(choice.environmentId, choice.coordinator.threadId))],
+      ),
+    ),
+).pipe(Atom.withLabel("web-coordinator-thread-keys"));
+
+/** Scoped keys of every coordinator's thread, which thread lists leave out. */
+export function useCoordinatorThreadKeys(): ReadonlySet<string> {
+  return useAtomValue(coordinatorThreadKeysAtom);
 }
