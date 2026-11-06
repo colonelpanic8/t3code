@@ -51,6 +51,8 @@ export const DesktopConfig = Config.all({
     ),
   ),
   managedConnectionsFile: trimmedString("T3CODE_MANAGED_CONNECTIONS_FILE"),
+  managedClientSettingsFile: trimmedString("T3CODE_MANAGED_CLIENT_SETTINGS_FILE"),
+  managedKeybindingsFile: trimmedString("T3CODE_MANAGED_KEYBINDINGS_FILE"),
   devServerUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option),
   appUserModelIdOverride: trimmedString("T3CODE_DESKTOP_APP_USER_MODEL_ID"),
   devRemoteT3ServerEntryPath: trimmedString("T3CODE_DEV_REMOTE_T3_SERVER_ENTRY_PATH"),
