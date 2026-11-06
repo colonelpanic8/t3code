@@ -1334,6 +1334,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    coordinatorsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:coordinators:live",
+      tag: WS_METHODS.coordinatorsSubscribe,
+    }),
+    coordinatorInboxLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:coordinators:inbox",
+      tag: WS_METHODS.coordinatorsInboxSubscribe,
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
     usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
@@ -1568,6 +1576,14 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksDelete,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+    }),
+    dismissCoordinatorInboxItem: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:coordinators:inbox-dismiss",
+      tag: WS_METHODS.coordinatorsInboxDismiss,
+    }),
+    wakeCoordinator: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:coordinators:wake",
+      tag: WS_METHODS.coordinatorsWake,
     }),
     // Deliberately not on the config lane: run-now blocks until the run is
     // dispatched, and a slow run must not stall settings/keybinding/provider

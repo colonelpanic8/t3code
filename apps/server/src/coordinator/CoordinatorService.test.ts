@@ -71,7 +71,7 @@ const makeService = (stateConfig: ServerConfig.ServerConfig["Service"]) =>
           }),
           Layer.mock(ProjectService.ProjectService)({
             bootstrap: () => Effect.succeed({ project, created: false }),
-            getById: () => Effect.succeed(Option.some(project)),
+            getById: () => Effect.succeedSome(project),
           }),
           Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "" }),
           Layer.mock(ThreadLaunch.ThreadLaunchService)({
