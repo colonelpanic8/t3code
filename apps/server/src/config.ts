@@ -101,6 +101,8 @@ export class ServerConfig extends Context.Service<
     readonly environmentIdOverride: string | undefined;
     /** Non-secret JSON list of the fleet's environments, read by `t3 auth enrollment export`. */
     readonly fleetManifestPath?: string | undefined;
+    /** JSON list of linked environments this server keeps linked; see ManagedPeerLinks. */
+    readonly managedPeerLinksPath?: string | undefined;
     readonly desktopTelemetryFd?: number | undefined;
     readonly desktopTelemetryControlFd?: number | undefined;
     readonly desktopBrowserFd?: number | undefined;
