@@ -31,7 +31,7 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/cn";
 import { SettingsSection } from "../settings/components/SettingsSection";
-import { ListFilterMenu } from "../workspace/ListFilterMenu";
+import { ListFilterMenu } from "../layout/workspace/ListFilterMenu";
 
 // A phone renders every row; past this the list waits for "Show all".
 const MAX_VISIBLE_ROWS = 25;
