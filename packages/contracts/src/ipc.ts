@@ -1065,12 +1065,16 @@ export interface DesktopBridge {
    * regardless of OS settings.
    */
   getSystemLocale: () => string | null;
+  /** The OS's preferred languages, most preferred first; `navigator.languages` is pinned like the locale. */
+  getPreferredSystemLanguages: () => readonly string[];
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
   // Whether this launch runs a local backend. A launch argument or an already
   // running local server can turn it off without changing the saved setting.
   getLocalEnvironmentEnabled: () => boolean;
   getBackendModeState?: () => DesktopBackendModeState | null;
   setLocalEnvironmentEnabled: (enabled: boolean) => Promise<void>;
+  /** The environment ID recorded in this app's T3 home, such as its own machine's background service. */
+  getHostEnvironmentId?: () => Promise<string | null>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
   discoverLocalServers?: () => Promise<readonly RunningLocalServer[]>;
   pairLocalServer?: (environmentId: EnvironmentId) => Promise<LocalServerPairingResult>;

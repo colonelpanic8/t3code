@@ -114,6 +114,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ? (result as DesktopBackendModeState)
       : null;
   },
+  getPreferredSystemLanguages: () => {
+    const result: unknown = ipcRenderer.sendSync(
+      IpcChannels.GET_PREFERRED_SYSTEM_LANGUAGES_CHANNEL,
+    );
+    return Array.isArray(result) ? result.filter((tag) => typeof tag === "string") : [];
+  },
   getLocalEnvironmentBootstraps: () => {
     const result = ipcRenderer.sendSync(IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL);
     if (!Array.isArray(result)) {
@@ -130,6 +136,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   discoverLocalServers: () => ipcRenderer.invoke(IpcChannels.DISCOVER_LOCAL_SERVERS_CHANNEL),
   pairLocalServer: (environmentId) =>
     ipcRenderer.invoke(IpcChannels.PAIR_LOCAL_SERVER_CHANNEL, environmentId),
+  getHostEnvironmentId: () => ipcRenderer.invoke(IpcChannels.GET_HOST_ENVIRONMENT_ID_CHANNEL),
   getClientSettings: () => ipcRenderer.invoke(IpcChannels.GET_CLIENT_SETTINGS_CHANNEL),
   setClientSettings: (settings) =>
     ipcRenderer.invoke(IpcChannels.SET_CLIENT_SETTINGS_CHANNEL, settings),
