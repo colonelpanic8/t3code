@@ -35,76 +35,6 @@ interface UsageChartProps {
   readonly hour12: boolean;
 }
 
-interface Point {
-  readonly x: number;
-  readonly y: number;
-}
-
-function monotoneTangents(points: readonly Point[]): readonly number[] {
-  const count = points.length;
-  if (count < 2) return [0];
-
-  const slopes: number[] = [];
-  for (let index = 0; index < count - 1; index += 1) {
-    const dx = (points[index + 1]?.x ?? 0) - (points[index]?.x ?? 0);
-    const dy = (points[index + 1]?.y ?? 0) - (points[index]?.y ?? 0);
-    slopes.push(dx === 0 ? 0 : dy / dx);
-  }
-
-  const tangents: number[] = Array.from({ length: count }, () => 0);
-  tangents[0] = slopes[0] ?? 0;
-  tangents[count - 1] = slopes[count - 2] ?? 0;
-  for (let index = 1; index < count - 1; index += 1) {
-    const previous = slopes[index - 1] ?? 0;
-    const next = slopes[index] ?? 0;
-    tangents[index] = previous * next <= 0 ? 0 : (previous + next) / 2;
-  }
-
-  for (let index = 0; index < count - 1; index += 1) {
-    const slope = slopes[index] ?? 0;
-    if (slope === 0) {
-      tangents[index] = 0;
-      tangents[index + 1] = 0;
-      continue;
-    }
-    const a = (tangents[index] ?? 0) / slope;
-    const b = (tangents[index + 1] ?? 0) / slope;
-    const magnitude = a * a + b * b;
-    if (magnitude > 9) {
-      const scale = 3 / Math.sqrt(magnitude);
-      tangents[index] = scale * a * slope;
-      tangents[index + 1] = scale * b * slope;
-    }
-  }
-
-  return tangents;
-}
-
-function curvePath(points: readonly Point[]): string {
-  const first = points[0];
-  if (first === undefined || points.length < 2) return "";
-  const tangents = monotoneTangents(points);
-  let path = `M${first.x.toFixed(2)},${first.y.toFixed(2)}`;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const from = points[index];
-    const to = points[index + 1];
-    if (from === undefined || to === undefined) continue;
-    const dx = to.x - from.x;
-    const c1 = { x: from.x + dx / 3, y: from.y + ((tangents[index] ?? 0) * dx) / 3 };
-    const c2 = { x: to.x - dx / 3, y: to.y - ((tangents[index + 1] ?? 0) * dx) / 3 };
-    path += ` C${c1.x.toFixed(2)},${c1.y.toFixed(2)} ${c2.x.toFixed(2)},${c2.y.toFixed(2)} ${to.x.toFixed(2)},${to.y.toFixed(2)}`;
-  }
-  return path;
-}
-
-/** The region between two boundaries, tracing the bottom one backwards. */
-function bandAreaPath(top: readonly Point[], bottom: readonly Point[]): string {
-  const forward = curvePath(top);
-  const back = curvePath(bottom.toReversed());
-  if (forward === "" || back === "") return "";
-  return `${forward} L${back.slice(1)} Z`;
-}
-
 export function niceScale(peak: number, count: number): { max: number; ticks: readonly number[] } {
   if (peak <= 0) return { max: 0, ticks: [0] };
 
@@ -149,15 +79,11 @@ export function stackBoundaries(
   return boundaries;
 }
 
-/** A lone column spans the plot as a flat band rather than vanishing. */
-function columnXs(count: number): readonly number[] {
-  if (count === 1) return [0, VIEW_WIDTH];
-  const stepX = count < 2 ? 0 : VIEW_WIDTH / (count - 1);
-  return Array.from({ length: count }, (_, index) => index * stepX);
-}
+const BAR_GAP_FRACTION = 0.2;
 
-function toPoints(ys: readonly number[], xs: readonly number[]): readonly Point[] {
-  return xs.map((x, index) => ({ x, y: ys[Math.min(index, ys.length - 1)] ?? VIEW_HEIGHT }));
+function barSlot(index: number, count: number) {
+  const step = VIEW_WIDTH / Math.max(1, count);
+  return { x: index * step, step, bar: step * (1 - BAR_GAP_FRACTION) };
 }
 
 interface ChartSeriesEntry {
@@ -296,19 +222,14 @@ function UsageChartPlot({
     const localX = Math.min(bounds.width, Math.max(0, event.clientX - bounds.left));
     const localY = Math.min(bounds.height, Math.max(0, event.clientY - bounds.top));
     const fraction = localX / bounds.width;
-    const index = Math.round(fraction * (periods.length - 1));
+    const index = Math.floor(fraction * periods.length);
     hoverPositionRef.current = { x: localX, y: localY };
     positionTooltip();
     setHoverIndex(Math.min(periods.length - 1, Math.max(0, index)));
   };
 
   const hoveredPeriod = hoverIndex === null ? undefined : periods[hoverIndex];
-  const hoverX =
-    hoverIndex === null
-      ? 0
-      : periods.length === 1
-        ? VIEW_WIDTH / 2
-        : (hoverIndex * VIEW_WIDTH) / Math.max(1, periods.length - 1);
+  const hoverSlot = hoverIndex === null ? null : barSlot(hoverIndex, periods.length);
 
   return (
     <div
@@ -327,19 +248,17 @@ function UsageChartPlot({
         role="img"
         aria-label={ariaLabel}
       >
-        {children}
-        {hoverIndex === null ? null : (
-          <line
-            x1={hoverX}
-            x2={hoverX}
-            y1={PLOT_TOP}
-            y2={VIEW_HEIGHT}
-            stroke="currentColor"
-            strokeWidth={1}
-            className="text-muted-foreground"
-            vectorEffect="non-scaling-stroke"
+        {hoverSlot === null ? null : (
+          <rect
+            x={hoverSlot.x}
+            y={PLOT_TOP}
+            width={hoverSlot.step}
+            height={VIEW_HEIGHT - PLOT_TOP}
+            fill="currentColor"
+            className="text-muted-foreground/15"
           />
         )}
+        {children}
       </svg>
 
       {hoverIndex === null || hoveredPeriod === undefined ? null : (
@@ -383,15 +302,26 @@ export function UsageChart({
         ? loadingProviders.size > 0
         : loadingProviders.has(entry.row.provider),
   }));
-  const xs = columnXs(stack.columns.length);
-  const boundaries = stackBoundaries(stack.columns, series.length, scale.max).map((ys) =>
-    toPoints(ys, xs),
-  );
-  const bands = series.map((entry, index) => {
-    const top = boundaries[index + 1] ?? [];
-    return { ...entry, line: curvePath(top), area: bandAreaPath(top, boundaries[index] ?? []) };
-  });
   const columns = stack.columns;
+  const boundaries = stackBoundaries(columns, series.length, scale.max);
+  const bars = series.map((entry, index) => ({
+    ...entry,
+    segments: columns.flatMap((column, columnIndex) => {
+      if ((column.values[index] ?? 0) <= 0) return [];
+      const top = boundaries[index + 1]?.[columnIndex] ?? VIEW_HEIGHT;
+      const bottom = boundaries[index]?.[columnIndex] ?? VIEW_HEIGHT;
+      const slot = barSlot(columnIndex, columns.length);
+      return [
+        {
+          period: column.period,
+          x: slot.x + (slot.step - slot.bar) / 2,
+          width: slot.bar,
+          y: top,
+          height: bottom - top,
+        },
+      ];
+    }),
+  }));
   const periods = columns.map((column) => column.period);
 
   const toY = (value: number) => valueToY(value, scale.max);
@@ -456,25 +386,18 @@ export function UsageChart({
             );
           })}
 
-          {bands.map(({ key, loading, area, color }) => (
-            <path
-              key={key}
-              d={area}
-              className={seriesClassName(loading)}
-              fill={color}
-              fillOpacity={0.24}
-            />
-          ))}
-          {bands.map(({ key, loading, line, color }) => (
-            <path
-              key={key}
-              d={line}
-              className={seriesClassName(loading)}
-              fill="none"
-              stroke={color}
-              strokeWidth={1.5}
-              vectorEffect="non-scaling-stroke"
-            />
+          {bars.map(({ key, loading, color, segments }) => (
+            <g key={key} className={seriesClassName(loading)} fill={color}>
+              {segments.map((segment) => (
+                <rect
+                  key={segment.period}
+                  x={segment.x}
+                  y={segment.y}
+                  width={segment.width}
+                  height={segment.height}
+                />
+              ))}
+            </g>
           ))}
         </UsageChartPlot>
       </div>
