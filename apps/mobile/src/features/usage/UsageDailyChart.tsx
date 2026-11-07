@@ -2,6 +2,11 @@ import { View } from "react-native";
 
 import type { UsageChartSeries } from "@t3tools/client-runtime/usage-view";
 
+import { cn } from "../../lib/cn";
+
+/** Past this many columns a 1px gap per bar would outgrow a phone-width chart. */
+const DENSE_COLUMNS = 90;
+
 export interface UsageDailyChartProps {
   readonly series: UsageChartSeries;
   readonly height: number;
@@ -12,7 +17,10 @@ export function UsageDailyChart({ series, height }: UsageDailyChartProps) {
   const max = stack.peak;
 
   return (
-    <View style={{ height }} className="flex-row items-end gap-px">
+    <View
+      style={{ height }}
+      className={cn("flex-row items-end", stack.columns.length <= DENSE_COLUMNS && "gap-px")}
+    >
       {/* Use column-reverse: series values are bottom-first and Hermes lacks toReversed. */}
       {stack.columns.map((column) => (
         <View
