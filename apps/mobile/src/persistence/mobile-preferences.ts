@@ -19,7 +19,7 @@ import {
   parseUsageViewPreferences,
   type UsageViewPreferences,
 } from "@t3tools/client-runtime/usage-view";
-import { ToolCallVisibility } from "@t3tools/contracts/settings";
+import { DefaultCoordinatorRef, ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
@@ -125,6 +125,7 @@ export interface SettingsFeedState {
   readonly fetchedAt?: number;
   readonly error?: string;
 }
+const isDefaultCoordinatorRef = Schema.is(DefaultCoordinatorRef);
 
 export interface Preferences {
   readonly navigationTabOrder?: readonly string[];
@@ -174,6 +175,8 @@ export interface Preferences {
   readonly workspaceSelections?: WorkspaceSelections;
   readonly settingsFeed?: SettingsFeedState;
   readonly usageView?: UsageViewPreferences;
+  /** Null or unset: the only coordinator, if there is exactly one. */
+  readonly defaultCoordinator?: DefaultCoordinatorRef | null;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -260,6 +263,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     workspaceSelections?: WorkspaceSelections;
     settingsFeed?: SettingsFeedState;
     usageView?: UsageViewPreferences;
+    defaultCoordinator?: DefaultCoordinatorRef | null;
   } = {};
 
   if (Array.isArray(parsed.hiddenNavigationTabs)) {
@@ -445,6 +449,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (parsed.usageView !== undefined) {
     preferences.usageView = parseUsageViewPreferences(parsed.usageView);
+  }
+  if (parsed.defaultCoordinator === null || isDefaultCoordinatorRef(parsed.defaultCoordinator)) {
+    preferences.defaultCoordinator = parsed.defaultCoordinator;
   }
   return preferences;
 }

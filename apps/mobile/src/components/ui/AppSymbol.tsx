@@ -87,6 +87,7 @@ import IconMicrophone from "@tabler/icons-react-native/IconMicrophone";
 import IconLink from "@tabler/icons-react-native/IconLink";
 import IconListNumbers from "@tabler/icons-react-native/IconListNumbers";
 import IconMenu2 from "@tabler/icons-react-native/IconMenu2";
+import IconInbox from "@tabler/icons-react-native/IconInbox";
 import IconMessageCircleQuestion from "@tabler/icons-react-native/IconMessageCircleQuestion";
 import IconMessage from "@tabler/icons-react-native/IconMessage";
 import IconMessagePlus from "@tabler/icons-react-native/IconMessagePlus";
@@ -282,6 +283,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "textformat.size": IconTypography,
   "textformat.size.larger": IconTextIncrease,
   "textformat.size.smaller": IconTextDecrease,
+  tray: IconInbox,
   "tray.and.arrow.down": IconDownload,
   "tray.and.arrow.up": IconUpload,
   trash: IconTrash,
