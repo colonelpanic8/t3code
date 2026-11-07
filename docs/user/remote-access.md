@@ -520,6 +520,41 @@ ends, as for any delegated task. It keeps following the task across restarts.
 If the other machine revokes the link, or the link is removed here, the task
 fails with that reason.
 
+### Keep links from a file
+
+A server can keep its links from a JSON file instead of linking by hand, which
+suits a fleet set up by configuration management. Point
+`T3CODE_MANAGED_PEER_LINKS_FILE` at a file like this:
+
+```json
+{
+  "version": 1,
+  "links": [
+    {
+      "environmentId": "fleet:build-host",
+      "label": "build-host",
+      "urls": ["https://build-host.example.ts.net/"],
+      "access": "full-access",
+      "pairingCode": { "$file": "/run/secrets/build-host-enrollment" }
+    }
+  ]
+}
+```
+
+`pairingCode` must work more than once, so use that machine's
+[enrollment credential](#encrypted-fleet-enrollment) (`t3 auth enrollment
+export`), given inline or as `{ "$file": "/absolute/path" }`. It needs the
+scopes of the access you pick; a default enrollment has them. Linked
+environments must be on for both machines.
+
+The server applies the file at startup and every few minutes after. It links a
+listed machine once it answers, links again when its entry or credential
+changes or the link nears expiry, and removes a link whose entry you delete,
+or every one when the variable is unset. Links made by hand are left alone. If
+the file cannot be read, nothing changes and the server log says why. Revoking
+the enrollment credential on the other machine stops new links; also revoke
+the existing link there in **Settings → Sharing & access**.
+
 ## Manage or revoke access
 
 On the host, **Settings → Sharing & access** lets authorized administrators create
