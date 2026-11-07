@@ -17,6 +17,7 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { readProjects, readThreadShell } from "../state/entities";
+import { appOwnsLocalEnvironment } from "../state/environments";
 import { environmentPresentations } from "../state/presentation";
 import { primaryEnvironmentIdAtom } from "../state/primaryEnvironment";
 import { readEnvironmentScope } from "../state/session";
@@ -84,6 +85,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
       groupScratchProjects: true,
       settings: selectProjectGroupingSettings(getClientSettings()),
       primaryEnvironmentId: appAtomRegistry.get(primaryEnvironmentIdAtom),
+      ownsLocalEnvironment: appOwnsLocalEnvironment(),
       resolveEnvironmentLabel: () => null,
     });
   const canOperatePreview = (environmentId: EnvironmentId) =>
