@@ -24,8 +24,9 @@ not take).
 The first three tables come from a catalog the app publishes while it runs, plus
 threads EVA started or forked since; a headless run that reaches every
 environment republishes it too. The other tables are answered live by a
-headless JavaScript task, which starts React Native when the app is not running;
-a failure is a single `notice` row rather than an error. `/requests` without an
+headless JavaScript task, which starts React Native when the app is not running
+and waits for the environment to connect until the caller's deadline; a failure
+is a single `notice` row rather than an error. `/requests` without an
 `environmentId` covers every enabled environment and adds a `notice` row for
 each one it could not reach.
 

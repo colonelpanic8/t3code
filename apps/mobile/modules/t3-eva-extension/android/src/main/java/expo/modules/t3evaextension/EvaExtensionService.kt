@@ -227,7 +227,7 @@ class EvaExtensionService : Service() {
           "The lookup deadline expired."
         )
       }
-      return AssistantQueries(this, minOf(17_000L, remaining)).query(uri).use { cursor ->
+      return AssistantQueries(this, remaining).query(uri).use { cursor ->
         val rows = buildList {
           while (cursor.moveToNext()) {
             add(

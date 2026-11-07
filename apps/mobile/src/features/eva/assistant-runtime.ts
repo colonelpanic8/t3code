@@ -474,15 +474,16 @@ function environmentClient(
 }
 
 /**
- * Waits, bounded, for one environment to connect and its shell and server
- * config to arrive. The connection runtime dials enabled environments on its
- * own once mounted; this only waits for that.
+ * Waits, at most timeoutMs in all, for one environment to connect and its
+ * shell and server config to arrive. The connection runtime dials enabled
+ * environments on its own once mounted; this only waits for that.
  */
 export async function connectAssistantEnvironment(
   hold: AssistantRuntimeHold,
   rawEnvironmentId: string,
   timeoutMs: number,
 ): Promise<AssistantEnvironmentConnection> {
+  const deadline = Date.now() + timeoutMs;
   const catalogReady = await waitForAtom(
     environmentCatalog.catalogValueAtom,
     (catalog) => (catalog.isReady ? catalog : null),
@@ -502,7 +503,7 @@ export async function connectAssistantEnvironment(
       const config = appAtomRegistry.get(serverEnvironment.configValueAtom(environmentId));
       return shell.status === "live" && config !== null ? presentation : null;
     },
-    timeoutMs,
+    Math.max(0, deadline - Date.now()),
   );
   if (ready) return { kind: "connected", environment: environmentClient(environmentId, ready) };
   const presentation = appAtomRegistry.get(presentationAtom);

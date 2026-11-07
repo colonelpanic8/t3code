@@ -36,20 +36,32 @@ import {
 
 export const ASSISTANT_TASK_KEY = "T3EvaAssistantTask";
 
-// The provider parks its binder thread for 17 seconds; a cold start spends
-// part of that loading JavaScript.
-const QUERY_CONNECT_TIMEOUT_MS = 9_000;
-const THREAD_LOOKUP_TIMEOUT_MS = 3_000;
-const PROJECTION_TIMEOUT_MS = 5_000;
+// Native code parks a binder thread until the query's deadlineAt; this much of
+// it is left for building rows and handing them back.
+const QUERY_REPLY_MARGIN_MS = 1_000;
+// Only for task data without a deadline.
+const QUERY_DEFAULT_BUDGET_MS = 9_000;
+// How long a live shell may lag a thread that was just created.
+const THREAD_SHELL_LAG_MS = 3_000;
 // Threads whose pending requests one cross-host listing reads.
 const MAX_REQUEST_THREADS = 12;
-const REQUEST_CONNECT_TIMEOUT_MS = 15_000;
+// A cross-host listing reports a host that is still connecting after this as
+// unreachable rather than holding every answer for one slow host.
+const CROSS_HOST_CONNECT_MS = 9_000;
+// Native code answers EVA by its own deadline while this keeps going, so a cold
+// connection that is slow still finishes the request without a status poll.
+const REQUEST_CONNECT_TIMEOUT_MS = 30_000;
 // Headless tasks are cut off at 90 seconds; stop waiting before that and
 // leave the request pending for a status poll to resume.
 const REQUEST_DISPATCH_TIMEOUT_MS = 60_000;
 
 const LIVE_QUERY_KINDS = ["messages", "models", "requests", "thread_status", "queue"] as const;
 type LiveQueryKind = (typeof LIVE_QUERY_KINDS)[number];
+
+/** Epoch milliseconds by which a query's rows must be handed back. */
+type Deadline = number;
+
+const remaining = (deadline: Deadline): number => Math.max(0, deadline - Date.now());
 
 interface QueryParams {
   readonly environmentId?: unknown;
@@ -84,28 +96,55 @@ const workspaceTimedOut = (): PreparedWorkspace => ({
 function boundedProjection(
   environmentId: string,
   threadId: string,
+  deadline: Deadline,
 ): Promise<OrchestrationV2ThreadProjection | null> {
-  return withTimeout(
-    readThreadMessages(environmentId, threadId),
-    PROJECTION_TIMEOUT_MS,
-    () => null,
-  );
+  return withTimeout(readThreadMessages(environmentId, threadId), remaining(deadline), () => null);
 }
 
-/** A query may omit the environment; the cached thread shells know which one holds the thread. */
-function environmentOfThread(threadId: string): Promise<string | null> {
-  return waitForAtom(
+/**
+ * A query may omit the environment; the thread shells know which one holds the thread. Gives
+ * up early once every enabled environment is live without it.
+ */
+async function environmentOfThread(threadId: string, deadline: Deadline): Promise<string | null> {
+  const found = await waitForAtom(
     environmentThreadShells.threadShellsAtom,
-    (threads) => threads.find((thread) => thread.id === threadId)?.environmentId ?? null,
-    THREAD_LOOKUP_TIMEOUT_MS,
+    (threads) =>
+      threads.find((thread) => thread.id === threadId)?.environmentId ??
+      (allAssistantEnvironmentsLive() ? "" : null),
+    remaining(deadline),
+  );
+  return found === "" ? null : found;
+}
+
+function findThreadShell(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  environmentId: string,
+  threadId: string,
+): EnvironmentThreadShell | null {
+  return (
+    threads.find((thread) => thread.environmentId === environmentId && thread.id === threadId) ??
+    null
   );
 }
 
 function threadShell(environmentId: string, threadId: string): EnvironmentThreadShell | null {
-  return (
-    appAtomRegistry
-      .get(environmentThreadShells.threadShellsAtom)
-      .find((thread) => thread.environmentId === environmentId && thread.id === threadId) ?? null
+  return findThreadShell(
+    appAtomRegistry.get(environmentThreadShells.threadShellsAtom),
+    environmentId,
+    threadId,
+  );
+}
+
+/** A thread created moments ago can reach the live shell after its creation was confirmed. */
+function settledThreadShell(
+  environmentId: string,
+  threadId: string,
+  deadline: Deadline,
+): Promise<EnvironmentThreadShell | null> {
+  return waitForAtom(
+    environmentThreadShells.threadShellsAtom,
+    (threads) => findThreadShell(threads, environmentId, threadId),
+    Math.min(THREAD_SHELL_LAG_MS, remaining(deadline)),
   );
 }
 
@@ -137,18 +176,16 @@ type ThreadTarget =
 async function connectThread(
   hold: AssistantRuntimeHold,
   params: QueryParams,
+  deadline: Deadline,
 ): Promise<ThreadTarget | null> {
   const threadId = text(params.threadId);
   if (threadId === null) return null;
-  const environmentId = text(params.environmentId) ?? (await environmentOfThread(threadId));
+  const environmentId =
+    text(params.environmentId) ?? (await environmentOfThread(threadId, deadline));
   if (environmentId === null) {
     return { kind: "unavailable", message: "T3 Code does not know that thread." };
   }
-  const connection = await connectAssistantEnvironment(
-    hold,
-    environmentId,
-    QUERY_CONNECT_TIMEOUT_MS,
-  );
+  const connection = await connectAssistantEnvironment(hold, environmentId, remaining(deadline));
   if (connection.kind !== "connected") {
     return { kind: "unavailable", message: unreachable(connection) };
   }
@@ -160,7 +197,7 @@ async function connectThread(
   };
 }
 
-async function answerMessages(hold: AssistantRuntimeHold, params: QueryParams) {
+async function answerMessages(hold: AssistantRuntimeHold, params: QueryParams, deadline: Deadline) {
   const threadId = text(params.threadId);
   if (threadId === null) return [];
   const notice = (message: string) => [
@@ -170,10 +207,10 @@ async function answerMessages(hold: AssistantRuntimeHold, params: QueryParams) {
       text: message,
     }),
   ];
-  const target = await connectThread(hold, params);
+  const target = await connectThread(hold, params, deadline);
   if (target === null) return [];
   if (target.kind === "unavailable") return notice(target.message);
-  const projection = await readThreadMessages(target.environmentId, threadId);
+  const projection = await boundedProjection(target.environmentId, threadId, deadline);
   if (projection === null)
     return notice("T3 Code could not read that thread; try again in a moment.");
   return assistantMessageRows({
@@ -191,14 +228,10 @@ async function answerMessages(hold: AssistantRuntimeHold, params: QueryParams) {
   });
 }
 
-async function answerModels(hold: AssistantRuntimeHold, params: QueryParams) {
+async function answerModels(hold: AssistantRuntimeHold, params: QueryParams, deadline: Deadline) {
   const environmentId = text(params.environmentId);
   if (environmentId === null) return [];
-  const connection = await connectAssistantEnvironment(
-    hold,
-    environmentId,
-    QUERY_CONNECT_TIMEOUT_MS,
-  );
+  const connection = await connectAssistantEnvironment(hold, environmentId, remaining(deadline));
   if (connection.kind !== "connected") {
     return [assistantModelNoticeRow(environmentId, unreachable(connection))];
   }
@@ -215,11 +248,11 @@ async function answerModels(hold: AssistantRuntimeHold, params: QueryParams) {
  * Pending approvals and questions, across every enabled environment unless the
  * query names one. A host that cannot be reached is a notice row, not silence.
  */
-async function answerRequests(hold: AssistantRuntimeHold, params: QueryParams) {
+async function answerRequests(hold: AssistantRuntimeHold, params: QueryParams, deadline: Deadline) {
   const threadId = text(params.threadId);
   let environmentId = text(params.environmentId);
   if (environmentId === null && threadId !== null) {
-    environmentId = await environmentOfThread(threadId);
+    environmentId = await environmentOfThread(threadId, deadline);
     if (environmentId === null) {
       return [
         assistantRequestNoticeRow({
@@ -233,12 +266,16 @@ async function answerRequests(hold: AssistantRuntimeHold, params: QueryParams) {
   }
   const environmentIds =
     environmentId === null
-      ? await enabledAssistantEnvironments(QUERY_CONNECT_TIMEOUT_MS)
+      ? await enabledAssistantEnvironments(remaining(deadline))
       : [environmentId];
+  const connectMs =
+    environmentId === null
+      ? Math.min(CROSS_HOST_CONNECT_MS, remaining(deadline))
+      : remaining(deadline);
   const connections = await Promise.all(
     environmentIds.map(async (id) => ({
       id,
-      connection: await connectAssistantEnvironment(hold, id, QUERY_CONNECT_TIMEOUT_MS),
+      connection: await connectAssistantEnvironment(hold, id, connectMs),
     })),
   );
   const notices = [];
@@ -279,7 +316,7 @@ async function answerRequests(hold: AssistantRuntimeHold, params: QueryParams) {
         environmentName: names.get(thread.environmentId) ?? "",
         thread,
       };
-      const projection = await boundedProjection(thread.environmentId, thread.id);
+      const projection = await boundedProjection(thread.environmentId, thread.id, deadline);
       return projection === null
         ? [
             assistantRequestNoticeRow({
@@ -294,8 +331,12 @@ async function answerRequests(hold: AssistantRuntimeHold, params: QueryParams) {
   return [...rows.flat(), ...notices];
 }
 
-async function answerThreadStatus(hold: AssistantRuntimeHold, params: QueryParams) {
-  const target = await connectThread(hold, params);
+async function answerThreadStatus(
+  hold: AssistantRuntimeHold,
+  params: QueryParams,
+  deadline: Deadline,
+) {
+  const target = await connectThread(hold, params, deadline);
   if (target === null) return [];
   const notice = (message: string) => [
     {
@@ -306,9 +347,9 @@ async function answerThreadStatus(hold: AssistantRuntimeHold, params: QueryParam
     },
   ];
   if (target.kind === "unavailable") return notice(target.message);
-  const thread = threadShell(target.environmentId, target.threadId);
+  const thread = await settledThreadShell(target.environmentId, target.threadId, deadline);
   if (thread === null) return notice("That thread is not in this environment.");
-  const projection = await boundedProjection(target.environmentId, target.threadId);
+  const projection = await boundedProjection(target.environmentId, target.threadId, deadline);
   if (projection === null)
     return notice("T3 Code could not read that thread; try again in a moment.");
   return [
@@ -323,8 +364,8 @@ async function answerThreadStatus(hold: AssistantRuntimeHold, params: QueryParam
   ];
 }
 
-async function answerQueue(hold: AssistantRuntimeHold, params: QueryParams) {
-  const target = await connectThread(hold, params);
+async function answerQueue(hold: AssistantRuntimeHold, params: QueryParams, deadline: Deadline) {
+  const target = await connectThread(hold, params, deadline);
   if (target === null) return [];
   const notice = (message: string) => [
     {
@@ -335,9 +376,9 @@ async function answerQueue(hold: AssistantRuntimeHold, params: QueryParams) {
     },
   ];
   if (target.kind === "unavailable") return notice(target.message);
-  const thread = threadShell(target.environmentId, target.threadId);
+  const thread = await settledThreadShell(target.environmentId, target.threadId, deadline);
   if (thread === null) return notice("That thread is not in this environment.");
-  const projection = await boundedProjection(target.environmentId, target.threadId);
+  const projection = await boundedProjection(target.environmentId, target.threadId, deadline);
   if (projection === null)
     return notice("T3 Code could not read that thread; try again in a moment.");
   return assistantQueueRows(
@@ -348,7 +389,11 @@ async function answerQueue(hold: AssistantRuntimeHold, params: QueryParams) {
 
 const ANSWERS: Record<
   LiveQueryKind,
-  (hold: AssistantRuntimeHold, params: QueryParams) => Promise<ReadonlyArray<unknown>>
+  (
+    hold: AssistantRuntimeHold,
+    params: QueryParams,
+    deadline: Deadline,
+  ) => Promise<ReadonlyArray<unknown>>
 > = {
   messages: answerMessages,
   models: answerModels,
@@ -372,16 +417,23 @@ function republishCatalog(): void {
   }
 }
 
+/** Epoch milliseconds to answer by: the native wait's end less a margin to hand rows back. */
+function queryDeadline(deadlineAt: unknown, now: number): Deadline {
+  const end = typeof deadlineAt === "string" ? Number(deadlineAt) : Number.NaN;
+  return Number.isFinite(end) ? end - QUERY_REPLY_MARGIN_MS : now + QUERY_DEFAULT_BUDGET_MS;
+}
+
 async function answerQuery(
   kind: LiveQueryKind,
   requestId: string,
   rawParams: string,
+  deadline: Deadline,
 ): Promise<void> {
   if (!evaExtension) return;
   const hold = holdAssistantRuntime();
   let rows: ReadonlyArray<unknown>;
   try {
-    rows = await ANSWERS[kind](hold, JSON.parse(rawParams) as QueryParams);
+    rows = await ANSWERS[kind](hold, JSON.parse(rawParams) as QueryParams, deadline);
   } catch {
     rows = [];
   }
@@ -453,6 +505,11 @@ export async function runAssistantTask(data: unknown): Promise<void> {
     typeof task.requestId === "string" &&
     typeof task.params === "string"
   ) {
-    await answerQuery(task.kind, task.requestId, task.params);
+    await answerQuery(
+      task.kind,
+      task.requestId,
+      task.params,
+      queryDeadline(task.deadlineAt, Date.now()),
+    );
   }
 }

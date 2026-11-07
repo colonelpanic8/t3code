@@ -250,7 +250,7 @@ async function connected(deps: AssistantRequestDeps, environmentId: string) {
       throw new Outcome({
         state: "waiting_for_host",
         environmentName: connection.environmentName,
-        error: { code: "environment_offline", message: "The environment is offline." },
+        error: { code: "environment_offline", message: "The environment did not connect in time." },
       });
   }
 }

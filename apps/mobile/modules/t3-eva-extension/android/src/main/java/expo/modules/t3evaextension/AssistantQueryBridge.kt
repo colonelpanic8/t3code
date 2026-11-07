@@ -17,7 +17,11 @@ import java.util.concurrent.TimeUnit
 object AssistantQueryBridge {
   private val pending = ConcurrentHashMap<String, ArrayBlockingQueue<String>>()
 
-  /** Null when the runtime cannot start, cannot reach the host, or runs out of time. */
+  /**
+   * Null when the runtime cannot start, cannot reach the host, or runs out of time. The task
+   * gets the wall-clock time this wait ends, so a cold start spends whatever is left of it
+   * connecting instead of a fixed share.
+   */
   fun request(context: Context, kind: String, params: Map<String, Any?>, timeoutMs: Long): String? {
     val requestId = UUID.randomUUID().toString()
     val answers = ArrayBlockingQueue<String>(1)
@@ -25,7 +29,12 @@ object AssistantQueryBridge {
     return try {
       AssistantRuntime.startTask(
         context,
-        mapOf("kind" to kind, "requestId" to requestId, "params" to JSONObject(params).toString()),
+        mapOf(
+          "kind" to kind,
+          "requestId" to requestId,
+          "params" to JSONObject(params).toString(),
+          "deadlineAt" to (System.currentTimeMillis() + timeoutMs).toString(),
+        ),
       )
       answers.poll(timeoutMs, TimeUnit.MILLISECONDS)
     } catch (_: InterruptedException) {
