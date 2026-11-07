@@ -1065,6 +1065,7 @@ export interface DesktopBridge {
   onNotificationBadgeClear: (listener: () => void) => () => void;
   onTrackpadScrollBegin: (listener: () => void) => () => void;
   onTrackpadScrollEnd: (listener: () => void) => () => void;
+  onSystemResume?: (listener: () => void) => () => void;
   /**
    * Renderer `window.focus()` cannot raise an Electron window, and on Wayland
    * only the main process can spend a notification click's activation token.
