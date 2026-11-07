@@ -1,5 +1,6 @@
 import type { ExpoConfig } from "expo/config";
 
+import { readAssemblyBuild } from "../../scripts/lib/assembly-build.ts";
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
@@ -473,6 +474,11 @@ const config: ExpoConfig = {
     appVariant: APP_VARIANT,
     secretsFeatureEnabled: ["1", "true"].includes(
       process.env.T3CODE_FEATURE_SECRETS?.trim().toLowerCase() ?? "",
+    ),
+    // The assembly's Android CI builds from the pushed assembled commit.
+    assemblyBuild: readAssemblyBuild(
+      process.env.T3CODE_ASSEMBLY_COMMIT ?? process.env.GITHUB_SHA,
+      process.env.T3CODE_ASSEMBLY_COMMIT_DATE,
     ),
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
     relay: {
