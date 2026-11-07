@@ -1,4 +1,5 @@
 import { UsageProviderKind } from "@t3tools/contracts";
+import { USAGE_ALL_TIME_DAYS } from "@t3tools/shared/usageFormat";
 import {
   USAGE_DIMENSIONS,
   USAGE_SORT_FIELDS,
@@ -15,7 +16,7 @@ const STORAGE_KEY = "t3code:usage-page-preferences:v1";
 // this build does not know drops only that setting, not the whole save.
 const StoredPreferencesSchema = Schema.Struct({
   metric: Schema.Literals(["cost", "tokens", "limits"]),
-  windowDays: Schema.Literals([1, 7, 30, 90]),
+  windowDays: Schema.Literals([1, 7, 30, 90, USAGE_ALL_TIME_DAYS]),
   hiddenProviders: Schema.optional(Schema.Array(UsageProviderKind)),
   chartDimensions: Schema.optional(Schema.Array(Schema.String)),
   tableDimensions: Schema.optional(Schema.Array(Schema.String)),
@@ -39,7 +40,7 @@ export const USAGE_DAY_GROUPINGS = [
 
 export interface UsagePagePreferences {
   readonly metric: "cost" | "tokens" | "limits";
-  readonly windowDays: 1 | 7 | 30 | 90;
+  readonly windowDays: 1 | 7 | 30 | 90 | typeof USAGE_ALL_TIME_DAYS;
   readonly hiddenProviders?: readonly UsageProviderKind[];
   readonly chartDimensions?: readonly UsageChartDimension[];
   readonly tableDimensions?: readonly UsageDimension[];
