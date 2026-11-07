@@ -13,9 +13,14 @@ from your connected environments. It shows token use, cache savings, model break
 cost, split by token type and by speed. These estimates are not your subscription bill.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
 split, such as a provider-reported cost for a model without public rates, shows as **Other**.
-Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
+The chart and the **Breakdown** table can each split usage by environment, provider, and model in
+any combination, and the table can also split and sort by period. **Day**, **Week**, and **Month**
+set the period length for both; **Past 24 hours** is always hourly. With the model split on,
+select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 
-Totals depend on the history available on each server. Grok turns without a saved completed-turn
+Totals depend on the history available on each server. A server keeps the usage it has read even
+after a provider deletes the transcript, so **All time** reaches back to the first history it saw.
+The first all-time read on a server can take a while because it reads every transcript once. Grok turns without a saved completed-turn
 record are missing from the totals.
 Text generation (thread titles, commit messages, PR text, branch names and review guides) is not in
 the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no session history.
@@ -194,7 +199,7 @@ Session, Weekly, or both for each provider. Reopen T3 to refresh expired reading
 
 On web and desktop, open Usage from the command palette. While on Usage,
 press `C`, `T`, or `L` for Cost, Tokens, or Limits while not typing in a field.
-Use `Ctrl+Shift+1/2/3/4` (`Cmd+Shift+1/2/3/4` on macOS) for the past
-24 hours, 7 days, 30 days, or 90 days. Period shortcuts do nothing on Limits.
+Use `Ctrl+Shift+1/2/3/4/5` (`Cmd+Shift+1/2/3/4/5` on macOS) for the past
+24 hours, 7 days, 30 days, 90 days, or all time. Period shortcuts do nothing on Limits.
 Press `Escape` to return to the previous page. Customize these shortcuts in
 **Settings → Keybindings**.
