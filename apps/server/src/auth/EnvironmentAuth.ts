@@ -492,6 +492,18 @@ export class EnvironmentAuth extends Context.Service<
       IssuedPairingLink,
       ServerAuthInternalError | ManagedLimits.ManagedPolicyRefusedError
     >;
+    /**
+     * Mints a reusable enrollment grant. Each redemption issues its own
+     * session; revoking the grant (as a pairing link) only stops new ones.
+     */
+    readonly createFleetEnrollment: (input: {
+      readonly ttl: Duration.Duration;
+      readonly label: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+    }) => Effect.Effect<
+      PairingGrantStore.IssuedFleetEnrollment,
+      ServerAuthInternalError | ManagedLimits.ManagedPolicyRefusedError
+    >;
     readonly issuePairingCredential: (
       input?: AuthCreatePairingCredentialInput,
     ) => Effect.Effect<
@@ -1059,6 +1071,20 @@ export const make = Effect.gen(function* () {
     return yield* issuePairingLink(input);
   });
 
+  const createFleetEnrollment: EnvironmentAuth["Service"]["createFleetEnrollment"] = Effect.fn(
+    "EnvironmentAuth.createFleetEnrollment",
+  )(function* (input) {
+    if (!ManagedLimits.allowsRemoteClients(managedPolicy)) {
+      return yield* ManagedLimits.refuseRemoteClients(
+        managedPolicy,
+        "so this server cannot create fleet enrollments",
+      );
+    }
+    return yield* bootstrapCredentials
+      .issueFleetEnrollment(input)
+      .pipe(Effect.mapError((cause) => new ServerAuthPairingLinkCreationError({ cause })));
+  });
+
   const listPairingLinks: EnvironmentAuth["Service"]["listPairingLinks"] = (input) =>
     bootstrapCredentials.listActive().pipe(
       Effect.map((pairingLinks) => {
@@ -1389,6 +1415,7 @@ export const make = Effect.gen(function* () {
     createBrowserSession,
     exchangeBootstrapCredentialForAccessToken,
     createPairingLink,
+    createFleetEnrollment,
     issuePairingCredential,
     issueStartupPairingCredential,
     listPairingLinks,
@@ -1413,6 +1440,8 @@ export const make = Effect.gen(function* () {
 /** Subjects of sessions and links a pairing link created, keyed by how the client paired. */
 const LINK_PAIRED_SUBJECTS = { link: "one-time-token", connect: "cloud-connect" } as const;
 
+const isFleetEnrollmentSubject = (subject: string) => subject.startsWith("fleet-enrollment:");
+
 /**
  * Revokes sessions and unused links from pairing the policy no longer allows, so a policy rolled
  * out to a machine that already had phones paired takes effect on the next start.
@@ -1434,14 +1463,16 @@ const revokePairedClientsThePolicyDisallows = Effect.fn(
   const sessions = (yield* stores.sessions.listActive()).filter(
     (session) =>
       disallowed.has(session.subject) ||
+      (!remoteAllowed && isFleetEnrollmentSubject(session.subject)) ||
       // The startup link also pairs browsers on this machine; only a device elsewhere goes.
       (!remoteAllowed &&
         session.subject === INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT &&
         session.client.ipAddress !== undefined &&
         !isLocalLoopbackHost(session.client.ipAddress)),
   );
-  const links = (yield* stores.pairingLinks.listActive()).filter((link) =>
-    disallowed.has(link.subject),
+  const links = (yield* stores.pairingLinks.listActive()).filter(
+    (link) =>
+      disallowed.has(link.subject) || (!remoteAllowed && isFleetEnrollmentSubject(link.subject)),
   );
   yield* Effect.forEach(sessions, (session) => stores.sessions.revoke(session.sessionId), {
     discard: true,
