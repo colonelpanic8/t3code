@@ -441,7 +441,11 @@ internal class AssistantQueries(
     published: List<JSONObject>
   ): List<JSONObject> {
     val capturedAtMs = catalog?.optString("capturedAt")?.let(::parseIsoTimestamp)
-    val since = maxOf(capturedAtMs ?: 0L, System.currentTimeMillis() - CREATED_ROWS_MAX_AGE_MS)
+    val since =
+      maxOf(
+        (capturedAtMs ?: 0L) - CreatedCatalogRows.SHELL_LAG_MS,
+        System.currentTimeMillis() - CREATED_ROWS_MAX_AGE_MS
+      )
     val entries = AssistantJobs.journal(context).creationsSince(since)
     if (entries.isEmpty()) return emptyList()
     val listed = published.mapTo(HashSet()) { it.optString("environmentId") to it.optString("id") }

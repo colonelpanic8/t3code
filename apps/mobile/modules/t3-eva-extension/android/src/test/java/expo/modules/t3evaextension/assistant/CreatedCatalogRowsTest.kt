@@ -57,9 +57,24 @@ class CreatedCatalogRowsTest {
   }
 
   @Test
-  fun aCatalogCapturedAfterTheCreationWins() {
+  fun aCatalogCapturedWellAfterTheCreationWins() {
     val entries = listOf(creation("a", 100, "th-a"), creation("b", 300, "th-b"))
-    assertEquals(listOf("th-b"), ids(CreatedCatalogRows.rows("threads", entries, emptySet(), 200)))
+    val lag = CreatedCatalogRows.SHELL_LAG_MS
+    assertEquals(
+      listOf("th-b"),
+      ids(CreatedCatalogRows.rows("threads", entries, emptySet(), 100 + lag))
+    )
+    assertEquals(
+      emptyList<Any?>(),
+      ids(CreatedCatalogRows.rows("threads", entries, emptySet(), 300 + lag))
+    )
+  }
+
+  @Test
+  fun aCatalogPublishedRightAfterTheCreationDoesNotHideIt() {
+    // The headless task republishes as the request completes, before its shell lists the thread.
+    val entries = listOf(creation("a", 100, "th-a"))
+    assertEquals(listOf("th-a"), ids(CreatedCatalogRows.rows("threads", entries, emptySet(), 150)))
   }
 
   @Test

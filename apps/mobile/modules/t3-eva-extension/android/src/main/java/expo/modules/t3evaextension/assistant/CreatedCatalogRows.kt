@@ -9,9 +9,16 @@ object CreatedCatalogRows {
   private val ROW_KEYS = mapOf("threads" to "thread")
 
   /**
-   * Newest first. Skips rows the catalog lists and creations recorded before
-   * the catalog was captured: a catalog that is newer and lacks the row has
-   * seen it archived.
+   * How long the app's thread shells may lag a creation. The headless task
+   * republishes the catalog as soon as a request completes, often before the
+   * environment's shell stream has delivered the new thread.
+   */
+  const val SHELL_LAG_MS = 60_000L
+
+  /**
+   * Newest first. Skips rows the catalog lists, and creations the catalog was
+   * captured well after: a catalog that lacks the row by then has seen it
+   * archived.
    */
   fun rows(
     table: String,
@@ -21,7 +28,7 @@ object CreatedCatalogRows {
   ): List<Map<String, Any?>> {
     val key = ROW_KEYS[table] ?: return emptyList()
     return entries
-      .filter { capturedAtMs == null || it.updatedAtMs > capturedAtMs }
+      .filter { capturedAtMs == null || capturedAtMs < it.updatedAtMs + SHELL_LAG_MS }
       .sortedByDescending { it.updatedAtMs }
       .mapNotNull { it.createdRow(key) }
       .filter { row ->
