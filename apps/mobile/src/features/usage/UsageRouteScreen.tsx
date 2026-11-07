@@ -30,7 +30,7 @@ import {
   type UsageTimeGrouping,
 } from "@t3tools/shared/usagePivot";
 import {
-  enumerateDays,
+  USAGE_ALL_TIME_DAYS,
   enumerateHourStarts,
   formatCount,
   formatPercent,
@@ -39,6 +39,7 @@ import {
   formatUsd,
   makeWindow,
   usageSourceMessages,
+  usageWindowDays,
 } from "@t3tools/shared/usageFormat";
 import { useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, View, useWindowDimensions } from "react-native";
@@ -87,6 +88,7 @@ const WINDOW_OPTIONS = [
   { value: 7, label: "7d", accessibilityLabel: "Past 7 days" },
   { value: 30, label: "30d", accessibilityLabel: "Past 30 days" },
   { value: 90, label: "90d", accessibilityLabel: "Past 90 days" },
+  { value: USAGE_ALL_TIME_DAYS, label: "All", accessibilityLabel: "All time" },
 ] as const;
 
 const CHART_HEIGHT = 180;
@@ -144,7 +146,10 @@ function UsageScreen(props: {
     (environment) => environment.canReadDiagnostics,
   );
 
-  const days = enumerateDays(window.sinceDay, window.untilDay);
+  const days = usageWindowDays(
+    window,
+    merged.entries.map((entry) => entry.bucket.day),
+  );
   const chartDays =
     isPast24Hours && window.sinceTime !== undefined && window.untilTime !== undefined
       ? enumerateHourStarts(window.sinceTime, window.untilTime)
