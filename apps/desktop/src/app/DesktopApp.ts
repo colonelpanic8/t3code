@@ -78,8 +78,11 @@ export class DesktopDevelopmentBackendPortRequiredError extends Schema.TaggedErr
 const { logInfo: logBootstrapInfo, logWarning: logBootstrapWarning } =
   DesktopObservability.makeComponentLogger("desktop-bootstrap");
 
-const { logInfo: logStartupInfo, logError: logStartupError } =
-  DesktopObservability.makeComponentLogger("desktop-startup");
+const {
+  logInfo: logStartupInfo,
+  logWarning: logStartupWarning,
+  logError: logStartupError,
+} = DesktopObservability.makeComponentLogger("desktop-startup");
 
 const resolveDesktopBackendPort = Effect.fn("resolveDesktopBackendPort")(function* (
   configuredPort: Option.Option<number>,
@@ -310,6 +313,11 @@ const startup = Effect.gen(function* () {
   const userDataPath = yield* appIdentity.resolveUserDataPath;
   yield* electronApp.setPath("userData", userDataPath);
   yield* logStartupInfo("runtime logging configured", { logDir: environment.logDir });
+  if (preReadyElectronOptions.clientDirSwitchMissingValue) {
+    yield* logStartupWarning("--client-dir has no value; use --client-dir=<path>", {
+      clientConfigDir: environment.clientConfigDir,
+    });
+  }
   yield* desktopSettings.load;
 
   if (linuxElectronOptions !== null) {
