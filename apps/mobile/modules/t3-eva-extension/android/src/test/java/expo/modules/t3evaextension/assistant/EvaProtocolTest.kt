@@ -228,12 +228,12 @@ class EvaProtocolTest {
     }
     listOf(
       base + ("baseBranch" to "main"),
-      base + ("model" to "gpt"),
       base + ("workspace" to "branch"),
       base + ("workspace" to "pull_request") + ("branch" to "main"),
     ).forEach { args ->
       assertThrows(IllegalArgumentException::class.java) { start.validate(args) }
     }
+    start.validate(base + ("model" to "gpt"))
     start.validate(base + ("workspace" to "worktree") + ("baseBranch" to "main"))
     start.validate(base + ("workspace" to "pull_request") + ("pullRequest" to "42"))
   }
@@ -343,7 +343,8 @@ class EvaProtocolTest {
 
   @Test
   fun descriptorUsesOnlyKeywordsEvaAccepts() {
-    val allowed = setOf("type", "description", "enum", "minLength", "maxLength")
+    val allowed =
+      setOf("type", "description", "enum", "minLength", "maxLength", "minimum", "maximum")
     val describe = EvaProtocol.describeReply(setOf("confirmation"))
     assertTrue(StrictJson.utf8Size(describe) <= 65_536)
     val descriptor = StrictJson.parseObject(describe)["descriptor"] as Map<*, *>

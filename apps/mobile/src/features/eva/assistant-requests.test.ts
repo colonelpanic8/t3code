@@ -342,6 +342,40 @@ describe("resolveModelSelection", () => {
     });
   });
 
+  it("runs a model named without a provider on the provider that offers it", () => {
+    const offering = (instanceId: string, slug: string) =>
+      provider({
+        instanceId: ProviderInstanceId.make(instanceId),
+        models: [{ slug, name: slug, isCustom: false, capabilities: null }],
+      });
+    const claude = offering("claude", "opus");
+    const both = offering("codex-work", "gpt-a");
+    expect(
+      resolveModelSelection({
+        model: "opus",
+        projectDefault: null,
+        providers: [provider(), claude],
+      }),
+    ).toEqual({ instanceId: "claude", model: "opus" });
+    expect(
+      resolveModelSelection({
+        model: "gpt-a",
+        projectDefault: { instanceId: ProviderInstanceId.make("codex-work"), model: "gpt-a" },
+        providers: [provider(), both],
+      }),
+    ).toEqual({ instanceId: "codex-work", model: "gpt-a" });
+    expect(() =>
+      resolveModelSelection({
+        model: "gpt-a",
+        projectDefault: null,
+        providers: [provider(), both],
+      }),
+    ).toThrow(/codex, codex-work; pass provider/);
+    expect(() =>
+      resolveModelSelection({ model: "gpt-z", projectDefault: null, providers: [provider()] }),
+    ).toThrow(/No enabled provider/);
+  });
+
   it("rejects providers and models the environment cannot run", () => {
     expect(() =>
       resolveModelSelection({ provider: "nope", projectDefault: null, providers }),

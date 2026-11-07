@@ -137,11 +137,15 @@ sealed class Field(val name: String, val description: String) {
     }
   }
 
-  // EVA's schema dialect has no minimum or maximum; the bounds are enforced here only.
   class Whole(name: String, description: String, private val min: Long, private val max: Long) :
     Field(name, description) {
     override fun schema(): Map<String, Any?> =
-      linkedMapOf("type" to "integer", "description" to description)
+      linkedMapOf(
+        "type" to "integer",
+        "minimum" to min,
+        "maximum" to max,
+        "description" to description
+      )
 
     override fun validate(value: Any?): Any {
       val number = value as? Long ?: throw InvalidArgumentsException("$name must be an integer")
@@ -324,8 +328,9 @@ object AssistantCapabilities {
           ),
           Field.Text(
             "model",
-            "Model ID from the T3 Code models catalog for this provider. Defaults to the " +
-              "provider's default model."
+            "Model ID from the T3 Code models catalog. Without provider, the provider that " +
+              "offers it, the project's default provider first. With provider alone, defaults " +
+              "to that provider's default model."
           ),
           modelOptions,
           Field.Choice(
@@ -394,7 +399,6 @@ object AssistantCapabilities {
       if (workspace == "pull_request" && !arguments.containsKey("pullRequest")) {
         throw InvalidArgumentsException("workspace=pull_request requires pullRequest")
       }
-      requireOnlyWith(arguments, "model", arguments.containsKey("provider"), "requires provider")
     }
 
   val sendMessage =

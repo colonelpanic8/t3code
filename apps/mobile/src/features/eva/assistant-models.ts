@@ -27,7 +27,10 @@ function defaultModel(provider: ServerProvider): string | null {
   return (provider.models.find((model) => model.isDefault) ?? provider.models[0])?.slug ?? null;
 }
 
-/** The request's provider and model, else the project's default, else the first ready provider's. */
+/**
+ * The request's provider and model, else the project's default, else the first ready provider's.
+ * A model without a provider runs on the provider offering it, the project's default first.
+ */
 export function resolveModelSelection(input: {
   readonly provider?: string | undefined;
   readonly model?: string | undefined;
@@ -62,6 +65,28 @@ export function resolveModelSelection(input: {
       );
     }
     return { instanceId: provider.instanceId, model };
+  }
+  if (input.model !== undefined) {
+    const model = input.model;
+    const offering = input.providers.filter(
+      (provider) => usable(provider) && provider.models.some((m) => m.slug === model),
+    );
+    const chosen =
+      offering.find((provider) => provider.instanceId === input.projectDefault?.instanceId) ??
+      (offering.length === 1 ? offering[0] : undefined);
+    if (chosen) return resolveModelSelection({ ...input, provider: chosen.instanceId });
+    if (offering.length === 0) {
+      throw stop(
+        "rejected",
+        "unknown_model",
+        `No enabled provider on this environment offers model ${model}.`,
+      );
+    }
+    throw stop(
+      "rejected",
+      "ambiguous_model",
+      `Model ${model} is offered by ${offering.map((p) => p.instanceId).join(", ")}; pass provider.`,
+    );
   }
   if (input.projectDefault) {
     return { instanceId: input.projectDefault.instanceId, model: input.projectDefault.model };

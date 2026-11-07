@@ -198,12 +198,21 @@ const argumentDecoders = Object.fromEntries(
   (raw: unknown) => ReturnType<ReturnType<typeof Schema.decodeUnknownOption>>
 >;
 
-function decodeArguments<O extends ThreadActionOperation>(operation: O, raw: unknown) {
+/** The saved arguments as planning reads them, or null when they do not decode. */
+export function decodeThreadActionArguments<O extends ThreadActionOperation>(
+  operation: O,
+  raw: unknown,
+): (typeof ArgumentSchemas)[O]["Type"] | null {
   const decoded = argumentDecoders[operation](raw);
-  if (decoded._tag === "None") {
+  return decoded._tag === "None" ? null : (decoded.value as (typeof ArgumentSchemas)[O]["Type"]);
+}
+
+function decodeArguments<O extends ThreadActionOperation>(operation: O, raw: unknown) {
+  const decoded = decodeThreadActionArguments(operation, raw);
+  if (decoded === null) {
     throw stop("rejected", "invalid_arguments", "T3 Code could not read the saved request.");
   }
-  return decoded.value as (typeof ArgumentSchemas)[O]["Type"];
+  return decoded;
 }
 
 function shellOf(environment: ThreadActionEnvironment, threadId: string): EnvironmentThreadShell {

@@ -21,6 +21,7 @@ import {
 } from "./assistant-models";
 import { clip, Outcome, stop, type AssistantRequestState } from "./assistant-outcome";
 import {
+  decodeThreadActionArguments,
   isThreadActionOperation,
   planThreadAction,
   ThreadActionPlan,
@@ -121,6 +122,18 @@ const decodeStartThreadArguments = Schema.decodeUnknownOption(StartThreadArgumen
 const decodeSendMessageArguments = Schema.decodeUnknownOption(SendMessageArguments);
 
 const PENDING_STATES = new Set(["accepted", "waiting_for_host", "submitted"]);
+
+/** True when saved arguments decode as the executor plans from them. */
+export function assistantArgumentsDecode(operation: AssistantOperationName, raw: unknown): boolean {
+  switch (operation) {
+    case "start_thread":
+      return decodeStartThreadArguments(raw)._tag === "Some";
+    case "send_message":
+      return decodeSendMessageArguments(raw)._tag === "Some";
+    default:
+      return decodeThreadActionArguments(operation, raw) !== null;
+  }
+}
 
 export type AssistantOperationName = "start_thread" | "send_message" | ThreadActionOperation;
 
