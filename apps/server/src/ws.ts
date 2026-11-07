@@ -126,6 +126,7 @@ import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts"
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as CoordinatorService from "./coordinator/CoordinatorService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
@@ -1441,6 +1442,7 @@ export const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const coordinators = yield* CoordinatorService.CoordinatorService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2360,6 +2362,13 @@ export const layerWsRpc = (
               Effect.as(commandOutputHub.subscribe(input)),
             ),
           ),
+        [WS_METHODS.coordinatorsSubscribe]: (_input) => coordinators.subscribeList,
+        [WS_METHODS.coordinatorsInboxSubscribe]: (input) =>
+          coordinators.subscribeInbox(input.coordinatorId),
+        [WS_METHODS.coordinatorsInboxDismiss]: (input) =>
+          coordinators.resolve(input.coordinatorId, input.itemId).pipe(Effect.as({})),
+        [WS_METHODS.coordinatorsWake]: (input) =>
+          coordinators.wake(input.coordinatorId).pipe(Effect.as({})),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),
@@ -3546,6 +3555,7 @@ export const layer = Layer.unwrap(
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
+    const coordinatorService = yield* CoordinatorService.CoordinatorService;
     const sql = yield* SqlClient.SqlClient;
     const voiceLive = yield* VoiceLiveService.VoiceLiveService;
     const voiceLiveTools = yield* VoiceLiveToolExecutor.VoiceLiveToolExecutor;
@@ -3642,6 +3652,9 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(VoiceLiveService.VoiceLiveService, voiceLive)),
               Layer.provide(
                 Layer.succeed(VoiceLiveToolExecutor.VoiceLiveToolExecutor, voiceLiveTools),
+              ),
+              Layer.provide(
+                Layer.succeed(CoordinatorService.CoordinatorService, coordinatorService),
               ),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
