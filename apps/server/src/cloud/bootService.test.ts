@@ -19,13 +19,8 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { vi } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
-import {
-  serviceLauncherBaseDir,
-  serviceLauncherEnvironment,
-  serviceLauncherLockPath,
-} from "../serviceLauncher.ts";
+import { serviceLauncherBaseDir, serviceLauncherLockPath } from "../serviceLauncher.ts";
 import * as BootService from "./bootService.ts";
-import { parseServiceLauncherArgs } from "../cli/serviceLauncher.ts";
 import { pinnedRuntimePaths } from "./pinnedRuntime.ts";
 import {
   disabledServiceTask,
@@ -146,15 +141,6 @@ it("pins the split roots in the unit and leaves the runtime dir to the user mana
   expect(unit).not.toContain("T3CODE_RUNTIME_DIR");
   expect(unit).not.toContain("Environment=T3CODE_HOME=");
   expect(unit).toContain("UnsetEnvironment=T3CODE_HOME\n");
-  const task = BootService.renderBootServiceTask(splitPlan, windowsTaskOptions);
-  for (const [flag, directory] of [
-    ["--config-dir", splitRoots.configDir],
-    ["--state-dir", splitRoots.stateDir],
-    ["--cache-dir", splitRoots.cacheDir],
-    ["--runtime-dir", splitRoots.runtimeDir],
-  ]) {
-    expect(task).toContain(`"${flag}" "${directory}"`);
-  }
   expect(unit).toContain(
     "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE\n",
   );
@@ -174,32 +160,6 @@ it("starts the launcher from a split unit's environment", () => {
       }),
   );
   expect(serviceLauncherBaseDir(environment)).toBe(splitRoots.dataDir);
-  const taskArgs = [
-    "--base-dir",
-    splitRoots.dataDir,
-    "--config-dir",
-    splitRoots.configDir,
-    "--state-dir",
-    splitRoots.stateDir,
-    "--cache-dir",
-    splitRoots.cacheDir,
-    "--runtime-dir",
-    splitRoots.runtimeDir,
-  ];
-  const options = parseServiceLauncherArgs(taskArgs);
-  expect(options).toBeDefined();
-  const taskEnvironment = serviceLauncherEnvironment(options!, {
-    T3CODE_HOME: "/old/home",
-    T3CODE_SERVER_DATA_DIR: "/old/override",
-  });
-  expect(taskEnvironment.T3CODE_HOME).toBeUndefined();
-  expect(taskEnvironment.T3CODE_SERVER_DATA_DIR).toBeUndefined();
-  expect(taskEnvironment.T3CODE_CONFIG_DIR).toBe(splitRoots.configDir);
-  expect(taskEnvironment.T3CODE_STATE_DIR).toBe(splitRoots.stateDir);
-  expect(taskEnvironment.T3CODE_CACHE_DIR).toBe(splitRoots.cacheDir);
-  expect(taskEnvironment.T3CODE_RUNTIME_DIR).toBe(splitRoots.runtimeDir);
-  expect(serviceLauncherBaseDir(taskEnvironment)).toBe(splitRoots.dataDir);
-  expect(parseServiceLauncherArgs(taskArgs.slice(0, -2))).toBeUndefined();
 });
 it("reads the served data dir back out of a split unit or plist", () => {
   expect(BootService.bootServiceBaseDirOf(BootService.renderBootServiceUnit(splitPlan))).toBe(
@@ -502,11 +462,11 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
     environmentPath: string | undefined = installerPath,
     cliVersion = "1.2.3",
     serviceBaseDir = baseDir,
+    storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
     insideService = false,
     hostExecPath = "/usr/bin/t3",
     underSudo = false,
     serviceInstallBinDir: string | null | undefined = installBinDir,
-    storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
   ) =>
     Effect.gen(function* () {
       const paths = pinnedRuntimePaths(path, serviceBaseDir, cliVersion, platform);
@@ -1398,16 +1358,7 @@ process.disconnect();
         cacheDir: path.join(root, "cache"),
         runtimeDir: path.join(root, "runtime"),
       };
-      const service = yield* makeService(
-        undefined,
-        "1.2.3",
-        roots.dataDir,
-        false,
-        undefined,
-        false,
-        undefined,
-        roots,
-      );
+      const service = yield* makeService(undefined, "1.2.3", roots.dataDir, roots);
       yield* service.install();
       expect(yield* service.status).toMatchObject({
         installed: true,
@@ -1434,28 +1385,10 @@ process.disconnect();
         cacheDir: path.join(root, "cache"),
         runtimeDir: path.join(root, "runtime"),
       };
-      yield* (yield* makeService(
-        undefined,
-        "1.2.3",
-        roots.dataDir,
-        false,
-        undefined,
-        false,
-        undefined,
-        roots,
-      )).install();
+      yield* (yield* makeService(undefined, "1.2.3", roots.dataDir, roots)).install();
 
       // What `t3 update` does: the target version's service rewrites the unit.
-      const updated = yield* makeService(
-        undefined,
-        "1.2.4",
-        roots.dataDir,
-        false,
-        undefined,
-        false,
-        undefined,
-        roots,
-      );
+      const updated = yield* makeService(undefined, "1.2.4", roots.dataDir, roots);
       const plan = yield* updated.install({
         start: false,
       });
@@ -1506,7 +1439,7 @@ process.disconnect();
       const statePath = path.join(baseDir, "runtime", "service-state.json");
       const state = yield* fs.readFileString(statePath);
       const unit = yield* fs.readFileString(plan.unitPath);
-      const inside = yield* makeService(undefined, "1.2.4", baseDir, true);
+      const inside = yield* makeService(undefined, "1.2.4", baseDir, undefined, true);
       commands.length = 0;
       invocations.length = 0;
 
@@ -1553,7 +1486,7 @@ process.disconnect();
         const state = yield* fs.readFileString(statePath);
         const marker = `${plan.baseDir}/runtime/${SERVICE_RESTART_PENDING_FILE}`;
         yield* fs.writeFileString(marker, "1.2.3\n");
-        const inside = yield* makeService(undefined, "1.2.3", undefined, true);
+        const inside = yield* makeService(undefined, "1.2.3", undefined, undefined, true);
         commands.length = 0;
         control.failCommand = "systemctl --user daemon-reload";
 
@@ -1848,6 +1781,7 @@ process.disconnect();
       const updated = yield* makeService(
         `/usr/bin:${previous}:/bin`,
         "1.2.4",
+        undefined,
         undefined,
         false,
         runtime.entryPath,
