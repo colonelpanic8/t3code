@@ -18,6 +18,7 @@ import {
   NewThreadSettingsSection,
   WorkingSectionSettings,
 } from "./ThreadSettingsSections";
+import { DefaultCoordinatorSettingsSection } from "../coordinator/DefaultCoordinatorSettingsSection";
 
 const GROUPING_OPTIONS: ReadonlyArray<{
   readonly mode: SidebarProjectGroupingMode;
@@ -76,6 +77,7 @@ export function SettingsProjectGroupingRouteScreen() {
         <NewThreadSettingsSection />
         <LinkSettingsSection />
         <EvaSettingsSection />
+        <DefaultCoordinatorSettingsSection />
       </ScrollView>
     </SettingsScreen>
   );
