@@ -4,6 +4,7 @@ import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
 
 const base = {
   matchesDefault: true,
+  hasProfile: false,
   planModeUiEnabled: false,
   collapsed: false,
   measuredHiddenBlockCount: 0,
@@ -73,4 +74,17 @@ describe("resolveComposerControlsOwnership", () => {
     });
     expect(result.accessDisplay).toBe("icon");
   });
+});
+
+it("overflows the profile picker before the permissions chip", () => {
+  const result = resolveComposerControlsOwnership({
+    ...base,
+    matchesDefault: false,
+    hasProfile: true,
+    measuredHiddenBlockCount: 1,
+  });
+  expect(result.hiddenBlockIds).toEqual(["profile"]);
+  expect(result.profileHidden).toBe(true);
+  expect(result.overflowShowsPermissions).toBe(false);
+  expect(result.pickerOwnsModeShortcut).toBe(false);
 });
