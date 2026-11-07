@@ -36,7 +36,6 @@ import { shortcutLabelForCommand } from "../../keybindings";
 import { useUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
-  enumerateDays,
   enumerateHourStarts,
   formatCount,
   formatDateTimeShort,
@@ -47,6 +46,7 @@ import {
   formatUsd,
   makeWindow,
   usageSourceMessages,
+  usageWindowDays,
 } from "@t3tools/shared/usageFormat";
 import { Button, InlineButton } from "../ui/button";
 import {
@@ -348,7 +348,10 @@ export function UsagePage() {
     if (showingLimits && connectedLimitsEnvironments) autoRefreshLimits();
   }, [showingLimits, connectedLimitsEnvironments]);
 
-  const days = enumerateDays(shownWindow.sinceDay, shownWindow.untilDay);
+  const days = usageWindowDays(
+    shownWindow,
+    merged.entries.map((entry) => entry.bucket.day),
+  );
   const hours =
     shownWindow.sinceTime === undefined || shownWindow.untilTime === undefined
       ? []
@@ -385,7 +388,7 @@ export function UsagePage() {
   const windowLabel =
     shownHourly && shownWindow.sinceTime !== undefined && shownWindow.untilTime !== undefined
       ? `${formatDateTimeShort(shownWindow.sinceTime, shownWindow.timeZone, hour12)} to ${formatDateTimeShort(shownWindow.untilTime, shownWindow.timeZone, hour12)}`
-      : `${formatDayShort(shownWindow.sinceDay)} to ${formatDayShort(shownWindow.untilDay)}`;
+      : `${formatDayShort(days[0] ?? shownWindow.sinceDay)} to ${formatDayShort(shownWindow.untilDay)}`;
   const topbarContent = (
     <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-2 @4xl/usage-header:flex">
       <WorkspaceBreadcrumb ariaLabel="Usage breadcrumb" className="min-w-0">
