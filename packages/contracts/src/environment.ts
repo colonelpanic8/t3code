@@ -171,6 +171,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   mcpApprovalCodes: Schema.optionalKey(Schema.Boolean),
   /** Server answers server.prepareTriage. */
   triage: Schema.optionalKey(Schema.Boolean),
+  /** Server can host Live Voice calls (voice.live.start/stop/respond).
+      Absent on older servers, so clients hide the launcher for them. */
+  voiceLive: Schema.optionalKey(Schema.Boolean),
+  /** Server executes routed Live Voice tools (voice.live.tool.execute).
+      Checked per target host before a client routes a tool call there. */
+  voiceLiveToolExecution: Schema.optionalKey(Schema.Boolean),
   /** Server accepts `{ type: "once" }` scheduled tasks; older servers reject them on save. */
   oneTimeSchedules: Schema.optionalKey(Schema.Boolean),
   /** Server honors `freshContext` on sends; older servers ignore it and keep the old context. */
