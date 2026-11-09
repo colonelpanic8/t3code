@@ -30,7 +30,6 @@ const KEY_LABELS: Record<ManageablePreferenceKey, string> = {
   followUpBehavior: "Follow-ups",
   projectGroupingEnabled: "Project grouping",
   projectGroupingMode: "Project grouping mode",
-  planModeEnabled: "Plan mode",
   workingShelfEnabled: "Working shelf",
   modelFavorites: "Favorite models",
 };
