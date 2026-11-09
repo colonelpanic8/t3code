@@ -98,6 +98,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           label: "phones",
         });
         const fleetPhone = yield* sessions.issue({ subject: `fleet-enrollment:${enrollment.id}` });
+        yield* environmentAuth.issuePairingCredential({ access: "auto" });
 
         yield* EnvironmentAuth.make.pipe(
           Effect.provide(
@@ -149,6 +150,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           subject: "one-time-token",
           label: "CI phone",
         });
+        // An app approval code is never listed.
+        yield* environmentAuth.issuePairingCredential({ access: "auto" });
         const listedBeforeRevoke = yield* environmentAuth.listPairingLinks();
         const revoked = yield* environmentAuth.revokePairingLink(created.id);
         const listedAfterRevoke = yield* environmentAuth.listPairingLinks();
