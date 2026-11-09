@@ -15,6 +15,7 @@ import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } fr
 
 /** Every location flag is present once the command line is parsed. */
 type ServerCommandFlags = Required<CliServerFlags>;
+
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 // The desktop launcher reads this process's stdout and stderr. Once it is gone,
