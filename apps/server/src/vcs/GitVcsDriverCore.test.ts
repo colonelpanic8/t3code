@@ -5147,13 +5147,15 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           { cwd, path: null, refName: initialBranch, newRefName: "feature/templated" },
           { worktreesDirectory, pathTemplate: "{worktreesDir}/nested/{repoName}-{branch}" },
         );
-        const expected = pathService.join(
-          worktreesDirectory,
-          "nested",
-          `${pathService.basename(cwd)}-feature-templated`,
+        assert.equal(
+          pathService.dirname(created.worktree.path),
+          pathService.join(worktreesDirectory, "nested"),
         );
-        assert.equal(created.worktree.path, expected);
-        assert.equal(yield* fileSystem.exists(expected), true);
+        assert.match(
+          pathService.basename(created.worktree.path),
+          new RegExp(`^${pathService.basename(cwd)}-feature-templated-[0-9a-f]{16}$`),
+        );
+        assert.equal(yield* fileSystem.exists(created.worktree.path), true);
       }),
     );
 

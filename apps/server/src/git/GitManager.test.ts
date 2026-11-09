@@ -2865,9 +2865,10 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         newRefName: "feature/templated",
         path: null,
       });
-      expect(created.worktree.path).toBe(
-        NodePath.join(NodeFS.realpathSync(repoDir), ".worktrees", "feature-templated"),
+      expect(NodePath.dirname(created.worktree.path)).toBe(
+        NodePath.join(NodeFS.realpathSync(repoDir), ".worktrees"),
       );
+      expect(NodePath.basename(created.worktree.path)).toMatch(/^feature-templated-[0-9a-f]{16}$/);
     }),
   );
   it.effect("expands ~ in the configured path template", () =>
@@ -2888,9 +2889,10 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           path: null,
         })
         .pipe(Effect.provideService(HostProcess.HomeDirectory, home));
-      expect(created.worktree.path).toBe(
-        NodePath.join(home, "worktrees", NodePath.basename(repoDir), "feature-home"),
+      expect(NodePath.dirname(created.worktree.path)).toBe(
+        NodePath.join(home, "worktrees", NodePath.basename(repoDir)),
       );
+      expect(NodePath.basename(created.worktree.path)).toMatch(/^feature-home-[0-9a-f]{16}$/);
     }),
   );
 
