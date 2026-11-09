@@ -460,6 +460,9 @@ const config: ExpoConfig = {
     // MainActivity mods run in reverse order; extend the tablet-orientation override.
     "./plugins/withAndroidWindowDisplayMetrics.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
+    // Live Voice: microphone permissions, iOS background audio, and the
+    // Android foreground-service permissions for react-native-webrtc calls.
+    "./plugins/withVoiceCall.cjs",
     ...(isIosPersonalTeamBuild ? ["./plugins/withoutIosPersonalTeamCapabilities.cjs"] : []),
   ],
   extra: {
