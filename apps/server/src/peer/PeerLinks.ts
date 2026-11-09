@@ -91,7 +91,12 @@ export class PeerLinks extends Context.Service<
   {
     /** Whether the Linked environments beta (Settings → Labs) is on here. */
     readonly enabled: Effect.Effect<boolean>;
-    readonly link: (input: PeerLinkCreateInput) => Effect.Effect<PeerLink, PeerLinkError>;
+    readonly link: (
+      input: PeerLinkCreateInput,
+      options?: { readonly managedFingerprint?: string },
+    ) => Effect.Effect<PeerLink, PeerLinkError>;
+    /** Links a managed peer links file owns, with the fingerprint of the entry each came from. */
+    readonly listManaged: Effect.Effect<ReadonlyArray<ManagedPeerLinkRow>, PeerLinkError>;
     /**
      * The environment answering at `url`, or nothing when it is not a usable
      * address or does not answer as T3 Code. Sends no credential.
@@ -119,6 +124,23 @@ export class PeerLinks extends Context.Service<
     ) => Effect.Effect<void>;
   }
 >()("t3/peer/PeerLinks") {}
+
+export interface ManagedPeerLinkRow {
+  readonly environmentId: EnvironmentId;
+  readonly fingerprint: string;
+  readonly expiresAt: DateTime.Utc;
+}
+
+/**
+ * A link a managed peer links file owns is told apart by its token's name, which
+ * also carries the fingerprint of the entry it was made from.
+ */
+const MANAGED_SECRET_PREFIX = "managed-peer-link-";
+const managedFingerprintOf = (secretName: string) => {
+  if (!secretName.startsWith(MANAGED_SECRET_PREFIX)) return undefined;
+  const [fingerprint] = secretName.slice(MANAGED_SECRET_PREFIX.length).split("-");
+  return fingerprint === undefined || fingerprint === "" ? undefined : fingerprint;
+};
 
 interface PeerLinkRow {
   readonly environment_id: string;
@@ -200,10 +222,15 @@ const make = Effect.gen(function* () {
   );
 
   /** A fresh name for one link's token; the row records it. */
-  const newSecretName = random.randomBytes(16).pipe(
-    Effect.map((bytes) => `peer-link-${Hex.encode(bytes)}`),
-    Effect.orDie,
-  );
+  const newSecretName = (managedFingerprint: string | undefined) =>
+    random.randomBytes(16).pipe(
+      Effect.map((bytes) =>
+        managedFingerprint === undefined
+          ? `peer-link-${Hex.encode(bytes)}`
+          : `${MANAGED_SECRET_PREFIX}${managedFingerprint}-${Hex.encode(bytes)}`,
+      ),
+      Effect.orDie,
+    );
 
   // Only the origin `peerOrigin` checked may receive a pairing code or token:
   // a redirect could forward them anywhere, including plain http.
@@ -451,57 +478,58 @@ const make = Effect.gen(function* () {
     return { primary, peer: descriptor.value, origins };
   });
 
-  const link: PeerLinks["Service"]["link"] = Effect.fn("PeerLinks.link")(function* (input) {
-    if (!(yield* enabled)) {
-      return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
-    }
-    const urls = [input.url, ...(input.alternateUrls ?? [])];
-    // The user picked a machine: link through the addresses that prove to
-    // be it, so a reused LAN address never receives the pairing code.
-    const { primary, peer, origins } =
-      input.expectedEnvironmentId === undefined
-        ? yield* answeringAt(urls)
-        : yield* answeringAs(
-            urls,
-            input.expectedEnvironmentId,
-            input.expectedLabel ?? input.expectedEnvironmentId,
-          );
-    const self = yield* environment.getDescriptor;
-    if (peer.environmentId === self.environmentId) {
-      return yield* new PeerLinkError({
-        reason: "self",
-        message: "That address is this environment.",
-      });
-    }
-    if (!linkLimitsHold(peer)) {
-      return yield* new PeerLinkError({
-        reason: "incompatible",
-        message: `${peer.label} runs a T3 Code version that cannot keep a linked agent's limits. Update it, then link again.`,
-      });
-    }
-    const issued = yield* signIn(primary, input, `T3 Code · ${self.label}`);
-    const now = yield* DateTime.now;
-    const linked: PeerLink = {
-      environmentId: peer.environmentId,
-      label: peer.label,
-      urls: origins,
-      access: input.access,
-      linkedAt: now,
-      expiresAt: DateTime.add(now, { seconds: issued.expires_in }),
-      lastReachedAt: now,
-      lastError: null,
-    };
-    // The token goes under a name of its own before the row points at it,
-    // so the row and its token are replaced together.
-    const secretName = yield* newSecretName;
-    yield* secrets
-      .set(secretName, new TextEncoder().encode(issued.access_token))
-      .pipe(Effect.catch(failStorage));
-    // A token no row names could never be removed.
-    const previous = yield* Effect.gen(function* () {
-      const urlsJson = yield* encodeUrls(origins).pipe(Effect.catch(failStorage));
-      const previous = yield* readRow(peer.environmentId);
-      yield* sql`
+  const link: PeerLinks["Service"]["link"] = Effect.fn("PeerLinks.link")(
+    function* (input, options) {
+      if (!(yield* enabled)) {
+        return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
+      }
+      const urls = [input.url, ...(input.alternateUrls ?? [])];
+      // The user picked a machine: link through the addresses that prove to
+      // be it, so a reused LAN address never receives the pairing code.
+      const { primary, peer, origins } =
+        input.expectedEnvironmentId === undefined
+          ? yield* answeringAt(urls)
+          : yield* answeringAs(
+              urls,
+              input.expectedEnvironmentId,
+              input.expectedLabel ?? input.expectedEnvironmentId,
+            );
+      const self = yield* environment.getDescriptor;
+      if (peer.environmentId === self.environmentId) {
+        return yield* new PeerLinkError({
+          reason: "self",
+          message: "That address is this environment.",
+        });
+      }
+      if (!linkLimitsHold(peer)) {
+        return yield* new PeerLinkError({
+          reason: "incompatible",
+          message: `${peer.label} runs a T3 Code version that cannot keep a linked agent's limits. Update it, then link again.`,
+        });
+      }
+      const issued = yield* signIn(primary, input, `T3 Code · ${self.label}`);
+      const now = yield* DateTime.now;
+      const linked: PeerLink = {
+        environmentId: peer.environmentId,
+        label: peer.label,
+        urls: origins,
+        access: input.access,
+        linkedAt: now,
+        expiresAt: DateTime.add(now, { seconds: issued.expires_in }),
+        lastReachedAt: now,
+        lastError: null,
+      };
+      // The token goes under a name of its own before the row points at it,
+      // so the row and its token are replaced together.
+      const secretName = yield* newSecretName(options?.managedFingerprint);
+      yield* secrets
+        .set(secretName, new TextEncoder().encode(issued.access_token))
+        .pipe(Effect.catch(failStorage));
+      // A token no row names could never be removed.
+      const previous = yield* Effect.gen(function* () {
+        const urlsJson = yield* encodeUrls(origins).pipe(Effect.catch(failStorage));
+        const previous = yield* readRow(peer.environmentId);
+        yield* sql`
         INSERT INTO peer_environment_links (
           environment_id, secret_name, label, urls_json, access, linked_at, expires_at,
           last_reached_at, last_error, fenced
@@ -521,15 +549,33 @@ const make = Effect.gen(function* () {
           last_reached_at = excluded.last_reached_at,
           last_error = NULL
       `.pipe(Effect.catch(failStorage));
-      return previous;
-    }).pipe(Effect.onError(() => secrets.remove(secretName).pipe(Effect.ignore)));
-    // Linking again replaces the old token. A racing link may leave its own
-    // behind; it is unused either way.
-    if (Option.isSome(previous) && previous.value.secret_name !== secretName) {
-      yield* secrets.remove(previous.value.secret_name).pipe(Effect.ignore);
-    }
-    return linked;
-  });
+        return previous;
+      }).pipe(Effect.onError(() => secrets.remove(secretName).pipe(Effect.ignore)));
+      // Linking again replaces the old token. A racing link may leave its own
+      // behind; it is unused either way.
+      if (Option.isSome(previous) && previous.value.secret_name !== secretName) {
+        yield* secrets.remove(previous.value.secret_name).pipe(Effect.ignore);
+      }
+      return linked;
+    },
+  );
+
+  const listManaged: PeerLinks["Service"]["listManaged"] = readRows.pipe(
+    Effect.map((rows) =>
+      rows.flatMap((row) => {
+        const fingerprint = managedFingerprintOf(row.secret_name);
+        return fingerprint === undefined
+          ? []
+          : [
+              {
+                environmentId: EnvironmentId.make(row.environment_id),
+                fingerprint,
+                expiresAt: DateTime.makeUnsafe(row.fenced === 1 ? row.expires_at : row.linked_at),
+              },
+            ];
+      }),
+    ),
+  );
 
   const describeUrl: PeerLinks["Service"]["describe"] = (url) =>
     peerOrigin(url).pipe(
@@ -677,6 +723,7 @@ const make = Effect.gen(function* () {
   return PeerLinks.of({
     enabled,
     link,
+    listManaged,
     describe: describeUrl,
     list,
     get,
