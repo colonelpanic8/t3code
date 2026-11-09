@@ -145,6 +145,8 @@ export interface CreateWorktreeOptions {
   /** Null or omitted defers to the checkout's t3.json. */
   readonly submodules?: WorktreeSubmodules | null;
   readonly worktreesDirectory?: string;
+  /** The `worktreePathTemplate` setting, used when the input has no explicit path. */
+  readonly pathTemplate?: string;
   /** Clone the checkout from the macOS worktree checkout cache. */
   readonly fastCheckout?: boolean;
 }
