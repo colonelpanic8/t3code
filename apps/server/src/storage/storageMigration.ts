@@ -197,6 +197,7 @@ const CLIENT_STATE_FILES = new Set([
 /** Client files that stay in the client state root even with a client dir. */
 const CLIENT_ROOT_STATE_FILES = new Set([
   "clerk-tokens.json",
+  "cli-command-first-launch",
   "cli-command-path-entry",
   "snap-shots",
 ]);
