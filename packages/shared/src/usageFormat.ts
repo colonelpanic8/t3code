@@ -94,24 +94,18 @@ export function formatUsageContractMismatch(
     : `This client is older than the server on ${environmentLabel}; its usage is excluded from totals.`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export function formatDayShort(day: string): string {
   const [year, month, dayOfMonth] = day.split("-").map((part) => Number(part));
   if (year === undefined || month === undefined || dayOfMonth === undefined) return day;
-  const MONTHS = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
   return `${MONTHS[month - 1] ?? ""} ${dayOfMonth}`;
+}
+
+export function formatMonthShort(day: string): string {
+  const [year, month] = day.split("-").map((part) => Number(part));
+  if (year === undefined || month === undefined) return day;
+  return `${MONTHS[month - 1] ?? ""} ${year}`;
 }
 
 export function enumerateDays(sinceDay: string, untilDay: string): readonly string[] {
@@ -124,6 +118,21 @@ export function enumerateDays(sinceDay: string, untilDay: string): readonly stri
     days.push(new Date(cursor).toISOString().slice(0, 10));
   }
   return days;
+}
+
+/** The "All time" window: ten years reaches past every transcript a host still keeps. */
+export const USAGE_ALL_TIME_DAYS = 3653;
+
+/** A window's chart days; an all-time window starts at its first day with usage. */
+export function usageWindowDays(
+  window: Pick<UsageSummaryInput, "sinceDay" | "untilDay">,
+  usageDays: Iterable<string>,
+): readonly string[] {
+  const days = enumerateDays(window.sinceDay, window.untilDay);
+  if (days.length < USAGE_ALL_TIME_DAYS) return days;
+  let first: string = window.untilDay;
+  for (const day of usageDays) if (day >= window.sinceDay && day < first) first = day;
+  return enumerateDays(first, window.untilDay);
 }
 
 const HOUR_MS = 60 * 60 * 1000;
