@@ -258,7 +258,7 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly onExpectedFailure?: (
     cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
   ) => Effect.Effect<void, never, never>;
-  readonly retryExpectedFailureAfter?: Duration.Input;
+  readonly retryExpectedFailureAfter?: Duration.Input | ((attempt: number) => Duration.Input);
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
@@ -365,19 +365,19 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         const handled = Stream.fromEffect(options.onExpectedFailure(cause)).pipe(
                           Stream.drain,
                         );
-                        if (
-                          options.retryExpectedFailureAfter === undefined ||
-                          isAuthorizationFailure(cause)
-                        ) {
+                        const retryAfter = options.retryExpectedFailureAfter;
+                        if (retryAfter === undefined || isAuthorizationFailure(cause)) {
                           return handled;
                         }
-                        const retryDelay = Duration.millis(
-                          Math.min(
-                            Duration.toMillis(options.retryExpectedFailureAfter) *
-                              2 ** expectedFailureRetries,
-                            MAX_EXPECTED_FAILURE_RETRY_DELAY_MS,
-                          ),
-                        );
+                        const retryDelay =
+                          typeof retryAfter === "function"
+                            ? retryAfter(expectedFailureRetries)
+                            : Duration.millis(
+                                Math.min(
+                                  Duration.toMillis(retryAfter) * 2 ** expectedFailureRetries,
+                                  MAX_EXPECTED_FAILURE_RETRY_DELAY_MS,
+                                ),
+                              );
                         expectedFailureRetries += 1;
                         return handled.pipe(
                           Stream.concat(
