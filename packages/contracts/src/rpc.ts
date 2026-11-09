@@ -385,6 +385,13 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  CoordinatorError,
+  CoordinatorInbox,
+  CoordinatorInboxDismissInput,
+  CoordinatorInboxSubscribeInput,
+  CoordinatorListResult,
+} from "./coordinator.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -561,6 +568,11 @@ export const WS_METHODS = {
   serverReportClientActivity: "server.reportClientActivity",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+
+  coordinatorsSubscribe: "coordinators.subscribe",
+  coordinatorsInboxSubscribe: "coordinators.inbox.subscribe",
+  coordinatorsInboxDismiss: "coordinators.inbox.dismiss",
+  coordinatorsWake: "coordinators.wake",
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -2008,6 +2020,32 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsCoordinatorsSubscribeRpc = Rpc.make(WS_METHODS.coordinatorsSubscribe, {
+  payload: Schema.Struct({}),
+  success: CoordinatorListResult,
+  error: Schema.Union([CoordinatorError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsCoordinatorsInboxSubscribeRpc = Rpc.make(WS_METHODS.coordinatorsInboxSubscribe, {
+  payload: CoordinatorInboxSubscribeInput,
+  success: CoordinatorInbox,
+  error: Schema.Union([CoordinatorError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsCoordinatorsInboxDismissRpc = Rpc.make(WS_METHODS.coordinatorsInboxDismiss, {
+  payload: CoordinatorInboxDismissInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([CoordinatorError, EnvironmentAuthorizationError]),
+});
+
+const WsCoordinatorsWakeRpc = Rpc.make(WS_METHODS.coordinatorsWake, {
+  payload: CoordinatorInboxSubscribeInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([CoordinatorError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2182,6 +2220,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsCoordinatorsSubscribeRpc,
+  WsCoordinatorsInboxSubscribeRpc,
+  WsCoordinatorsInboxDismissRpc,
+  WsCoordinatorsWakeRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,
   WsScheduledTasksSetEnabledRpc,
