@@ -348,6 +348,7 @@ export function useComposerSend(input: ComposerSendInput) {
     promptRef,
     runtimeMode,
     startFromOrigin,
+    agentProfile: activeThread?.agentProfile,
     resetLocalDispatch,
     setThreadError,
   });
@@ -1200,6 +1201,9 @@ export function useComposerSend(input: ComposerSendInput) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
+                      ...(activeThread.agentProfile === undefined
+                        ? {}
+                        : { agentProfile: activeThread.agentProfile }),
                     },
                   }
                 : {}),
