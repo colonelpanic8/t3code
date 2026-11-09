@@ -308,7 +308,6 @@ const COMPOSER_CONTROL_HINT_COMMANDS = [
   "modelPicker.toggle",
   "composer.effort",
   "composer.mode",
-  "composer.interactionMode",
   "composer.host",
   "composer.workspace",
   "composer.branch",
