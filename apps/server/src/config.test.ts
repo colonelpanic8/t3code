@@ -202,6 +202,7 @@ describe("deriveServerPaths", () => {
         environmentThemesDir: "/xdg/config/t3code/themes",
         providerStatusCacheDir: "/xdg/cache/t3code/provider-status",
         worktreesDir: "/xdg/data/t3code/worktrees",
+        worktreeCheckoutCacheDir: "/xdg/cache/t3code/worktree-checkouts",
         attachmentsDir: "/xdg/data/t3code/attachments",
         browserArtifactsDir: "/xdg/data/t3code/browser-artifacts",
         logsDir: "/xdg/state/t3code/logs",
