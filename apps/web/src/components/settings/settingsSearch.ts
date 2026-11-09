@@ -484,6 +484,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "large-project-icons",
+    title: "Large project icons",
+    to: "/settings/general",
+    searchTerms: ["sidebar thread rows favicon size bigger"],
+  },
+  {
     id: "guest-links",
     title: "Guest links",
     to: "/settings/labs",
