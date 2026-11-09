@@ -153,6 +153,7 @@ export const removeEnrollmentIdentity = Effect.fn("fleetEnrollmentKey.remove")(f
   });
 });
 
+// @effect-diagnostics-next-line extendsNativeError:off - a local throw sentinel inside a plain async reader.
 class PlaintextTooLarge extends Error {}
 
 /**
