@@ -195,7 +195,12 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
         displayName: "Agent Activity",
         description: "Shows the current state of active T3 Code agents.",
         android: null,
-        ios: { supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"] },
+        ios: {
+          supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
+          // Embeds the layout so the gallery preview and a new widget render
+          // before the app has run once; the app replaces it on publish.
+          initialLayout: "./src/widgets/AgentActivityWidget.tsx",
+        },
       },
     ],
   },
@@ -453,6 +458,8 @@ const config: ExpoConfig = {
     "./plugins/withAndroidModernPopupMenu.cjs",
     "./plugins/withAndroidModernAlertDialog.cjs",
     "./plugins/withAndroidPredictiveBackCompat.cjs",
+    // MainActivity mods run in reverse order; extend the tablet-orientation override.
+    "./plugins/withAndroidWindowDisplayMetrics.cjs",
     "./plugins/withAndroidTabletOrientation.cjs",
     // Live Voice: microphone permissions, iOS background audio, and the
     // Android foreground-service permissions for react-native-webrtc calls.
@@ -461,6 +468,9 @@ const config: ExpoConfig = {
   ],
   extra: {
     appVariant: APP_VARIANT,
+    secretsFeatureEnabled: ["1", "true"].includes(
+      process.env.T3CODE_FEATURE_SECRETS?.trim().toLowerCase() ?? "",
+    ),
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
