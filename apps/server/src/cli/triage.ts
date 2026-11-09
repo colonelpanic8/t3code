@@ -6,6 +6,7 @@ import { isCommandAvailable, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 
@@ -17,6 +18,8 @@ import {
   writeTriageSession,
 } from "../triage/triageSession.ts";
 import {
+  currentStorageHost,
+  resolveClientStorageRoots,
   resolveInstallLocations,
   resolveServerConfigFilePath,
   resolveServerLocations,
@@ -130,6 +133,8 @@ export const triageCommand = Command.make("triage", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
+      const path = yield* Path.Path;
+
       // Triage is a user-facing feature: always the userdata state, never dev.
       const { baseDir, derivedPaths: paths } = yield* resolveServerLocations(flags, {
         devUrl: undefined,
@@ -137,7 +142,15 @@ export const triageCommand = Command.make("triage", {
 
       // The service and the desktop app write their logs where the storage
       // layout puts them, whatever location overrides this shell sets.
-      const installLogsDir = (yield* resolveInstallLocations(flags)).logsDir;
+      const install = yield* resolveInstallLocations(flags);
+      const desktopLogsDir = path.join(
+        (yield* resolveClientStorageRoots({
+          serverRoots: install.storage.roots,
+          isDevelopment: false,
+          host: yield* currentStorageHost,
+        })).stateDir,
+        "logs",
+      );
       // A broken server config file is something to triage, not a reason to stop.
       const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
       const serverConfig = yield* readServerConfigFile(configFile.path, {
@@ -179,8 +192,8 @@ export const triageCommand = Command.make("triage", {
         },
         server: yield* describeServerProcess(paths.serverRuntimeStatePath),
         serverConfigFile: serverConfig.description,
-        serviceLogsDir: installLogsDir,
-        desktopLogsDir: installLogsDir,
+        serviceLogsDir: install.logsDir,
+        desktopLogsDir,
       });
 
       const installed: Array<TriageAgent> = [];
