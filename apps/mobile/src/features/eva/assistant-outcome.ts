@@ -21,6 +21,7 @@ export interface OutcomeUpdate {
 }
 
 /** Ends a request at the state it carries; thrown by planning, caught by the runner. */
+// @effect-diagnostics-next-line extendsNativeError:off - a throw sentinel for plain async planning code, never an Effect failure.
 export class Outcome extends Error {
   constructor(readonly update: OutcomeUpdate) {
     super(update.error?.message ?? update.state);
