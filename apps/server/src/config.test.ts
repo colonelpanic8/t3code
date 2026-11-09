@@ -18,6 +18,7 @@ const userdataPaths = {
   environmentThemesDir: "/home/t3/userdata/themes",
   providerStatusCacheDir: "/home/t3/caches",
   worktreesDir: "/home/t3/worktrees",
+  worktreeCheckoutCacheDir: "/home/t3/caches/worktree-checkouts",
   attachmentsDir: "/home/t3/userdata/attachments",
   browserArtifactsDir: "/home/t3/userdata/browser-artifacts",
   logsDir: "/home/t3/userdata/logs",
@@ -57,6 +58,7 @@ const dataOverridePaths = {
 const cacheOverridePaths = {
   cacheDir: "/var/cache/t3",
   providerStatusCacheDir: "/var/cache/t3",
+  worktreeCheckoutCacheDir: "/var/cache/t3/worktree-checkouts",
 };
 describe("deriveServerPaths", () => {
   it.effect("keeps today's layout without overrides", () =>
@@ -84,6 +86,7 @@ describe("deriveServerPaths", () => {
         environmentThemesDir: "/home/t3/dev/themes",
         providerStatusCacheDir: "/home/t3/caches",
         worktreesDir: "/home/t3/worktrees",
+        worktreeCheckoutCacheDir: "/home/t3/caches/worktree-checkouts",
         attachmentsDir: "/home/t3/dev/attachments",
         browserArtifactsDir: "/home/t3/dev/browser-artifacts",
         logsDir: "/home/t3/dev/logs",
@@ -199,6 +202,7 @@ describe("deriveServerPaths", () => {
         environmentThemesDir: "/xdg/config/t3code/themes",
         providerStatusCacheDir: "/xdg/cache/t3code/provider-status",
         worktreesDir: "/xdg/data/t3code/worktrees",
+        worktreeCheckoutCacheDir: "/xdg/cache/t3code/worktree-checkouts",
         attachmentsDir: "/xdg/data/t3code/attachments",
         browserArtifactsDir: "/xdg/data/t3code/browser-artifacts",
         logsDir: "/xdg/state/t3code/logs",

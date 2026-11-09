@@ -52,6 +52,7 @@ export interface ServerDerivedPaths {
   readonly environmentThemesDir: string;
   readonly providerStatusCacheDir: string;
   readonly worktreesDir: string;
+  readonly worktreeCheckoutCacheDir: string;
   readonly attachmentsDir: string;
   readonly browserArtifactsDir: string;
   readonly logsDir: string;
@@ -199,6 +200,7 @@ export const deriveServerPaths = Effect.fn(function* (
       options.split === undefined ? cacheDir : join(cacheDir, "provider-status"),
     // Worktrees sit beside userdata by default, so they follow only an explicit data dir.
     worktreesDir: join(options.dataDir ?? baseDir, "worktrees"),
+    worktreeCheckoutCacheDir: join(cacheDir, "worktree-checkouts"),
     attachmentsDir,
     browserArtifactsDir: join(dataDir, "browser-artifacts"),
     logsDir,
