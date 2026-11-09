@@ -1466,15 +1466,17 @@ const make = Effect.gen(function* () {
     baseline: ServerSettings,
   ) {
     const next = withEchoedSecretReferences(current, requested);
+    // Only sensitive rows own a stored secret; a plain duplicate must not hide one from cleanup.
     const previous = new Map<string, SettingsSecret>();
+    const inlineValues = new Map<string, string>();
     mapSettingsSecrets(current, (secret) => {
+      if (!secret.sensitive) return secret;
       previous.set(secret.secretName, secret);
+      if (!secret.redacted && secret.value.length > 0) {
+        inlineValues.set(secret.secretName, secret.value);
+      }
       return secret;
     });
-    const inlineValueOf = (secretName: string) => {
-      const old = previous.get(secretName);
-      return old?.sensitive && !old.redacted && old.value.length > 0 ? old.value : undefined;
-    };
     // What each redacted secret holds: its previous inline value, or the stored one where
     // the shared file supplies that secret, so an entry reverted to shared matches it again.
     const sharedSecretNames = new Set<string>();
@@ -1491,7 +1493,7 @@ const make = Effect.gen(function* () {
     });
     const resolvedValues = new Map<string, string>();
     for (const secret of resolvable) {
-      const inline = inlineValueOf(secret.secretName);
+      const inline = inlineValues.get(secret.secretName);
       if (inline !== undefined) {
         resolvedValues.set(secret.secretName, inline);
         continue;
@@ -1516,6 +1518,9 @@ const make = Effect.gen(function* () {
     const inherited = inheritedSecretValues(next, baseline, resolvedValues);
     const changes: SecretChange[] = [];
     const nextSecretNames = new Set<string>();
+    const keptSecretNames = new Set<string>();
+    const writtenSecretNames = new Set<string>();
+    const inlineWrites = new Map<string, SecretChange>();
     const settings = mapSettingsSecrets(next, (secret) => {
       const metadata = {
         secretName: secret.secretName,
@@ -1530,27 +1535,44 @@ const make = Effect.gen(function* () {
         changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
         return { value: secret.value, redacted: false };
       }
-      const resolved = resolvedValues.get(secret.secretName);
-      const value = !secret.redacted
-        ? secret.value
-        : (inlineValueOf(secret.secretName) ??
-          (inherited.get(secret.secretName) === resolved ? resolved : undefined));
-      if (value === undefined) {
+      if (secret.redacted) {
+        const inlineValue = inlineValues.get(secret.secretName);
+        const resolved = resolvedValues.get(secret.secretName);
+        const value =
+          inlineValue ?? (inherited.get(secret.secretName) === resolved ? resolved : undefined);
+        // Left inline so the write sees it unchanged from the shared file and omits it.
+        if (value !== undefined && inherited.get(secret.secretName) === value) {
+          return { value, redacted: false };
+        }
+        keptSecretNames.add(secret.secretName);
         nextSecretNames.add(secret.secretName);
+        if (inlineValue !== undefined) {
+          inlineWrites.set(secret.secretName, {
+            ...metadata,
+            kind: "write",
+            value: textEncoder.encode(inlineValue),
+          });
+        }
         return { value: "", redacted: true };
       }
-      // Left inline so the write sees it unchanged from the shared file and omits it.
-      if (inherited.get(secret.secretName) === value) return { value, redacted: false };
-      if (value.length === 0) {
+      if (inherited.get(secret.secretName) === secret.value) {
+        return { value: secret.value, redacted: false };
+      }
+      if (secret.value.length === 0) {
         changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
         return { value: "", redacted: false };
       }
       nextSecretNames.add(secret.secretName);
-      changes.push({ ...metadata, kind: "write", value: textEncoder.encode(value) });
+      writtenSecretNames.add(secret.secretName);
+      changes.push({ ...metadata, kind: "write", value: textEncoder.encode(secret.value) });
       return { value: "", redacted: true };
     });
+    // A legacy inline value only moves to the store when no row in this save replaces it.
+    for (const [secretName, change] of inlineWrites) {
+      if (!writtenSecretNames.has(secretName)) changes.push(change);
+    }
     for (const secret of previous.values()) {
-      if (!secret.sensitive || nextSecretNames.has(secret.secretName)) continue;
+      if (nextSecretNames.has(secret.secretName)) continue;
       if (changes.some((change) => change.secretName === secret.secretName)) continue;
       changes.push({
         kind: "remove",
@@ -1564,7 +1586,13 @@ const make = Effect.gen(function* () {
           : {}),
       });
     }
-    return { settings, changes };
+    return {
+      settings,
+      // A redacted row still claims its stored secret, so a duplicate row must not remove it.
+      changes: changes.filter(
+        (change) => change.kind === "write" || !keptSecretNames.has(change.secretName),
+      ),
+    };
   });
 
   const rollbackSettingsSecretWrites = (
