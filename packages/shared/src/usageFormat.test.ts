@@ -6,7 +6,6 @@ import {
   USAGE_ALL_TIME_DAYS,
   formatHourShort,
   makeWindow,
-  usageSourceMessages,
   msUntilNextLocalDay,
   startOfLocalDay,
   usageSourceMessages,
