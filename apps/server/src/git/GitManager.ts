@@ -765,6 +765,7 @@ export const make = Effect.gen(function* () {
     Stream.runForEach(() => gitCore.clearWorktreeCheckoutCache),
     Effect.forkScoped,
   );
+  const readWorktreePathTemplate = ServerSettings.readWorktreePathTemplate(serverSettingsService);
   const createWorktree: GitManager["Service"]["createWorktree"] = Effect.fn(
     "GitManager.createWorktree",
   )(function* (input, options) {
@@ -775,8 +776,10 @@ export const make = Effect.gen(function* () {
             Effect.map(({ settings }) => settings.worktreeSubmodules),
             Effect.orElseSucceed(() => null),
           );
+    const pathTemplate = yield* readWorktreePathTemplate;
     const result = yield* gitCore.createWorktree(input, {
       ...(yield* readWorktreeCreationSettings),
+      pathTemplate,
       ...options,
       submodules,
     });
@@ -3118,6 +3121,7 @@ export const make = Effect.gen(function* () {
             Effect.map(({ settings }) => settings.worktreeSubmodules),
             Effect.orElseSucceed(() => null),
           ),
+          pathTemplate: yield* readWorktreePathTemplate,
         },
       );
       yield* ensureExistingWorktreeUpstream(worktree.worktree.path);

@@ -5134,6 +5134,31 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("expands {worktreesDir} in the path template to the worktrees directory", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const worktreesDirectory = yield* makeTmpDir("custom-worktrees-");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const created = yield* driver.createWorktree(
+          { cwd, path: null, refName: initialBranch, newRefName: "feature/templated" },
+          { worktreesDirectory, pathTemplate: "{worktreesDir}/nested/{repoName}-{branch}" },
+        );
+        assert.equal(
+          pathService.dirname(created.worktree.path),
+          pathService.join(worktreesDirectory, "nested"),
+        );
+        assert.match(
+          pathService.basename(created.worktree.path),
+          new RegExp(`^${pathService.basename(cwd)}-feature-templated-[0-9a-f]{16}$`),
+        );
+        assert.equal(yield* fileSystem.exists(created.worktree.path), true);
+      }),
+    );
+
     it.effect("resolves the submodule mode from the option, then t3.json", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
