@@ -221,6 +221,7 @@ function projectKey() {
     projects: state.projects,
     settings: DEFAULT_CLIENT_SETTINGS,
     primaryEnvironmentId: primaryId,
+    ownsLocalEnvironment: true,
     resolveEnvironmentLabel: (id) => id,
   })[0]!.projectKey;
 }
