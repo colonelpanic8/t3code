@@ -63,6 +63,9 @@ const FRAME_CHECK_EVERY = "100 millis";
 // before QUICK_CONNECTION_PROBE_TIMEOUT so a resume replaces a silent socket
 // instead of timing out.
 const REMOTE_SILENT_SOCKET_AFTER = "2500 millis";
+// The first attempt after a wake can start before the network is usable. If
+// its socket has not opened by then, it is retried once with the full budget.
+const WAKE_RECOVERY_OPEN_TIMEOUT = "3 seconds";
 const BACKOFF_RESET_AFTER_MS = 30_000;
 const BETTER_ROUTE_CHECK_INTERVAL_MS = 60_000;
 // Each check of a dead route can wait out the full probe timeout, so a route
@@ -306,6 +309,14 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const signals = yield* Queue.unbounded<SupervisorSignal>();
   const resetRetryState = yield* Ref.make(false);
   const probeUnanswered = yield* Ref.make(false);
+  // After a long resume, attempts are post-wake until one connects, a probe
+  // answers, or the 3 second retry is spent.
+  const wakeRecoveryPending = yield* Ref.make(false);
+  const isLongResume = (signal: SupervisorSignal) =>
+    signal._tag === "Wakeup" && signal.reason === "application-active-long";
+  const takeSignal = Queue.take(signals).pipe(
+    Effect.tap((next) => (isLongResume(next) ? Ref.set(wakeRecoveryPending, true) : Effect.void)),
+  );
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -471,13 +482,21 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     generation: number,
     lastFailure: ConnectionAttemptError | null,
     synchronizedRoutes: Ref.Ref<number>,
+    routeOpen: SubscriptionRef.SubscriptionRef<boolean>,
   ) {
-    return yield* driver.connect(yield* attemptEntry, (progress) =>
-      (progress.stage === "synchronizing"
-        ? Ref.update(synchronizedRoutes, (count) => count + 1)
-        : Effect.void
-      ).pipe(Effect.andThen(reportProgress(attempt, generation, lastFailure, progress))),
-    );
+    return yield* driver.connect(yield* attemptEntry, (progress) => {
+      if (progress.stage !== "preparing" && progress.transportOpened) {
+        return SubscriptionRef.set(routeOpen, true);
+      }
+      return SubscriptionRef.set(routeOpen, false).pipe(
+        Effect.andThen(
+          progress.stage === "synchronizing"
+            ? Ref.update(synchronizedRoutes, (count) => count + 1)
+            : Effect.void,
+        ),
+        Effect.andThen(reportProgress(attempt, generation, lastFailure, progress)),
+      );
+    });
   });
 
   // Low-cardinality dimensions for time-to-connected dashboards; the error
@@ -558,16 +577,23 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     lastFailure: ConnectionAttemptError | null,
     pendingRetry: Option.Option<PendingRetryTrace>,
     synchronizedRoutes: Ref.Ref<number>,
+    routeOpen: SubscriptionRef.SubscriptionRef<boolean>,
   ) {
     if (usesRelay) {
       return yield* traceRelayEstablishment(
-        establishConnection(attempt, generation, lastFailure, synchronizedRoutes),
+        establishConnection(attempt, generation, lastFailure, synchronizedRoutes, routeOpen),
         attempt,
         generation,
         pendingRetry,
       );
     }
-    return yield* establishConnection(attempt, generation, lastFailure, synchronizedRoutes).pipe(
+    return yield* establishConnection(
+      attempt,
+      generation,
+      lastFailure,
+      synchronizedRoutes,
+      routeOpen,
+    ).pipe(
       Effect.map((lease) => ({
         attemptSpan: Option.none<Tracer.Span>(),
         lease,
@@ -584,7 +610,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     // network returning restarts it in case it stalled meanwhile.
     let deviceOffline = (yield* connectivity.status) === "offline";
     for (;;) {
-      const next = yield* Queue.take(signals);
+      const next = yield* takeSignal;
       switch (next._tag) {
         case "DisconnectRequested":
         case "RetryRequested":
@@ -649,9 +675,6 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         return route === undefined ? undefined : connectionRouteKind(route);
       }),
     );
-
-  const isLongResume = (signal: SupervisorSignal) =>
-    signal._tag === "Wakeup" && signal.reason === "application-active-long";
 
   const answersQuickly = (routeKind: ConnectionRouteKind | undefined) =>
     routeKind === "loopback" || routeKind === "lan";
@@ -742,7 +765,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const monitorConnectedLease = Effect.fnUntraced(function* (lease: ConnectedLease) {
     // A probe answers an explicit retry here, so the retry must not also reset
     // the backoff of a later, unrelated failure.
-    const takeSignal = Queue.take(signals).pipe(
+    const takeConnectedSignal = takeSignal.pipe(
       Effect.tap((next) =>
         next._tag === "RetryRequested" ? Ref.set(resetRetryState, false) : Effect.void,
       ),
@@ -756,7 +779,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     );
     const routeKind = yield* leaseRouteKind(lease);
     for (;;) {
-      const next = yield* takeSignal;
+      const next = yield* takeConnectedSignal;
       const end = yield* connectedLeaseEnd(next, lease);
       if (end !== undefined) {
         return end === "reset";
@@ -807,7 +830,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           Fiber.await(probe).pipe(
             Effect.map((exit) => ({ _tag: "ProbeCompleted" as const, exit })),
           ),
-          takeSignal.pipe(Effect.map((signal) => ({ _tag: "Signal" as const, signal }))),
+          takeConnectedSignal.pipe(Effect.map((signal) => ({ _tag: "Signal" as const, signal }))),
           Effect.sleep(Duration.nanos(remaining > 0n ? remaining : 0n)).pipe(
             Effect.as({ _tag: "TimedOut" as const }),
           ),
@@ -850,6 +873,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           if (silentSocket) yield* Fiber.interrupt(silentSocket);
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
+            yield* Ref.set(wakeRecoveryPending, false);
           }
           yield* probeEvent.exit;
           break;
@@ -874,6 +898,33 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     }
   });
 
+  // An open socket pauses the clock; a route that fails after opening gives
+  // the next route its own time to open.
+  const awaitWakeRecoveryStall = Effect.fnUntraced(function* (
+    routeOpen: SubscriptionRef.SubscriptionRef<boolean>,
+  ) {
+    const awaitRouteOpen = (open: boolean) =>
+      SubscriptionRef.changes(routeOpen).pipe(
+        Stream.filter((value) => value === open),
+        Stream.runHead,
+      );
+    while (
+      Option.isSome(
+        yield* awaitRouteOpen(true).pipe(Effect.timeoutOption(WAKE_RECOVERY_OPEN_TIMEOUT)),
+      )
+    ) {
+      yield* awaitRouteOpen(false);
+    }
+    yield* Ref.set(wakeRecoveryPending, false);
+    yield* Effect.logInfo("Connection after a wake did not open; retrying it once.").pipe(
+      Effect.annotateLogs({
+        "environment.id": target.environmentId,
+        "environment.label": target.label,
+      }),
+    );
+    return { _tag: "Interrupted", resetRetry: true } as const satisfies EstablishmentEvent;
+  });
+
   const runAttempt = Effect.fnUntraced(function* (
     attempt: number,
     generation: number,
@@ -884,6 +935,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const switchingTo = yield* Ref.get(preferredRouteId);
     yield* SubscriptionRef.set(prepared, Option.none());
     const synchronizedRoutes = yield* Ref.make(0);
+    const routeOpen = yield* SubscriptionRef.make(false);
+    const wakeRecovery = yield* Ref.get(wakeRecoveryPending);
     const establishment = yield* Effect.raceAllFirst([
       exitUnlessInterrupted(
         establishTracedConnection(
@@ -892,6 +945,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           lastFailure,
           pendingRetry,
           synchronizedRoutes,
+          routeOpen,
         ),
       ).pipe(
         Effect.map((exit): EstablishmentEvent => ({
@@ -923,6 +977,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           yield* Effect.sleep(Duration.nanos(remaining));
         }
       }),
+      ...(wakeRecovery ? [awaitWakeRecoveryStall(routeOpen)] : []),
     ]);
 
     if (establishment._tag === "Interrupted") {
@@ -967,6 +1022,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     }
 
     const active = establishment.exit.value;
+    yield* Ref.set(wakeRecoveryPending, false);
     if (Option.isSome(switchingTo)) {
       const landed = connectionRouteId(active.lease.prepared.target);
       if (landed !== switchingTo.value) {
@@ -1064,7 +1120,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       Effect.sleep(delayMs).pipe(Effect.as(false)),
       Effect.gen(function* () {
         for (;;) {
-          const next = yield* Queue.take(signals);
+          const next = yield* takeSignal;
           switch (next._tag) {
             case "Wakeup":
               return ConnectionWakeups.resetsRetryBackoff(next.reason);
@@ -1081,7 +1137,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     );
   });
 
-  const waitForSignal = Queue.take(signals).pipe(
+  const waitForSignal = takeSignal.pipe(
     Effect.repeat({ while: (next) => next._tag === "BetterRouteAvailable" }),
     Effect.map(
       (next) => next._tag === "Wakeup" && ConnectionWakeups.resetsRetryBackoff(next.reason),
@@ -1109,6 +1165,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       if (!currentIntent.desired) {
         resetRetryLadder();
         latestFailure = null;
+        yield* Ref.set(wakeRecoveryPending, false);
         yield* clearLease;
         yield* setState(availableState(currentIntent, generation));
         yield* waitForSignal;
