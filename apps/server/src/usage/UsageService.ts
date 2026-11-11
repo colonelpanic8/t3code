@@ -70,6 +70,7 @@ const RATES_REFRESH_FLOOR_MS = 60 * 1000;
 const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
 const MAX_HOURLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** Cache entries without usage are dropped after this; saved usage is kept for all-time windows. */
 const CACHE_RETENTION_DAYS = 92;
 const STALE_TEMP_DIRECTORY_MS = 60 * 60 * 1000;
 
@@ -744,11 +745,12 @@ export const make = Effect.gen(function* () {
       (hourlyWindow?.sinceTimeMs ?? DateTime.toEpochMillis(windowStart.value)) - MTIME_SLACK_MS;
 
     const retentionCutoffMs = startedAtMs - CACHE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const historyCutoffMs = Math.min(windowStartMs, retentionCutoffMs);
 
     const [, scannedDirs] = yield* Effect.all(
       [
         ensureRates(false),
-        collectDirs(windowStartMs, settings, retentionCutoffMs, input.awaitRefresh === true),
+        collectDirs(windowStartMs, settings, historyCutoffMs, input.awaitRefresh === true),
       ],
       { concurrency: 2 },
     );
@@ -768,14 +770,13 @@ export const make = Effect.gen(function* () {
     const sources: UsageSource[] = [];
 
     // Deleted transcripts' saved usage still aggregates and deduplicates normally.
-    const retainedSinceMs = Math.max(windowStartMs, retentionCutoffMs);
     const filesByDir = scannedDirs.map(({ provider, dir, files }) => {
       const retainedFiles = [...(files ?? [])];
       const livePaths = new Set(retainedFiles.map((file) => file.path));
       for (const [filePath, entry] of fileCache) {
         if (
           entry.provider !== provider ||
-          entry.mtimeMs < retainedSinceMs ||
+          entry.mtimeMs < windowStartMs ||
           livePaths.has(filePath) ||
           !isWithinDirectory(filePath, dir)
         )
