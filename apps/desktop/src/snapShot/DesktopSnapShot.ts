@@ -777,7 +777,7 @@ export const make = Effect.gen(function* () {
     DesktopEnvironment.DesktopEnvironment | DesktopWindow.DesktopWindow
   >();
   const runPromise = Effect.runPromiseWith(context);
-  const captureDirectory = path.join(environment.stateDir, "snap-shots");
+  const captureDirectory = path.join(environment.clientRoots.stateDir, "snap-shots");
   const linuxAppId = environment.linuxDesktopEntryName.replace(/\.desktop$/, "");
   const home = yield* HostProcess.HomeDirectory;
   // Shell discovery can replace XDG_CURRENT_DESKTOP after startup, so read the live env per state.
