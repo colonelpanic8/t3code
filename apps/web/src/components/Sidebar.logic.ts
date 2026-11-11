@@ -743,6 +743,14 @@ function createModifierHoldStore(delayMs: number): ClockStore<boolean> {
 
 const threadJumpModifierHold = createModifierHoldStore(THREAD_JUMP_HINT_SHOW_DELAY_MS);
 
+/** Whether the current modifier combination has been held long enough to show jump hints. */
+export function useJumpModifierHeld(): boolean {
+  return React.useSyncExternalStore(
+    threadJumpModifierHold.subscribe,
+    threadJumpModifierHold.getSnapshot,
+  );
+}
+
 function subscribeToThreadJumpHintInputs(listener: () => void): () => void {
   const unsubscribeHold = threadJumpModifierHold.subscribe(listener);
   const unsubscribeFocus = subscribeToTerminalFocusChanges(listener);
