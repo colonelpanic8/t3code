@@ -22,6 +22,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/process";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { expect } from "vite-plus/test";
 import type {
   ChangeRequest,
@@ -2888,6 +2889,51 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         const second = yield* manager.status({ cwd: repoDir });
         expect(second.pr).toBeNull();
       }),
+  );
+  it.effect("creates worktrees at the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: {
+          worktreePathTemplate: "{repoRoot}/.worktrees/{branch}",
+        },
+      });
+      const created = yield* manager.createWorktree({
+        cwd: repoDir,
+        refName: "main",
+        newRefName: "feature/templated",
+        path: null,
+      });
+      expect(NodePath.dirname(created.worktree.path)).toBe(
+        NodePath.join(NodeFS.realpathSync(repoDir), ".worktrees"),
+      );
+      expect(NodePath.basename(created.worktree.path)).toMatch(/^feature-templated-[0-9a-f]{16}$/);
+    }),
+  );
+  it.effect("expands ~ in the configured path template", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      const home = NodeFS.realpathSync(yield* makeTempDir("t3code-git-manager-home-"));
+      yield* initRepo(repoDir);
+      const { manager } = yield* makeManager({
+        serverSettings: {
+          worktreePathTemplate: "~/worktrees/{repoName}/{branch}",
+        },
+      });
+      const created = yield* manager
+        .createWorktree({
+          cwd: repoDir,
+          refName: "main",
+          newRefName: "feature/home",
+          path: null,
+        })
+        .pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+      expect(NodePath.dirname(created.worktree.path)).toBe(
+        NodePath.join(home, "worktrees", NodePath.basename(repoDir)),
+      );
+      expect(NodePath.basename(created.worktree.path)).toMatch(/^feature-home-[0-9a-f]{16}$/);
+    }),
   );
 
   it.effect("creates a commit when working tree is dirty", () =>
