@@ -35,6 +35,7 @@ import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoo
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { VoiceLiveCallCard } from "../voice/VoiceLiveCallCard";
 import { Button } from "../components/ui/button";
 import { StandalonePage, StandalonePageHeader } from "../components/ui/standalone-page";
 import { AnchoredToastProvider, ToastProvider } from "../components/ui/toast";
@@ -227,6 +228,9 @@ function RootRouteBranch() {
       )}
       {/* Above both shells and the router, so drafts survive navigation, including to /welcome. */}
       <ThemeEditorHost />
+      {/* Above both shells for the same reason: an active call keeps its
+          surface while the user navigates anywhere in the app. */}
+      <VoiceLiveCallCard />
     </>
   );
 }
