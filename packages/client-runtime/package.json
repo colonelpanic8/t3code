@@ -559,6 +559,10 @@
       "types": "./src/state/voiceLive.ts",
       "default": "./src/state/voiceLive.ts"
     },
+    "./state/environment-groups": {
+      "types": "./src/state/environmentGroups.ts",
+      "default": "./src/state/environmentGroups.ts"
+    },
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"

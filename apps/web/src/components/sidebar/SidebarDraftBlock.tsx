@@ -1,3 +1,7 @@
+import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
+import type { EnvironmentId } from "@t3tools/contracts";
+import { environmentCatalog } from "../../connection/catalog";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { SquarePenIcon, XIcon } from "lucide-react";
@@ -21,6 +25,13 @@ import {
   type DraftSessionState,
 } from "../../composerDraftStore";
 import { draftPenClassName, draftSurfaceClassName } from "./SidebarThreadRow";
+
+const hiddenDraftEnvironmentIdsAtom = environmentCatalog.groups.stateAtom.pipe(
+  Atom.map((state) => state.hiddenEnvironmentIds),
+  Atom.withEquality<ReadonlySet<EnvironmentId>>(
+    (left, right) => left.size === right.size && [...left].every((id) => right.has(id)),
+  ),
+);
 
 const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   draftId: DraftId;
@@ -147,6 +158,7 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   onNavigateToDraft: (draftId: DraftId) => void;
   onDraftContextMenu: (draftId: DraftId, position: { x: number; y: number }) => void;
 }) {
+  const hiddenEnvironmentIds = useAtomValue(hiddenDraftEnvironmentIdsAtom);
   const draftThreadsByThreadKey = useComposerDraftStore((store) => store.draftThreadsByThreadKey);
   const draftsByThreadKey = useComposerDraftStore(
     useShallow((store) =>
@@ -177,7 +189,7 @@ export const SidebarDraftBlock = memo(function SidebarDraftBlock(props: {
   const drafts = (() => {
     const rows: SidebarDraftRowData[] = [];
     for (const [draftKey, session] of Object.entries(draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (session.promotedTo != null || hiddenEnvironmentIds.has(session.environmentId)) {
         continue;
       }
       if (
