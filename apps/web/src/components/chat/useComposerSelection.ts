@@ -5,6 +5,7 @@ import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraf
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
 import {
+  type AgentProfileId,
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
@@ -94,6 +95,12 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   };
   const handleRuntimeModeChangeStable = useStableCallback(handleRuntimeModeChange);
 
+  const handleAgentProfileChange = (profile: AgentProfileId | null) => {
+    if (!isLocalDraftThread) return;
+    setDraftThreadContext(composerDraftTarget, { agentProfile: profile });
+    scheduleComposerFocus();
+  };
+  const handleAgentProfileChangeStable = useStableCallback(handleAgentProfileChange);
   const openProviderSetup = (instanceId: ProviderInstanceId) => {
     void navigate({
       to: "/settings/providers",
@@ -235,6 +242,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   };
   return {
     getModelDisabledReason,
+    handleAgentProfileChangeStable,
     handleRuntimeModeChangeStable,
     onEnvModeChangeStable,
     onProviderModelSelectStable,
