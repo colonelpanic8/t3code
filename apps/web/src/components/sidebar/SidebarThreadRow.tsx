@@ -1,4 +1,5 @@
 import { useAtomMount } from "@effect/atom-react";
+import { type EnvironmentPresenceScope, isRemoteEnvironmentId } from "../../environmentPresence";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
 import { useClientSettings } from "../../hooks/useSettings";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
@@ -567,7 +568,7 @@ type SidebarThreadRowProps = {
   isRouteThread: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
-  currentEnvironmentId: string | null;
+  presenceScope: EnvironmentPresenceScope;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   scratchMachineLabel: string | null;
@@ -820,7 +821,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
     : thread.modelSelection.model;
 
-  const isRemote = thread.environmentId !== props.currentEnvironmentId;
+  const isRemote = isRemoteEnvironmentId(thread.environmentId, props.presenceScope);
   const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
 
   const detailsTooltip = (
