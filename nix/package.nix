@@ -150,6 +150,9 @@
     };
 
     env.APP_VERSION = finalAttrs.version;
+    # The web build's About page links the commit that holds stack-build-info.json.
+    env.T3CODE_ASSEMBLY_COMMIT = buildCommit;
+    env.T3CODE_ASSEMBLY_COMMIT_DATE = toString (self.lastModified or "");
 
     postPatch = ''
       substituteInPlace package.json \
