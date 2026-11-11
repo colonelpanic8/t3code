@@ -10,6 +10,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { SERVER_EXIT_CODE_STATE_DIR_OWNED } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -117,6 +118,11 @@ it("rejects contradictory service state", () => {
 const unitPlan = (root: string, version: string) => ({
   program: [`${root}/runtime/versions/${version}/t3`, "__service-launcher"],
   baseDir: root,
+  storageRoots: resolveLegacyT3StorageRoots({
+    baseDir: root,
+    stateDirectoryName: "userdata",
+    path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
+  }),
   logPath: `${root}/logs/boot-service.log`,
   unitPath: `${root}/unit/t3code.service`,
 });
