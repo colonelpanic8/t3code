@@ -1,4 +1,4 @@
-export const NAVIGATION_TAB_ORDER = ["threads", "pullRequests", "usage"] as const;
+export const NAVIGATION_TAB_ORDER = ["threads", "inbox", "pullRequests", "usage"] as const;
 export type NavigationTab = (typeof NAVIGATION_TAB_ORDER)[number];
 
 export function navigationCustomizationAvailable(
@@ -9,6 +9,7 @@ export function navigationCustomizationAvailable(
 
 export const NAVIGATION_TAB_LABELS: Readonly<Record<NavigationTab, string>> = {
   threads: "Threads",
+  inbox: "Inbox",
   pullRequests: "Pulls",
   usage: "Usage",
 };
@@ -34,6 +35,13 @@ export function moveNavigationTab(
   order.splice(from, 1);
   order.splice(to, 0, tab);
   return order;
+}
+
+/** Sections no connected environment can serve stay out of navigation. */
+export function unavailableNavigationTabs(capabilities: {
+  readonly coordinators: boolean;
+}): readonly NavigationTab[] {
+  return capabilities.coordinators ? [] : ["inbox"];
 }
 
 export function resolveHiddenNavigationTabs(saved?: readonly unknown[]): readonly NavigationTab[] {
