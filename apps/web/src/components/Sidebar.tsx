@@ -272,6 +272,8 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
+import { SidebarCoordinatorInbox } from "./sidebar/SidebarCoordinatorInbox";
+import { useCoordinatorThreadKeys } from "../state/coordinators";
 
 function sameSidebarProviderEntries(
   left: ReadonlyMap<string, SidebarProviderEntry>,
@@ -1128,6 +1130,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ),
         );
   const threads = useQuietThreadShells();
+  const coordinatorThreadKeys = useCoordinatorThreadKeys();
+  // A coordinator's thread lives in the Coordinator section, not among the threads.
+  const listedThreads =
+    coordinatorThreadKeys.size === 0
+      ? threads
+      : threads.filter((thread) => !coordinatorThreadKeys.has(threadShellKey(thread)));
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
@@ -1364,7 +1372,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
-    threads,
+    threads: listedThreads,
     delegatedUnderParent,
     routeRowThreadKey,
     folderGroups: boringSidebarEnabled
@@ -3314,6 +3322,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               closeDelay={0}
               timeout={400}
             >
+              <SidebarCoordinatorInbox
+                activeThreadKey={routeRowThreadKey}
+                onOpenThread={navigateToThread}
+              />
               <DndContext
                 sensors={dndSensors}
                 autoScroll={isContextDrag ? false : SIDEBAR_AUTO_SCROLL}
