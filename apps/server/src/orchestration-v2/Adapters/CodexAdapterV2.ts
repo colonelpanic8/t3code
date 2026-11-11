@@ -116,6 +116,12 @@ import {
   materializeCodexShadowHome,
   resolveCodexHomeLayout,
 } from "../../provider/Drivers/CodexHomeLayout.ts";
+import { agentProfileRoot } from "../../provider/AgentProfileFiles.ts";
+import {
+  codexProfileHomePath,
+  codexProfileThreadConfig,
+  materializeCodexProfileHome,
+} from "../../provider/Drivers/CodexProfileHome.ts";
 import {
   boundProviderEventForLogging,
   shouldPersistProviderEvent,
@@ -1408,6 +1414,7 @@ function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  readonly profileConfig: Readonly<Record<string, Schema.Json>>;
 }): {
   readonly cwd?: string;
   readonly model?: string;
@@ -1427,6 +1434,7 @@ function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...input.profileConfig,
       // One app-server serves many threads, so the id goes in per-thread shell config, not its env.
       ...(input.threadId === null
         ? {}
@@ -1447,6 +1455,38 @@ function codexThreadRuntimeParams(input: {
     },
   };
 }
+
+/** Points a profile thread's app-server at a profile home built over the instance's home. */
+const prepareCodexProfileSession = Effect.fn("CodexAdapterV2.prepareCodexProfileSession")(
+  function* (input: {
+    readonly instanceId: ProviderInstanceId;
+    readonly stateDir: string;
+    readonly settings: CodexSettings;
+    readonly environment: NodeJS.ProcessEnv;
+    readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  }) {
+    const profileId = input.runtimePolicy.agentProfile;
+    if (profileId === undefined) {
+      return { settings: input.settings, profileConfig: {} };
+    }
+    const path = yield* Path.Path;
+    const homeDirectory = yield* HostProcess.HomeDirectory;
+    const profileHomePath = codexProfileHomePath(path, input.stateDir, input.instanceId, profileId);
+    yield* materializeCodexProfileHome({
+      profileId,
+      profileRoot: agentProfileRoot(path, input.stateDir, profileId),
+      baseHomePath:
+        input.settings.homePath.trim() ||
+        input.environment.CODEX_HOME?.trim() ||
+        path.join(homeDirectory, ".codex"),
+      profileHomePath,
+    });
+    return {
+      settings: { ...input.settings, homePath: profileHomePath },
+      profileConfig: yield* codexProfileThreadConfig(homeDirectory),
+    };
+  },
+);
 
 const decodeCodexResumeMetadata = Schema.decodeUnknownEffect(
   Schema.Struct({ thread: Schema.Struct({ id: Schema.String, updatedAt: Schema.Number }) }),
@@ -1727,6 +1767,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.undefined : mcpSessions.read(threadId);
   const { clientFactory, digest, fileSystem, idAllocator, serverConfig } = adapterOptions;
+  const path = yield* Path.Path;
   const continuationRequests = adapterOptions.continuationRequests;
 
   return ProviderAdapter.ProviderAdapterV2.of({
@@ -1754,13 +1795,32 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
                 ),
               );
+        const environment = resolvedRuntime?.environment ?? adapterOptions.environment;
+        const { settings, profileConfig } = yield* prepareCodexProfileSession({
+          instanceId: adapterOptions.instanceId,
+          stateDir: serverConfig.stateDir,
+          settings: resolvedRuntime?.config ?? adapterOptions.settings,
+          environment,
+          runtimePolicy: input.runtimePolicy,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapter.ProviderAdapterOpenSessionError({
+                driver: CODEX_PROVIDER,
+                providerSessionId: input.providerSessionId,
+                cause,
+              }),
+          ),
+        );
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
-          settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+          settings,
+          environment,
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<
@@ -7287,6 +7347,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 client.request(
                   "thread/start",
                   codexThreadRuntimeParams({
+                    profileConfig,
                     threadId: threadInput.threadId,
                     mcpSession,
                     modelSelection: threadInput.modelSelection,
@@ -7320,6 +7381,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               const resume = resumeNativeThread(nativeThreadId, {
                 excludeTurns: true,
                 ...codexThreadRuntimeParams({
+                  profileConfig,
                   threadId: appThreadId,
                   mcpSession: yield* readMcpSession(appThreadId),
                   ...(threadInput.modelSelection === undefined
@@ -8094,6 +8156,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 yield* resumeNativeThread(threadId, {
                   excludeTurns: true,
                   ...codexThreadRuntimeParams({
+                    profileConfig,
                     threadId: threadInput.providerThread.appThreadId,
                     mcpSession: yield* readMcpSession(threadInput.providerThread.appThreadId),
                     modelSelection: input.modelSelection,
@@ -8143,6 +8206,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 threadId,
                 ...(boundary.lastTurnId === undefined ? {} : { lastTurnId: boundary.lastTurnId }),
                 ...codexThreadRuntimeParams({
+                  profileConfig,
                   threadId: threadInput.targetThreadId,
                   mcpSession: yield* mcpSessions.read(threadInput.targetThreadId),
                   ...(threadInput.modelSelection === undefined
