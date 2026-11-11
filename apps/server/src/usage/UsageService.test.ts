@@ -3157,6 +3157,38 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
   );
 
+  it.live("keeps saved usage of a deleted transcript for windows past the retention period", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-08-02T00:00:00Z"));
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(async () => {
+        await NodeFSP.writeFile(transcript, claudeLine(1, 5));
+        const lastWrite = Date.parse("2026-08-01T10:00:00Z") / 1000;
+        await NodeFSP.utimes(transcript, lastWrite, lastWrite);
+      });
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(layerService({ prefix: "usage-service-all-time-test", home, settings })),
+      );
+      const first = yield* service.readSummary(WINDOW);
+      assert.isNotEmpty(first.buckets);
+      yield* Effect.promise(() => NodeFSP.rm(transcript));
+
+      yield* TestClock.setTime(Date.parse("2027-03-01T00:00:00Z"));
+      const recent = yield* service.readSummary({
+        timeZone: "UTC",
+        sinceDay: UsageDay.make("2027-02-01"),
+        untilDay: UsageDay.make("2027-03-01"),
+      });
+      assert.deepStrictEqual(recent.buckets, []);
+      const allTime = yield* service.readSummary({
+        timeZone: "UTC",
+        sinceDay: UsageDay.make("2017-03-01"),
+        untilDay: UsageDay.make("2027-03-01"),
+      });
+      assert.deepStrictEqual(allTime.buckets, first.buckets);
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
   it.live("does not share an in-flight scan after custom prices change", () =>
     Effect.gen(function* () {
       const { transcript, settings, home } = yield* setup;

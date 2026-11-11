@@ -344,10 +344,13 @@ function makeStateValidators(
   );
 }
 
+/** Drops old entries that hold no usage; saved usage outlives its transcript. */
 export function pruneScanCache(cache: ScanCache, retentionCutoffMs: number): number {
   let removed = 0;
   for (const [path, entry] of cache) {
-    if (entry.mtimeMs < retentionCutoffMs) {
+    const holdsUsage =
+      entry.records.length + entry.tailRecords.length > 0 || entry.malformedRecords > 0;
+    if (entry.mtimeMs < retentionCutoffMs && !holdsUsage) {
       cache.delete(path);
       removed += 1;
     }
