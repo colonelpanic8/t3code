@@ -16,7 +16,7 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 
 import { useProjects } from "../../state/entities";
-import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
+import { useLaunchingThreads, usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import { useWorkspaceState } from "../../state/workspace";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import {
@@ -46,7 +46,7 @@ export function HomeRouteScreen() {
   const projects = useProjects();
   // Stop rebuilding the streaming thread list while Thread covers Home.
   const visible = useHomeRouteVisible();
-  const threads = useAtomValueWhileVisible(listedThreadShellsAtom, visible);
+  const threads = useLaunchingThreads(useAtomValueWhileVisible(listedThreadShellsAtom, visible));
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const { savedConnectionsById } = useSavedRemoteConnections();
   const navigation = useNavigation();
