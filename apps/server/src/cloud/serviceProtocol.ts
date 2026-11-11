@@ -1,4 +1,5 @@
 import type { ServerSelfUpdateOutcome } from "@t3tools/contracts";
+import { T3CODE_DATA_DIR_ENV } from "@t3tools/shared/storagePaths";
 
 // Protocol 4 requires coordinated selection writes and unit reconciliation. An
 // installed protocol-3 launcher needs one local update or service install with a restart:
@@ -24,11 +25,18 @@ const unquoteSystemdValue = (raw: string) =>
 const unescapeXmlText = (value: string) =>
   value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 
+function serviceUnitEnvironmentValue(contents: string, name: string): string | undefined {
+  const systemd = new RegExp(`^Environment=${name}=(.*)$`, "m").exec(contents)?.[1];
+  if (systemd !== undefined) return unquoteSystemdValue(systemd.trim()) || undefined;
+  const plist = new RegExp(`<key>${name}</key>\\s*<string>([^<]*)</string>`).exec(contents)?.[1];
+  return plist === undefined ? undefined : unescapeXmlText(plist) || undefined;
+}
+
 export function serviceUnitBaseDirOf(contents: string): string | undefined {
-  const systemd = /^Environment=T3CODE_HOME=(.*)$/m.exec(contents)?.[1];
-  if (systemd !== undefined) return unquoteSystemdValue(systemd.trim());
-  const plist = /<key>T3CODE_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];
-  return plist === undefined ? undefined : unescapeXmlText(plist);
+  return (
+    serviceUnitEnvironmentValue(contents, "T3CODE_HOME") ??
+    serviceUnitEnvironmentValue(contents, T3CODE_DATA_DIR_ENV)
+  );
 }
 
 /** The executable an installed unit or plist starts: the launcher's runtime. */
