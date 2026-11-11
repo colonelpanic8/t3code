@@ -3,18 +3,18 @@ import type {
   KeybindingCommand,
   ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { type RefObject, useEffect, useLayoutEffect, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 import { isElectron } from "../../env";
 import { cn } from "~/lib/utils";
-import { useTerminalFocus } from "../../hooks/useTerminalFocus";
+import { isTerminalFocused, subscribeToTerminalFocusChanges } from "../../lib/terminalFocus";
 import {
   composerControlHintLabel,
   shouldShowComposerControlHintsForModifiers,
 } from "../../keybindings";
 import { type ShortcutModifierState, useShortcutModifierState } from "../../shortcutModifierState";
-import { useThreadJumpHintsVisible } from "../Sidebar.logic";
+import { useJumpModifierHeld } from "../Sidebar.logic";
 
 /**
  * Where composer control triggers live: the composer shell, then the thread
@@ -136,7 +136,11 @@ export function ComposerShortcutHints(props: {
   const { anchorRef, keybindings, trigger } = props;
   const modifiers = useShortcutModifierState();
   const chordConsumed = useChordConsumed();
-  const terminalFocus = useTerminalFocus();
+  const terminalFocus = useSyncExternalStore(
+    subscribeToTerminalFocusChanges,
+    isTerminalFocused,
+    () => false,
+  );
   const [hints, setHints] = useState<PlacedHint[]>([]);
 
   const shouldShow =
@@ -156,7 +160,8 @@ export function ComposerShortcutHints(props: {
       },
       trigger,
     );
-  const visible = useThreadJumpHintsVisible(shouldShow);
+  const modifierHeld = useJumpModifierHeld();
+  const visible = shouldShow && modifierHeld;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Measure trigger rects and follow window resize and scroll while hints are visible.
   useLayoutEffect(() => {
