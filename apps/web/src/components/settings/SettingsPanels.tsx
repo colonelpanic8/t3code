@@ -106,6 +106,7 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { DefaultCoordinatorSetting } from "./DefaultCoordinatorSetting";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
@@ -939,6 +940,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <ActiveThreadSortRow />
+        <DefaultCoordinatorSetting />
       </SettingsSection>
 
       <SettingsSection id="confirmations" title="Confirmations">

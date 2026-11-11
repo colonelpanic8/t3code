@@ -66,6 +66,7 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
+  InboxIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -81,6 +82,7 @@ import {
   UserPlusIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
+import { coordinatorThreadRef, useDefaultCoordinator } from "../state/coordinators";
 import {
   useDeferredValue,
   useEffect,
@@ -472,6 +474,7 @@ function OpenCommandPaletteDialog(props: {
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const defaultCoordinator = useDefaultCoordinator();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
@@ -1662,6 +1665,24 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  const coordinatorRef = defaultCoordinator ? coordinatorThreadRef(defaultCoordinator) : null;
+  if (defaultCoordinator !== null && coordinatorRef !== null) {
+    actionItems.push({
+      kind: "action",
+      value: "action:coordinator",
+      searchTerms: ["coordinator", "inbox", "chief of staff", defaultCoordinator.coordinator.name],
+      title: "Open coordinator",
+      shortcutCommand: "coordinator.open",
+      icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(coordinatorRef),
+        });
+      },
+    });
+  }
 
   for (const direction of [1, -1] as const) {
     const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
