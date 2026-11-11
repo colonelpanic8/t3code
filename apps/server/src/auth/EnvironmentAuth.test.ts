@@ -865,11 +865,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
           enrollment.id,
         );
 
-        // A pairing code field never accepts the reusable credential.
-        const approval = yield* Effect.flip(
-          serverAuth.consumeMcpApprovalCode(credential, "read-only"),
-        );
-        expect(approval).toMatchObject({ reason: "not_a_pairing_code" });
+        // It signs a managed peer link in as a pairing code, as often as it is linked again.
+        yield* serverAuth.consumeMcpApprovalCode(credential, "full-access");
+        yield* serverAuth.consumeMcpApprovalCode(credential, "read-only");
 
         // Revoking the enrollment stops new devices but keeps enrolled ones.
         expect(yield* serverAuth.revokePairingLink(enrollment.id)).toBe(true);
@@ -881,6 +879,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
           ),
         );
         expect(late._tag).toBe("ServerAuthInvalidCredentialError");
+        expect(
+          yield* Effect.flip(serverAuth.consumeMcpApprovalCode(credential, "read-only")),
+        ).toMatchObject({ reason: "unknown_or_used" });
         expect(
           (yield* serverAuth.authenticateHttpRequest(makeBearerRequest(pixel.access_token)))
             .sessionId,
