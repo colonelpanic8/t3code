@@ -83,6 +83,7 @@ import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrid
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as PeerForwarding from "./peer/PeerForwarding.ts";
+import * as ManagedPeerLinks from "./peer/ManagedPeerLinks.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
@@ -832,6 +833,10 @@ const layerMakeRoutes = Layer.mergeAll(
   // Live Voice gets its own transport at /mcp/voice so the voice model's tool
   // catalog carries the routing toolkit and nothing else.
   VoiceMcpServer.layer,
+  // Keeps the links a managed peer links file lists.
+  Layer.effectDiscard(
+    ManagedPeerLinks.ManagedPeerLinks.pipe(Effect.flatMap((managed) => managed.start())),
+  ),
 ).pipe(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
@@ -840,6 +845,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
+  Layer.provide(ManagedPeerLinks.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
   Layer.provide(layerPullRequestService),
   // The same activity instance RunExecutionService reports to, by layer memoization.
