@@ -94,7 +94,7 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   appearance: "paintbrush",
   environments: "desktopcomputer",
   usage: "chart.bar.xaxis",
-  coordinator: "sparkles",
+  coordinator: "robot",
   archive: "archivebox",
   files: "doc.text",
   terminal: "terminal",

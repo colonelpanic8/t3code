@@ -195,7 +195,7 @@ function CoordinatorInbox(props: { readonly choice: CoordinatorChoice }) {
     <>
       <ListSection title="Coordinator">
         <ListRow
-          icon="sparkles"
+          icon="robot"
           label={coordinator.name}
           description={coordinator.error ?? environmentLabel(environmentId)}
           disabled={coordinator.threadId === null}
