@@ -278,6 +278,8 @@ import {
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
+import { SidebarCoordinatorInbox } from "./sidebar/SidebarCoordinatorInbox";
+import { useCoordinatorThreadKeys } from "../state/coordinators";
 
 function sameSidebarProviderEntries(
   left: ReadonlyMap<string, SidebarProviderEntry>,
@@ -1134,11 +1136,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ),
         );
   const threads = useQuietThreadShells();
+  const coordinatorThreadKeys = useCoordinatorThreadKeys();
+  // A coordinator's thread lives in the Coordinator section, not among the threads.
+  const nonCoordinatorThreads =
+    coordinatorThreadKeys.size === 0
+      ? threads
+      : threads.filter((thread) => !coordinatorThreadKeys.has(threadShellKey(thread)));
   const promotingDraftThreadKeys = usePromotingDraftThreadKeys();
   const listedThreads =
     promotingDraftThreadKeys.length === 0
-      ? threads
-      : threads.map((thread) =>
+      ? nonCoordinatorThreads
+      : nonCoordinatorThreads.map((thread) =>
           promotingDraftThreadKeys.includes(threadShellKey(thread))
             ? asLaunchingThread(thread)
             : thread,
@@ -3330,6 +3338,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               closeDelay={0}
               timeout={400}
             >
+              <SidebarCoordinatorInbox
+                activeThreadKey={routeRowThreadKey}
+                onOpenThread={navigateToThread}
+              />
               <DndContext
                 sensors={dndSensors}
                 autoScroll={isContextDrag ? false : SIDEBAR_AUTO_SCROLL}
