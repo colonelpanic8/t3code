@@ -259,6 +259,18 @@ export function renderBootServiceTask(
     ...plan.program,
     "--base-dir",
     plan.baseDir,
+    ...(plan.storageRoots.layout === "split"
+      ? [
+          "--config-dir",
+          plan.storageRoots.configDir,
+          "--state-dir",
+          plan.storageRoots.stateDir,
+          "--cache-dir",
+          plan.storageRoots.cacheDir,
+          "--runtime-dir",
+          plan.storageRoots.runtimeDir,
+        ]
+      : []),
     "--log-file",
     plan.logPath,
     "--service-unit",
