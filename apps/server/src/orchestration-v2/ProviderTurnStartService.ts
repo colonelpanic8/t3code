@@ -107,9 +107,9 @@ const isProviderAdapterOpenSessionError = Schema.is(
 
 /**
  * Claude refuses these before it reads the prompt: replacing a process running background work,
- * launch arguments whose appended system prompt or settings cannot be read, or MCP registration
- * that never answers while the query opens. A query that ends before the turn attaches (such as a
- * rejected resume point) never received the prompt either.
+ * launch arguments whose appended system prompt or settings cannot be read, MCP registration
+ * that never answers while the query opens, or an unusable agent profile. A query that ends before
+ * the turn attaches (such as a rejected resume point) never received the prompt either.
  */
 const PROMPT_REFUSAL_TAGS = [
   "ClaudeBackgroundWorkBlocksQueryReplacementError",
@@ -117,6 +117,7 @@ const PROMPT_REFUSAL_TAGS = [
   "ClaudeAppendSystemPromptMissingValueError",
   "ClaudeSettingsLaunchArgError",
   "ClaudeMcpRegistrationTimeoutError",
+  "AgentProfileError",
 ] as const;
 
 const refusedBeforePrompt = (error: unknown): boolean =>
