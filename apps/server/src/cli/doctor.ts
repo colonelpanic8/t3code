@@ -10,7 +10,7 @@ import * as BootService from "../cloud/bootService.ts";
 import * as DatabaseMaintenance from "../persistence/DatabaseMaintenance.ts";
 import * as ServerOwnership from "../serverOwnership.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { serverLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { serverLocationFlags, resolveCliAuthConfig, resolveInstallLocations } from "./config.ts";
 import * as CliService from "./service.ts";
 
 const formatBytes = (bytes: number) =>
@@ -193,8 +193,9 @@ export const doctorCommand = Command.make("doctor", {
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveCliAuthConfig(flags, logLevel);
+      const serviceLocations = yield* resolveInstallLocations(flags);
       yield* runDoctor(config, { fix: flags.fix, dryRun: flags.dryRun }).pipe(
-        Effect.provide(Layer.merge(DatabaseMaintenance.layer, CliService.layer(config))),
+        Effect.provide(Layer.merge(DatabaseMaintenance.layer, CliService.layer(serviceLocations))),
       );
     }),
   ),

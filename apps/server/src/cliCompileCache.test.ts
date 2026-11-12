@@ -63,7 +63,9 @@ it.live("loads the CLI with its cache settings only when the command needs it", 
     );
     const launcher = yield* run({ T3CODE_HOME: "" }, ["__service-launcher"]);
     expect(launcher.exitCode).toBe(1);
-    expect(launcher.stderr).toContain("[service-launcher] T3CODE_HOME is required");
+    expect(launcher.stderr).toContain(
+      "[service-launcher] T3CODE_HOME or T3CODE_DATA_DIR is required",
+    );
     expect(launcher.stderr).not.toMatch(/LOADED_CLI_MAIN|CACHE=/);
     const launcherHelp = yield* run({ T3CODE_HOME: "" }, ["__service-launcher", "--help"]);
     expect(launcherHelp.exitCode).toBe(0);
@@ -76,7 +78,9 @@ it.live("loads the CLI with its cache settings only when the command needs it", 
     ]);
     expect(launcherFlags.exitCode).toBe(1);
     expect(launcherFlags.stderr).toContain("LOADED_CLI_MAIN");
-    expect(launcherFlags.stderr).toContain("[service-launcher] T3CODE_HOME is required");
+    expect(launcherFlags.stderr).toContain(
+      "[service-launcher] T3CODE_HOME or T3CODE_DATA_DIR is required",
+    );
     const appImage = yield* run({ APPIMAGE: `${root}/T3Code.AppImage` });
     expect(appImage.exitCode).toBe(0);
     expect(appImage.stderr).toContain("CACHE=disabled");

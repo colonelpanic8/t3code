@@ -5,6 +5,10 @@ import type {
 import { waitForHttpReady as waitForHttpReadyShared } from "@t3tools/shared/httpReadiness";
 import { cliReleaseDownloadBaseUrl } from "@t3tools/shared/cliRelease";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import {
+  T3_SERVER_LOCATION_ENVIRONMENT_NAMES,
+  T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES,
+} from "@t3tools/shared/storagePaths";
 import * as NetService from "@t3tools/shared/Net";
 import { extractJsonObject, fromLenientJson } from "@t3tools/shared/schemaJson";
 import { satisfiesSemverRange } from "@t3tools/shared/semver";
@@ -552,12 +556,63 @@ fi
 exec "$T3_RUNTIME_DIR/t3" "$@"
 `;
 
-// The launcher pins the server to ~/.t3 and finds a running one by its
-// runtime file there. The directory variables outrank --base-dir, so an
-// inherited one would hide a running server and point a second one at the same
-// database. An inherited config file would replace ~/.t3's server.json.
-const CLEAR_SERVER_LOCATION_ENV =
-  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE";
+// Serve the remote's split layout if its t3 already keeps state there, else ~/.t3.
+// Server location variables and an inherited config file are always cleared: they
+// would hide a running server or replace server.json. The decision is recorded in
+// the state dir so pairing from a shell with another profile uses the same storage.
+const T3_SELECTOR_NAMES = T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.join(" ");
+const REMOTE_STORAGE_FUNCTIONS = `t3_select_storage() {
+  T3_SPLIT_STATE_DIR="\${T3CODE_STATE_DIR:-}"
+  if [ -z "$T3_SPLIT_STATE_DIR" ]; then
+    if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+      T3_SPLIT_STATE_DIR="$HOME/Library/Application Support/t3code/state"
+    else
+      case "\${XDG_STATE_HOME:-}" in
+        /*) T3_SPLIT_STATE_DIR="$XDG_STATE_HOME/t3code" ;;
+        *) T3_SPLIT_STATE_DIR="$HOME/.local/state/t3code" ;;
+      esac
+    fi
+  fi
+  T3_STORAGE="legacy"
+  if [ -e "$T3_SPLIT_STATE_DIR/statev2.sqlite" ] || [ -e "$T3_SPLIT_STATE_DIR/environment-id" ]; then
+    T3_STORAGE="split"
+  fi
+  unset ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
+  if [ "$T3_STORAGE" = "split" ]; then
+    unset T3CODE_HOME
+  else
+    unset ${T3_SELECTOR_NAMES}
+  fi
+}
+t3_record_storage() {
+  {
+    printf 'T3_STORAGE=%s\\n' "$T3_STORAGE"
+    for T3_NAME in ${T3_SELECTOR_NAMES}; do
+      eval "T3_VALUE=\\\${$T3_NAME:-}"
+      if [ -n "$T3_VALUE" ]; then
+        printf '%s=%s\\n' "$T3_NAME" "$T3_VALUE"
+      fi
+    done
+  } >"$STATE_DIR/storage.$$"
+  mv -f "$STATE_DIR/storage.$$" "$STATE_DIR/storage"
+}
+t3_restore_storage() {
+  # Without a decision in it, the record tells nothing, so decide afresh.
+  if ! grep -Eq '^T3_STORAGE=(split|legacy)$' "$STATE_DIR/storage"; then
+    t3_select_storage
+    return
+  fi
+  unset T3CODE_HOME ${T3_SELECTOR_NAMES} ${T3_SERVER_LOCATION_ENVIRONMENT_NAMES.join(" ")}
+  T3_STORAGE="legacy"
+  # Each line is NAME=value for one of the names above, exported as it is.
+  # shellcheck disable=SC2163
+  while IFS= read -r T3_LINE || [ -n "$T3_LINE" ]; do
+    case "$T3_LINE" in
+      T3_STORAGE=split) T3_STORAGE="split" ;;
+      ${T3_STORAGE_SELECTOR_ENVIRONMENT_NAMES.map((name) => `${name}=*`).join("|")}) export "$T3_LINE" ;;
+    esac
+  done <"$STATE_DIR/storage"
+}`;
 // kill -0 also passes for a zombie, a reused PID and, on Linux, a thread ID,
 // which ps does not list. Only the serve command the launcher started counts;
 // where ps cannot look up a PID at all, trust kill -0.
@@ -573,7 +628,8 @@ const REMOTE_MANAGED_SERVER_RUNNING_SCRIPT = `managed_server_running() {
 }`;
 
 const REMOTE_LAUNCH_SCRIPT = `set -eu
-${CLEAR_SERVER_LOCATION_ENV}
+${REMOTE_STORAGE_FUNCTIONS}
+t3_select_storage
 @@T3_NODE_ENV_SCRIPT@@
 STATE_KEY="$1"
 STATE_DIR="$HOME/.t3/ssh-launch/$STATE_KEY"
@@ -588,6 +644,7 @@ RUNNER_NEXT="$STATE_DIR/run-t3.next.$$"
 LAUNCH_LOCK="$DEFAULT_SERVER_HOME/ssh-launch/.launch.lock"
 LAUNCH_BREAK_LOCK="$LAUNCH_LOCK.break"
 mkdir -p "$STATE_DIR"
+t3_record_storage
 cleanup_launch() {
   rm -f "$RUNNER_NEXT"
   for OWNED_LOCK in "$LAUNCH_LOCK" "$LAUNCH_BREAK_LOCK"; do
@@ -695,13 +752,39 @@ server_running() {
     *Z*) return 1 ;;
   esac
 }
+
+# Where a running server's runtime file can be: the split layout's runtime
+# dir, which the service manager or a shell without XDG_RUNTIME_DIR may place
+# differently, before ~/.t3's.
+runtime_file_candidates() {
+  if [ "$T3_STORAGE" = "split" ]; then
+    if [ -n "\${T3CODE_RUNTIME_DIR:-}" ]; then
+      printf '%s\\n' "$T3CODE_RUNTIME_DIR/server-runtime.json"
+    fi
+    case "\${XDG_RUNTIME_DIR:-}" in
+      /*) printf '%s\\n' "$XDG_RUNTIME_DIR/t3code/server-runtime.json" ;;
+    esac
+    T3_UID="$(id -u)"
+    printf '%s\\n' "$HOME/Library/Application Support/t3code/runtime/server-runtime.json"
+    printf '%s\\n' "/run/user/$T3_UID/t3code/server-runtime.json"
+    printf '%s\\n' "\${TMPDIR:-/tmp}/t3code-$T3_UID/server-runtime.json"
+  fi
+  printf '%s\\n' "$DEFAULT_RUNTIME_FILE"
+}
 @@T3_MANAGED_SERVER_RUNNING_SCRIPT@@
 resolve_default_runtime_port() {
+  runtime_file_candidates | while IFS= read -r RUNTIME_FILE; do
+    if [ -f "$RUNTIME_FILE" ] && resolve_runtime_port "$RUNTIME_FILE"; then
+      exit 0
+    fi
+  done
+}
+resolve_runtime_port() {
   if [ "$T3_ARCHIVE_MODE" = "1" ]; then
-    "$RUNNER_FILE" __ssh-helper runtime-port "$DEFAULT_RUNTIME_FILE"
+    "$RUNNER_FILE" __ssh-helper runtime-port "$1"
     return
   fi
-  node - "$DEFAULT_RUNTIME_FILE" <<'NODE'
+  node - "$1" <<'NODE'
 const fs = require("node:fs");
 const runtimePath = process.argv[2] ?? "";
 try {
@@ -823,7 +906,11 @@ if [ -z "$REMOTE_PORT" ]; then
     fi
     exit 1
   fi
+  if [ "$T3_STORAGE" = "split" ]; then
+    nohup env T3CODE_NO_BROWSER=1 "$RUNNER_FILE" serve --host 127.0.0.1 --port "$REMOTE_PORT" >>"$LOG_FILE" 2>&1 < /dev/null &
+  else
   nohup env T3CODE_NO_BROWSER=1 "$RUNNER_FILE" serve --host 127.0.0.1 --port "$REMOTE_PORT" --base-dir "$DEFAULT_SERVER_HOME" >>"$LOG_FILE" 2>&1 < /dev/null &
+  fi
   REMOTE_PID="$!"
   printf '%s\\n' "$REMOTE_PID" >"$PID_FILE"
   printf '%s\\n' "$REMOTE_PORT" >"$PORT_FILE"
@@ -853,8 +940,13 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 `;
 
 const REMOTE_PAIRING_SCRIPT = `set -eu
-${CLEAR_SERVER_LOCATION_ENV}
+${REMOTE_STORAGE_FUNCTIONS}
 STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
+if [ -f "$STATE_DIR/storage" ]; then
+  t3_restore_storage
+else
+  t3_select_storage
+fi
 DEFAULT_SERVER_HOME="$HOME/.t3"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
 mkdir -p "$STATE_DIR"
@@ -862,8 +954,11 @@ cat >"$RUNNER_FILE" <<'SH'
 @@T3_RUNNER_SCRIPT@@
 SH
 chmod 700 "$RUNNER_FILE"
-PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"
-"$RUNNER_FILE" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json
+if [ "$T3_STORAGE" = "split" ]; then
+  "$RUNNER_FILE" auth pairing create --json
+else
+  "$RUNNER_FILE" auth pairing create --base-dir "$DEFAULT_SERVER_HOME" --json
+fi
 `;
 
 const REMOTE_STOP_SCRIPT = `set -eu
@@ -1074,7 +1169,8 @@ export const issueRemotePairingToken = Effect.fn("ssh/tunnel.issueRemotePairingT
     stateKey,
   });
   const result = yield* runSshCommand(target, {
-    remoteCommandArgs: ["sh", "-s"],
+    // A login shell like the launch's, so both read the same profile.
+    remoteCommandArgs: ["sh", "-l", "-s"],
     stdin: buildRemotePairingScript(stateKey, runner),
     ...(isNodeScriptRunner(runner) ? {} : { timeoutMs: REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS }),
     ...(input?.authSecret === undefined ? {} : { authSecret: input.authSecret }),

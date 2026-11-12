@@ -128,6 +128,18 @@ it.layer(NodeServices.layer)("t3 update under a managed policy", (it) => {
     runUpdate({
       baseDir: "/unused",
       logsDir: "/unused",
+      storage: {
+        roots: {
+          layout: "legacy",
+          legacyBaseDir: "/unused",
+          configDir: "/unused",
+          dataDir: "/unused",
+          stateDir: "/unused",
+          cacheDir: "/unused",
+          runtimeDir: "/unused",
+        },
+        baseDirIsExplicit: true,
+      },
       serverRuntimeStatePath: "/unused",
       channel: input.channel,
       requestedVersion: input.requestedVersion,
@@ -473,6 +485,15 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
       yield* fs.writeFileString(runtime.sentinelPath, `${version}\n`);
       const unitPath = path.join(baseDir, "t3code.service");
       const logPath = path.join(baseDir, "boot-service.log");
+      const storageRoots = {
+        layout: "legacy",
+        legacyBaseDir: baseDir,
+        configDir: baseDir,
+        dataDir: baseDir,
+        stateDir: baseDir,
+        cacheDir: baseDir,
+        runtimeDir: baseDir,
+      } as const;
       // An earlier `t3 update` pointed the service at this version without restarting it.
       const service = Layer.mock(BootService.BootService, {
         status: Effect.succeed<BootService.BootServiceStatus>({
@@ -485,7 +506,14 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
           unitPath,
           logPath,
         }),
-        install: () => Effect.succeed({ program: [runtime.entryPath], baseDir, unitPath, logPath }),
+        install: () =>
+          Effect.succeed({
+            program: [runtime.entryPath],
+            baseDir,
+            storageRoots,
+            unitPath,
+            logPath,
+          }),
       });
       vi.spyOn(BootService, "layer").mockReturnValue(service);
       const runner = ProcessRunner.ProcessRunner.of({
@@ -500,6 +528,10 @@ it.layer(NodeServices.layer)("t3 update with a background service", (it) => {
       const output = yield* runUpdate({
         baseDir,
         logsDir: baseDir,
+        storage: {
+          roots: storageRoots,
+          baseDirIsExplicit: true,
+        },
         serverRuntimeStatePath: path.join(baseDir, "server-runtime.json"),
         channel: undefined,
         requestedVersion: version,
