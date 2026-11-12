@@ -70,6 +70,7 @@ const RATES_REFRESH_FLOOR_MS = 60 * 1000;
 const MTIME_SLACK_MS = 36 * 60 * 60 * 1000;
 const MAX_HOURLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** Cache entries without usage are dropped after this; saved usage is kept for all-time windows. */
 const CACHE_RETENTION_DAYS = 92;
 const STALE_TEMP_DIRECTORY_MS = 60 * 60 * 1000;
 
@@ -789,10 +790,11 @@ export const make = Effect.gen(function* () {
       (hourlyWindow?.sinceTimeMs ?? DateTime.toEpochMillis(windowStart.value)) - MTIME_SLACK_MS;
 
     const retentionCutoffMs = startedAtMs - CACHE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const historyCutoffMs = Math.min(windowStartMs, retentionCutoffMs);
 
     const awaitRefresh = input.awaitRefresh === true;
     const collect = Effect.gen(function* () {
-      const resolved = yield* resolveTranscriptDirs(settings, retentionCutoffMs, awaitRefresh).pipe(
+      const resolved = yield* resolveTranscriptDirs(settings, historyCutoffMs, awaitRefresh).pipe(
         Effect.provideContext(readerContext),
       );
       // A window no complete scan has read would show partial totals, so every directory must cover it.
@@ -811,7 +813,7 @@ export const make = Effect.gen(function* () {
             resolved,
             windowStartMs,
             settings,
-            retentionCutoffMs,
+            historyCutoffMs,
             awaitRefresh,
             fromMemory,
           ),
@@ -840,7 +842,6 @@ export const make = Effect.gen(function* () {
     const sources: UsageSource[] = [];
 
     // Deleted transcripts' saved usage still aggregates and deduplicates normally.
-    const retainedSinceMs = Math.max(windowStartMs, retentionCutoffMs);
     // Saved paths are files below a scanned root, so their folder decides; folders repeat thousands of times.
     const withinDir = (dir: string) => {
       const foldersWithin = new Map<string, boolean>();
@@ -861,7 +862,7 @@ export const make = Effect.gen(function* () {
       for (const [filePath, entry] of fileCache) {
         if (
           entry.provider !== provider ||
-          entry.mtimeMs < retainedSinceMs ||
+          entry.mtimeMs < windowStartMs ||
           livePaths.has(filePath) ||
           !isRetained(filePath)
         )
@@ -1024,13 +1025,8 @@ export const make = Effect.gen(function* () {
     }
 
     const pruned = pruneScanCache(fileCache, retentionCutoffMs);
-    if (pruned > 0) {
-      cacheDirty = true;
-      // Pruned files are no longer saved, so nothing before the cutoff stays covered.
-      for (const [key, since] of coveredSince) {
-        if (since < retentionCutoffMs) coveredSince.set(key, retentionCutoffMs);
-      }
-    }
+    // Pruning drops only entries without usage, so every covered window keeps its totals.
+    if (pruned > 0) cacheDirty = true;
 
     const aggregated = aggregator.finish();
     const readAt = yield* DateTime.now;
