@@ -15,9 +15,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as AuthSessions from "../persistence/AuthSessions.ts";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as SessionStore from "./SessionStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import { base64UrlDecodeUtf8, base64UrlEncode } from "./utils.ts";
@@ -424,6 +424,31 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("SessionStore.lay
       expect(active).toHaveLength(1);
       expect(active[0]?.sessionId).toBe(restartedSession.sessionId);
       expect(active[0]?.subject).toBe("managed-access");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(AuthSessions.layer, ServerSecretStore.layer).pipe(
+          Layer.provideMerge(SqlitePersistence.layerMemory),
+          Layer.provideMerge(layerServerEnvironment(EnvironmentId.make("test-environment"))),
+          Layer.provideMerge(layerServerConfig({ managedAccessToken: "managed-fleet-secret" })),
+        ),
+      ),
+    ),
+  );
+  it.effect("keeps accepting the managed token when another process shares the database", () =>
+    Effect.gen(function* () {
+      const serverStore = yield* SessionStore.make;
+      const first = yield* serverStore.verify("managed-fleet-secret");
+
+      // A CLI command builds its own store against the same database.
+      const cliStore = yield* SessionStore.make;
+      expect((yield* serverStore.verify("managed-fleet-secret")).sessionId).toBe(first.sessionId);
+
+      const taken = yield* cliStore.verify("managed-fleet-secret");
+      const recovered = yield* serverStore.verify("managed-fleet-secret");
+      const active = yield* serverStore.listActive();
+
+      expect(recovered.sessionId).not.toBe(taken.sessionId);
+      expect(active.map((session) => session.sessionId)).toEqual([recovered.sessionId]);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(AuthSessions.layer, ServerSecretStore.layer).pipe(
