@@ -19,8 +19,13 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { vi } from "vite-plus/test";
 
 import * as ProcessRunner from "../processRunner.ts";
-import { serviceLauncherBaseDir, serviceLauncherLockPath } from "../serviceLauncher.ts";
+import {
+  serviceLauncherBaseDir,
+  serviceLauncherEnvironment,
+  serviceLauncherLockPath,
+} from "../serviceLauncher.ts";
 import * as BootService from "./bootService.ts";
+import { parseServiceLauncherArgs } from "../cli/serviceLauncher.ts";
 import { pinnedRuntimePaths } from "./pinnedRuntime.ts";
 import {
   disabledServiceTask,
@@ -141,6 +146,15 @@ it("pins the split roots in the unit and leaves the runtime dir to the user mana
   expect(unit).not.toContain("T3CODE_RUNTIME_DIR");
   expect(unit).not.toContain("Environment=T3CODE_HOME=");
   expect(unit).toContain("UnsetEnvironment=T3CODE_HOME\n");
+  const task = BootService.renderBootServiceTask(splitPlan, windowsTaskOptions);
+  for (const [flag, directory] of [
+    ["--config-dir", splitRoots.configDir],
+    ["--state-dir", splitRoots.stateDir],
+    ["--cache-dir", splitRoots.cacheDir],
+    ["--runtime-dir", splitRoots.runtimeDir],
+  ]) {
+    expect(task).toContain(`"${flag}" "${directory}"`);
+  }
   expect(unit).toContain(
     "UnsetEnvironment=T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE\n",
   );
@@ -160,6 +174,32 @@ it("starts the launcher from a split unit's environment", () => {
       }),
   );
   expect(serviceLauncherBaseDir(environment)).toBe(splitRoots.dataDir);
+  const taskArgs = [
+    "--base-dir",
+    splitRoots.dataDir,
+    "--config-dir",
+    splitRoots.configDir,
+    "--state-dir",
+    splitRoots.stateDir,
+    "--cache-dir",
+    splitRoots.cacheDir,
+    "--runtime-dir",
+    splitRoots.runtimeDir,
+  ];
+  const options = parseServiceLauncherArgs(taskArgs);
+  expect(options).toBeDefined();
+  const taskEnvironment = serviceLauncherEnvironment(options!, {
+    T3CODE_HOME: "/old/home",
+    T3CODE_SERVER_DATA_DIR: "/old/override",
+  });
+  expect(taskEnvironment.T3CODE_HOME).toBeUndefined();
+  expect(taskEnvironment.T3CODE_SERVER_DATA_DIR).toBeUndefined();
+  expect(taskEnvironment.T3CODE_CONFIG_DIR).toBe(splitRoots.configDir);
+  expect(taskEnvironment.T3CODE_STATE_DIR).toBe(splitRoots.stateDir);
+  expect(taskEnvironment.T3CODE_CACHE_DIR).toBe(splitRoots.cacheDir);
+  expect(taskEnvironment.T3CODE_RUNTIME_DIR).toBe(splitRoots.runtimeDir);
+  expect(serviceLauncherBaseDir(taskEnvironment)).toBe(splitRoots.dataDir);
+  expect(parseServiceLauncherArgs(taskArgs.slice(0, -2))).toBeUndefined();
 });
 it("reads the served data dir back out of a split unit or plist", () => {
   expect(BootService.bootServiceBaseDirOf(BootService.renderBootServiceUnit(splitPlan))).toBe(
