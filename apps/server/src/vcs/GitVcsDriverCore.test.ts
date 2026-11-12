@@ -5664,13 +5664,19 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* git(cwd, ["worktree", "remove", "--force", created.worktree.path]);
         yield* git(cwd, ["branch", "-D", "feature/templated"]);
         yield* fileSystem.makeDirectory(created.worktree.path);
-        yield* fileSystem.writeFileString(pathService.join(created.worktree.path, "notes.txt"), "notes");
+        yield* fileSystem.writeFileString(
+          pathService.join(created.worktree.path, "notes.txt"),
+          "notes",
+        );
         const recreated = yield* driver.createWorktree(
           { cwd, path: null, refName: initialBranch, newRefName: "feature/templated" },
           { worktreesDirectory, pathTemplate: "{worktreesDir}/nested/{repoName}-{branch}" },
         );
         assert.equal(recreated.worktree.path, `${created.worktree.path}-2`);
-        assert.equal(yield* git(recreated.worktree.path, ["branch", "--show-current"]), "feature/templated");
+        assert.equal(
+          yield* git(recreated.worktree.path, ["branch", "--show-current"]),
+          "feature/templated",
+        );
         assert.deepEqual(yield* fileSystem.readDirectory(created.worktree.path), ["notes.txt"]);
       }),
     );
