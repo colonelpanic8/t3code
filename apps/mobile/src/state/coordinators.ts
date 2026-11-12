@@ -11,7 +11,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { mobilePreferencesAtom } from "./preferences";
 import { connectedEnvironmentIdsAtom } from "./presentation";
 import { environmentServerConfigsAtom, serverEnvironment } from "./server";
-import { environmentThreadShells } from "./threads";
+import { steadyNavigationThreadShellsAtom } from "./threads";
 
 const coordinatorEnvironmentIdsAtom = Atom.make((get) => {
   const configs = get(environmentServerConfigsAtom);
@@ -52,7 +52,7 @@ export function useCoordinatorChoices() {
 
 /** Thread shells for thread lists: a coordinator's thread lives in the Inbox tab instead. */
 export const listedThreadShellsAtom = Atom.make((get) => {
-  const threads = get(environmentThreadShells.navigationThreadShellsAtom);
+  const threads = get(steadyNavigationThreadShellsAtom);
   const coordinatorKeys = new Set(
     get(coordinatorChoicesAtom).flatMap((choice) =>
       choice.coordinator.threadId === null
