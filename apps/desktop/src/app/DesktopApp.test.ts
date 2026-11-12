@@ -116,6 +116,7 @@ it.effect.each([false, true])(
           Effect.provideService(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
             linux: null,
             linuxPasswordStoreCommandLine: "basic",
+            clientDirSwitchMissingValue: false,
           }),
           Effect.provideService(DesktopShellEnvironment.DesktopShellEnvironment, {
             installIntoProcess: Effect.succeed(true),
