@@ -553,10 +553,11 @@ exec "$T3_RUNTIME_DIR/t3" "$@"
 `;
 
 // The launcher pins the server to ~/.t3 and finds a running one by its
-// runtime file there. These variables outrank --base-dir, so an inherited one
-// would hide a running server and point a second one at the same database.
+// runtime file there. The directory variables outrank --base-dir, so an
+// inherited one would hide a running server and point a second one at the same
+// database. An inherited config file would replace ~/.t3's server.json.
 const CLEAR_SERVER_LOCATION_ENV =
-  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR";
+  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR T3CODE_SERVER_CONFIG_FILE";
 // kill -0 also passes for a zombie, a reused PID and, on Linux, a thread ID,
 // which ps does not list. Only the serve command the launcher started counts;
 // where ps cannot look up a PID at all, trust kill -0.
