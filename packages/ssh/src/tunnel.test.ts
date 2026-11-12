@@ -32,6 +32,14 @@ import { remoteStateKey } from "./command.ts";
 import { SshCommandError, SshPasswordPromptError, SshReadinessError } from "./errors.ts";
 import * as SshTunnel from "./tunnel.ts";
 
+// The scripts under test resolve node and sh through the host PATH.
+const HOST_PATH = process.env.PATH ?? "";
+
+class LaunchedServerExited extends Schema.TaggedError<LaunchedServerExited>()(
+  "LaunchedServerExited",
+  {},
+) {}
+
 const isSshCommandError = Schema.is(SshCommandError);
 
 const makeSuccessfulProcess = (stdout: string) => {
@@ -1086,3 +1094,119 @@ server.listen(Number(flag("--port") ?? 0), "127.0.0.1", () => {
 // desktop app with network access on) listens on *:<port>. Linux refuses that
 // bind unless both sockets set SO_REUSEPORT, so on Linux the preload adds it to
 // the picker's probe and the holder sets it too.
+
+describe("remote launch and pairing scripts", () => {
+  const windowsHost = HostProcess.Platform.defaultValue() === "win32";
+
+  // Stands in for the t3 CLI: records each invocation, and `serve` answers the
+  // readiness probe on its --port.
+  const FAKE_T3 = `const fs = require("node:fs");
+const http = require("node:http");
+const args = process.argv.slice(2);
+fs.appendFileSync(
+  process.env.T3_FAKE_RECORD,
+  JSON.stringify({ args, dataDir: process.env.T3CODE_SERVER_DATA_DIR ?? null }) + "\\n",
+);
+if (args[0] === "serve") {
+  const port = Number(args[args.indexOf("--port") + 1]);
+  http.createServer((_request, response) => response.end("ok")).listen(port, "127.0.0.1");
+  setTimeout(() => process.exit(0), 10_000);
+} else {
+  process.stdout.write("{}\\n");
+}
+`;
+  const runScript = (script: string, args: ReadonlyArray<string>, env: Record<string, string>) =>
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const child = yield* spawner.spawn(
+        ChildProcess.make("sh", ["-c", script, "sh", ...args], {
+          env,
+          extendEnv: false,
+        }),
+      );
+      const [stderr, exitCode] = yield* Effect.all(
+        [
+          child.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runFold(
+              () => "",
+              (acc, chunk) => acc + chunk,
+            ),
+          ),
+          child.exitCode.pipe(Effect.map(Number)),
+          child.stdout.pipe(Stream.runDrain),
+        ],
+        {
+          concurrency: "unbounded",
+        },
+      );
+      return {
+        stderr,
+        exitCode,
+      };
+    });
+  it.effect.skipIf(windowsHost)(
+    "pins the server and pairing to ~/.t3 even when the remote exports a data dir",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-ssh-launch-",
+        });
+        const home = `${root}/home`;
+        const record = `${root}/record.ndjson`;
+        const fakeT3 = `${root}/fake-t3.cjs`;
+        yield* fs.makeDirectory(home, {
+          recursive: true,
+        });
+        yield* fs.writeFileString(fakeT3, FAKE_T3);
+        const runner = {
+          nodeScriptPath: fakeT3,
+        };
+        const stateKey = "location-test";
+        const env = {
+          PATH: HOST_PATH,
+          HOME: home,
+          T3_FAKE_RECORD: record,
+          T3CODE_SERVER_DATA_DIR: `${root}/elsewhere`,
+        };
+        yield* Effect.addFinalizer(() =>
+          fs.readFileString(`${home}/.t3/ssh-launch/${stateKey}/pid`).pipe(
+            Effect.flatMap((pid) =>
+              Effect.try({
+                try: () => process.kill(Number(pid.trim())),
+                catch: () => new LaunchedServerExited(),
+              }),
+            ),
+            Effect.ignore,
+          ),
+        );
+        const launch = yield* runScript(SshTunnel.buildRemoteLaunchScript(runner), [stateKey], env);
+        assert.equal(launch.exitCode, 0, launch.stderr);
+        const pairing = yield* runScript(
+          SshTunnel.buildRemotePairingScript(stateKey, runner),
+          [],
+          env,
+        );
+        assert.equal(pairing.exitCode, 0, pairing.stderr);
+        const invocations = (yield* fs.readFileString(record))
+          .trim()
+          .split("\n")
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                args: Array<string>;
+                dataDir: string | null;
+              },
+          );
+        const serve = invocations.find((entry) => entry.args[0] === "serve");
+        const pair = invocations.find((entry) => entry.args[0] === "auth");
+        assert.deepEqual(serve?.args.slice(-2), ["--base-dir", `${home}/.t3`]);
+        assert.isNull(serve?.dataDir);
+        assert.deepEqual(pair, {
+          args: ["auth", "pairing", "create", "--base-dir", `${home}/.t3`, "--json"],
+          dataDir: null,
+        });
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
