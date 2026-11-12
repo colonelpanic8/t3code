@@ -422,14 +422,15 @@ describe("selectComposerReasoningEffort", () => {
     effort: string,
     prompt: string,
     modelOptions?: ReadonlyArray<ProviderOptionSelection>,
+    availableModels = models,
   ) {
     const change = selectComposerReasoningEffort({
       provider: PROVIDER,
       model: MODEL,
-      models,
+      models: availableModels,
       modelOptions,
       prompt,
-      planModeEnabled: false,
+      includePlanAgent: false,
       effort,
     });
     return (
@@ -439,12 +440,34 @@ describe("selectComposerReasoningEffort", () => {
       }
     );
   }
-  it("changes the primary select option and preserves other options", () => {
-    expect(select("high", "Fix it", selections(["effort", "medium"], ["fastMode", true]))).toEqual({
-      prompt: "Fix it",
-      options: selections(["effort", "high"], ["fastMode", true]),
-    });
-  });
+  it.each([
+    {
+      availableModels: models,
+      expectedOptions: selections(["effort", "high"], ["fastMode", true]),
+    },
+    {
+      availableModels: modelWith([
+        selectDescriptor("agent", [{ id: "build", label: "Build", isDefault: true }]),
+        ...(models[0]?.capabilities?.optionDescriptors ?? []),
+      ]),
+      expectedOptions: selections(["agent", "build"], ["effort", "high"], ["fastMode", true]),
+    },
+  ])(
+    "changes the reasoning option and preserves other options",
+    ({ availableModels, expectedOptions }) => {
+      expect(
+        select(
+          "high",
+          "Fix it",
+          selections(["effort", "medium"], ["fastMode", true]),
+          availableModels,
+        ),
+      ).toEqual({
+        prompt: "Fix it",
+        options: expectedOptions,
+      });
+    },
+  );
   it("rejects effort values the selected model does not support", () => {
     expect(select("xhigh", "Fix it")).toBeNull();
   });

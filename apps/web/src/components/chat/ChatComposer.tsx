@@ -3073,7 +3073,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           models: selectedProviderModels,
           modelOptions: composerModelOptions?.[selectedInstanceId],
           prompt: promptRef.current,
-          planModeEnabled: settings.planModeEnabled,
           effort,
         });
         if (change === null) return;

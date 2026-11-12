@@ -293,7 +293,7 @@ export function getReasoningTraitSelection(input: {
   model: string;
   modelOptions: ProviderOptions | undefined;
   prompt: string;
-  planModeEnabled: boolean;
+  includePlanAgent?: boolean | undefined;
   effort: string;
 }) {
   const selected = getSelectedTraits(
@@ -303,9 +303,9 @@ export function getReasoningTraitSelection(input: {
     readPromptUltrathink(input.prompt),
     input.modelOptions,
     true,
-    input.planModeEnabled,
+    input.includePlanAgent,
   );
-  const descriptor = selected.primarySelectDescriptor;
+  const descriptor = selected.selectDescriptors.find(isReasoningSelect);
   if (
     selected.modelIsUnavailable ||
     selected.ultrathinkInBodyText ||

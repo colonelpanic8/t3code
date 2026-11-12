@@ -188,7 +188,7 @@ export function selectComposerReasoningEffort(input: {
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
   prompt: string;
-  planModeEnabled: boolean;
+  includePlanAgent?: boolean | undefined;
   effort: string;
 }): { prompt: string; modelOptions?: ReadonlyArray<ProviderOptionSelection> | undefined } | null {
   const { selections } = resolveComposerOptionSelections(
@@ -196,7 +196,7 @@ export function selectComposerReasoningEffort(input: {
     input.model,
     input.provider,
     input.modelOptions,
-    input.planModeEnabled,
+    input.includePlanAgent,
   );
   return getReasoningTraitSelection({ ...input, modelOptions: selections });
 }
