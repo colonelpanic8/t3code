@@ -7,6 +7,11 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { TRIAGE_PROMPT_FILE_NAME } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
 import { assert, it } from "@effect/vitest";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as Console from "effect/Console";
+import * as Path from "effect/Path";
+import { triageCommand } from "./triage.ts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -73,11 +78,6 @@ it.live("a failed agent launch points at the prompt it could not run", () =>
     ),
   ),
 );
-import * as HostProcess from "@t3tools/shared/HostProcess";
-import * as ConfigProvider from "effect/ConfigProvider";
-import * as Console from "effect/Console";
-import * as Path from "effect/Path";
-import { triageCommand } from "./triage.ts";
 
 const runTriage = (args: ReadonlyArray<string>, env: Record<string, string>) =>
   Command.runWith(triageCommand, { version: "0.0.0" })(args).pipe(
