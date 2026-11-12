@@ -77,7 +77,7 @@ export type AssetResource = typeof AssetResource.Type;
 export const AssetCreateUrlInput = Schema.Struct({
   resource: AssetResource,
   // Bypasses the server's cached project favicon lookup, so an icon added since the last lookup is found.
-  revalidate: Schema.optional(Schema.Boolean),
+  revalidate: Schema.optionalKey(Schema.Boolean),
 });
 export type AssetCreateUrlInput = typeof AssetCreateUrlInput.Type;
 
