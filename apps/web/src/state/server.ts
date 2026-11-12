@@ -1,6 +1,5 @@
 import {
   DEFAULT_SERVER_SETTINGS,
-  type EditorId,
   type EnvironmentId,
   type EnvironmentTheme,
   type KeybindingRule,
@@ -55,7 +54,6 @@ interface PrimaryServerState {
   readonly welcome: ServerLifecycleWelcomePayload | null;
 }
 
-const EMPTY_AVAILABLE_EDITORS: ReadonlyArray<EditorId> = [];
 export const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PRIMARY_SERVER_STATE: PrimaryServerState = {
   config: null,
@@ -189,11 +187,6 @@ export const primaryServerKeybindingsAtom = Atom.make((get): ServerConfig["keybi
     ),
   ),
 ).pipe(Atom.withLabel("web-primary-server-keybindings"));
-
-export const primaryServerAvailableEditorsAtom = Atom.make(
-  (get): ReadonlyArray<EditorId> =>
-    get(primaryServerConfigAtom)?.availableEditors ?? EMPTY_AVAILABLE_EDITORS,
-).pipe(Atom.withLabel("web-primary-server-available-editors"));
 
 const EMPTY_ENVIRONMENT_THEMES: ReadonlyArray<EnvironmentTheme> = [];
 
