@@ -109,6 +109,7 @@ import {
 import { searchableSetting, type SettingsSearchItemId } from "./settingsSearch";
 import { nativeLanguageName, SYSTEM_LANGUAGE } from "@t3tools/client-runtime/locales";
 import { SUPPORTED_LOCALES } from "../../i18n/locales";
+import { DefaultCoordinatorSetting } from "./DefaultCoordinatorSetting";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
@@ -967,6 +968,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <ActiveThreadSortRow />
+        <DefaultCoordinatorSetting />
       </SettingsSection>
 
       <SettingsSection id="confirmations" title={gt("Confirmations")}>
