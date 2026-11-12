@@ -254,6 +254,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  managedPeerLinksFile: Config.String("T3CODE_MANAGED_PEER_LINKS_FILE").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
@@ -1064,6 +1068,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   const managedSettingsPath = env.managedSettingsFile?.trim() || undefined;
   const managedKeybindingsPath = env.managedKeybindingsFile?.trim() || undefined;
   const fleetManifestPath = env.fleetManifestFile?.trim() || undefined;
+  const managedPeerLinksPath = env.managedPeerLinksFile?.trim() || undefined;
   const desktopTelemetryFd = bootstrap?.desktopTelemetryFd;
   const desktopTelemetryControlFd = bootstrap?.desktopTelemetryControlFd;
   const desktopAppUpdate = bootstrap?.desktopAppUpdate;
@@ -1220,6 +1225,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     managedAccessToken,
     environmentIdOverride,
     ...(fleetManifestPath === undefined ? {} : { fleetManifestPath }),
+    ...(managedPeerLinksPath === undefined ? {} : { managedPeerLinksPath }),
     desktopTelemetryFd,
     desktopTelemetryControlFd,
     ...(desktopAppUpdate === undefined ? {} : { desktopAppUpdate }),
