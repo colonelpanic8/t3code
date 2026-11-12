@@ -129,7 +129,7 @@
       # Fixed-output hash over the offline dependency closure. When
       # pnpm-lock.yaml changes, replace this with lib.fakeHash, build
       # .#unwrapped, and copy the reported hash here.
-      hash = "sha256-XRgN5NIC94VsLIhoMsMj8ocLtxiVfLFvG+nlK1spqmI=";
+      hash = "sha256-0cBWY8DIJ2laIQ5IUPayirkBQmxAjmi1GZCxNlziG6A=";
     };
 
     env.APP_VERSION = finalAttrs.version;
