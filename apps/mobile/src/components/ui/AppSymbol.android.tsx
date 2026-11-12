@@ -93,6 +93,7 @@ import IconMessageCircleQuestion from "@tabler/icons-react-native/IconMessageCir
 import IconMessage from "@tabler/icons-react-native/IconMessage";
 import IconMessageDots from "@tabler/icons-react-native/IconMessageDots";
 import IconMessagePlus from "@tabler/icons-react-native/IconMessagePlus";
+import IconMicrophoneOff from "@tabler/icons-react-native/IconMicrophoneOff";
 import IconMinus from "@tabler/icons-react-native/IconMinus";
 import IconMoon from "@tabler/icons-react-native/IconMoon";
 import IconNetwork from "@tabler/icons-react-native/IconNetwork";
@@ -135,6 +136,7 @@ import IconUserX from "@tabler/icons-react-native/IconUserX";
 import IconUserQuestion from "@tabler/icons-react-native/IconUserQuestion";
 import IconUserPlus from "@tabler/icons-react-native/IconUserPlus";
 import IconUsers from "@tabler/icons-react-native/IconUsers";
+import IconWaveSine from "@tabler/icons-react-native/IconWaveSine";
 import IconWifi from "@tabler/icons-react-native/IconWifi";
 import IconWifiOff from "@tabler/icons-react-native/IconWifiOff";
 import IconWorld from "@tabler/icons-react-native/IconWorld";
@@ -235,6 +237,8 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   macstudio: IconDeviceDesktop,
   magnifyingglass: IconSearch,
   mic: IconMicrophone,
+  "mic.fill": IconMicrophone,
+  "mic.slash.fill": IconMicrophoneOff,
   paintbrush: IconPalette,
   pencil: IconPencil,
   "person.crop.circle": IconUserCircle,
@@ -288,6 +292,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "tray.and.arrow.down": IconDownload,
   "tray.and.arrow.up": IconUpload,
   trash: IconTrash,
+  waveform: IconWaveSine,
   wifi: IconWifi,
   "wifi.slash": IconWifiOff,
   "wrench.and.screwdriver": IconTool,
