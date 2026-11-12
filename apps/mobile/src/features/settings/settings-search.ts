@@ -60,6 +60,8 @@ const SETTINGS_SEARCH_TERMS = {
     "working section",
     "new threads",
     "last project",
+    "coordinator",
+    "inbox",
   ],
   SettingsThreads: [
     "new threads",
