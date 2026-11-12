@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
 // The launcher must survive unloadable server versions; use Node built-ins without Effect.
+import type { T3SplitStorageRoots } from "@t3tools/shared/storagePaths";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
@@ -1281,17 +1282,57 @@ export class Launcher {
   }
 }
 
+/** The service's T3 home, or in the split layout its data dir; see `renderBootServiceUnit`. */
+export function serviceLauncherBaseDir(
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  return env.T3CODE_HOME?.trim() || env.T3CODE_DATA_DIR?.trim() || undefined;
+}
 /** Task Scheduler cannot set variables or redirect output, so a Windows task passes them as flags. */
 export interface LauncherOptions {
   readonly baseDir?: string | undefined;
   readonly logFile?: string | undefined;
   readonly serviceUnit?: string | undefined;
+  readonly storageRoots?: T3SplitStorageRoots | undefined;
+}
+
+export function serviceLauncherEnvironment(
+  options: LauncherOptions,
+  inherited: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const environment = { ...inherited };
+  if (options.baseDir !== undefined || options.storageRoots !== undefined) {
+    for (const name of [
+      "T3CODE_CONFIG_DIR",
+      "T3CODE_DATA_DIR",
+      "T3CODE_STATE_DIR",
+      "T3CODE_CACHE_DIR",
+      "T3CODE_RUNTIME_DIR",
+      "T3CODE_SERVER_CONFIG_DIR",
+      "T3CODE_SERVER_DATA_DIR",
+      "T3CODE_SERVER_CACHE_DIR",
+      "T3CODE_SERVER_CONFIG_FILE",
+    ])
+      delete environment[name];
+    if (options.storageRoots === undefined) {
+      environment.T3CODE_HOME = options.baseDir?.trim();
+    } else {
+      delete environment.T3CODE_HOME;
+      environment.T3CODE_CONFIG_DIR = options.storageRoots.configDir;
+      environment.T3CODE_DATA_DIR = options.storageRoots.dataDir;
+      environment.T3CODE_STATE_DIR = options.storageRoots.stateDir;
+      environment.T3CODE_CACHE_DIR = options.storageRoots.cacheDir;
+      environment.T3CODE_RUNTIME_DIR = options.storageRoots.runtimeDir;
+    }
+  }
+  if (options.serviceUnit !== undefined) environment[SERVICE_UNIT_ENV] = options.serviceUnit;
+  return environment;
 }
 
 export async function main(options: LauncherOptions = {}): Promise<void> {
-  const baseDir = (options.baseDir ?? process.env.T3CODE_HOME)?.trim();
+  const baseDir = options.baseDir?.trim() || serviceLauncherBaseDir(process.env);
   if (baseDir === undefined || baseDir === "") {
-    throw new Error("T3CODE_HOME is required by the T3 Code service launcher.");
+    throw new Error("T3CODE_HOME or T3CODE_DATA_DIR is required by the T3 Code service launcher.");
   }
   const output =
     options.logFile === undefined ? undefined : NodeFS.openSync(options.logFile, "a", 0o600);
@@ -1301,11 +1342,7 @@ export async function main(options: LauncherOptions = {}): Promise<void> {
   try {
     // What the service manager started the launcher with. It locates the unit; service.env
     // changes only what the server gets.
-    const managerEnvironment = {
-      ...process.env,
-      T3CODE_HOME: baseDir,
-      ...(options.serviceUnit === undefined ? {} : { [SERVICE_UNIT_ENV]: options.serviceUnit }),
-    };
+    const managerEnvironment = serviceLauncherEnvironment(options, process.env);
     const environment = await readServiceEnvironment(baseDir, managerEnvironment);
     const statePath = NodePath.join(baseDir, "runtime", SERVICE_STATE_FILE);
     const contents = await NodeFSP.readFile(statePath, "utf8");
