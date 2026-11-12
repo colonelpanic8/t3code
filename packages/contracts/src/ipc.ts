@@ -15,6 +15,7 @@ import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import { KeybindingShortcut, type PreviewForwardedShortcut } from "./keybindings.ts";
+import type { LocalServerPairingResult, RunningLocalServer } from "./localServerDiscovery.ts";
 
 import type {
   DesktopAppActivationRequest,
@@ -97,6 +98,22 @@ export const DesktopRuntimeArchSchema = Schema.Literals(["arm64", "x64", "other"
 export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Beta", "Dev", "Nightly"]);
+export const DesktopBackendModeSchema = Schema.Literals(["managed", "client-only"]);
+export type DesktopBackendMode = typeof DesktopBackendModeSchema.Type;
+export const DesktopBackendModeSourceSchema = Schema.Literals([
+  "settings",
+  "cli",
+  "existing-server",
+]);
+export type DesktopBackendModeSource = typeof DesktopBackendModeSourceSchema.Type;
+
+export const DesktopBackendModeStateSchema = Schema.Struct({
+  effectiveMode: DesktopBackendModeSchema,
+  configuredMode: DesktopBackendModeSchema,
+  cliOverride: Schema.NullOr(DesktopBackendModeSchema),
+  source: DesktopBackendModeSourceSchema,
+});
+export type DesktopBackendModeState = typeof DesktopBackendModeStateSchema.Type;
 
 export interface DesktopAppBranding {
   baseName: string;
@@ -1071,11 +1088,16 @@ export interface DesktopBridge {
   /** False when the OS turned off middle-click PRIMARY paste (`gtk-enable-primary-paste`). */
   getPrimaryPasteEnabled?: () => boolean;
   getLocalEnvironmentBootstraps: () => readonly DesktopEnvironmentBootstrap[];
+  // Whether this launch runs a local backend. A launch argument or an already
+  // running local server can turn it off without changing the saved setting.
   getLocalEnvironmentEnabled: () => boolean;
+  getBackendModeState?: () => DesktopBackendModeState | null;
   setLocalEnvironmentEnabled: (enabled: boolean) => Promise<void>;
   /** The environment ID recorded in this app's T3 home, such as its own machine's background service. */
   getHostEnvironmentId?: () => Promise<string | null>;
   getLocalEnvironmentBearerToken: () => Promise<string>;
+  discoverLocalServers?: () => Promise<readonly RunningLocalServer[]>;
+  pairLocalServer?: (environmentId: EnvironmentId) => Promise<LocalServerPairingResult>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
   getConnectionCatalog: () => Promise<string | null>;

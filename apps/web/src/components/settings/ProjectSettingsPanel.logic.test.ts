@@ -43,6 +43,7 @@ function projectGroup(projects: Project[]) {
     projects,
     settings: { sidebarProjectGroupingMode: "repository", sidebarProjectGroupingOverrides: {} },
     primaryEnvironmentId: localEnvironmentId,
+    ownsLocalEnvironment: true,
     resolveEnvironmentLabel: (id) => id,
   })[0]!;
 }
