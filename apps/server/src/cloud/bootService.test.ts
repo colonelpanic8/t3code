@@ -417,11 +417,11 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
     environmentPath: string | undefined = installerPath,
     cliVersion = "1.2.3",
     serviceBaseDir = baseDir,
-    storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
     insideService = false,
     hostExecPath = "/usr/bin/t3",
     underSudo = false,
     serviceInstallBinDir: string | null | undefined = installBinDir,
+    storageRoots: T3StorageRoots = legacyRoots(serviceBaseDir),
   ) =>
     Effect.gen(function* () {
       const paths = pinnedRuntimePaths(path, serviceBaseDir, cliVersion, platform);
@@ -1308,7 +1308,16 @@ process.disconnect();
         cacheDir: path.join(root, "cache"),
         runtimeDir: path.join(root, "runtime"),
       };
-      const service = yield* makeService(undefined, "1.2.3", roots.dataDir, roots);
+      const service = yield* makeService(
+        undefined,
+        "1.2.3",
+        roots.dataDir,
+        false,
+        undefined,
+        false,
+        undefined,
+        roots,
+      );
       yield* service.install();
       expect(yield* service.status).toMatchObject({
         installed: true,
@@ -1335,10 +1344,28 @@ process.disconnect();
         cacheDir: path.join(root, "cache"),
         runtimeDir: path.join(root, "runtime"),
       };
-      yield* (yield* makeService(undefined, "1.2.3", roots.dataDir, roots)).install();
+      yield* (yield* makeService(
+        undefined,
+        "1.2.3",
+        roots.dataDir,
+        false,
+        undefined,
+        false,
+        undefined,
+        roots,
+      )).install();
 
       // What `t3 update` does: the target version's service rewrites the unit.
-      const updated = yield* makeService(undefined, "1.2.4", roots.dataDir, roots);
+      const updated = yield* makeService(
+        undefined,
+        "1.2.4",
+        roots.dataDir,
+        false,
+        undefined,
+        false,
+        undefined,
+        roots,
+      );
       const plan = yield* updated.install({
         start: false,
       });
@@ -1381,7 +1408,7 @@ process.disconnect();
       const statePath = path.join(baseDir, "runtime", "service-state.json");
       const state = yield* fs.readFileString(statePath);
       const unit = yield* fs.readFileString(plan.unitPath);
-      const inside = yield* makeService(undefined, "1.2.4", baseDir, undefined, true);
+      const inside = yield* makeService(undefined, "1.2.4", baseDir, true);
       commands.length = 0;
       invocations.length = 0;
 
@@ -1428,7 +1455,7 @@ process.disconnect();
         const state = yield* fs.readFileString(statePath);
         const marker = `${plan.baseDir}/runtime/${SERVICE_RESTART_PENDING_FILE}`;
         yield* fs.writeFileString(marker, "1.2.3\n");
-        const inside = yield* makeService(undefined, "1.2.3", undefined, undefined, true);
+        const inside = yield* makeService(undefined, "1.2.3", undefined, true);
         commands.length = 0;
         control.failCommand = "systemctl --user daemon-reload";
 
@@ -1701,7 +1728,6 @@ process.disconnect();
       const updated = yield* makeService(
         `/usr/bin:${previous}:/bin`,
         "1.2.4",
-        undefined,
         undefined,
         false,
         runtime.entryPath,
