@@ -434,6 +434,31 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("SessionStore.lay
       ),
     ),
   );
+  it.effect("keeps accepting the managed token when another process shares the database", () =>
+    Effect.gen(function* () {
+      const serverStore = yield* SessionStore.make;
+      const first = yield* serverStore.verify("managed-fleet-secret");
+
+      // A CLI command builds its own store against the same database.
+      const cliStore = yield* SessionStore.make;
+      expect((yield* serverStore.verify("managed-fleet-secret")).sessionId).toBe(first.sessionId);
+
+      const taken = yield* cliStore.verify("managed-fleet-secret");
+      const recovered = yield* serverStore.verify("managed-fleet-secret");
+      const active = yield* serverStore.listActive();
+
+      expect(recovered.sessionId).not.toBe(taken.sessionId);
+      expect(active.map((session) => session.sessionId)).toEqual([recovered.sessionId]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(AuthSessions.layer, ServerSecretStore.layer).pipe(
+          Layer.provideMerge(SqlitePersistence.layerMemory),
+          Layer.provideMerge(layerServerEnvironment(EnvironmentId.make("test-environment"))),
+          Layer.provideMerge(layerServerConfig({ managedAccessToken: "managed-fleet-secret" })),
+        ),
+      ),
+    ),
+  );
 
   it.effect("atomically replaces active sessions with the same subject and method", () =>
     Effect.gen(function* () {
