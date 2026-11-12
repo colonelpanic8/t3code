@@ -1,9 +1,16 @@
-import { type DesktopWslState, EnvironmentId } from "@t3tools/contracts";
+import {
+  BearerConnectionTarget,
+  PrimaryConnectionTarget,
+  type ConnectionCatalogEntry,
+} from "@t3tools/client-runtime/connection";
+import { type DesktopWslState, EnvironmentId, type RunningLocalServer } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyWslEnableSelection,
   isServerNetworkAccessible,
   resolveAccessEnvironmentId,
+  selectLocalServerPairingCandidates,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
   togglePairingScopeSelection,
@@ -200,6 +207,83 @@ describe("resolveAccessEnvironmentId", () => {
     expect(resolveAccessEnvironmentId({ primaryEnvironmentId, environments, selected })).toBe(
       expected,
     );
+  });
+});
+
+describe("selectLocalServerPairingCandidates", () => {
+  const server = {
+    environmentId: EnvironmentId.make("environment-local"),
+    label: "Local server",
+    httpBaseUrl: "http://127.0.0.1:3773/",
+    pid: 1234,
+    serverVersion: "0.0.1",
+    pairing: "available",
+  } satisfies RunningLocalServer;
+  const savedEnvironment = (
+    phase: "connected" | "reconnecting" | "error",
+    target: ConnectionCatalogEntry["target"] = new BearerConnectionTarget({
+      environmentId: server.environmentId,
+      label: server.label,
+      connectionId: `bearer:${server.environmentId}`,
+    }),
+  ) => ({
+    environmentId: server.environmentId,
+    entry: {
+      target,
+      profile: Option.none(),
+      enabled: true,
+    },
+    connection: {
+      phase,
+      error: null,
+      traceId: null,
+    },
+  });
+  it("offers pairing again only once the saved connection has failed", () => {
+    expect(selectLocalServerPairingCandidates([server], [])).toEqual([
+      {
+        server,
+        status: "pair",
+      },
+    ]);
+    expect(
+      selectLocalServerPairingCandidates([server], [savedEnvironment("reconnecting")]),
+    ).toEqual([
+      {
+        server,
+        status: "paired",
+      },
+    ]);
+    expect(selectLocalServerPairingCandidates([server], [savedEnvironment("error")])).toEqual([
+      {
+        server,
+        status: "pair-again",
+      },
+    ]);
+  });
+  it("does not offer pairing with a server running a different version", () => {
+    const mismatched = {
+      ...server,
+      pairing: "version-mismatch",
+    } satisfies RunningLocalServer;
+    expect(selectLocalServerPairingCandidates([mismatched], [])).toEqual([
+      {
+        server: mismatched,
+        status: "version-mismatch",
+      },
+    ]);
+  });
+  it("never offers this machine's own environment", () => {
+    const primary = savedEnvironment(
+      "connected",
+      new PrimaryConnectionTarget({
+        environmentId: server.environmentId,
+        label: server.label,
+        httpBaseUrl: server.httpBaseUrl,
+        wsBaseUrl: "ws://127.0.0.1:3773/",
+      }),
+    );
+    expect(selectLocalServerPairingCandidates([server], [primary])).toEqual([]);
   });
 });
 

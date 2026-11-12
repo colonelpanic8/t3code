@@ -14,6 +14,7 @@ import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
+import * as DesktopBackendMode from "./DesktopBackendMode.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopCliCommand from "./DesktopCliCommand.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
@@ -28,6 +29,7 @@ import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopObservability from "./DesktopObservability.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import * as DesktopRunningLocalServers from "./DesktopRunningLocalServers.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -171,6 +173,35 @@ const stopAllPoolInstances = Effect.fn("desktop.app.stopAllPoolInstances")(
   },
 );
 
+export const decideDesktopBackendMode = Effect.gen(function* () {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+  const runningLocalServers = yield* DesktopRunningLocalServers.DesktopRunningLocalServers;
+  const hasExistingServer = environment.isDevelopment
+    ? Effect.succeed(false)
+    : runningLocalServers.findHomeServer.pipe(
+        Effect.tap((server) =>
+          Option.isSome(server)
+            ? logBootstrapInfo("using existing local server instead of starting managed backend", {
+                environmentId: server.value.environmentId,
+                origin: server.value.httpBaseUrl,
+                pid: server.value.pid,
+              })
+            : Effect.void,
+        ),
+        Effect.map(Option.isSome),
+      );
+  const launchMode = yield* backendMode
+    .decide(hasExistingServer)
+    .pipe(Effect.catchCause((cause) => fatalStartupCause("backendMode", cause)));
+  yield* logBootstrapInfo("desktop backend mode selected", {
+    effectiveMode: launchMode.effectiveMode,
+    configuredMode: launchMode.configuredMode,
+    source: launchMode.source,
+  });
+  return launchMode;
+});
+
 const bootstrap = Effect.gen(function* () {
   const state = yield* DesktopState.DesktopState;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -179,6 +210,8 @@ const bootstrap = Effect.gen(function* () {
   const snapShot = yield* DesktopSnapShot.DesktopSnapShot;
   const appActivation = yield* DesktopAppActivation.DesktopAppActivation;
   yield* logBootstrapInfo("bootstrap start");
+  // After clerk.configure, so secondary instances never probe for a server.
+  const launchMode = yield* decideDesktopBackendMode;
 
   const settings = yield* desktopSettings.get;
   const electronProtocol = yield* ElectronProtocol.ElectronProtocol;
@@ -210,8 +243,8 @@ const bootstrap = Effect.gen(function* () {
     ),
   );
 
-  if (!settings.localEnvironmentEnabled) {
-    yield* logBootstrapInfo("bootstrap skipping local environment (disabled in settings)");
+  if (launchMode.effectiveMode === "client-only") {
+    yield* logBootstrapInfo("bootstrap skipping local environment", { source: launchMode.source });
     if (!(yield* Ref.get(state.quitting))) {
       yield* desktopWindow.createMainIfBackendReady;
     }

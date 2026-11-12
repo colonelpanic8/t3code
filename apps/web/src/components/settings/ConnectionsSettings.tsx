@@ -1,8 +1,8 @@
 import { SessionPermissions } from "./SessionPermissions";
 import { useSearch } from "@tanstack/react-router";
-import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
+import { ChevronRightIcon, EllipsisIcon, RefreshCwIcon, TerminalIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
@@ -13,6 +13,7 @@ import {
   type AuthPairingLink,
   type AuthPairingCredentialResult,
   type AdvertisedEndpoint,
+  type RunningLocalServer,
   type DesktopServerExposureState,
   type DesktopWslState,
   EnvironmentId,
@@ -32,6 +33,8 @@ import {
   isWslSettingsRowVisible,
   missingTailscaleEndpointDescription,
   resolveLocalVersionStatusLabel,
+  selectLocalServerPairingCandidates,
+  type LocalServerPairingCandidate,
   resolveTailscaleServeBaseUrl,
 } from "./ConnectionsSettings.logic";
 import { settingsScopeEnvironmentLabel } from "./settingsScopeAxis";
@@ -87,6 +90,7 @@ import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { RemoveT3ConnectEnvironmentDialog } from "../clerk/RemoveT3ConnectEnvironmentDialog";
 import { authEnvironment } from "~/state/auth";
 import { environmentCatalog } from "~/connection/catalog";
+import { connectPairing as connectPairingAtom } from "~/connection/onboarding";
 import {
   readEnvironmentScope,
   useEnvironmentScope,
@@ -142,6 +146,7 @@ import { AddEnvironmentDialog } from "./AddEnvironmentDialog";
 
 const DEFAULT_TAILSCALE_SERVE_PORT = 443;
 const EMPTY_ADVERTISED_ENDPOINTS: ReadonlyArray<AdvertisedEndpoint> = [];
+const EMPTY_RUNNING_LOCAL_SERVERS: ReadonlyArray<RunningLocalServer> = [];
 
 // Colons are invalid in distro names, keeping picker sentinels collision-free.
 const BACKEND_VALUE_DEFAULT_WSL = "backend:default-wsl";
@@ -245,9 +250,18 @@ function ConnectionsSettingsContent({
   readonly accessEnvironmentPicker?: ReactNode;
 }) {
   const desktopBridge = window.desktopBridge;
+  const [runningLocalServers, setRunningLocalServers] = useState<ReadonlyArray<RunningLocalServer>>(
+    EMPTY_RUNNING_LOCAL_SERVERS,
+  );
+  const [isDiscoveringLocalServers, setIsDiscoveringLocalServers] = useState(false);
+  const localServerDiscoveryInFlightRef = useRef(false);
+  const [pairingLocalServerEnvironmentId, setPairingLocalServerEnvironmentId] =
+    useState<EnvironmentId | null>(null);
+  const [localServerDiscoveryError, setLocalServerDiscoveryError] = useState<string | null>(null);
   const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const peerLinkHosts = usePeerLinkHosts();
+  const connectPairing = useAtomCommand(connectPairingAtom, { reportFailure: false });
   const removeEnvironment = useAtomCommand(environmentCatalog.remove, { reportFailure: false });
   const setEnvironmentEnabled = useAtomCommand(environmentCatalog.setEnabled, {
     reportFailure: false,
@@ -309,6 +323,83 @@ function ConnectionsSettingsContent({
     ...(primaryEnvironment ? [primaryEnvironment] : []),
     ...savedEnvironments.filter((environment) => environment.entry.enabled),
   ].filter((environment) => environment.connection.phase !== "unsupported");
+  const localServerPairingCandidates = selectLocalServerPairingCandidates(
+    runningLocalServers,
+    environments,
+  );
+  // One scan at a time, so an older scan can never overwrite a newer result.
+  const refreshRunningLocalServers = () => {
+    const discoverLocalServers = desktopBridge?.discoverLocalServers;
+    if (!discoverLocalServers || localServerDiscoveryInFlightRef.current) return;
+    localServerDiscoveryInFlightRef.current = true;
+    setIsDiscoveringLocalServers(true);
+    void discoverLocalServers()
+      .then(
+        (discovered) => {
+          setRunningLocalServers(discovered);
+          setLocalServerDiscoveryError(null);
+        },
+        (error: unknown) => {
+          setRunningLocalServers(EMPTY_RUNNING_LOCAL_SERVERS);
+          setLocalServerDiscoveryError(
+            error instanceof Error ? error.message : "Could not scan for local T3 Code servers.",
+          );
+        },
+      )
+      .finally(() => {
+        localServerDiscoveryInFlightRef.current = false;
+        setIsDiscoveringLocalServers(false);
+      });
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Scans the desktop bridge for running local servers while the panel is open.
+  useEffect(() => {
+    if (view === "environments") refreshRunningLocalServers();
+  }, [view, refreshRunningLocalServers]);
+  const handlePairLocalServer = async ({ server, status }: LocalServerPairingCandidate) => {
+    const pairLocalServer = desktopBridge?.pairLocalServer;
+    if (!pairLocalServer) return;
+    setPairingLocalServerEnvironmentId(server.environmentId);
+    const settled = await settlePromise(async () => {
+      const { pairingUrl } = await pairLocalServer(server.environmentId);
+      const paired = await connectPairing({
+        pairingUrl,
+      });
+      if (paired._tag === "Failure") {
+        if (isAtomCommandInterrupted(paired)) return;
+        throw squashAtomCommandFailure(paired);
+      }
+      // Pairing keeps a saved environment's switch, so turn a switched-off one back on.
+      const saved = environments.find(
+        (environment) => environment.environmentId === server.environmentId,
+      );
+      if (saved !== undefined && !saved.entry.enabled) {
+        const enabled = await setEnvironmentEnabled({
+          environmentId: server.environmentId,
+          enabled: true,
+        });
+        if (enabled._tag === "Failure" && !isAtomCommandInterrupted(enabled)) {
+          throw squashAtomCommandFailure(enabled);
+        }
+      }
+      toastManager.add({
+        type: "success",
+        title: status === "pair-again" ? `Paired ${server.label} again` : `Paired ${server.label}`,
+        description: "It is saved under Environments.",
+      });
+    });
+    if (settled._tag === "Failure") {
+      const error = Cause.squash(settled.cause);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not pair local server",
+          description:
+            error instanceof Error ? error.message : "Could not pair the local T3 Code server.",
+        }),
+      );
+    }
+    setPairingLocalServerEnvironmentId(null);
+  };
   const [desktopServerExposureMutationError, setDesktopServerExposureMutationError] = useState<
     string | null
   >(null);
@@ -1595,6 +1686,80 @@ function ConnectionsSettingsContent({
           <LocalEnvironmentSetting />
         </SettingsSection>
       ) : null}
+      {localServerPairingCandidates.length > 0 || localServerDiscoveryError !== null ? (
+        <SettingsSection
+          title="Available on this computer"
+          headerAction={
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={isDiscoveringLocalServers}
+              onClick={refreshRunningLocalServers}
+            >
+              {isDiscoveringLocalServers ? (
+                <Spinner className="size-3" />
+              ) : (
+                <RefreshCwIcon className="size-3" />
+              )}
+              Scan again
+            </Button>
+          }
+        >
+          {localServerPairingCandidates.length > 0 ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              Running from this app&apos;s data directory. Pairing saves a connection to it; this
+              app does not manage the server process.
+            </p>
+          ) : null}
+          {localServerPairingCandidates.map((candidate) => {
+            const { server, status } = candidate;
+            return (
+              <div
+                key={server.environmentId}
+                className="flex items-center gap-3 rounded-lg border border-border/70 bg-background p-3"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground">
+                  <TerminalIcon aria-hidden className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">
+                    {server.label}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {server.httpBaseUrl} · process {server.pid}
+                  </span>
+                  {status === "version-mismatch" ? (
+                    <span className="block text-xs text-muted-foreground">
+                      Runs T3 Code {server.serverVersion}, a different version from this app. Run{" "}
+                      <code>t3 pair</code> on this computer and paste the link under Add
+                      environment.
+                    </span>
+                  ) : null}
+                </span>
+                {status === "paired" ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">Paired</span>
+                ) : status === "version-mismatch" ? null : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pairingLocalServerEnvironmentId !== null}
+                    onClick={() => void handlePairLocalServer(candidate)}
+                  >
+                    {pairingLocalServerEnvironmentId === server.environmentId ? (
+                      <Spinner className="size-3.5" />
+                    ) : null}
+                    {status === "pair-again" ? "Pair again" : "Pair"}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+          {localServerDiscoveryError ? (
+            <p className="px-1 text-xs text-destructive">{localServerDiscoveryError}</p>
+          ) : null}
+        </SettingsSection>
+      ) : null}
+
       <SettingsSection
         {...searchableSetting("remote-environments")}
         title="Environments"
