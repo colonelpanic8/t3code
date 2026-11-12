@@ -31,6 +31,7 @@ import {
   resolveServerLocations,
   serverLocationFlags,
 } from "./config.ts";
+import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
 
 const SparseSettings = Schema.Record(Schema.String, Schema.Unknown);
 const decodeSettingsJson = Schema.decodeUnknownEffect(fromLenientJson(SparseSettings));
@@ -160,8 +161,25 @@ export class ThemeTargetMissingError extends Schema.TaggedError<ThemeTargetMissi
   }
 }
 
+const DEV_STATE_PLACEHOLDER_URL = new URL("http://localhost");
+
+const hasLiveServer = (statePath: string) =>
+  readPersistedServerRuntimeState(statePath).pipe(
+    Effect.map((state) => Option.isSome(state) && isProcessAlive(state.value.pid)),
+    Effect.orElseSucceed(() => false),
+  );
+
 const resolveThemePaths = Effect.fn(function* (flags: CliServerLocationFlags) {
-  const { derivedPaths } = yield* resolveServerLocations(flags, { devUrl: undefined });
+  const locations = yield* resolveServerLocations(flags, { devUrl: undefined });
+  let derivedPaths = locations.derivedPaths;
+  const devLocations = yield* resolveServerLocations(flags, { devUrl: DEV_STATE_PLACEHOLDER_URL });
+  if (
+    devLocations.derivedPaths.serverRuntimeStatePath !== derivedPaths.serverRuntimeStatePath &&
+    !(yield* hasLiveServer(derivedPaths.serverRuntimeStatePath)) &&
+    (yield* hasLiveServer(devLocations.derivedPaths.serverRuntimeStatePath))
+  ) {
+    derivedPaths = devLocations.derivedPaths;
+  }
   return {
     settingsPath: derivedPaths.settingsPath,
     themesDir: derivedPaths.environmentThemesDir,
