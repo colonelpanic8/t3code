@@ -5,6 +5,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as ProcessRunner from "../processRunner.ts";
 import { resolveMigrationInput } from "./storage.ts";
 const noFlags = {
   baseDir: Option.none<string>(),
@@ -16,6 +17,17 @@ const noFlags = {
 const inputFor = (platform: NodeJS.Platform, env: Record<string, string>) =>
   resolveMigrationInput(noFlags).pipe(
     Effect.provideService(HostProcess.Platform, platform),
+    Effect.provideService(HostProcess.Environment, env),
+    Effect.provideService(ProcessRunner.ProcessRunner, {
+      run: () =>
+        Effect.fail(
+          new ProcessRunner.ProcessSpawnError({
+            command: "busctl",
+            argumentCount: 0,
+            cause: "No user manager in the fixture",
+          }),
+        ),
+    }),
     Effect.provideService(HostProcess.HomeDirectory, "/home/alice"),
     Effect.provide(
       Layer.mergeAll(
@@ -42,7 +54,7 @@ describe("t3 storage migrate locations", () => {
       assert.equal(input.legacyElectronProfile, "/xdg/config/t3code-v2");
       assert.equal(input.electronProfile, "/xdg/state/t3code-client/electron");
       assert.equal(input.clientRoots.configDir, "/xdg/config/t3code-client");
-      assert.equal(input.serviceUnitPath, "/home/alice/.config/systemd/user/t3code.service");
+      assert.equal(input.serviceUnitPath, "/xdg/config/systemd/user/t3code.service");
     }),
   );
   it.effect("ignores XDG variables on macOS, as the desktop does", () =>
@@ -68,7 +80,7 @@ describe("t3 storage migrate locations", () => {
       });
       assert.equal(input.legacyElectronProfile, "/roaming/t3code-v2");
       assert.equal(input.electronProfile, "/local/t3code-client/state/electron");
-      assert.isUndefined(input.serviceUnitPath);
+      assert.equal(input.serviceUnitPath, "/local/t3code/t3code-task.xml");
     }),
   );
   it.effect("names the legacy tree from T3CODE_HOME and the client dir from its variable", () =>

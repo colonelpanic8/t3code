@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { Command, Flag } from "effect/cli";
 
+import * as ProcessRunner from "../processRunner.ts";
 import { bootServiceUnitPath } from "../cloud/bootService.ts";
 import {
   planStorageMigration,
@@ -113,11 +114,7 @@ export const resolveMigrationInput = Effect.fn("cli.storage.resolveMigrationInpu
     // See DesktopUserData.resolveUserDataPath and DesktopEnvironment.electronUserDataPath.
     legacyElectronProfile: path.join(appData, "t3code-v2"),
     electronProfile: path.join(clientRoots.stateDir, "electron"),
-    serviceUnitPath: bootServiceUnitPath({
-      platform: host.platform,
-      homeDir: host.homeDirectory,
-      path,
-    }),
+    serviceUnitPath: yield* bootServiceUnitPath(),
   } satisfies StorageMigrationInput;
 });
 
@@ -274,7 +271,7 @@ const migrateCommand = Command.make("migrate", {
           OLDER_BUILDS_NOTE,
         ].join("\n"),
       );
-    }),
+    }).pipe(Effect.provide(ProcessRunner.layer)),
   ),
 );
 
