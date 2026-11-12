@@ -76,6 +76,7 @@ import {
   ProviderInteractionMode,
   resolveIdleCompaction,
   RuntimeMode,
+  type AgentProfileId,
 } from "@t3tools/contracts";
 import {
   deriveProviderSubagentStatus,
@@ -242,7 +243,8 @@ import { type TerminalContextDraft } from "../lib/terminalContext";
 import { collectInlineContextIds } from "../lib/composerContextReferences";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
-import { useEnvironmentQueryRefresh } from "../state/query";
+import { useEnvironmentQuery, useEnvironmentQueryRefresh } from "../state/query";
+import { agentProfileList } from "../state/agentProfiles";
 import { useEnvironmentScope } from "~/state/session";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../state/server";
 import { hostEnvironmentIdAtom } from "../state/primaryEnvironment";
@@ -394,6 +396,7 @@ import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplat
 
 const EMPTY_FEEDBACK_SUBMISSIONS: ReadonlyArray<CodexFeedbackSubmission> = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
+const EMPTY_AGENT_PROFILES: ReadonlyArray<AgentProfileId> = [];
 const EMPTY_TURN_ITEMS: ThreadStructure["turnItems"] = [];
 const EMPTY_RUNS: ThreadStructure["runs"] = [];
 const EMPTY_AUTO_UPDATE_ENVIRONMENTS: ReadonlyArray<EnvironmentPresentation> = [];
@@ -2853,6 +2856,10 @@ export default function ChatView(props: ChatViewProps) {
       composerDraftTarget,
       setThreadError,
     });
+  // Only a draft can pick a profile; a created thread keeps the one it started with.
+  const agentProfilesQuery = useEnvironmentQuery(
+    isLocalDraftThread ? agentProfileList({ environmentId, input: {} }) : null,
+  );
   const onCompactContext = () => {
     if (compactDisabled) return;
     void sendStandaloneCommand("/compact", "Failed to compact context.");
@@ -2860,6 +2867,7 @@ export default function ChatView(props: ChatViewProps) {
 
   const {
     getModelDisabledReason,
+    handleAgentProfileChangeStable,
     handleRuntimeModeChangeStable,
     onEnvModeChangeStable,
     onProviderModelSelectStable,
@@ -2884,6 +2892,11 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
   });
+  const agentProfileControl = {
+    agentProfile: activeThread?.agentProfile,
+    agentProfiles: agentProfilesQuery.data?.profiles ?? EMPTY_AGENT_PROFILES,
+    onAgentProfileChange: isLocalDraftThread ? handleAgentProfileChangeStable : undefined,
+  };
   const { onResume, isResuming } = useComposerResume({
     environmentId,
     routeThreadKey,
@@ -3743,6 +3756,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onOpenProviderSetup={openProviderSetupStable}
                                 getModelDisabledReason={getModelDisabledReason}
                                 handleRuntimeModeChange={handleRuntimeModeChangeStable}
+                                agentProfile={agentProfileControl}
                                 focusComposer={focusComposerStable}
                                 scheduleComposerFocus={scheduleComposerFocusStable}
                                 setThreadError={setThreadError}
