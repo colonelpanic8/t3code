@@ -5773,6 +5773,49 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("expands {worktreesDir} in the path template to the worktrees directory", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        const worktreesDirectory = yield* makeTmpDir("custom-worktrees-");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        const created = yield* driver.createWorktree(
+          { cwd, path: null, refName: initialBranch, newRefName: "feature/templated" },
+          { worktreesDirectory, pathTemplate: "{worktreesDir}/nested/{repoName}-{branch}" },
+        );
+        assert.equal(
+          pathService.dirname(created.worktree.path),
+          pathService.join(worktreesDirectory, "nested"),
+        );
+        assert.match(
+          pathService.basename(created.worktree.path),
+          new RegExp(`^${pathService.basename(cwd)}-feature-templated-[0-9a-f]{16}$`),
+        );
+        assert.equal(yield* fileSystem.exists(created.worktree.path), true);
+
+        yield* git(cwd, ["worktree", "remove", "--force", created.worktree.path]);
+        yield* git(cwd, ["branch", "-D", "feature/templated"]);
+        yield* fileSystem.makeDirectory(created.worktree.path);
+        yield* fileSystem.writeFileString(
+          pathService.join(created.worktree.path, "notes.txt"),
+          "notes",
+        );
+        const recreated = yield* driver.createWorktree(
+          { cwd, path: null, refName: initialBranch, newRefName: "feature/templated" },
+          { worktreesDirectory, pathTemplate: "{worktreesDir}/nested/{repoName}-{branch}" },
+        );
+        assert.equal(recreated.worktree.path, `${created.worktree.path}-2`);
+        assert.equal(
+          yield* git(recreated.worktree.path, ["branch", "--show-current"]),
+          "feature/templated",
+        );
+        assert.deepEqual(yield* fileSystem.readDirectory(created.worktree.path), ["notes.txt"]);
+      }),
+    );
+
     it.effect("resolves the submodule mode from the option, then t3.json", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
