@@ -9,9 +9,25 @@ import { TerminalAppearanceSection } from "./appearance/sections/TerminalAppeara
 import { TextAppearanceSection } from "./appearance/sections/TextAppearanceSection";
 import { ThemeAppearanceSection } from "./appearance/sections/ThemeAppearanceSection";
 import { ToolCallsAppearanceSection } from "./appearance/sections/ToolCallsAppearanceSection";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
+
+const APPEARANCE_KEYS = [
+  "themeId",
+  "lightThemeId",
+  "darkThemeId",
+  "themeMode",
+  "baseFontSize",
+  "terminalFontSize",
+  "markdownFontSize",
+  "codeFontSize",
+  "codeWordBreak",
+] as const;
 
 export function SettingsAppearanceRouteScreen() {
   const insets = useSafeAreaInsets();
+  const managedKeys = useManagedPreferenceKeys();
+  const managed = APPEARANCE_KEYS.some((key) => managedKeys.has(key));
 
   return (
     <SettingsScreen title="Appearance">
@@ -24,6 +40,7 @@ export function SettingsAppearanceRouteScreen() {
           paddingBottom: Math.max(insets.bottom, 18) + 18,
         }}
       >
+        {managed ? <ManagedBySettingsFeedNote /> : null}
         <ThemeAppearanceSection />
         {Platform.OS === "android" ? <AndroidNavigationAppearanceSection /> : null}
         <TextAppearanceSection />
