@@ -6,7 +6,11 @@ import {
   type ProviderOptionSelection,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import { getComposerProviderState, getComposerReasoningStep } from "./composerProviderState";
+import {
+  getComposerProviderState,
+  getComposerReasoningStep,
+  selectComposerReasoningEffort,
+} from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
@@ -384,5 +388,99 @@ describe("getComposerReasoningStep", () => {
         selections(["reasoningEffort", to]),
       );
     }
+  });
+});
+
+describe("selectComposerReasoningEffort", () => {
+  const models = modelWith([
+    selectDescriptor(
+      "effort",
+      [
+        {
+          id: "low",
+          label: "Low",
+        },
+        {
+          id: "medium",
+          label: "Medium",
+          isDefault: true,
+        },
+        {
+          id: "high",
+          label: "High",
+        },
+        {
+          id: "ultrathink",
+          label: "Ultrathink",
+        },
+      ],
+      ["ultrathink"],
+    ),
+    booleanDescriptor("fastMode"),
+  ]);
+  function select(
+    effort: string,
+    prompt: string,
+    modelOptions?: ReadonlyArray<ProviderOptionSelection>,
+    availableModels = models,
+  ) {
+    const change = selectComposerReasoningEffort({
+      provider: PROVIDER,
+      model: MODEL,
+      models: availableModels,
+      modelOptions,
+      prompt,
+      includePlanAgent: false,
+      effort,
+    });
+    return (
+      change && {
+        prompt: change.prompt,
+        options: change.modelOptions ?? null,
+      }
+    );
+  }
+  it.each([
+    {
+      availableModels: models,
+      expectedOptions: selections(["effort", "high"], ["fastMode", true]),
+    },
+    {
+      availableModels: modelWith([
+        selectDescriptor("agent", [{ id: "build", label: "Build", isDefault: true }]),
+        ...(models[0]?.capabilities?.optionDescriptors ?? []),
+      ]),
+      expectedOptions: selections(["agent", "build"], ["effort", "high"], ["fastMode", true]),
+    },
+  ])(
+    "changes the reasoning option and preserves other options",
+    ({ availableModels, expectedOptions }) => {
+      expect(
+        select(
+          "high",
+          "Fix it",
+          selections(["effort", "medium"], ["fastMode", true]),
+          availableModels,
+        ),
+      ).toEqual({
+        prompt: "Fix it",
+        options: expectedOptions,
+      });
+    },
+  );
+  it("rejects effort values the selected model does not support", () => {
+    expect(select("xhigh", "Fix it")).toBeNull();
+  });
+  it("does not offer prompt-injected levels as effort choices", () => {
+    expect(select("ultrathink", "Fix it", selections(["effort", "high"]))).toBeNull();
+  });
+  it("strips the ultrathink prefix when switching to another effort", () => {
+    expect(select("low", "Ultrathink:\nFix it")).toEqual({
+      prompt: "Fix it",
+      options: selections(["effort", "low"], ["fastMode", false]),
+    });
+  });
+  it("keeps ultrathink when the prompt body itself asks for it", () => {
+    expect(select("low", "Ultrathink:\nPlease ultrathink about this")).toBeNull();
   });
 });
