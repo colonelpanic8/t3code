@@ -49,6 +49,7 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import * as DesktopWindowState from "./DesktopWindowState.ts";
 import {
   PASSKEY_BRIDGE_ARGUMENT,
   PRIMARY_PASTE_DISABLED_ARGUMENT,
@@ -229,6 +230,7 @@ function layerTest(input: {
   readonly mainWindow: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
   readonly createdWindowOptions?: Electron.BrowserWindowConstructorOptions[];
   readonly desktopSettings?: DesktopAppSettings.DesktopSettings;
+  readonly mainWindowState?: DesktopWindowState.MainWindowState;
   readonly mainWindowBoundsUpdates?: DesktopAppSettings.DesktopWindowBounds[];
   readonly mainWindowMaximizedUpdates?: boolean[];
   readonly beforeMainWindowBoundsUpdate?: (
@@ -246,30 +248,10 @@ function layerTest(input: {
   readonly primaryPasteEnabled?: boolean;
   readonly previewPasskeyBridgeEnabled?: boolean;
 }) {
-  let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
+  const desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
-    get: Effect.sync(() => desktopSettings),
-    load: Effect.sync(() => desktopSettings),
-    setMainWindowBounds: (bounds, isMaximized) =>
-      Effect.gen(function* () {
-        if (input.beforeMainWindowBoundsUpdate) {
-          yield* input.beforeMainWindowBoundsUpdate(bounds);
-        }
-        const changed =
-          desktopSettings.mainWindowBounds === null ||
-          !desktopWindowBoundsEquivalence(desktopSettings.mainWindowBounds, bounds) ||
-          desktopSettings.mainWindowMaximized !== isMaximized;
-        if (changed) {
-          desktopSettings = {
-            ...desktopSettings,
-            mainWindowBounds: bounds,
-            mainWindowMaximized: isMaximized,
-          };
-          input.mainWindowBoundsUpdates?.push(bounds);
-          input.mainWindowMaximizedUpdates?.push(isMaximized);
-        }
-        return { settings: desktopSettings, changed };
-      }),
+    get: Effect.succeed(desktopSettings),
+    load: Effect.succeed(desktopSettings),
     setServerExposureMode: () => Effect.die("unexpected server exposure update"),
     setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
     setUpdateChannel: () => Effect.die("unexpected update channel change"),
@@ -280,6 +262,27 @@ function layerTest(input: {
     applyWslWindowsFallback: Effect.die("unexpected WSL Windows fallback"),
     applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
   } satisfies DesktopAppSettings.DesktopAppSettings["Service"]);
+
+  let mainWindowState = input.mainWindowState ?? { bounds: null, maximized: false };
+  const layerDesktopWindowState = Layer.succeed(DesktopWindowState.DesktopWindowState, {
+    get: Effect.sync(() => mainWindowState),
+    setMainWindowBounds: (bounds, isMaximized) =>
+      Effect.gen(function* () {
+        if (input.beforeMainWindowBoundsUpdate) {
+          yield* input.beforeMainWindowBoundsUpdate(bounds);
+        }
+        if (
+          mainWindowState.bounds !== null &&
+          desktopWindowBoundsEquivalence(mainWindowState.bounds, bounds) &&
+          mainWindowState.maximized === isMaximized
+        ) {
+          return;
+        }
+        mainWindowState = { bounds, maximized: isMaximized };
+        input.mainWindowBoundsUpdates?.push(bounds);
+        input.mainWindowMaximizedUpdates?.push(isMaximized);
+      }),
+  } satisfies DesktopWindowState.DesktopWindowState["Service"]);
 
   const layerElectronWindow = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: (options) =>
@@ -316,6 +319,7 @@ function layerTest(input: {
         }),
         layerDesktopEnvironment,
         layerDesktopAppSettings,
+        layerDesktopWindowState,
         layerDesktopClientSettings,
         layerDesktopServerExposure,
         DesktopState.layer,
@@ -437,6 +441,10 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           }),
           layerDesktopEnvironment,
           DesktopAppSettings.layerTest(),
+          Layer.succeed(DesktopWindowState.DesktopWindowState, {
+            get: Effect.succeed({ bounds: null, maximized: false }),
+            setMainWindowBounds: () => Effect.void,
+          }),
           layerDesktopClientSettings,
           layerDesktopServerExposure,
           DesktopState.layer,
@@ -1103,9 +1111,9 @@ describe("DesktopWindow", () => {
         createCount,
         mainWindow,
         mainWindowBoundsUpdates,
-        desktopSettings: {
-          ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-          mainWindowBounds: { x: 2040, y: 80, width: 1320, height: 880 },
+        mainWindowState: {
+          bounds: { x: 2040, y: 80, width: 1320, height: 880 },
+          maximized: false,
         },
       });
 
