@@ -1,4 +1,5 @@
 import * as TestClock from "effect/testing/TestClock";
+import { deriveProviderInstanceConfigMap } from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -561,6 +562,17 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
           (yield* serverSettings.getSettings).providerInstances[instanceId]?.displayName ?? "",
         ),
       );
+
+      // An inherited Object.prototype member is not an instance that already exists.
+      for (const name of ["constructor", "toString", "valueOf"]) {
+        const prototypeNamedId = ProviderInstanceId.make(name);
+        const created = yield* serverSettings.updateProviderInstance({
+          operation: "create",
+          instanceId: prototypeNamedId,
+          instance: { driver: ProviderDriverKind.make("codex") },
+        });
+        assert.isTrue(Object.hasOwn(created.providerInstances, prototypeNamedId));
+      }
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
@@ -2098,6 +2110,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       });
 
       const environment = yield* resolveProviderInstanceTerminalEnvironment({
+        deriveProviderInstanceConfigMap,
         serverSettings,
         path,
         rawProviderInstanceId: instanceId,
