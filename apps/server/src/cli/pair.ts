@@ -13,10 +13,7 @@ import { formatHostForUrl, isWildcardHost } from "@t3tools/shared/hostClassifica
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import { buildPairingAppLink } from "@t3tools/shared/remote";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
-import {
-  deriveServerRuntimeStatePath,
-  type ServerRuntimeStateVariant,
-} from "@t3tools/shared/serverRuntimeState";
+import type { ServerRuntimeStateVariant } from "@t3tools/shared/serverRuntimeState";
 import {
   buildTailscaleHttpsBaseUrl,
   DEFAULT_TAILSCALE_SERVE_PORT,
@@ -373,7 +370,6 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
     }
   }
 
-  const path = yield* Path.Path;
   const checkedStatePaths: Array<string> = [];
   for (const candidate of candidates) {
     const statePath = (yield* candidatePaths(candidate, overrides)).derivedPaths
@@ -628,7 +624,7 @@ export const pairCommand = Command.make("pair", {
           return yield* new JsonTailscaleUnsupportedError();
         }
 
-        const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+        const target = yield* discoverPairTarget(flags);
         // Each protocol keeps auth in its own database, so a token minted here
         // for another protocol's server would never be accepted by it. Refuse
         // before any local layer opens (and migrates) that database.
