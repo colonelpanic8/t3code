@@ -18,6 +18,7 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 
@@ -36,6 +37,7 @@ import {
   base64UrlEncode,
   resolveLegacySessionCookieName,
   resolveSessionCookieName,
+  timingSafeEqualUtf8,
 } from "./utils.ts";
 
 export interface IssuedSession {
@@ -426,6 +428,7 @@ export class SessionStore extends Context.Service<
 
 const SIGNING_SECRET_NAME = "server-signing-key";
 const DEFAULT_SESSION_TTL = Duration.days(30);
+const MANAGED_ACCESS_SESSION_TTL = Duration.days(3_650);
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
 
 const SessionClaims = Schema.Struct({
@@ -489,7 +492,7 @@ function toAuthClientSession(input: Omit<AuthClientSession, "current">): AuthCli
   };
 }
 
-const make = Effect.gen(function* () {
+export const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
@@ -749,104 +752,144 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const verify: SessionStore["Service"]["verify"] = Effect.fn("SessionStore.verify")(
-    function* (token) {
-      if (devAuth?.matches(token)) {
-        const row = yield* authSessions
-          .getById({ sessionId: devAuth.sessionId })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new SessionCredentialVerificationError({ sessionId: devAuth.sessionId, cause }),
-            ),
-          );
-        if (Option.isNone(row)) {
-          return yield* new UnknownSessionTokenError({ sessionId: devAuth.sessionId });
-        }
-        if (row.value.revokedAt !== null) {
-          return yield* new SessionTokenRevokedError({
-            sessionId: devAuth.sessionId,
-            revokedAt: row.value.revokedAt,
-          });
-        }
-        const observedAt = yield* DateTime.now;
-        if (row.value.expiresAt.epochMilliseconds <= observedAt.epochMilliseconds) {
-          return yield* new SessionTokenExpiredError({
-            sessionId: devAuth.sessionId,
-            expiresAt: row.value.expiresAt,
-            observedAt,
-          });
-        }
-        return {
-          sessionId: row.value.sessionId,
-          token,
-          method: row.value.method,
-          client: toClientMetadata(row.value.client),
-          expiresAt: row.value.expiresAt,
-          subject: row.value.subject,
-          scopes: row.value.scopes,
-        } satisfies VerifiedSession;
-      }
-      const [encodedPayload, signature] = token.split(".");
-      if (!encodedPayload || !signature) {
-        return yield* new MalformedSessionTokenError({});
-      }
-
-      if (!(yield* signer.verify(encodedPayload, signature))) {
-        return yield* new InvalidSessionTokenSignatureError({});
-      }
-
-      const claims = yield* decodeSessionClaims(base64UrlDecodeUtf8(encodedPayload)).pipe(
-        Effect.mapError((cause) => new InvalidSessionTokenPayloadError({ cause })),
-      );
-
-      const observedAt = yield* DateTime.now;
-      const expiresAt = DateTime.make(claims.exp);
-      if (Option.isNone(expiresAt)) {
-        return yield* new InvalidSessionExpirationClaimError({
-          sessionId: claims.sid,
-          expirationClaim: claims.exp,
+  const isManagedAccessToken = (token: string) =>
+    serverConfig.managedAccessToken !== undefined &&
+    timingSafeEqualUtf8(token, serverConfig.managedAccessToken);
+  // Issued on first use rather than at startup: CLI commands open this database
+  // too, and each issue revokes the previous managed session.
+  const managedAccessSession = yield* Ref.make<IssuedSession | undefined>(undefined);
+  const managedAccessLock = yield* Semaphore.make(1);
+  const currentManagedAccessSession = (revokedSessionId?: AuthSessionId) =>
+    managedAccessLock.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* Ref.get(managedAccessSession);
+        if (current !== undefined && current.sessionId !== revokedSessionId) return current;
+        const issued = yield* issue({
+          ttl: MANAGED_ACCESS_SESSION_TTL,
+          subject: "managed-access",
+          method: "bearer-access-token",
+          replaceActiveForSubjectAndMethod: true,
+          client: {
+            label: "Managed fleet",
+            deviceType: "bot",
+          },
         });
-      }
-      if (claims.exp <= observedAt.epochMilliseconds) {
-        return yield* new SessionTokenExpiredError({
-          sessionId: claims.sid,
-          expiresAt: expiresAt.value,
-          observedAt,
-        });
-      }
+        yield* Ref.set(managedAccessSession, issued);
+        return issued;
+      }),
+    );
 
+  const verifyCredential = Effect.fn("SessionStore.verify")(function* (
+    token: string,
+    revokedManagedSessionId?: AuthSessionId,
+  ) {
+    if (devAuth?.matches(token)) {
       const row = yield* authSessions
-        .getById({ sessionId: claims.sid })
+        .getById({ sessionId: devAuth.sessionId })
         .pipe(
           Effect.mapError(
-            (cause) => new SessionCredentialVerificationError({ sessionId: claims.sid, cause }),
+            (cause) =>
+              new SessionCredentialVerificationError({ sessionId: devAuth.sessionId, cause }),
           ),
         );
       if (Option.isNone(row)) {
-        return yield* new UnknownSessionTokenError({ sessionId: claims.sid });
+        return yield* new UnknownSessionTokenError({ sessionId: devAuth.sessionId });
       }
       if (row.value.revokedAt !== null) {
         return yield* new SessionTokenRevokedError({
-          sessionId: claims.sid,
+          sessionId: devAuth.sessionId,
           revokedAt: row.value.revokedAt,
         });
       }
-
+      const observedAt = yield* DateTime.now;
+      if (row.value.expiresAt.epochMilliseconds <= observedAt.epochMilliseconds) {
+        return yield* new SessionTokenExpiredError({
+          sessionId: devAuth.sessionId,
+          expiresAt: row.value.expiresAt,
+          observedAt,
+        });
+      }
       return {
-        sessionId: claims.sid,
+        sessionId: row.value.sessionId,
         token,
-        method: claims.method,
+        method: row.value.method,
         client: toClientMetadata(row.value.client),
-        expiresAt: expiresAt.value,
-        subject: claims.sub,
+        expiresAt: row.value.expiresAt,
+        subject: row.value.subject,
         scopes: row.value.scopes,
-        ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
-        ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
-        ...(claims.plk === 1 ? { peerLink: true as const } : {}),
       } satisfies VerifiedSession;
-    },
-  );
+    }
+    const resolvedToken = isManagedAccessToken(token)
+      ? (yield* currentManagedAccessSession(revokedManagedSessionId)).token
+      : token;
+    const [encodedPayload, signature] = resolvedToken.split(".");
+    if (!encodedPayload || !signature) {
+      return yield* new MalformedSessionTokenError({});
+    }
+
+    if (!(yield* signer.verify(encodedPayload, signature))) {
+      return yield* new InvalidSessionTokenSignatureError({});
+    }
+
+    const claims = yield* decodeSessionClaims(base64UrlDecodeUtf8(encodedPayload)).pipe(
+      Effect.mapError((cause) => new InvalidSessionTokenPayloadError({ cause })),
+    );
+
+    const observedAt = yield* DateTime.now;
+    const expiresAt = DateTime.make(claims.exp);
+    if (Option.isNone(expiresAt)) {
+      return yield* new InvalidSessionExpirationClaimError({
+        sessionId: claims.sid,
+        expirationClaim: claims.exp,
+      });
+    }
+    if (claims.exp <= observedAt.epochMilliseconds) {
+      return yield* new SessionTokenExpiredError({
+        sessionId: claims.sid,
+        expiresAt: expiresAt.value,
+        observedAt,
+      });
+    }
+
+    const row = yield* authSessions
+      .getById({ sessionId: claims.sid })
+      .pipe(
+        Effect.mapError(
+          (cause) => new SessionCredentialVerificationError({ sessionId: claims.sid, cause }),
+        ),
+      );
+    if (Option.isNone(row)) {
+      return yield* new UnknownSessionTokenError({ sessionId: claims.sid });
+    }
+    if (row.value.revokedAt !== null) {
+      return yield* new SessionTokenRevokedError({
+        sessionId: claims.sid,
+        revokedAt: row.value.revokedAt,
+      });
+    }
+
+    return {
+      sessionId: claims.sid,
+      token: resolvedToken,
+      method: claims.method,
+      client: toClientMetadata(row.value.client),
+      expiresAt: expiresAt.value,
+      subject: claims.sub,
+      scopes: row.value.scopes,
+      ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
+      ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
+      ...(claims.plk === 1 ? { peerLink: true as const } : {}),
+    } satisfies VerifiedSession;
+  });
+  const verify: SessionStore["Service"]["verify"] = (token) =>
+    verifyCredential(token).pipe(
+      Effect.catchTags({
+        SessionTokenRevokedError: (error) =>
+          isManagedAccessToken(token)
+            ? verifyCredential(token, error.sessionId)
+            : Effect.fail(error),
+      }),
+    );
 
   const encodeWsClaims = Schema.encodeEffect(Schema.fromJsonString(WebSocketClaims));
   const issueWebSocketToken: SessionStore["Service"]["issueWebSocketToken"] = Effect.fn(
