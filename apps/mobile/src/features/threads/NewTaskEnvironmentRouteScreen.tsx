@@ -30,6 +30,7 @@ import {
 } from "./newTaskPicker";
 
 type NewTaskEnvironmentRouteParams = {
+  readonly draftId?: string | string[];
   readonly incomingShareId?: string | string[];
 };
 
@@ -138,6 +139,9 @@ export function NewTaskEnvironmentRouteScreen({
     navigation.dispatch(
       StackActions.push("NewTaskProject", {
         environmentId,
+        draftId: Array.isArray(route.params?.draftId)
+          ? route.params.draftId[0]
+          : route.params?.draftId,
         incomingShareId: incomingShare?.id,
       }),
     );
