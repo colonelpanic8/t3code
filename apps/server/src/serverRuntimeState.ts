@@ -1,15 +1,18 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import {
+  isProcessAlive,
   type PersistedServerRuntimeState,
+  readPersistedServerRuntimeState,
   ServerRuntimeStateError,
 } from "@t3tools/shared/serverRuntimeState";
 
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { formatHostForUrl, isWildcardHost } from "@t3tools/shared/hostClassification";
 import packageJson from "../package.json" with { type: "json" };
 import type * as ServerConfig from "./config.ts";
-import { formatHostForUrl, isWildcardHost } from "./startupAccess.ts";
 
 export {
   PersistedServerRuntimeState,
@@ -93,3 +96,16 @@ export const clearPersistedServerRuntimeState = Effect.fn(
     }),
   );
 });
+
+/**
+ * The runtime record, only while its server process is alive. Read this before sending
+ * credentials to the recorded origin: a killed server leaves its record behind, and
+ * another process may own its port by now.
+ */
+export const readLiveServerRuntimeState = Effect.fn(
+  "serverRuntimeState.readLiveServerRuntimeState",
+)((path: string) =>
+  readPersistedServerRuntimeState(path).pipe(
+    Effect.map(Option.filter((state) => isProcessAlive(state.pid))),
+  ),
+);
