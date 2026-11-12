@@ -323,6 +323,10 @@ export function createAssetEnvironmentAtoms<R, E>(
   };
 }
 
+/**
+ * The resource a project's icon URL is minted for. Refreshing the `createUrl` query for it makes
+ * the server resolve the icon again instead of serving a cached answer.
+ */
 export function projectFaviconResource(cwd: string, path: string | null | undefined) {
   return { _tag: "project-favicon" as const, cwd, ...(path ? { path } : {}) };
 }
