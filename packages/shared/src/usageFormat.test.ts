@@ -2,7 +2,13 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { UsageSource } from "@t3tools/contracts";
 
-import { formatHourShort, makeWindow, usageSourceMessages } from "./usageFormat.ts";
+import {
+  USAGE_ALL_TIME_DAYS,
+  formatHourShort,
+  makeWindow,
+  usageSourceMessages,
+  usageWindowDays,
+} from "./usageFormat.ts";
 
 function malformedSource(count: number, overrides: Partial<UsageSource> = {}): UsageSource {
   return {
@@ -174,5 +180,33 @@ describe("hourly usage formatting", () => {
     } finally {
       resolvedOptions.mockRestore();
     }
+  });
+});
+
+describe("usageWindowDays", () => {
+  const now = new Date("2026-11-07T12:00:00Z");
+
+  it("keeps every day of a bounded window, empty or not", () => {
+    const window = makeWindow(7, now);
+    expect(usageWindowDays(window, ["2026-11-06"])).toEqual([
+      "2026-11-01",
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+      "2026-11-07",
+    ]);
+  });
+
+  it("starts an all-time window at its first day with usage", () => {
+    const window = makeWindow(USAGE_ALL_TIME_DAYS, now);
+    expect(usageWindowDays(window, ["2026-11-06", "2026-11-04", "2026-11-05"])).toEqual([
+      "2026-11-04",
+      "2026-11-05",
+      "2026-11-06",
+      "2026-11-07",
+    ]);
+    expect(usageWindowDays(window, [])).toEqual(["2026-11-07"]);
   });
 });
