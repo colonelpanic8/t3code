@@ -106,18 +106,22 @@ const assertCanonicalUpgrade = Effect.gen(function* () {
 });
 
 describe("pre-merge V2 assembly upgrade", () => {
-  it.effect("re-keys the repaired assembly ledger and runs only main's missing migrations", () =>
+  it.effect("re-keys the repaired assembly ledger and allows later main migrations", () =>
     Effect.gen(function* () {
       yield* seedAssembly(48, repairedAssemblyNames);
-      assert.deepStrictEqual(yield* runMigrations(), [
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 76 }), [
         [48, "ProjectionThreadBranchPullRequest"],
         [50, "ProjectionThreadPullRequests"],
         [51, "ProjectionThreadMessageContext"],
         [52, "ProjectionThreadTitleState"],
         [53, "PullRequestFilesViewed"],
         [54, "ProjectionThreadsAutoSettleDisabledAt"],
-        ...migrationManifest.filter(([id]) => id > 55),
+        ...migrationManifest.filter(([id]) => id > 55 && id <= 76),
       ]);
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id > 76),
+      );
       yield* assertCanonicalUpgrade;
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
