@@ -570,11 +570,25 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
         (skills) => skills.map((skill) => skill.name),
       );
       assert.deepEqual(yield* names, ["pstack:poteto-mode"]);
+      const profileSkills = path.join(tempDir, "profile", ".claude", "skills");
+      yield* writeSkill(profileSkills, "focus", "# Focus");
+      yield* writeSkill(path.join(configDir, "skills"), "personal", "# Personal");
+      yield* writeSkill(path.join(workspace, ".claude", "skills"), "project", "# Project");
+      assert.deepEqual(
+        (yield* discoverClaudeSkills(
+          { homePath: configDir },
+          workspace,
+          environment,
+          profileSkills,
+        )).map((skill) => skill.name),
+        ["focus", "project"],
+      );
+
       yield* fs.writeFileString(
         path.join(workspace, ".claude", "settings.local.json"),
         '{"syncClaudeAiPlugins":false}',
       );
-      assert.deepEqual(yield* names, []);
+      assert.deepEqual(yield* names, ["personal", "project"]);
     }),
   );
 
