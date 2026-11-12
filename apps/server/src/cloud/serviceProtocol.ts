@@ -1,5 +1,4 @@
 import type { ServerSelfUpdateOutcome } from "@t3tools/contracts";
-import { T3CODE_DATA_DIR_ENV } from "@t3tools/shared/storagePaths";
 
 // Protocol 4 launchers coordinate selection writes and reconcile the unit. A remote update
 // replaces only the child, so an installed protocol-3 launcher stays until a local update or
@@ -49,7 +48,7 @@ export const disabledServiceTask = (taskXml: string): string =>
 
 export function serviceUnitEnvironmentValueOf(
   contents: string,
-  name: "T3CODE_HOME" | "T3CODE_INSTALL_BIN_DIR" | typeof T3CODE_DATA_DIR_ENV,
+  name: "T3CODE_HOME" | "T3CODE_INSTALL_BIN_DIR" | "T3CODE_DATA_DIR",
 ): string | undefined {
   const systemd = new RegExp(`^Environment=${name}=(.*)$`, "m").exec(contents)?.[1];
   if (systemd !== undefined) return unquoteSystemdValue(systemd.trim()) || undefined;
@@ -60,7 +59,7 @@ export function serviceUnitEnvironmentValueOf(
 export function serviceUnitBaseDirOf(contents: string): string | undefined {
   const unix =
     serviceUnitEnvironmentValueOf(contents, "T3CODE_HOME") ??
-    serviceUnitEnvironmentValueOf(contents, T3CODE_DATA_DIR_ENV);
+    serviceUnitEnvironmentValueOf(contents, "T3CODE_DATA_DIR");
   if (unix !== undefined) return unix;
   const task = /<Arguments>[^<]* "--base-dir" "([^"]*)"/.exec(contents)?.[1];
   return task === undefined ? undefined : unquoteWindowsArgument(task);
