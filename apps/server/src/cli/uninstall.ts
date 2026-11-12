@@ -16,6 +16,7 @@ import {
   generatedWindowsShimTarget,
   isVersionExecutable,
   pinnedRuntimeVersionsDir,
+  resolveLauncherPath,
 } from "../cloud/pinnedRuntime.ts";
 import {
   installLocationFlags,
@@ -23,7 +24,7 @@ import {
   resolveServerLocationOverrides,
 } from "./config.ts";
 import * as CliService from "./service.ts";
-import { findWindowsShim, resolveLauncherPath } from "./update.ts";
+import { findWindowsShim } from "./update.ts";
 
 export class CliUninstallError extends Schema.TaggedError<CliUninstallError>()(
   "CliUninstallError",
