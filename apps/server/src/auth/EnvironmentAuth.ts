@@ -1399,8 +1399,11 @@ export const make = Effect.gen(function* () {
         ServerAuthScopeNotGrantedError: () =>
           Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "insufficient_scope" })),
       }),
+      // A fleet enrollment is reusable, so a managed peer link can sign in again with it.
       Effect.flatMap((grant) =>
-        grant.method !== "one-time-token" && grant.method !== "reusable-dev-token"
+        grant.method !== "one-time-token" &&
+        grant.method !== "reusable-dev-token" &&
+        grant.method !== "fleet-enrollment"
           ? Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "not_a_pairing_code" }))
           : Effect.succeed(mcpApprovalLevel(grant.subject) ?? access),
       ),
