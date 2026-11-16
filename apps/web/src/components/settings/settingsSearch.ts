@@ -496,6 +496,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "large-project-icons",
+    title: "Large project icons",
+    to: "/settings/general",
+    searchTerms: ["sidebar thread rows favicon size bigger"],
+  },
+  {
     id: "screen-reader-window-title",
     title: "Screen reader window title",
     to: "/settings/chat",
