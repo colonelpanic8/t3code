@@ -8,8 +8,8 @@
   rootPackage = builtins.fromJSON (builtins.readFile ../package.json);
   appName = desktopPackage.productName;
   electron = pkgs.electron_44;
-  nodejs = pkgs.nodejs_24;
-  pnpm = pkgs.pnpm_11;
+  nodejs = pkgs.nodejs_26;
+  pnpm = pkgs.pnpm_12;
   # Client-only mode is supplied by its own topic/PR. Keep this flake
   # composable with that source without exposing a wrapper whose flag the
   # standalone upstream app would silently ignore.
