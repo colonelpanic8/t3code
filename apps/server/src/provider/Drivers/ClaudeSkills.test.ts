@@ -10,9 +10,9 @@ import { planClaudeSkillDispatch } from "./ClaudeSkillDispatch.ts";
 
 // Windows makes the managed directory fixture-controlled without reading host policy or skills.
 const discoverClaudeSkills = (
-  ...[config, cwd, environment = {}]: Parameters<typeof discoverSkills>
+  ...[config, cwd, environment = {}, profileSkillsDirectory]: Parameters<typeof discoverSkills>
 ) =>
-  discoverSkills(config, cwd, environment).pipe(
+  discoverSkills(config, cwd, environment, profileSkillsDirectory).pipe(
     Effect.provideService(HostProcess.Platform, "win32"),
   );
 
