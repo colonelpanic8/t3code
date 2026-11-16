@@ -27,7 +27,7 @@ export function normalizeSemverVersion(version: string): string {
 }
 
 export function parseSemver(value: string): ParsedSemver | null {
-  const normalized = normalizeSemverVersion(value).replace(/^v/, "");
+  const normalized = normalizeSemverVersion(value.replace(/\+.*$/, "")).replace(/^v/, "");
   const [main = "", ...prereleaseParts] = normalized.split("-");
   const prerelease = prereleaseParts.join("-");
   const segments = main.split(".");
