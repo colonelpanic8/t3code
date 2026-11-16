@@ -20,6 +20,7 @@ export function NotificationSettings() {
 
   return (
     <SettingsRow
+      settingKeys={["notificationMode"]}
       {...searchableSetting("thread-notifications")}
       description={
         permissionMessage ??
