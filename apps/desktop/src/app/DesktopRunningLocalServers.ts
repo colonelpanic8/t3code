@@ -8,10 +8,10 @@ import {
 } from "@t3tools/contracts";
 import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 import {
-  deriveServerRuntimeStatePath,
   isProcessAlive,
   readPersistedServerRuntimeState,
 } from "@t3tools/shared/serverRuntimeState";
+import { expandT3HomePath } from "@t3tools/shared/storagePaths";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -26,6 +26,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import serverPackageJson from "../../../server/package.json" with { type: "json" };
 import * as DesktopBackendMode from "./DesktopBackendMode.ts";
+import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
 const LOCAL_SERVER_PAIRING_TIMEOUT = Duration.seconds(10);
@@ -53,7 +54,11 @@ type ProbeEnvironment = (
 ) => Effect.Effect<ExecutionEnvironmentDescriptor | null>;
 
 export interface DesktopRunningLocalServersOptions {
-  readonly baseDir: string;
+  // Where the home server writes server-runtime.json and environment-id.
+  readonly runtimeDir: string;
+  readonly stateDir: string;
+  // Pins `t3 pair` to the storage layout this desktop selected.
+  readonly pairStorageArgs: ReadonlyArray<string>;
   readonly backendEntryPath: string;
   readonly backendCwd: string;
   readonly executablePath: string;
@@ -86,8 +91,7 @@ const makePairCommand = (options: DesktopRunningLocalServersOptions) =>
       "--json",
       "--label",
       "T3 Code Desktop",
-      "--base-dir",
-      options.baseDir,
+      ...options.pairStorageArgs,
     ],
     {
       cwd: options.backendCwd,
@@ -109,13 +113,8 @@ export const make = Effect.fn("desktop.runningLocalServers.make")(function* (
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const processIsAlive = options.processIsAlive ?? isProcessAlive;
 
-  // Only the packaged "userdata" server: dev servers pair through their Vite origin.
   const findHomeServer = Effect.gen(function* () {
-    const statePath = deriveServerRuntimeStatePath({
-      baseDir: options.baseDir,
-      variant: "userdata",
-      joinPath: path.join,
-    });
+    const statePath = path.join(options.runtimeDir, "server-runtime.json");
     const state = yield* readPersistedServerRuntimeState(statePath).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
     );
@@ -124,7 +123,7 @@ export const make = Effect.fn("desktop.runningLocalServers.make")(function* (
     }
 
     const persistedEnvironmentId = yield* fileSystem
-      .readFileString(path.join(path.dirname(statePath), "environment-id"))
+      .readFileString(path.join(options.stateDir, "environment-id"))
       .pipe(
         Effect.map((value) => value.trim()),
         Effect.option,
@@ -243,10 +242,21 @@ export const layer = Layer.effect(
   DesktopRunningLocalServers,
   Effect.gen(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    const config = yield* DesktopConfig.DesktopConfig;
     const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
     const httpClient = yield* HttpClient.HttpClient;
+    const { path, storageRoots: roots } = environment;
+    // A server data dir override holds the runtime file and identity in either layout.
+    const serverDataDir = Option.map(config.serverDataDir, (dir) =>
+      path.resolve(environment.backendCwd, expandT3HomePath(dir, environment.homeDirectory, path)),
+    );
     return yield* make({
-      baseDir: environment.baseDir,
+      runtimeDir: Option.getOrElse(serverDataDir, () => roots.runtimeDir),
+      stateDir: Option.getOrElse(serverDataDir, () => roots.stateDir),
+      pairStorageArgs:
+        roots.layout === "legacy"
+          ? ["--base-dir", roots.legacyBaseDir]
+          : ["--storage-layout", "xdg"],
       backendEntryPath: environment.backendEntryPath,
       backendCwd: environment.backendCwd,
       executablePath: process.execPath,
