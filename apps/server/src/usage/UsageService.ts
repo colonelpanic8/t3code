@@ -893,14 +893,7 @@ export const make = Effect.gen(function* () {
       const [, scanned] = yield* Effect.all(
         [
           fromMemory ? loadSavedRates : provisional ? ensureRates(false) : Effect.void,
-          collectDirs(
-            resolved,
-            windowStartMs,
-            settings,
-            historyCutoffMs,
-            awaitRefresh,
-            fromMemory,
-          ),
+          collectDirs(resolved, windowStartMs, settings, historyCutoffMs, awaitRefresh, fromMemory),
         ],
         { concurrency: 2 },
       );
