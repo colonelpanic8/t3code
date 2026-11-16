@@ -9,7 +9,7 @@
   appName = desktopPackage.productName;
   electron = pkgs.electron_44;
   nodejs = pkgs.nodejs_26;
-  pnpm = pkgs.pnpm_12;
+  pnpm = import ./pnpm.nix {inherit pkgs;};
   # Client-only mode is supplied by its own topic/PR. Keep this flake
   # composable with that source without exposing a wrapper whose flag the
   # standalone upstream app would silently ignore.
