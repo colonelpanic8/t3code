@@ -1,4 +1,4 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, UsageProviderKind } from "@t3tools/contracts";
 import {
   formatDayShort,
   formatHourShort,
@@ -189,6 +189,33 @@ export function buildUsageChartSeries(
     ...[...other, ...stack.folded].map((key) => [key, OTHER_SERIES_COLOR] as const),
   ]);
   return { dimensions, stack, colors };
+}
+
+/** The chart without some providers' usage. Series keep their colors from the full chart. */
+export function withoutChartProviders(
+  full: UsageChartSeries,
+  entries: readonly UsageEntry[],
+  hiddenProviders: ReadonlySet<UsageProviderKind>,
+  grouping: UsageTimeGrouping,
+  periods: readonly string[],
+  metric: UsagePivotMetric,
+): UsageChartSeries {
+  if (hiddenProviders.size === 0) return full;
+  const shown = buildUsageChartSeries(
+    entries.filter((entry) => !hiddenProviders.has(entry.bucket.provider)),
+    full.dimensions,
+    grouping,
+    periods,
+    metric,
+  );
+  const folded = new Set([...shown.stack.folded, ...full.stack.folded]);
+  const colors = new Map(
+    [...shown.colors].map(([key, color]) => [
+      key,
+      folded.has(key) ? color : (full.colors.get(key) ?? color),
+    ]),
+  );
+  return { ...shown, colors };
 }
 
 const ROW_VALUE: {
