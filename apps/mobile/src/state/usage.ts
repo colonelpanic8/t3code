@@ -84,6 +84,7 @@ const usageEnvironmentsAtom = Atom.make((get): readonly EnvironmentUsageStatus[]
     label: presentation.entry.target.label,
     isPending: true,
     isConnected: presentation.connection.phase === "connected",
+    isConnecting: presentation.connection.phase === "connecting",
     canReadDiagnostics: false,
     error: null,
     summary: null,
