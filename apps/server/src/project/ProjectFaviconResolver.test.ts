@@ -196,6 +196,17 @@ it.layer(layerTest)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
         expect(resolved).not.toBeNull();
         expect(resolved).toBe((yield* Path.Path).join(cwd, "public", "brand", "logo.svg"));
+
+        const paddedCwd = yield* makeTempDir;
+        yield* writeTextFile(
+          paddedCwd,
+          "index.html",
+          '<link rel="icon" href=" brand/custom.svg ">',
+        );
+        yield* writeTextFile(paddedCwd, "brand/custom.svg", "<svg>custom</svg>");
+        expect(yield* resolver.resolvePath(paddedCwd)).toBe(
+          (yield* Path.Path).join(paddedCwd, "brand", "custom.svg"),
+        );
       }),
     );
     it.effect("resolves icon hrefs from object-literal route metadata", () =>
