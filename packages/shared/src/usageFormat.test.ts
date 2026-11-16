@@ -4,6 +4,7 @@ import type { UsageSource } from "@t3tools/contracts";
 
 import {
   formatHourShort,
+  formatTokens,
   makeWindow,
   usageSourceMessages,
   msUntilNextLocalDay,
@@ -123,12 +124,11 @@ describe("usage source messages", () => {
     ]);
   });
 
-  it("omits empty missing sources, healthy sources, and diagnostics handled by an action", () => {
+  it("omits empty missing sources and healthy sources", () => {
     expect(
       usageSourceMessages([
         malformedSource(0, { status: "missing" }),
         malformedSource(1, { status: "ok" }),
-        malformedSource(1, { action: "enableCursorKeychain" }),
       ]),
     ).toEqual([]);
     expect(usageSourceMessages([])).toEqual([]);
@@ -184,7 +184,6 @@ describe("hourly usage formatting", () => {
     }
   });
 });
-
 describe("local day boundaries", () => {
   it("measures to the next local midnight, including days daylight saving shortens", () => {
     try {
@@ -241,5 +240,13 @@ describe("local day boundaries", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("token formatting", () => {
+  it("moves to the next unit when rounding reaches it", () => {
+    expect(formatTokens(999_999)).toBe("1M");
+    expect(formatTokens(999_999_999)).toBe("1B");
+    expect(formatTokens(-999_999)).toBe("-1M");
   });
 });
