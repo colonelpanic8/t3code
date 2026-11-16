@@ -17,6 +17,8 @@ export const layer = Layer.effect(
         database
           .saveCache(environmentId, "pull-request", `v1:${key}`, 1, payload)
           .pipe(Effect.catch(() => Effect.logWarning("Offline query database save failed"))),
+      remove: (environmentId, key) =>
+        database.removeCache(environmentId, "pull-request", `v1:${key}`).pipe(Effect.ignore),
     } satisfies NonNullable<typeof EnvironmentQueryStore.Service>;
   }),
 );
