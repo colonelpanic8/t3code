@@ -35,6 +35,12 @@ workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
 
+Hold the modifiers of any of these composer shortcuts (`mod+shift` by default)
+for a moment to reveal each control's shortcut in a callout above it. The
+callouts hide once you press a shortcut. **Settings > Chat > Shortcut hints**
+can instead show every control's shortcut while you hold Alt (Option on macOS)
+alone, which suits Alt-based bindings, or turn the callouts off.
+
 To change effort one step without opening the picker, bind
 **Composer: Increase Effort** and **Composer: Decrease Effort** in Keybindings.
 Both are unbound by default. Increase wraps from the highest level to the
