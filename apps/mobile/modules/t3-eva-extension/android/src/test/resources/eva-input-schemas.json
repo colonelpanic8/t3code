@@ -1,0 +1,244 @@
+{
+  "list_environments": {
+    "type": "object",
+    "properties": {
+      "q": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+      "offset": { "type": "integer", "minimum": 0, "maximum": 1000 }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "list_projects": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "q": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+      "offset": { "type": "integer", "minimum": 0, "maximum": 1000 }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "list_threads": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "projectId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "activity": { "type": "string", "enum": ["working", "needs_input", "idle"] },
+      "q": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+      "offset": { "type": "integer", "minimum": 0, "maximum": 1000 }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "read_messages": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+    },
+    "required": ["environmentId", "threadId"],
+    "additionalProperties": false
+  },
+  "list_models": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "provider": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "q": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+    },
+    "required": ["environmentId"],
+    "additionalProperties": false
+  },
+  "list_requests": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "get_thread_status": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "required": ["environmentId", "threadId"],
+    "additionalProperties": false
+  },
+  "list_queued_messages": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+    },
+    "required": ["environmentId", "threadId"],
+    "additionalProperties": false
+  },
+  "start_thread": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "projectId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "prompt": { "type": "string", "minLength": 1, "maxLength": 16000 },
+      "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "provider": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "model": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "modelOptions": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "runtimeMode": {
+        "type": "string",
+        "enum": ["approval-required", "auto-accept-edits", "auto", "full-access"]
+      },
+      "interactionMode": { "type": "string", "enum": ["default", "plan"] },
+      "workspace": { "type": "string", "enum": ["local", "worktree", "branch", "pull_request"] },
+      "baseBranch": { "type": "string", "minLength": 1, "maxLength": 300 },
+      "branch": { "type": "string", "minLength": 1, "maxLength": 300 },
+      "pullRequest": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "required": ["environmentId", "projectId", "prompt"],
+    "additionalProperties": false
+  },
+  "send_message": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "prompt": { "type": "string", "minLength": 1, "maxLength": 16000 },
+      "activeTurnBehavior": { "type": "string", "enum": ["steer", "queue", "restart"] }
+    },
+    "required": ["environmentId", "threadId", "prompt"],
+    "additionalProperties": false
+  },
+  "interrupt_thread": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "required": ["environmentId", "threadId"],
+    "additionalProperties": false
+  },
+  "organize_thread": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "action": {
+        "type": "string",
+        "enum": [
+          "pin",
+          "unpin",
+          "snooze",
+          "unsnooze",
+          "settle",
+          "unsettle",
+          "archive",
+          "unarchive",
+          "mark_unread"
+        ]
+      },
+      "snoozeMinutes": { "type": "integer", "minimum": 1, "maximum": 525600 },
+      "snoozeUntil": { "type": "string", "minLength": 1, "maxLength": 40 }
+    },
+    "required": ["environmentId", "threadId", "action"],
+    "additionalProperties": false
+  },
+  "respond_to_approval": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "decision": {
+        "type": "string",
+        "enum": ["accept", "accept_for_session", "accept_always", "decline", "cancel"]
+      }
+    },
+    "required": ["environmentId", "threadId", "requestId", "decision"],
+    "additionalProperties": false
+  },
+  "answer_question": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "requestId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "answer": { "type": "string", "minLength": 1, "maxLength": 4000 },
+      "answersJson": { "type": "string", "minLength": 1, "maxLength": 8000 }
+    },
+    "required": ["environmentId", "threadId", "requestId"],
+    "additionalProperties": false
+  },
+  "dismiss_question": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "requestId": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "required": ["environmentId", "threadId", "requestId"],
+    "additionalProperties": false
+  },
+  "rename_thread": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "title": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "required": ["environmentId", "threadId", "title"],
+    "additionalProperties": false
+  },
+  "configure_thread": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "provider": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "model": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "modelOptions": { "type": "string", "minLength": 1, "maxLength": 500 },
+      "runtimeMode": {
+        "type": "string",
+        "enum": ["approval-required", "auto-accept-edits", "auto", "full-access"]
+      },
+      "interactionMode": { "type": "string", "enum": ["default", "plan"] }
+    },
+    "required": ["environmentId", "threadId"],
+    "additionalProperties": false
+  },
+  "fork_thread": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "title": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "required": ["environmentId", "threadId"],
+    "additionalProperties": false
+  },
+  "manage_queued_message": {
+    "type": "object",
+    "properties": {
+      "environmentId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "threadId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "runId": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "action": { "type": "string", "enum": ["remove", "steer"] }
+    },
+    "required": ["environmentId", "threadId", "runId", "action"],
+    "additionalProperties": false
+  },
+  "request_status": {
+    "type": "object",
+    "properties": { "invocationId": { "type": "string", "minLength": 1, "maxLength": 256 } },
+    "required": ["invocationId"],
+    "additionalProperties": false
+  }
+}
