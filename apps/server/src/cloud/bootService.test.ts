@@ -292,6 +292,7 @@ it.each([
     unit = BootService.renderBootServiceUnit({
       program: [`${baseDir}/runtime/versions/1.2.3/t3`, "__service-launcher"],
       baseDir,
+      storageRoots: legacyRoots(baseDir),
       logPath: `${baseDir}/userdata/logs/boot-service.log`,
       unitPath: "/home/theo/.config/systemd/user/t3code.service",
     });
