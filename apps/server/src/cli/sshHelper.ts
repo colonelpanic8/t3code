@@ -5,6 +5,7 @@ import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { Argument, Command } from "effect/cli";
@@ -148,8 +149,20 @@ const homeOwned = Command.make("home-owned", {
   baseDir: Argument.String("base-dir"),
 }).pipe(
   Command.withHandler(({ baseDir }) =>
-    Effect.promise(async () => {
-      if (!((await serviceLauncherIsServing(baseDir)) || (await stateDirOwned(baseDir)))) {
+    Effect.gen(function* () {
+      const explicitStateDir = Option.getOrUndefined(
+        yield* Config.String("T3CODE_STATE_DIR").pipe(
+          Config.option,
+          Effect.orElseSucceed(Option.none<string>),
+        ),
+      );
+      const owned = yield* Effect.promise(async () => {
+        return (
+          (await serviceLauncherIsServing(baseDir)) ||
+          (await stateDirOwned(baseDir, explicitStateDir))
+        );
+      });
+      if (!owned) {
         process.exitCode = 1;
       }
     }),

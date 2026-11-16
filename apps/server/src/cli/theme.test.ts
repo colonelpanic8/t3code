@@ -85,6 +85,7 @@ describe("t3 theme", () => {
     Effect.gen(function* () {
       const home = makeBaseDir();
       const devStateDir = NodePath.join(home, ".t3", "dev");
+      NodeFS.mkdirSync(NodePath.join(home, ".t3", "caches"), { recursive: true });
       NodeFS.mkdirSync(devStateDir, { recursive: true });
       NodeFS.writeFileSync(
         NodePath.join(devStateDir, "server-runtime.json"),

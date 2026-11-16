@@ -7,12 +7,23 @@ export const SERVER_EXIT_CODE_STATE_DIR_OWNED = 78;
 // A server the managed policy refused, so the desktop app blames the policy rather than the release.
 export const SERVER_EXIT_CODE_MANAGED_POLICY = 77;
 
+// Split-layout roots the desktop selected. A legacy-layout desktop sends t3Home instead.
+export const DesktopBackendStorageRoots = Schema.Struct({
+  layout: Schema.Literal("split"),
+  configDir: Schema.String,
+  dataDir: Schema.String,
+  stateDir: Schema.String,
+  cacheDir: Schema.String,
+  runtimeDir: Schema.String,
+});
+export type DesktopBackendStorageRoots = typeof DesktopBackendStorageRoots.Type;
 export const DesktopBackendBootstrap = Schema.Struct({
   mode: Schema.Literal("desktop"),
   noBrowser: Schema.Boolean,
   port: PortSchema,
   // Omit in WSL to use the Linux home instead of the mapped Windows directory.
   t3Home: Schema.optional(Schema.String),
+  storageRoots: Schema.optional(DesktopBackendStorageRoots),
   host: Schema.String,
   desktopBootstrapToken: Schema.String,
   // Derives rotating tokens instead of trusting desktopBootstrapToken indefinitely; see @t3tools/shared/desktopBootstrapToken.
