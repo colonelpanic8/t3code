@@ -304,6 +304,7 @@ const makeAtoms = Effect.fn(function* () {
   const session = {
     client,
     initialConfig: Effect.succeed({} as never),
+    opened: Effect.void,
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,
