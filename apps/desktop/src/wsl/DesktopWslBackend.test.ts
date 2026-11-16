@@ -14,6 +14,7 @@ import type {
 } from "../backend/DesktopBackendManager.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../app/DesktopBackendMode.ts";
 import * as DesktopWslEnvironment from "./DesktopWslEnvironment.ts";
 import * as DesktopWslBackend from "./DesktopWslBackend.ts";
 
@@ -179,14 +180,22 @@ describe("DesktopWslBackend", () => {
           Layer.provideMerge(layerServerExposure),
           Layer.provideMerge(layerNet),
           Layer.provideMerge(
-            DesktopAppSettings.layerTest({
-              ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
-              wslBackendEnabled: true,
-              wslDistro: "Ubuntu",
-              wslOnly: false,
+            DesktopBackendMode.layerTest().pipe(
+              Layer.provideMerge(
+                DesktopAppSettings.layerTest({
+                  ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+                  wslBackendEnabled: true,
+                  wslDistro: "Ubuntu",
+                  wslOnly: false,
+                }),
+              ),
+            ),
+          ),
+          Layer.provideMerge(
+            DesktopWslEnvironment.layerTest({
+              isAvailable: true,
             }),
           ),
-          Layer.provideMerge(DesktopWslEnvironment.layerTest({ isAvailable: true })),
         ),
       ),
     );
