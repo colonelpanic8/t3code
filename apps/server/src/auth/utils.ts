@@ -90,6 +90,15 @@ export function timingSafeEqualBase64Url(left: string, right: string): boolean {
   );
 }
 
+export function timingSafeEqualUtf8(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left, "utf8");
+  const rightBuffer = Buffer.from(right, "utf8");
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return NodeCrypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 function normalizeNonEmptyString(value: string | null | undefined): string | undefined {
   if (typeof value !== "string") {
     return undefined;
