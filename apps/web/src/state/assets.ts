@@ -4,6 +4,8 @@ import {
   createProjectFaviconUrlAtomFamily,
   projectFaviconResource,
 } from "@t3tools/client-runtime/state/assets";
+import { createEnvironmentRpcCommand } from "@t3tools/client-runtime/state/runtime";
+import { WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -35,6 +37,11 @@ export const projectFaviconUrlAtom = createProjectFaviconUrlAtomFamily({
   createUrl: assetEnvironment.createUrl,
   preparedConnection: environmentSession.preparedConnectionValueAtom,
   projectClones: environmentProjectClonesAtom,
+});
+
+export const assetUrlRevalidate = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:assets:revalidate-url",
+  tag: WS_METHODS.assetsCreateUrl,
 });
 
 /**
