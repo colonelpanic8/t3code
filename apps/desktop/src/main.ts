@@ -106,6 +106,7 @@ const layerDesktopEnvironment = Layer.unwrap(
       platform,
       processArch,
       ...metadata,
+      clientDirSwitch: DesktopPreReadyPlatform.readClientDirSwitch(),
     });
   }),
 );
