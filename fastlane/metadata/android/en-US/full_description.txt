@@ -1,0 +1,13 @@
+T3 Code is a client for coding agents: it connects to a T3 Code server running on
+your own machine or tailnet and lets you drive agent sessions, review diffs, and
+work with a terminal from your phone.
+
+These are unofficial source builds of Ivan Malison's locked assembly, produced
+from upstream T3 Code plus selected topic branches. They are not affiliated
+with or endorsed by T3 Tools Inc.
+
+The package identifier is com.t3tools.t3code.assembly, so this installs
+alongside official development, preview, and production variants.
+
+Builds are arm64-v8a only and will not install on an x86_64 Android emulator.
+Expo over-the-air updates are disabled; updates arrive through F-Droid.
