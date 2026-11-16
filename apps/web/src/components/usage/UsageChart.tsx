@@ -8,6 +8,7 @@ import { observeResize } from "~/lib/observeResize";
 import {
   DIMENSION_NAMES,
   GROUPING_ADJECTIVES,
+  GROUPING_NAMES,
   formatPeriod,
   formatPeriodShort,
   usageSeriesLabels,
@@ -160,7 +161,6 @@ function UsageChartPlot({
   partial,
   format,
   formatTooltipPeriod,
-  ariaLabel,
   children,
 }: {
   readonly periods: readonly string[];
@@ -169,7 +169,6 @@ function UsageChartPlot({
   readonly partial: boolean;
   readonly format: (value: number) => string;
   readonly formatTooltipPeriod: (period: string) => string;
-  readonly ariaLabel: string;
   readonly children: React.ReactNode;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -245,8 +244,7 @@ function UsageChartPlot({
         className="h-full w-full"
         viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
         preserveAspectRatio="none"
-        role="img"
-        aria-label={ariaLabel}
+        aria-hidden
       >
         {hoverSlot === null ? null : (
           <rect
@@ -339,10 +337,16 @@ export function UsageChart({
     { position: "end", period: periods.at(-1) },
   ];
 
+  const chartLabel = `${GROUPING_ADJECTIVES[grouping]} ${metric === "tokens" ? "processed tokens" : "cost"}${
+    dimensions.length === 0
+      ? ""
+      : ` by ${dimensions.map((dimension) => DIMENSION_NAMES[dimension].toLowerCase()).join(" and ")}`
+  }`;
+
   return (
     <div className="flex flex-col gap-1">
       <div className="flex gap-2">
-        <div className="relative h-56 w-14 shrink-0">
+        <div aria-hidden className="relative h-56 w-14 shrink-0">
           {scale.labeled
             ? scale.ticks.map((tick) => (
                 <span
@@ -363,11 +367,6 @@ export function UsageChart({
           partial={partial}
           format={format}
           formatTooltipPeriod={formatTooltipPeriod}
-          ariaLabel={`${GROUPING_ADJECTIVES[grouping]} ${metric === "tokens" ? "processed tokens" : "cost"}${
-            dimensions.length === 0
-              ? ""
-              : ` by ${dimensions.map((dimension) => DIMENSION_NAMES[dimension].toLowerCase()).join(" and ")}`
-          }`}
         >
           {scale.ticks.map((tick) => {
             const y = toY(tick);
@@ -402,13 +401,46 @@ export function UsageChart({
         </UsageChartPlot>
       </div>
 
-      <div className="flex justify-between pl-16 text-3xs text-muted-foreground uppercase">
+      <div
+        aria-hidden
+        className="flex justify-between pl-16 text-3xs text-muted-foreground uppercase"
+      >
         {axisPeriods.map(({ position, period }) => (
           <span key={position}>
             {period === undefined ? "" : formatPeriodShort(period, grouping, timeZone, hour12)}
           </span>
         ))}
       </div>
+
+      {/* The plot and its axes are hover-only; this carries the same figures for screen readers. */}
+      <table className="sr-only">
+        <caption>{chartLabel}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{GROUPING_NAMES[grouping]}</th>
+            {series.map((entry) => (
+              <th key={entry.key} scope="col">
+                {entry.label}
+              </th>
+            ))}
+            {series.length > 1 ? <th scope="col">Total</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {periods.map((period, index) => {
+            const column = columns[index];
+            return (
+              <tr key={period}>
+                <th scope="row">{formatTooltipPeriod(period)}</th>
+                {series.map((entry, seriesIndex) => (
+                  <td key={entry.key}>{format(column?.values[seriesIndex] ?? 0)}</td>
+                ))}
+                {series.length > 1 ? <td>{format(column?.total ?? 0)}</td> : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
 
       {showLegend ? (
         <ul className="flex flex-wrap gap-x-3 gap-y-1 pt-1 pl-16 text-xs text-muted-foreground">

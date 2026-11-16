@@ -5,6 +5,7 @@ import type { UsageSource } from "@t3tools/contracts";
 import {
   USAGE_ALL_TIME_DAYS,
   formatHourShort,
+  formatTokens,
   makeWindow,
   usageSourceMessages,
   usageWindowDays,
@@ -182,7 +183,6 @@ describe("hourly usage formatting", () => {
     }
   });
 });
-
 describe("usageWindowDays", () => {
   const now = new Date("2026-11-07T12:00:00Z");
 
@@ -208,5 +208,13 @@ describe("usageWindowDays", () => {
       "2026-11-07",
     ]);
     expect(usageWindowDays(window, [])).toEqual(["2026-11-07"]);
+  });
+});
+
+describe("token formatting", () => {
+  it("moves to the next unit when rounding reaches it", () => {
+    expect(formatTokens(999_999)).toBe("1M");
+    expect(formatTokens(999_999_999)).toBe("1B");
+    expect(formatTokens(-999_999)).toBe("-1M");
   });
 });
