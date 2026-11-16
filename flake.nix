@@ -27,8 +27,8 @@
         config.allowUnfree = true;
       };
 
-      pnpm = pkgs.pnpm_11;
-      nodejs = pkgs.nodejs_24;
+      pnpm = pkgs.pnpm_12;
+      nodejs = pkgs.nodejs_26;
       buildCommit =
         if self ? rev
         then self.rev
