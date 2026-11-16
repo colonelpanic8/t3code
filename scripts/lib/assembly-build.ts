@@ -3,13 +3,17 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import * as DateTime from "effect/DateTime";
 
 const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 
 /** An ISO date, from epoch seconds (Nix's lastModified) or else Git when the commit is present. */
 function resolveCommitDate(commit: string, commitDate: string | undefined): string | null {
   const given = commitDate?.trim();
-  if (given) return /^\d+$/.test(given) ? new Date(Number(given) * 1000).toISOString() : given;
+  if (given)
+    return /^\d+$/.test(given)
+      ? DateTime.formatIso(DateTime.makeUnsafe(Number(given) * 1000))
+      : given;
   try {
     return (
       NodeChildProcess.execFileSync("git", ["show", "-s", "--format=%cI", commit], {
