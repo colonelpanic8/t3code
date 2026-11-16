@@ -6,8 +6,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as ServerConfig from "./config.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as SharedKeybindings from "@t3tools/shared/keybindings";
@@ -647,6 +649,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       }
     }).pipe(Effect.provide(layerKeybindings())),
   );
+
   it.effect("managed keybindings win over user rules and cannot be changed", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -743,5 +746,43 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         );
       }).pipe(Effect.provide(layerKeybindingsWithManagedFile(managedPath)));
     }),
+  );
+
+  it.effect(
+    "suppresses change emission when revalidating unchanged keybindings configuration",
+    () =>
+      Effect.gen(function* () {
+        const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+        yield* writeKeybindingsConfig(keybindingsConfigPath, [
+          { key: "mod+j", command: "terminal.toggle" },
+        ]);
+
+        const keybindings = yield* Keybindings.Keybindings;
+        yield* keybindings.start;
+
+        const changes = yield* keybindings.subscribeChanges;
+
+        // Revalidate when config on disk has not changed (e.g. atime bump on Windows).
+        // `revalidate` publishes before it returns, so a wrongly emitted event would be
+        // buffered in the subscription ahead of the real change observed below.
+        yield* keybindings.revalidate;
+
+        yield* writeKeybindingsConfig(keybindingsConfigPath, [
+          { key: "mod+j", command: "terminal.toggle" },
+          { key: "mod+k", command: "threadPanel.toggle" },
+        ]);
+        yield* keybindings.revalidate;
+
+        // The first buffered event must be the real change, not the unchanged state.
+        const change = Option.getOrThrow(yield* Stream.runHead(changes));
+        assert.isTrue(
+          change.keybindings.some(
+            (rule) =>
+              rule.command === "threadPanel.toggle" &&
+              rule.shortcut.key === "k" &&
+              rule.shortcut.modKey,
+          ),
+        );
+      }).pipe(Effect.scoped, Effect.provide(layerKeybindings())),
   );
 });
