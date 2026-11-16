@@ -27,7 +27,7 @@
         config.allowUnfree = true;
       };
 
-      pnpm = pkgs.pnpm_12;
+      pnpm = import ./nix/pnpm.nix {inherit pkgs;};
       nodejs = pkgs.nodejs_26;
       buildCommit =
         if self ? rev
