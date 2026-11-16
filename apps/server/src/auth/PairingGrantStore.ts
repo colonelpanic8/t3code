@@ -637,6 +637,7 @@ const make = Effect.gen(function* () {
     credential: string,
     now: DateTime.Utc,
     requestedScopes: ReadonlyArray<AuthEnvironmentScope> | undefined,
+    requiredScopes: ReadonlyArray<AuthEnvironmentScope> | undefined,
   ) {
     if (!isFleetEnrollmentCredentialValue(credential)) {
       return yield* new UnknownBootstrapCredentialError({});
@@ -652,6 +653,12 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError((cause) => new BootstrapCredentialLookupError({ cause })));
     if (Option.isSome(redeemable)) {
+      if (
+        requiredScopes !== undefined &&
+        !requiredScopes.every((scope) => redeemable.value.scopes.includes(scope))
+      ) {
+        return yield* new BootstrapCredentialScopeNotGrantedError({});
+      }
       return {
         method: "fleet-enrollment",
         scopes: redeemable.value.scopes,
@@ -685,7 +692,12 @@ const make = Effect.gen(function* () {
     function* (credential, input) {
       const now = yield* DateTime.now;
       if (isFleetEnrollmentCredential(credential)) {
-        return yield* redeemFleetEnrollment(credential, now, input?.requestedScopes);
+        return yield* redeemFleetEnrollment(
+          credential,
+          now,
+          input?.requestedScopes,
+          input?.requiredScopes,
+        );
       }
       if (yield* consumeRotatingDesktopToken(credential, now.epochMilliseconds)) {
         return {
