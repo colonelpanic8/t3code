@@ -16,6 +16,7 @@ import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } fr
 
 /** Every location flag is present once the command line is parsed. */
 type ServerCommandFlags = Required<CliServerFlags>;
+
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 const runServerCommand = Effect.fn("server.runServerCommand")(function* (

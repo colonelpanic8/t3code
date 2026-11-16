@@ -256,6 +256,35 @@ describe("OtelEnvironment", () => {
       headers: { "x-key": "otel" },
     });
     it.each([
+      { bootstrapUrl: undefined, source: "settings" as const, fromFile: true },
+      {
+        bootstrapUrl: "http://desktop:4318/v1/logs",
+        source: "bootstrap" as const,
+        fromFile: false,
+      },
+    ])(
+      "keeps config-file export options below bootstrap ($source)",
+      ({ bootstrapUrl, source, fromFile }) => {
+        const configEndpoint = {
+          url: "http://file:4318/v1/logs",
+          export: { ...t3Export, headers: { "x-key": "file" } },
+        };
+        assert.deepStrictEqual(
+          OtelEnvironment.resolveSignalEndpoint(
+            withLogs(OtelEnvironment.OtelSignal.Unset()),
+            "logs",
+            { url: undefined, export: t3Export },
+            { bootstrapUrl, configEndpoint, settingsUrl: "http://settings:4318/v1/logs" },
+          ),
+          {
+            url: bootstrapUrl ?? configEndpoint.url,
+            export: fromFile ? configEndpoint.export : t3Export,
+            source,
+          },
+        );
+      },
+    );
+    it.each([
       {
         name: "T3CODE_OTLP_*_URL wins over a signal the OTEL variables turned off",
         otel: withLogs(OtelEnvironment.OtelSignal.Off()),

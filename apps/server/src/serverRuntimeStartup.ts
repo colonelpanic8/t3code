@@ -496,6 +496,14 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
   );
 
   const startup = Effect.gen(function* () {
+    const configFile = serverConfig.serverConfigFile;
+    if (configFile !== undefined && configFile.unknownKeys.length > 0) {
+      yield* Effect.logWarning("ignoring unknown keys in the server config file", {
+        path: configFile.path,
+        keys: configFile.unknownKeys,
+      });
+    }
+
     yield* Effect.logDebug("startup phase: starting keybindings runtime");
     yield* runStartupPhase(
       "keybindings.start",
