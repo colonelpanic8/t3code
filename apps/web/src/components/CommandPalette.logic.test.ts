@@ -154,15 +154,18 @@ describe("resolveBrowseTabCompletion", () => {
     ).toEqual({ kind: "entry", entry: entries[1] });
   });
 
-  it("uses the first directory when none is highlighted", () => {
-    expect(
-      resolveBrowseTabCompletion({
-        exactEntry: null,
-        filteredEntries: entries,
-        highlightedItemValue: null,
-      }),
-    ).toEqual({ kind: "entry", entry: entries[0] });
-  });
+  it.each([null, undefined])(
+    "uses the first directory without an exact match (%s)",
+    (exactEntry) => {
+      expect(
+        resolveBrowseTabCompletion({
+          exactEntry,
+          filteredEntries: entries,
+          highlightedItemValue: null,
+        }),
+      ).toEqual({ kind: "entry", entry: entries[0] });
+    },
+  );
 
   it("preserves the highlighted parent-directory action", () => {
     expect(
