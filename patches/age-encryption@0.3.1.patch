@@ -1,0 +1,22 @@
+diff --git a/dist/x25519.js b/dist/x25519.js
+index ceead47..4518afc 100644
+--- a/dist/x25519.js
++++ b/dist/x25519.js
+@@ -5,7 +5,7 @@ export function forceWebCryptoOff(off) {
+     webCryptoOff = off;
+ }
+ export async function webCryptoFallback(func, fallback) {
+-    if (webCryptoOff) {
++    if (webCryptoOff || globalThis.crypto?.subtle === undefined) {
+         return await fallback();
+     }
+     // We can't reliably detect X25519 support in WebCrypto in a performant way
+@@ -16,7 +16,7 @@ export async function webCryptoFallback(func, fallback) {
+     }
+     catch (error) {
+         if (error instanceof ReferenceError ||
+-            error instanceof DOMException && error.name === "NotSupportedError") {
++            typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "NotSupportedError") {
+             return await fallback();
+         }
+         else {

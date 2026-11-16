@@ -1,0 +1,3 @@
+# Ciphertext and its plaintext must stay byte-exact.
+* -text
+*.bin binary
