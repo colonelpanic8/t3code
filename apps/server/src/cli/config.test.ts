@@ -238,6 +238,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         const baseDir = source === "default" ? path.join(home, ".t3") : home;
         const stateDir = path.join(baseDir, "userdata");
         yield* fs.makeDirectory(stateDir, { recursive: true });
+        yield* fs.writeFileString(path.join(stateDir, "statev2.sqlite"), "");
         yield* fs.writeFileString(
           path.join(stateDir, "server-runtime.json"),
           yield* encodeUnknownJson({
