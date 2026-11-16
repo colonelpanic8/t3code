@@ -573,6 +573,11 @@ fi
 exec "$T3_RUNTIME_DIR/t3" "$@"
 `;
 
+// The launcher pins the server to ~/.t3 and finds a running one by its
+// runtime file there. These variables outrank --base-dir, so an inherited one
+// would hide a running server and point a second one at the same database.
+const CLEAR_SERVER_LOCATION_ENV =
+  "unset T3CODE_SERVER_CONFIG_DIR T3CODE_SERVER_DATA_DIR T3CODE_SERVER_CACHE_DIR";
 // kill -0 also passes for a zombie, a reused PID and, on Linux, a thread ID,
 // which ps does not list. Only the serve command the launcher started counts;
 // where ps cannot look up a PID at all, trust kill -0.
@@ -588,6 +593,7 @@ const REMOTE_MANAGED_SERVER_RUNNING_SCRIPT = `managed_server_running() {
 }`;
 
 const REMOTE_LAUNCH_SCRIPT = `set -eu
+${CLEAR_SERVER_LOCATION_ENV}
 @@T3_NODE_ENV_SCRIPT@@
 STATE_KEY="$1"
 LAUNCHER_ID="\${2:-}"
@@ -1003,6 +1009,7 @@ printf '{"remotePort":%s,"serverKind":"%s"}\\n' "$REMOTE_PORT" "\${REMOTE_MANAGE
 `;
 
 const REMOTE_PAIRING_SCRIPT = `set -eu
+${CLEAR_SERVER_LOCATION_ENV}
 STATE_DIR="$HOME/.t3/ssh-launch/@@T3_STATE_KEY@@"
 DEFAULT_SERVER_HOME="$HOME/.t3"
 RUNNER_FILE="$STATE_DIR/run-t3.sh"
@@ -1106,7 +1113,7 @@ export function buildRemoteNodeEnvScript(input?: RemoteT3RunnerOptions): string 
   );
 }
 
-function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
+export function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
   return applyScriptPlaceholders(REMOTE_LAUNCH_SCRIPT, {
     T3_UPDATE_MARKER_FILE: DESKTOP_UPDATE_IN_PROGRESS_MARKER_FILE,
     T3_UPDATE_TTL_MS: String(DESKTOP_UPDATE_IN_PROGRESS_TTL_MS),
@@ -1129,7 +1136,7 @@ function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
   });
 }
 
-function buildRemotePairingScript(stateKey: string, input?: RemoteT3RunnerOptions): string {
+export function buildRemotePairingScript(stateKey: string, input?: RemoteT3RunnerOptions): string {
   return applyScriptPlaceholders(REMOTE_PAIRING_SCRIPT, {
     T3_STATE_KEY: stateKey,
     T3_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteT3RunnerScript(input)),
