@@ -5,6 +5,7 @@ import {
   CloudSpeechModelId,
   SettingsSecretValue,
   isSecretReference,
+  type ManagedSettingWriteError,
   type SecretReference,
   type ServerSettingsError,
   type CloudSpeechKeys,
@@ -110,7 +111,7 @@ export class CloudSpeech extends Context.Service<
     readonly setKey: (
       provider: CloudSpeechProvider,
       key: Redacted.Redacted<string> | SecretReference | null,
-    ) => Effect.Effect<void, ServerSettingsError>;
+    ) => Effect.Effect<void, ServerSettingsError | ManagedSettingWriteError>;
     readonly transcribe: (
       provider: CloudSpeechProvider,
       pcm: Uint8Array,
