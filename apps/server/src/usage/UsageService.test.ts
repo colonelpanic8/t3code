@@ -2741,9 +2741,14 @@ describe("UsageService", () => {
         await NodeFSP.writeFile(NodePath.join(sessions, "rollout-live.jsonl"), rollout("live", 11));
         await NodeFSP.writeFile(NodePath.join(archive, "rollout-old.jsonl"), rollout("old", 13));
       });
+      const realCodexHome = yield* Effect.promise(() => NodeFSP.realpath(codexHome));
       const codexSources = (summary: { readonly sources: readonly UsageSource[] }) =>
         summary.sources
-          .filter((source) => source.fingerprint.provider === "codex")
+          .filter(
+            (source) =>
+              source.fingerprint.provider === "codex" &&
+              source.fingerprint.resolvedHomePath.startsWith(realCodexHome + NodePath.sep),
+          )
           .map((source) => [
             NodePath.basename(source.fingerprint.resolvedHomePath),
             source.status,
