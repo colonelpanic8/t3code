@@ -68,6 +68,7 @@ export function EnvironmentTransportLabel(props: {
 export function EnvironmentRow({
   kind,
   label,
+  labelAccessory,
   subtitle,
   below,
   detail,
@@ -77,6 +78,7 @@ export function EnvironmentRow({
 }: {
   readonly kind: EnvironmentMachineKind;
   readonly label: string;
+  readonly labelAccessory?: ReactNode;
   readonly subtitle: ReactNode;
   readonly below?: ReactNode;
   readonly detail?: ReactNode;
@@ -98,7 +100,14 @@ export function EnvironmentRow({
         className={cn("size-4 text-muted-foreground", dimmed && "opacity-60")}
       />
       <div className={cn("min-w-0", dimmed && "opacity-60")}>
-        <p className="truncate text-sm font-medium text-foreground">{label}</p>
+        {labelAccessory ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-sm font-medium text-foreground">{label}</p>
+            {labelAccessory}
+          </div>
+        ) : (
+          <p className="truncate text-sm font-medium text-foreground">{label}</p>
+        )}
         <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
         {below}
       </div>
