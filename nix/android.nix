@@ -67,7 +67,7 @@ in {
       curl
       git
       gnumake
-      nodejs_24
+      nodejs_26
       pkg-config
       python3
       watchman
