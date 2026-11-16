@@ -8,7 +8,8 @@ export type ConnectionWakeup =
   | "application-active-long"
   | "application-focused"
   | "credentials-changed"
-  | "network-changed";
+  | "network-changed"
+  | "resync-requested";
 
 function isApplicationActiveWakeup(reason: ConnectionWakeup): boolean {
   return (
@@ -23,7 +24,7 @@ export function resetsRetryBackoff(reason: ConnectionWakeup): boolean {
 }
 
 export function shouldResubscribeAfterWakeup(reason: ConnectionWakeup): boolean {
-  return isApplicationActiveWakeup(reason);
+  return isApplicationActiveWakeup(reason) || reason === "resync-requested";
 }
 
 // A brief app switch (the mobile probe) does not justify listing the whole account again.
