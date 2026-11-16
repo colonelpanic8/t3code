@@ -386,7 +386,7 @@ export type BrowseTabCompletion =
 
 export function resolveBrowseTabCompletion(input: {
   allowFirstEntryFallback?: boolean;
-  exactEntry: FilesystemBrowseEntry | null;
+  exactEntry: FilesystemBrowseEntry | null | undefined;
   filteredEntries: ReadonlyArray<FilesystemBrowseEntry>;
   highlightedItemValue: string | null;
 }): BrowseTabCompletion | null {
