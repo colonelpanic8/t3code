@@ -106,7 +106,7 @@ async function readAndDeleteCacheCopy(uri: string, maxBytes: number): Promise<Ui
   }
 }
 
-async function readStream(
+export async function readStream(
   body: ReadableStream<Uint8Array> | null,
   maxBytes: number,
 ): Promise<Uint8Array> {
