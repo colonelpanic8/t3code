@@ -1,3 +1,4 @@
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import { SessionPermissions } from "./SessionPermissions";
 import { useSearch } from "@tanstack/react-router";
 import { ChevronRightIcon, EllipsisIcon, RefreshCwIcon, TerminalIcon } from "lucide-react";
@@ -1765,6 +1766,7 @@ function ConnectionsSettingsContent({
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {desktopBridge ? (
         <SettingsSection id="this-app" title="This app">
           <LocalEnvironmentSetting />
