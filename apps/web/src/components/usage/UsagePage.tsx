@@ -722,15 +722,15 @@ function UsageOverview({
       <section className="grid gap-6 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-5">
           <div className="flex flex-col gap-1">
-            <span
+            <p
               className={cn(
                 "text-4xl font-semibold text-foreground tabular-nums",
                 figureClass(loadingPartial),
               )}
             >
               {metric === "cost" ? formatUsd(merged.costUsd) : formatTokens(merged.totalTokens)}
-            </span>
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            </p>
+            <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <span>
                 <span className={figureClass(loadingPartial)}>
                   {formatCount(merged.sessions)} sessions
@@ -752,7 +752,7 @@ function UsageOverview({
                   </PopoverPopup>
                 </Popover>
               )}
-            </span>
+            </p>
           </div>
 
           {showChatGptSharing ? (
@@ -783,8 +783,8 @@ function UsageOverview({
                   !plotted && "opacity-40",
                 )}
               >
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+                <dl className="flex items-baseline justify-between gap-4">
+                  <dt className="flex min-w-0 items-center gap-2 text-sm text-foreground">
                     <span
                       aria-hidden
                       className="size-2 shrink-0 rounded-full"
@@ -805,8 +805,8 @@ function UsageOverview({
                         {sessionLabel}
                       </span>
                     </span>
-                  </span>
-                  <span
+                  </dt>
+                  <dd
                     className={cn(
                       "shrink-0 text-sm font-medium text-foreground tabular-nums",
                       figureClass(providerLoading),
@@ -817,9 +817,9 @@ function UsageOverview({
                       : metric === "cost"
                         ? formatUsd(totals?.costUsd ?? 0)
                         : formatTokens(totals?.totalTokens ?? 0)}
-                  </span>
-                </div>
-                <span
+                  </dd>
+                </dl>
+                <p
                   className={cn(
                     "text-xs text-muted-foreground",
                     figureClass(providerLoading),
@@ -829,7 +829,7 @@ function UsageOverview({
                   {metric === "cost"
                     ? `${formatPercent(share)} of cost · ${formatTokens(totals?.totalTokens ?? 0)} tokens`
                     : `${formatPercent(share)} of tokens · ${formatUsd(totals?.costUsd ?? 0)}`}
-                </span>
+                </p>
               </button>
             );
           })}
@@ -892,7 +892,7 @@ function UsageOverview({
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium text-foreground">Totals</h2>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 py-1 md:grid-cols-5">
           <Metric
             loading={loadingPartial}
             label="Processed tokens"
@@ -918,7 +918,7 @@ function UsageOverview({
             label="Cache savings"
             value={formatUsd(merged.costQuality.cacheSavingsUsd)}
           />
-        </div>
+        </dl>
       </section>
 
       {merged.totalTokens > 0 ? (
@@ -983,12 +983,12 @@ function Metric({
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd
         className={cn("text-base font-medium text-foreground tabular-nums", figureClass(loading))}
       >
         {value}
-      </span>
+      </dd>
     </div>
   );
 }
