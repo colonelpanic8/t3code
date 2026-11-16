@@ -8,7 +8,7 @@
 import type { QueryStore } from "@t3tools/client-runtime/state/query-persistence";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { startOfLocalDay } from "@t3tools/shared/usageFormat";
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -109,15 +109,18 @@ function openDatabase() {
 
 /** `use` queues requests; its returned reader runs once the transaction commits. */
 function transact<A>(mode: IDBTransactionMode, use: (store: IDBObjectStore) => () => A) {
-  return Effect.tryPromise(async () => {
-    const transaction = (await openDatabase()).transaction(STORE_NAME, mode);
-    const read = use(transaction.objectStore(STORE_NAME));
-    await new Promise<void>((resolve, reject) => {
-      transaction.addEventListener("complete", () => resolve());
-      transaction.addEventListener("abort", () => reject(transaction.error));
-      transaction.addEventListener("error", () => reject(transaction.error));
-    });
-    return read();
+  return Effect.tryPromise({
+    try: async () => {
+      const transaction = (await openDatabase()).transaction(STORE_NAME, mode);
+      const read = use(transaction.objectStore(STORE_NAME));
+      await new Promise<void>((resolve, reject) => {
+        transaction.addEventListener("complete", () => resolve());
+        transaction.addEventListener("abort", () => reject(transaction.error));
+        transaction.addEventListener("error", () => reject(transaction.error));
+      });
+      return read();
+    },
+    catch: (cause) => new Cause.UnknownError(cause, "Usage summary cache IndexedDB error"),
   });
 }
 
