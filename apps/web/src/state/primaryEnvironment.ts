@@ -5,7 +5,7 @@ import { environmentCatalog } from "../connection/catalog";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 
 export const primaryEnvironmentIdAtom = Atom.make((get) => {
-  for (const [environmentId, entry] of get(environmentCatalog.catalogValueAtom).entries) {
+  for (const [environmentId, entry] of get(environmentCatalog.unfilteredCatalogValueAtom).entries) {
     if (entry.target._tag === "PrimaryConnectionTarget") {
       return environmentId;
     }
