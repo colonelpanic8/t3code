@@ -556,7 +556,7 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                             faviconPath={scope.representative.faviconPath}
                             projectIcon={scope.representative.projectIcon}
                             size={24}
-                            projectTitle={scope.title}
+                            projectTitle={scope.representative.title}
                             workspaceRoot={scope.representative.workspaceRoot}
                           />
                         }
@@ -583,7 +583,7 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           faviconPath={scope.representative.faviconPath}
                           projectIcon={scope.representative.projectIcon}
                           size={20}
-                          projectTitle={scope.title}
+                          projectTitle={scope.representative.title}
                           workspaceRoot={scope.representative.workspaceRoot}
                         />
                       </View>
