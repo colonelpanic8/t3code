@@ -1104,6 +1104,10 @@ export const layer = Layer.effectContext(
           ),
           Effect.catch(() => Effect.logWarning("Offline query database save failed")),
         ),
+      remove: (environmentId, key) =>
+        removeDatabaseValue(database, QUERY_STORE_NAME, queryCacheKey(environmentId, key)).pipe(
+          Effect.catch(() => Effect.logWarning("Offline query database remove failed")),
+        ),
     };
 
     return Context.make(Persistence.ConnectionTargetStore, targetStore).pipe(
