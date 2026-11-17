@@ -129,7 +129,7 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("keeps saved preferences when a read fails before a bounds save", () =>
+  it.effect("keeps saved preferences when a read fails before a settings save", () =>
     withSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -160,9 +160,7 @@ describe("DesktopSettings", () => {
         );
 
         yield* Effect.exit(settings.load);
-        yield* Effect.exit(
-          settings.setMainWindowBounds({ x: 10, y: 20, width: 900, height: 600 }, false),
-        );
+        yield* Effect.exit(settings.setUpdateChannel("nightly"));
 
         const persisted = yield* decodeDesktopSettingsPatch(
           yield* fileSystem.readFileString(environment.desktopSettingsPath),
@@ -221,7 +219,7 @@ describe("DesktopSettings", () => {
         );
 
         assert.isFalse((yield* settings.load).localEnvironmentEnabled);
-        yield* settings.setMainWindowBounds({ x: 10, y: 20, width: 800, height: 600 }, false);
+        yield* settings.setUpdateChannel("nightly");
         assert.include(
           yield* fileSystem.readFileString(environment.desktopSettingsPath),
           `"localEnvironmentEnabled":false`,
