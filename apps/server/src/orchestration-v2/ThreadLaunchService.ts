@@ -29,6 +29,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -153,6 +154,11 @@ export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
     commandId: CommandId,
     projectId: ProjectId,
     threadId: Schema.optional(ThreadId),
+    /**
+     * Set when the launch created a provisional thread and then removed it
+     * again, so callers can tell a client its reserved thread id is spent.
+     */
+    bootstrapThreadDisposition: Schema.optional(Schema.Literal("deleted")),
     cause: Schema.Defect(),
   },
 ) {
@@ -1202,6 +1208,32 @@ const make = Effect.gen(function* () {
     );
   });
 
+  /**
+   * Removes a thread this launch created before it failed. The reserved id is never
+   * reusable (a later `thread.create` on it resurrects the abandoned aggregate), so
+   * the client must mint a new one, and only a confirmed delete makes that safe to say.
+   */
+  const cleanupProvisionalThread = (
+    input: ThreadLaunchInput,
+    threadId: ThreadId,
+  ): Effect.Effect<boolean> =>
+    threads
+      .dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make(`${input.commandId}:bootstrap-cleanup`),
+        threadId,
+      })
+      .pipe(
+        Effect.as(true),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Failed to clean up provisional launch thread", {
+            commandId: input.commandId,
+            threadId,
+            cause,
+          }).pipe(Effect.as(false)),
+        ),
+      );
+
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(
     function* (request) {
       // Scratch has no Git repository. Normalize before folder allocation so
@@ -1356,119 +1388,150 @@ const make = Effect.gen(function* () {
         const threadId =
           claimed.storedEvents.find((stored) => stored.event.type.startsWith("thread."))?.event
             .threadId ?? candidateThreadId;
-        const committedThread = yield* threads
-          .getThreadShell(threadId)
-          .pipe(Effect.mapError(mapError(input, "resolve-project", threadId)));
-        if (committedThread?.projectId !== input.projectId) {
-          return yield* mapError(input, "resolve-project", threadId)("Project identity changed.");
-        }
-        let runId: RunId | null = null;
-        let messageSequence: number | undefined;
-        let messageWasAlreadyAccepted = false;
-        if (initialMessage !== undefined) {
-          // A new thread's claim carries its first message. A reused thread, or a replayed
-          // claim that carried none, takes it in a command of its own.
-          let accepted = claimed;
-          if (!claimed.storedEvents.some((stored) => stored.event.type === "run.created")) {
-            const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
-            const messageReceipt = yield* readReceipt(input, messageCommandId);
-            messageWasAlreadyAccepted = Option.isSome(messageReceipt);
-            accepted = yield* threads
-              .dispatch({
-                ...initialMessage,
-                type: "message.dispatch",
-                commandId: messageCommandId,
-                threadId,
-                modelSelection: input.modelSelection,
-                dispatchMode: { type: "defer_start", workspaceStrategy },
-                createdBy: input.createdBy,
-                creationSource: input.creationSource,
-              })
-              .pipe(
-                // An agent's launch can land on a thread that a replay, or a concurrent
-                // launch with the same key, created with broader modes. The orchestrator
-                // refuses the message under the thread's lock; the user's own clients
-                // launch into their own drafts, whatever modes those hold.
-                input.createdBy === "agent"
-                  ? Effect.provideService(DispatchModeLimit, {
-                      runtimeMode: input.runtimeMode,
-                      interactionMode: input.interactionMode,
-                    })
-                  : (effect) => effect,
-                Effect.mapError(mapError(input, "dispatch-message", threadId)),
-              );
-          }
-          // A concurrent retry can read no receipt and still replay the dispatch.
-          messageWasAlreadyAccepted ||= accepted.replayed === true;
-          messageSequence = accepted.sequence;
-          const runCreated = accepted.storedEvents.find(
-            (stored) => stored.event.type === "run.created",
-          );
-          runId = runCreated?.event.type === "run.created" ? runCreated.event.payload.id : null;
-          if (runId === null) {
-            return yield* mapError(
-              input,
-              "dispatch-message",
-              threadId,
-            )("Initial message was accepted without a durable run.");
-          }
-        }
+        // Only this call's own `thread.create` produced a provisional thread.
+        // A reused thread belongs to the caller, and a replayed command's
+        // thread predates this attempt; neither may be cleaned up on failure.
+        const ownsProvisionalThread =
+          input.reuseExistingThread !== true &&
+          Option.isNone(launchReceipt) &&
+          claimed.replayed !== true;
 
-        // Fork preparation before the full projection read; it is only part of the reply.
-        const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : true;
-        if (shouldSchedule && (yield* reservePreparation(input.commandId))) {
-          yield* Effect.gen(function* () {
-            const current =
-              runId === null
-                ? null
-                : yield* threads
-                    .getThreadRecords(threadId, ["runs"], { runIds: [runId] })
-                    .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
-            if (
-              current !== null &&
-              !current.runs.some((run) => run.id === runId && run.status === "preparing")
-            ) {
-              return yield* releasePreparation(input.commandId);
+        return yield* Effect.gen(function* () {
+          const committedThread = yield* threads
+            .getThreadShell(threadId)
+            .pipe(Effect.mapError(mapError(input, "resolve-project", threadId)));
+          if (committedThread?.projectId !== input.projectId) {
+            return yield* mapError(input, "resolve-project", threadId)("Project identity changed.");
+          }
+          let runId: RunId | null = null;
+          let messageSequence: number | undefined;
+          let messageWasAlreadyAccepted = false;
+          if (initialMessage !== undefined) {
+            // A new thread's claim carries its first message. A reused thread, or a replayed
+            // claim that carried none, takes it in a command of its own.
+            let accepted = claimed;
+            if (!claimed.storedEvents.some((stored) => stored.event.type === "run.created")) {
+              const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
+              const messageReceipt = yield* readReceipt(input, messageCommandId);
+              messageWasAlreadyAccepted = Option.isSome(messageReceipt);
+              accepted = yield* threads
+                .dispatch({
+                  ...initialMessage,
+                  type: "message.dispatch",
+                  commandId: messageCommandId,
+                  threadId,
+                  modelSelection: input.modelSelection,
+                  dispatchMode: { type: "defer_start", workspaceStrategy },
+                  createdBy: input.createdBy,
+                  creationSource: input.creationSource,
+                })
+                .pipe(
+                  // An agent's launch can land on a thread that a replay, or a concurrent
+                  // launch with the same key, created with broader modes. The orchestrator
+                  // refuses the message under the thread's lock; the user's own clients
+                  // launch into their own drafts, whatever modes those hold.
+                  input.createdBy === "agent"
+                    ? Effect.provideService(DispatchModeLimit, {
+                        runtimeMode: input.runtimeMode,
+                        interactionMode: input.interactionMode,
+                      })
+                    : (effect) => effect,
+                  Effect.mapError(mapError(input, "dispatch-message", threadId)),
+                );
             }
-            const boundWorktreePath = current?.thread.worktreePath ?? null;
-            // A retry prepares the worktree the accepted launch asked for, not the
-            // retry's own strategy, whose defaults may resolve differently.
-            const accepted = current?.runs.find((run) => run.id === runId)?.workspacePreparation;
-            const preparationStrategy: ThreadLaunchWorkspaceStrategy =
-              Option.isSome(launchReceipt) &&
-              (accepted?.type === "worktree" || accepted?.type === "existing_worktree")
-                ? accepted
-                : Option.isSome(launchReceipt) &&
-                    workspaceStrategy.type === "root" &&
-                    boundWorktreePath !== null
-                  ? {
-                      type: "existing_worktree",
-                      worktreePath: boundWorktreePath,
-                      branch: workspaceStrategy.branch,
-                    }
-                  : workspaceStrategy;
-            yield* schedulePreparation(
-              { ...input, workspaceStrategy: preparationStrategy },
-              threadId,
-              runId,
+            // A concurrent retry can read no receipt and still replay the dispatch.
+            messageWasAlreadyAccepted ||= accepted.replayed === true;
+            messageSequence = accepted.sequence;
+            const runCreated = accepted.storedEvents.find(
+              (stored) => stored.event.type === "run.created",
             );
-          }).pipe(Effect.onError(() => releasePreparation(input.commandId)));
-        }
-        const projection = yield* threads
-          .getThreadProjection(threadId)
-          .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
+            runId = runCreated?.event.type === "run.created" ? runCreated.event.payload.id : null;
+            if (runId === null) {
+              return yield* mapError(
+                input,
+                "dispatch-message",
+                threadId,
+              )("Initial message was accepted without a durable run.");
+            }
+          }
 
-        return {
-          threadId,
-          projection,
-          // An attempt that failed after claiming the thread recorded nothing, so
-          // only a repeat of the final write counts as resumed.
-          resumed:
-            input.initialMessage === undefined
-              ? Option.isSome(launchReceipt) || claimed.replayed === true
-              : messageWasAlreadyAccepted,
-          ...(messageSequence === undefined ? {} : { sequence: messageSequence }),
-        };
+          // Fork preparation before the full projection read; it is only part of the reply.
+          const shouldSchedule = runId === null ? Option.isNone(launchReceipt) : true;
+          if (shouldSchedule && (yield* reservePreparation(input.commandId))) {
+            yield* Effect.gen(function* () {
+              const current =
+                runId === null
+                  ? null
+                  : yield* threads
+                      .getThreadRecords(threadId, ["runs"], { runIds: [runId] })
+                      .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+              if (
+                current !== null &&
+                !current.runs.some((run) => run.id === runId && run.status === "preparing")
+              ) {
+                return yield* releasePreparation(input.commandId);
+              }
+              const boundWorktreePath = current?.thread.worktreePath ?? null;
+              // A retry prepares the worktree the accepted launch asked for, not the
+              // retry's own strategy, whose defaults may resolve differently.
+              const accepted = current?.runs.find((run) => run.id === runId)?.workspacePreparation;
+              const preparationStrategy: ThreadLaunchWorkspaceStrategy =
+                Option.isSome(launchReceipt) &&
+                (accepted?.type === "worktree" || accepted?.type === "existing_worktree")
+                  ? accepted
+                  : Option.isSome(launchReceipt) &&
+                      workspaceStrategy.type === "root" &&
+                      boundWorktreePath !== null
+                    ? {
+                        type: "existing_worktree",
+                        worktreePath: boundWorktreePath,
+                        branch: workspaceStrategy.branch,
+                      }
+                    : workspaceStrategy;
+              yield* schedulePreparation(
+                { ...input, workspaceStrategy: preparationStrategy },
+                threadId,
+                runId,
+              );
+            }).pipe(Effect.onError(() => releasePreparation(input.commandId)));
+          }
+          const projection = yield* threads
+            .getThreadProjection(threadId)
+            .pipe(Effect.mapError(mapError(input, "create-thread", threadId)));
+
+          return {
+            threadId,
+            projection,
+            // An attempt that failed after claiming the thread recorded nothing, so
+            // only a repeat of the final write counts as resumed.
+            resumed:
+              input.initialMessage === undefined
+                ? Option.isSome(launchReceipt) || claimed.replayed === true
+                : messageWasAlreadyAccepted,
+            ...(messageSequence === undefined ? {} : { sequence: messageSequence }),
+          };
+        }).pipe(
+          ownsProvisionalThread
+            ? Effect.catch((error: ThreadLaunchError) =>
+                cleanupProvisionalThread(input, threadId).pipe(
+                  Effect.flatMap((deleted) =>
+                    Effect.fail(
+                      deleted
+                        ? new ThreadLaunchError({
+                            operation: error.operation,
+                            commandId: error.commandId,
+                            projectId: error.projectId,
+                            ...(error.threadId === undefined ? {} : { threadId: error.threadId }),
+                            bootstrapThreadDisposition: "deleted",
+                            cause: error.cause,
+                          })
+                        : error,
+                    ),
+                  ),
+                ),
+              )
+            : identity,
+        );
       });
     },
   );
