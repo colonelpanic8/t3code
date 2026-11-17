@@ -30,6 +30,7 @@ import * as DesktopBackendConfiguration from "../../backend/DesktopBackendConfig
 import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
+import * as DesktopBackendMode from "../../app/DesktopBackendMode.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as DesktopManagedPolicy from "../../app/DesktopManagedPolicy.ts";
 import * as DesktopPrimaryPaste from "../../app/DesktopPrimaryPaste.ts";
@@ -240,11 +241,12 @@ export const pickFolder = DesktopIpc.makeIpcMethod({
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
-    const settings = yield* appSettings.get;
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
     // A picked path only means something to a backend on this machine.
-    if (!settings.localEnvironmentEnabled) {
+    if (!(yield* backendMode.localEnvironmentEnabled)) {
       return null;
     }
+    const settings = yield* appSettings.get;
     const targetId = options?.targetEnvironmentId;
     const wslDistroFromTarget =
       targetId !== undefined && targetId.startsWith(DesktopWslBackend.WSL_INSTANCE_ID_PREFIX)
@@ -306,8 +308,8 @@ export const pickProjectFavicon = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.pickProjectFavicon")(function* (initialPath) {
     const dialog = yield* ElectronDialog.ElectronDialog;
     const electronWindow = yield* ElectronWindow.ElectronWindow;
-    const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
-    if (!(yield* appSettings.get).localEnvironmentEnabled) {
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
+    if (!(yield* backendMode.localEnvironmentEnabled)) {
       return null;
     }
     const paths = yield* dialog.pickFiles({

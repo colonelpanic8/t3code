@@ -108,6 +108,7 @@ const [group] = buildSidebarProjectSnapshots({
   projects,
   settings: DEFAULT_CLIENT_SETTINGS,
   primaryEnvironmentId: environmentId,
+  ownsLocalEnvironment: true,
   resolveEnvironmentLabel: () => "Desk",
 });
 const isInert = (element: Element) => element.closest("[inert]") !== null;
