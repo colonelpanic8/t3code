@@ -44,6 +44,7 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
+import { useCopyThreadMarkdown } from "./useCopyThreadMarkdown";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
@@ -103,6 +104,7 @@ export function useThreadActionMenu(input: {
     target: "branch name",
     onError: (error) => failureToast("Failed to copy branch", error),
   });
+  const copyThreadMarkdown = useCopyThreadMarkdown();
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
     onError: (error) => failureToast("Failed to copy thread ID", error),
   });
@@ -296,6 +298,9 @@ export function useThreadActionMenu(input: {
           void copyThreadReference(
             threadChipCopyTarget(threadRef, thread.title, configuredHostedAppUrl()),
           );
+          return;
+        case "copy-thread-markdown":
+          await copyThreadMarkdown(threadRef);
           return;
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });
