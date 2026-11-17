@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
+import { FleetEnrollmentKeySettings } from "../connection/FleetEnrollmentKeySettings";
 import { PullRequestRoutingSettings } from "../connection/PullRequestRoutingSettings";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -153,6 +154,7 @@ export function SettingsEnvironmentsRouteScreen() {
             : {})}
         />
         <PullRequestRoutingSettings />
+        <FleetEnrollmentKeySettings />
       </ScrollView>
     </SettingsScreen>
   );

@@ -528,6 +528,18 @@ export class EnvironmentAuth extends Context.Service<
       ServerAuthInternalError | ManagedLimits.ManagedPolicyRefusedError
     >;
     /**
+     * Mints a reusable enrollment grant. Each redemption issues its own
+     * session; revoking the grant (as a pairing link) only stops new ones.
+     */
+    readonly createFleetEnrollment: (input: {
+      readonly ttl: Duration.Duration;
+      readonly label: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+    }) => Effect.Effect<
+      PairingGrantStore.IssuedFleetEnrollment,
+      ServerAuthInternalError | ManagedLimits.ManagedPolicyRefusedError
+    >;
+    /**
      * The one-time credential T3 Connect hands a device. With approval required, an untrusted
      * device key gets one that waits for approval, and keeps it across retries.
      */
@@ -978,9 +990,10 @@ export const make = Effect.gen(function* () {
   type ResolvedBootstrapGrant = Pick<
     PairingGrantStore.BootstrapGrant,
     "scopes" | "subject" | "label"
-  > & {
-    readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
-  };
+  > &
+    Partial<Pick<PairingGrantStore.BootstrapGrant, "expiresAt">> & {
+      readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
+    };
   const resolveBootstrapGrant = (
     credential: string,
     input?: {
@@ -1065,6 +1078,13 @@ export const make = Effect.gen(function* () {
             if (grantedScopes.length === 0) {
               return yield* new ServerAuthScopeNotGrantedError({});
             }
+            // Otherwise every fleet host's session lapses at once and strands the device.
+            const fleetEnrollmentTtl =
+              grant.method === "fleet-enrollment" && grant.expiresAt !== undefined
+                ? Duration.millis(
+                    grant.expiresAt.epochMilliseconds - (yield* DateTime.now).epochMilliseconds,
+                  )
+                : undefined;
             return yield* sessions
               .issue({
                 method: input?.proofKeyThumbprint ? "dpop-access-token" : "bearer-access-token",
@@ -1075,7 +1095,9 @@ export const make = Effect.gen(function* () {
                       proofKeyThumbprint: input.proofKeyThumbprint,
                       ttl: Duration.hours(1),
                     }
-                  : {}),
+                  : fleetEnrollmentTtl !== undefined
+                    ? { ttl: fleetEnrollmentTtl }
+                    : {}),
                 replaceActiveForSubjectAndMethod: grant.method === "desktop-bootstrap",
                 client: {
                   ...requestMetadata,
@@ -1158,6 +1180,20 @@ export const make = Effect.gen(function* () {
       );
     }
     return yield* issuePairingLink(input);
+  });
+
+  const createFleetEnrollment: EnvironmentAuth["Service"]["createFleetEnrollment"] = Effect.fn(
+    "EnvironmentAuth.createFleetEnrollment",
+  )(function* (input) {
+    if (!ManagedLimits.allowsRemoteClients(managedPolicy)) {
+      return yield* ManagedLimits.refuseRemoteClients(
+        managedPolicy,
+        "so this server cannot create fleet enrollments",
+      );
+    }
+    return yield* bootstrapCredentials
+      .issueFleetEnrollment(input)
+      .pipe(Effect.mapError((cause) => new ServerAuthPairingLinkCreationError({ cause })));
   });
 
   const listPairingLinks: EnvironmentAuth["Service"]["listPairingLinks"] = (input) =>
@@ -1612,6 +1648,7 @@ export const make = Effect.gen(function* () {
     createBrowserSession,
     exchangeBootstrapCredentialForAccessToken,
     createPairingLink,
+    createFleetEnrollment,
     issueConnectCredential,
     approveConnectDevice,
     approveConnectDeviceByCode,
@@ -1653,6 +1690,8 @@ const mcpApprovalLevel = (subject: string): AuthMcpClientAccess | undefined => {
 /** Subjects of sessions and links a pairing link created, keyed by how the client paired. */
 const LINK_PAIRED_SUBJECTS = { link: "one-time-token", connect: CLOUD_CONNECT_SUBJECT } as const;
 
+const isFleetEnrollmentSubject = (subject: string) => subject.startsWith("fleet-enrollment:");
+
 /**
  * Revokes sessions and unused links from pairing the policy no longer allows, so a policy rolled
  * out to a machine that already had phones paired takes effect on the next start.
@@ -1674,6 +1713,7 @@ const revokePairedClientsThePolicyDisallows = Effect.fn(
   const sessions = (yield* stores.sessions.listActive()).filter(
     (session) =>
       disallowed.has(session.subject) ||
+      (!remoteAllowed && isFleetEnrollmentSubject(session.subject)) ||
       // The startup link also pairs browsers on this machine; only a device elsewhere goes.
       (!remoteAllowed &&
         session.subject === INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT &&
@@ -1683,6 +1723,7 @@ const revokePairedClientsThePolicyDisallows = Effect.fn(
   const links = (yield* stores.pairingLinks.listActive()).filter(
     (link) =>
       disallowed.has(link.subject) ||
+      (!remoteAllowed && isFleetEnrollmentSubject(link.subject)) ||
       // Approval codes let an agent elsewhere sign in, as plain codes do.
       (!remoteAllowed && link.subject.startsWith(MCP_APPROVAL_SUBJECT_PREFIX)),
   );
