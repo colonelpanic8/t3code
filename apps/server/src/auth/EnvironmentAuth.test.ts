@@ -514,6 +514,36 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
         }).pipe(Effect.provide(layerEnvironmentAuth())),
     );
 
+    it.effect("spends peer-link pairing codes only for the chosen link access", () =>
+      Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const pairing = yield* serverAuth.issuePairingCredential({
+          access: "approval-required",
+          purpose: "peer-link",
+        });
+        expect(pairing.purpose).toBe("peer-link");
+
+        const ordinarySession = yield* serverAuth
+          .exchangeBootstrapCredentialForAccessToken(pairing.credential, undefined, requestMetadata)
+          .pipe(Effect.flip);
+        expect(ordinarySession._tag).toBe("ServerAuthInvalidCredentialError");
+
+        for (const input of [
+          { access: "approval-required", peerLink: false },
+          { access: "auto", peerLink: true },
+        ] as const) {
+          const rejected = yield* serverAuth
+            .consumeMcpApprovalCode(pairing.credential, input.access, input.peerLink)
+            .pipe(Effect.flip);
+          expect(rejected._tag).toBe("ServerAuthMcpApprovalCodeError");
+        }
+
+        expect(
+          yield* serverAuth.consumeMcpApprovalCode(pairing.credential, "approval-required", true),
+        ).toBe("approval-required");
+      }).pipe(Effect.provide(layerEnvironmentAuth())),
+    );
+
     it.effect("narrows seeded desktop grants to the requested scopes", () =>
       Effect.gen(function* () {
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
@@ -969,6 +999,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
         const clients = yield* serverAuth.listClientSessions(pixelSession.sessionId);
 
         expect(pixelSession.sessionId).not.toBe(iphoneSession.sessionId);
+        // A device's session lasts as long as the enrollment, not the 30-day default.
+        expect(pixel.expires_in).toBe(Duration.toSeconds(Duration.days(365)));
         expect(pixelSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
         expect(iphoneSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
         expect(
