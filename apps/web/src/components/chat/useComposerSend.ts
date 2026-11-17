@@ -1751,6 +1751,18 @@ export function useComposerSend(input: ComposerSendInput) {
       }
       if (!isAtomCommandInterrupted(failure)) {
         const error = squashAtomCommandFailure(failure);
+        if (isLocalDraftThread && draftId && wasBootstrapThreadDeleted(error)) {
+          const store = useComposerDraftStore.getState();
+          const failedDraftSession = store.getDraftSession(draftId);
+          if (failedDraftSession?.threadId === threadIdForSend && !failedDraftSession.promotedTo) {
+            store.setLogicalProjectDraftThreadId(
+              failedDraftSession.logicalProjectKey,
+              scopeProjectRef(failedDraftSession.environmentId, failedDraftSession.projectId),
+              draftId,
+              { threadId: newThreadId(), createdAt: new Date().toISOString() },
+            );
+          }
+        }
         setThreadError(
           threadIdForSend,
           thrownErrorMessage(error, m) ?? m(msg("Failed to send message.")),
