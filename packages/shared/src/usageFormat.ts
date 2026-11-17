@@ -113,7 +113,7 @@ export function formatMonthShort(day: string): string {
   return `${MONTHS[month - 1] ?? ""} ${year}`;
 }
 
-export function enumerateDays(sinceDay: string, untilDay: string): readonly string[] {
+function enumerateDays(sinceDay: string, untilDay: string): readonly string[] {
   const days: string[] = [];
   const start = Date.parse(`${sinceDay}T00:00:00Z`);
   const end = Date.parse(`${untilDay}T00:00:00Z`);
