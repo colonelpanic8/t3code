@@ -14,6 +14,7 @@ import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoi
 import { SettingsSection } from "./components/SettingsSection";
 import { LanguageSettingsSection } from "./SettingsLanguageRouteScreen";
 import {
+  EvaSettingsSection,
   LinkSettingsSection,
   NewThreadSettingsSection,
   WorkingSectionSettings,
@@ -76,6 +77,7 @@ export function SettingsProjectGroupingRouteScreen() {
         <WorkingSectionSettings />
         <NewThreadSettingsSection />
         <LinkSettingsSection />
+        <EvaSettingsSection />
       </ScrollView>
     </SettingsScreen>
   );
