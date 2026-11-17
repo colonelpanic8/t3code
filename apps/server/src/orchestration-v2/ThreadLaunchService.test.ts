@@ -75,6 +75,7 @@ import {
 } from "../workspace/TaskFolders.testkit.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitleRegeneration from "./ThreadTitleRegenerationService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
@@ -158,6 +159,9 @@ interface HarnessOptions {
     dispatch: ThreadManagement.ThreadManagementService["Service"]["dispatch"],
   ) => ReturnType<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>;
   readonly isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
+  readonly wrapThreadManagement?: (
+    threads: ThreadManagement.ThreadManagementService["Service"],
+  ) => ThreadManagement.ThreadManagementService["Service"];
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -170,11 +174,18 @@ function makeHarness(options: HarnessOptions = {}) {
   );
   const layerServerSettings = ServerSettings.layerTest(options.serverSettings);
   const layerReceipts = CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase));
-  const layerThreadManagement = ThreadManagement.layer.pipe(
+  const layerBaseThreadManagement = ThreadManagement.layer.pipe(
     Layer.provide(layerOrchestrator),
     Layer.provide(layerServerSettings),
     Layer.provide(layerReceipts),
   );
+  const layerThreadManagement =
+    options.wrapThreadManagement === undefined
+      ? layerBaseThreadManagement
+      : Layer.effect(
+          ThreadManagement.ThreadManagementService,
+          Effect.map(ThreadManagement.ThreadManagementService, options.wrapThreadManagement),
+        ).pipe(Layer.provide(layerBaseThreadManagement));
   const layerOutbox = EffectOutbox.layer.pipe(Layer.provide(layerDatabase));
   const createWorktree = vi.fn(
     options.createWorktree ??
@@ -1076,6 +1087,9 @@ it.effect("a rejected initial message leaves no title change and no new thread",
       const projection = yield* threads.getThreadProjection(threadId);
       assert.equal(projection.thread.title, "Original title");
       assert.isUndefined(projection.thread.titleRegeneration);
+      // A reused thread belongs to the caller, so a failed launch must neither
+      // delete it nor claim its id is spent.
+      assert.isNull(projection.thread.deletedAt);
       assert.isEmpty(projection.messages);
       assert.isEmpty(yield* outbox.listByCommandId(CommandId.make(`${commandId}:initial-message`)));
 
@@ -1096,6 +1110,52 @@ it.effect("a rejected initial message leaves no title change and no new thread",
       }
       assert.equal(rejected.operation, "create-thread");
       assert.isNull(yield* threads.getThreadShell(newThreadId));
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("releases the provisional thread when a bootstrap launch fails", () =>
+  Effect.gen(function* () {
+    let failOnce = true;
+    const harness = makeHarness({
+      wrapThreadManagement: (threads) => ({
+        ...threads,
+        getThreadProjection: (id) => {
+          if (failOnce) {
+            failOnce = false;
+            return Effect.fail(
+              new Orchestrator.OrchestratorProjectionError({
+                threadId: id,
+                cause: new Error("projection failed after provisional thread creation"),
+              }),
+            );
+          }
+          return threads.getThreadProjection(id);
+        },
+      }),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = ThreadId.make("thread:launch:bootstrap-cleanup");
+      const failure = yield* launches
+        .launch({
+          ...launchInput({
+            command: "command:launch:bootstrap-cleanup",
+            thread: threadId,
+            message: "First prompt",
+          }),
+        })
+        .pipe(Effect.flip);
+      if (failure._tag !== "ThreadLaunchError") {
+        assert.fail(`expected ThreadLaunchError, got ${failure._tag}`);
+      }
+      assert.equal(failure.operation, "create-thread");
+      // The client reserved this thread id for its draft. Without the delete
+      // and the disposition it retries into the id the launch consumed.
+      assert.equal(failure.bootstrapThreadDisposition, "deleted");
+      const projection = yield* threads.getThreadProjection(threadId);
+      assert.isNotNull(projection.thread.deletedAt);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
