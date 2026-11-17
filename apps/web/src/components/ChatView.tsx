@@ -652,6 +652,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
+  const panelBranchToolbarRef = useRef<BranchToolbarHandle>(null);
   const citeAssistantText = (
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
@@ -2758,7 +2759,7 @@ export default function ChatView(props: ChatViewProps) {
     getShortcutContext,
     threadFindActive: isThreadFindActive,
     composerRef,
-    branchToolbarRef,
+    branchToolbarRefs: [branchToolbarRef, panelBranchToolbarRef],
     closeThreadFind: () => {
       closeThreadFind();
       focusComposerStable();
@@ -3898,6 +3899,7 @@ export default function ChatView(props: ChatViewProps) {
                 />
 
                 <ThreadDetailsPanel
+                  branchToolbarRef={panelBranchToolbarRef}
                   anchor={threadPanelPopoverAnchorRef}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}
