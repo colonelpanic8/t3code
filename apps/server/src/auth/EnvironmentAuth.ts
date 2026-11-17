@@ -987,9 +987,10 @@ export const make = Effect.gen(function* () {
   type ResolvedBootstrapGrant = Pick<
     PairingGrantStore.BootstrapGrant,
     "scopes" | "subject" | "label"
-  > & {
-    readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
-  };
+  > &
+    Partial<Pick<PairingGrantStore.BootstrapGrant, "expiresAt">> & {
+      readonly method: PairingGrantStore.BootstrapGrant["method"] | "reusable-dev-token";
+    };
   const resolveBootstrapGrant = (
     credential: string,
     input?: {
@@ -1074,6 +1075,13 @@ export const make = Effect.gen(function* () {
             if (grantedScopes.length === 0) {
               return yield* new ServerAuthScopeNotGrantedError({});
             }
+            // Otherwise every fleet host's session lapses at once and strands the device.
+            const fleetEnrollmentTtl =
+              grant.method === "fleet-enrollment" && grant.expiresAt !== undefined
+                ? Duration.millis(
+                    grant.expiresAt.epochMilliseconds - (yield* DateTime.now).epochMilliseconds,
+                  )
+                : undefined;
             return yield* sessions
               .issue({
                 method: input?.proofKeyThumbprint ? "dpop-access-token" : "bearer-access-token",
@@ -1084,7 +1092,9 @@ export const make = Effect.gen(function* () {
                       proofKeyThumbprint: input.proofKeyThumbprint,
                       ttl: Duration.hours(1),
                     }
-                  : {}),
+                  : fleetEnrollmentTtl !== undefined
+                    ? { ttl: fleetEnrollmentTtl }
+                    : {}),
                 replaceActiveForSubjectAndMethod: grant.method === "desktop-bootstrap",
                 client: {
                   ...requestMetadata,
