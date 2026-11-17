@@ -4,6 +4,11 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import {
+  type AgentProfileControlProps,
+  ComposerAgentProfileControl,
+  showsAgentProfileControl,
+} from "./ComposerAgentProfileControl";
 import { ComposerControl } from "./ComposerControl";
 import {
   ComposerFooterModeControls,
@@ -60,6 +65,7 @@ export function ComposerControlsBar(props: {
   defaultRuntimeMode: RuntimeMode | undefined;
   compatibleRuntimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
+  agentProfile: AgentProfileControlProps;
   composerControlsCollapsed: boolean;
   composerControlsHidden: boolean;
   restingHiddenBlockCount: number;
@@ -104,6 +110,7 @@ export function ComposerControlsBar(props: {
     defaultRuntimeMode,
     compatibleRuntimeModeOptions,
     handleRuntimeModeChange,
+    agentProfile,
     composerControlsCollapsed,
     composerControlsHidden,
     restingHiddenBlockCount: measuredHiddenBlockCount,
@@ -137,10 +144,12 @@ export function ComposerControlsBar(props: {
     showModeBlock,
     hiddenBlockCount: restingHiddenBlockCount,
     hiddenBlockIds: hiddenRestingBlockIds,
+    profileHidden,
     overflowShowsPermissions,
     pickerOwnsModeShortcut,
   } = resolveComposerControlsOwnership({
     matchesDefault: accessMatchesDefault || props.permissionsShownInStrip,
+    hasProfile: showsAgentProfileControl(agentProfile),
     collapsed: composerControlsCollapsed,
     measuredHiddenBlockCount,
   });
@@ -180,6 +189,19 @@ export function ComposerControlsBar(props: {
         },
       ]
     : [];
+
+  if (showsAgentProfileControl(agentProfile)) {
+    restingBlockDefs.push({
+      id: "profile",
+      content: (
+        <ComposerAgentProfileControl
+          {...agentProfile}
+          size={composerControlsCollapsed ? "xs" : "sm"}
+          hidden={composerControlsHidden || profileHidden}
+        />
+      ),
+    });
+  }
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const composerModelPicker = (
     <ComposerModelPicker
@@ -304,6 +326,7 @@ export function ComposerControlsBar(props: {
             // Permissions join the overflow only when their normal home is in it.
             showPermissions={overflowShowsPermissions}
             onRuntimeModeChange={handleRuntimeModeChange}
+            {...(profileHidden ? { agentProfile } : {})}
           />
         </div>
       </>
