@@ -21,6 +21,7 @@ import {
   isValidDesktopBootstrapToken,
 } from "@t3tools/shared/desktopBootstrapToken";
 import * as Context from "effect/Context";
+import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -272,6 +273,15 @@ export class PairingGrantStore extends Context.Service<
       /** Spendable only after someone trusts `proofKeyThumbprint` as a T3 Connect device. */
       readonly requiresConnectApproval?: boolean;
     }) => Effect.Effect<IssuedBootstrapCredential, BootstrapCredentialInternalError>;
+    /**
+     * Mints a reusable grant: each redemption issues an independent session
+     * until it is revoked or expires. Only its digest is stored.
+     */
+    readonly issueFleetEnrollment: (input: {
+      readonly ttl: Duration.Duration;
+      readonly label: string;
+      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
+    }) => Effect.Effect<IssuedFleetEnrollment, BootstrapCredentialInternalError>;
     /** A device's open or denied request, reused so retries keep one request and one code. */
     readonly findPendingConnect: (
       proofKeyThumbprint: string,
@@ -302,15 +312,6 @@ export class PairingGrantStore extends Context.Service<
     readonly revokeConnectDevicesExcept: (
       keepProofKeyThumbprint: string | null,
     ) => Effect.Effect<number, BootstrapCredentialInternalError>;
-    /**
-     * Mints a reusable grant: each redemption issues an independent session
-     * until it is revoked or expires. Only its digest is stored.
-     */
-    readonly issueFleetEnrollment: (input: {
-      readonly ttl: Duration.Duration;
-      readonly label: string;
-      readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
-    }) => Effect.Effect<IssuedFleetEnrollment, BootstrapCredentialInternalError>;
     readonly listActive: () => Effect.Effect<
       ReadonlyArray<AuthPairingLink>,
       BootstrapCredentialInternalError
@@ -378,6 +379,7 @@ const PAIRING_TOKEN_PATTERN = new RegExp(
 
 const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
   const config = yield* ServerConfig.ServerConfig;
   const pairingLinks = yield* AuthPairingLinks.AuthPairingLinkRepository;
   const connectDevices = yield* AuthConnectDevices.AuthConnectDeviceRepository;
@@ -408,8 +410,8 @@ const make = Effect.gen(function* () {
   });
 
   const digestFleetEnrollmentCredential = (credential: string) =>
-    crypto.digest("SHA-256", new TextEncoder().encode(credential)).pipe(
-      Effect.map((digest) => `sha256:${Hex.encode(digest)}`),
+    digest.digest(Digest.sha256, new TextEncoder().encode(credential)).pipe(
+      Effect.map((bytes) => `sha256:${Hex.encode(bytes)}`),
       Effect.mapError(
         (cause) => new PairingCredentialRandomGenerationError({ operation: "digest-token", cause }),
       ),
@@ -566,15 +568,15 @@ const make = Effect.gen(function* () {
   const issueFleetEnrollment: PairingGrantStore["Service"]["issueFleetEnrollment"] = Effect.fn(
     "PairingGrantStore.issueFleetEnrollment",
   )(function* (input) {
-    const id = yield* crypto
-      .randomUUIDv4()
+    const id = yield* random
+      .uuidV4()
       .pipe(
         Effect.mapError(
           (cause) =>
             new PairingCredentialRandomGenerationError({ operation: "generate-id", cause }),
         ),
       );
-    const secret = yield* crypto
+    const secret = yield* random
       .randomBytes(FLEET_ENROLLMENT_SECRET_BYTES)
       .pipe(
         Effect.mapError(
@@ -1000,6 +1002,7 @@ const make = Effect.gen(function* () {
 
   return PairingGrantStore.of({
     issueOneTimeToken,
+    issueFleetEnrollment,
     findPendingConnect,
     recordConnectRequestClient,
     approveConnectRequest,
@@ -1008,7 +1011,6 @@ const make = Effect.gen(function* () {
     listConnectDevices,
     revokeConnectDevice,
     revokeConnectDevicesExcept,
-    issueFleetEnrollment,
     listActive,
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);
