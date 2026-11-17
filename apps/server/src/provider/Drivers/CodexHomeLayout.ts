@@ -15,7 +15,7 @@ export interface CodexHomeLayout {
   readonly continuationKey: string;
 }
 
-const KNOWN_SHARED_DIRECTORIES = [
+export const KNOWN_SHARED_DIRECTORIES = [
   "sessions",
   "archived_sessions",
   "sqlite",
@@ -34,7 +34,7 @@ const PRIVATE_ENTRY_NAMES = new Set(["auth.json", "auth.lock", "models_cache.jso
 // Finder maintains metadata separately for each directory, including shadow homes.
 const SHADOW_LOCAL_ENTRY_NAMES = new Set(["log", "memories", "tmp", ".DS_Store"]);
 // Shadow homes may create local runtime locks first; replace them with shared links because they guard shared state.
-const REPLACEABLE_SHARED_RUNTIME_ENTRIES = new Set([
+export const REPLACEABLE_SHARED_RUNTIME_ENTRIES = new Set([
   "mcp-oauth-locks",
   "thread-writer-locks",
   ".sqlite-maintenance.lock",
@@ -149,7 +149,7 @@ type LinkState =
       readonly target: string;
     };
 
-function isNotSymlinkError(error: PlatformError.PlatformError): boolean {
+export function isNotSymlinkError(error: PlatformError.PlatformError): boolean {
   const cause = error.reason.cause;
   return (
     error.reason._tag === "Unknown" &&
