@@ -1422,6 +1422,7 @@ describe("remote launch and pairing scripts", () => {
   // readiness probe on its --port.
   const FAKE_T3 = `const fs = require("node:fs");
 const http = require("node:http");
+const path = require("node:path");
 const args = process.argv.slice(2);
 fs.appendFileSync(
   process.env.T3_FAKE_RECORD,
@@ -1429,7 +1430,14 @@ fs.appendFileSync(
 );
 if (args[0] === "serve") {
   const port = Number(args[args.indexOf("--port") + 1]);
-  http.createServer((_request, response) => response.end("ok")).listen(port, "127.0.0.1");
+  http.createServer((_request, response) => response.end("ok")).listen(port, "127.0.0.1", () => {
+    const userdata = path.join(args[args.indexOf("--base-dir") + 1], "userdata");
+    fs.mkdirSync(userdata, { recursive: true });
+    fs.writeFileSync(
+      path.join(userdata, "server-runtime.json"),
+      JSON.stringify({ pid: process.pid, port, origin: "http://127.0.0.1:" + port }),
+    );
+  });
   setTimeout(() => process.exit(0), 10_000);
 } else {
   process.stdout.write("{}\\n");
