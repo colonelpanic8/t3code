@@ -969,6 +969,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
         const clients = yield* serverAuth.listClientSessions(pixelSession.sessionId);
 
         expect(pixelSession.sessionId).not.toBe(iphoneSession.sessionId);
+        // A device's session lasts as long as the enrollment, not the 30-day default.
+        expect(pixel.expires_in).toBe(Duration.toSeconds(Duration.days(365)));
         expect(pixelSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
         expect(iphoneSession.subject).toBe(`fleet-enrollment:${enrollment.id}`);
         expect(
