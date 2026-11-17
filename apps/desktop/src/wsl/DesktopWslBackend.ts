@@ -13,6 +13,7 @@ import * as DesktopBackendConfiguration from "../backend/DesktopBackendConfigura
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../app/DesktopBackendMode.ts";
 import * as DesktopWslEnvironment from "./DesktopWslEnvironment.ts";
 
 export const WSL_INSTANCE_ID_PREFIX = "wsl:";
@@ -64,6 +65,7 @@ export const layer = Layer.effect(
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const wslEnvironment = yield* DesktopWslEnvironment.DesktopWslEnvironment;
     const appSettings = yield* DesktopAppSettings.DesktopAppSettings;
+    const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
     const net = yield* NetService.NetService;
     // Serialize bootstrap and IPC reconciles so concurrent reads cannot register competing WSL instances.
     const reconcileMutex = yield* Semaphore.make(1);
@@ -155,8 +157,8 @@ export const layer = Layer.effect(
     });
 
     const reconcileBody = Effect.gen(function* () {
+      if (!(yield* backendMode.localEnvironmentEnabled)) return;
       const settings = yield* appSettings.get;
-      if (!settings.localEnvironmentEnabled) return;
       const available = yield* wslEnvironment.isAvailable;
       const existing = yield* findExistingWslInstance;
       const existingId = Option.map(existing, (instance) => instance.id);
