@@ -142,6 +142,18 @@ const layerWakeups = Wakeups.layer({
             }),
         ).pipe(Effect.asVoid),
       ),
+      // Ordinary visibility allows a busy host 15 seconds; a socket from
+      // before a sleep is suspect and gets the long-resume probe.
+      Stream.callback<"application-active-long">((queue) =>
+        Effect.acquireRelease(
+          Effect.sync(() =>
+            window.desktopBridge?.onSystemWake(() => {
+              Queue.offerUnsafe(queue, "application-active-long");
+            }),
+          ),
+          (unsubscribe) => Effect.sync(() => unsubscribe?.()),
+        ).pipe(Effect.asVoid),
+      ),
       // A window left visible beside another app never fires visibilitychange when refocused.
       Stream.callback<"application-focused">((queue) =>
         Effect.acquireRelease(
