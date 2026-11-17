@@ -614,6 +614,10 @@
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"
+    },
+    "./state/environment-groups": {
+      "types": "./src/state/environmentGroups.ts",
+      "default": "./src/state/environmentGroups.ts"
     }
   },
   "scripts": {
