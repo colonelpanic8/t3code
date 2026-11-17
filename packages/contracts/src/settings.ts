@@ -1601,7 +1601,7 @@ export const ServerSettings = Schema.Struct({
   ),
 
   usageHistoryRetentionDays: UsageHistoryRetentionDays.pipe(
-    Schema.withDecodingDefault(Effect.succeed(92)),
+    Schema.withDecodingDefault(Effect.succeed("unlimited")),
   ),
 
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
