@@ -29,9 +29,8 @@ describe("UsageModelDialog", () => {
         environments={[]}
         metric="cost"
         chartWindow={{
-          days: [],
-          hours: [],
-          resolution: "day",
+          periods: [],
+          grouping: "day",
           timeZone: "UTC",
           referenceTime: undefined,
           hour12: false,
