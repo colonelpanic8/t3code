@@ -3,6 +3,8 @@ import type { UsageProviderKind, UsageSummary } from "@t3tools/contracts";
 interface UsageProgressEnvironment {
   readonly label: string;
   readonly isConnected: boolean;
+  /** A first connection attempt is under way, so this environment will answer soon. */
+  readonly isConnecting: boolean;
   readonly isPending: boolean;
   readonly error: string | null;
   readonly summary: UsageSummary | null;
@@ -13,7 +15,12 @@ export function usageEnvironmentProgress(
   refreshing = false,
 ) {
   const { summary } = environment;
-  if (!environment.isConnected || environment.error !== null) return { phase: "inactive" } as const;
+  if (environment.error !== null) return { phase: "inactive" } as const;
+  if (!environment.isConnected) {
+    return environment.isConnecting && summary !== null
+      ? ({ phase: "stale" } as const)
+      : ({ phase: "inactive" } as const);
+  }
   if (summary === null) return { phase: "loading" } as const;
   if (refreshing) return { phase: "stale" } as const;
   if (!environment.isPending) return { phase: "ready" } as const;
