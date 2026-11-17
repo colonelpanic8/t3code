@@ -84,6 +84,9 @@ export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2
       runtimeMode: input.thread.runtimeMode,
       interactionMode: input.thread.interactionMode,
       cwd: input.thread.worktreePath,
+      ...(input.thread.agentProfile === undefined
+        ? {}
+        : { agentProfile: input.thread.agentProfile }),
     });
   }),
 });
@@ -188,6 +191,9 @@ export const layerFromProjectStore: Layer.Layer<
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
+          ...(input.thread.agentProfile === undefined
+            ? {}
+            : { agentProfile: input.thread.agentProfile }),
           ...(maxRuntimeMode === undefined ? {} : { maxRuntimeMode }),
         });
       }),

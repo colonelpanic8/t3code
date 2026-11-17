@@ -1,4 +1,5 @@
 import {
+  AgentProfileId,
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -574,6 +575,7 @@ export const WS_METHODS = {
   serverSetAcpRegistryProvider: "server.setAcpRegistryProvider",
   serverDisableAcpRegistryProvider: "server.disableAcpRegistryProvider",
   serverLogoutAcpRegistry: "server.logoutAcpRegistry",
+  serverListAgentProfiles: "server.listAgentProfiles",
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetHostResources: "server.getHostResources",
@@ -1004,6 +1006,12 @@ const WsServerDeleteAcpRegistrySessionRpc = Rpc.make(WS_METHODS.serverDeleteAcpR
   payload: AcpRegistryDeleteSessionInput,
   success: AcpRegistryDeleteSessionResult,
   error: Schema.Union([AcpRegistryOperationError, EnvironmentAuthorizationError]),
+});
+
+const WsServerListAgentProfilesRpc = Rpc.make(WS_METHODS.serverListAgentProfiles, {
+  payload: Schema.Struct({}),
+  success: Schema.Struct({ profiles: Schema.Array(AgentProfileId) }),
+  error: EnvironmentAuthorizationError,
 });
 
 const WsServerListAcpRegistryProvidersRpc = Rpc.make(WS_METHODS.serverListAcpRegistryProviders, {
@@ -2362,6 +2370,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerSetAcpRegistryProviderRpc,
   WsServerDisableAcpRegistryProviderRpc,
   WsServerLogoutAcpRegistryRpc,
+  WsServerListAgentProfilesRpc,
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetHostResourcesRpc,
