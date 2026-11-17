@@ -358,11 +358,12 @@ Choose **Import fleet file** when adding an environment, select `fleet.age`, and
 backed-up age identity when prompted. Review the machines and the expiry, then choose **Join**.
 The phone pairs with every machine at once and shows each one's result. A machine that is offline
 or rejects its credential does not stop the others; choose **Retry** to try the failed machines
-again. Joined machines are ordinary connections that you can edit or remove. A machine left out of
+again. Joined machines are ordinary connections that you can edit or remove. A machine keeps a
+device's session for as long as the credential that enrolled it is valid. A machine left out of
 a newer bundle stays on the phone until you remove it.
 
 Machines already on the phone are skipped, so importing the same bundle later joins machines that
-were offline before. A machine whose session was rejected, for example after it expired, is joined
+were offline before. A machine whose session was rejected, for example after it was revoked, is joined
 again.
 
 age protects the file's contents but does not verify who published it, so only join machines you
@@ -383,7 +384,8 @@ Each machine's credential can enroll several devices until it expires or is revo
 machine, list and revoke it with `t3 auth pairing list` and `t3 auth pairing revoke <id>`; the
 export prints the id. Creating a new export does not revoke an older one. To rotate enrollment,
 distribute a replacement bundle, then revoke the old credential on each machine. Existing device
-sessions remain valid until their normal expiry or separate revocation under authorized clients.
+sessions remain valid until the old credential's expiry or separate revocation under authorized
+clients.
 
 After reinstalling the app, import the same backed-up age identity to open the existing file. A
 newly generated identity cannot decrypt it until you add that identity's recipient and re-encrypt
