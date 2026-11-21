@@ -524,19 +524,19 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
-        : resolveThreadReferenceCopyTarget(
-            {
-              threadRef: referenceThreadRef,
-              title: activeThread?.title ?? "",
-              openPanelPullRequestUrl,
-              pullRequests: activeThread?.pullRequests,
-              linkedPullRequestUrl:
-                activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null,
-              hostedAppUrl: configuredHostedAppUrl(),
-            },
-            messages,
-          );
-    const copyThreadMarkdown = useCopyThreadMarkdown();
+      : resolveThreadReferenceCopyTarget(
+          {
+            threadRef: referenceThreadRef,
+            title: activeThread?.title ?? "",
+            openPanelPullRequestUrl,
+            pullRequests: activeThread?.pullRequests,
+            linkedPullRequestUrl:
+              activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null,
+            hostedAppUrl: configuredHostedAppUrl(),
+          },
+          messages,
+        );
+  const copyThreadMarkdown = useCopyThreadMarkdown();
   const copyActiveThreadReference = async () => {
     if (activeThreadReferenceCopyTarget === null) return;
     await copyThreadReference(activeThreadReferenceCopyTarget);

@@ -287,17 +287,17 @@ export function buildThreadActionMenuItems(
               },
             ]
           : []),
-          {
-            id: "copy-thread",
-            label: resolve(msg("Thread", { $context: "copy the thread contents" })),
-            icon: "message-square",
-          },
-          {
-            id: "copy-thread-markdown",
-            label: resolve(msg("Thread as Markdown")),
-            icon: "file-text",
-          },
-          { id: "copy-thread-id", label: resolve(msg("Thread ID")), icon: "hash" },
+        {
+          id: "copy-thread",
+          label: resolve(msg("Thread", { $context: "copy the thread contents" })),
+          icon: "message-square",
+        },
+        {
+          id: "copy-thread-markdown",
+          label: resolve(msg("Thread as Markdown")),
+          icon: "file-text",
+        },
+        { id: "copy-thread-id", label: resolve(msg("Thread ID")), icon: "hash" },
       ],
     },
     { id: "project-settings", label: resolve(msg("Project settings")), icon: "settings" },
