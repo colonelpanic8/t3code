@@ -1192,6 +1192,7 @@ it.effect("shows an action's reply in loaded readers and moves list rows without
       {
         load: (_environmentId, key) => Effect.sync(() => Option.fromUndefinedOr(saved.get(key))),
         save: (_environmentId, key, payload) => Effect.sync(() => void saved.set(key, payload)),
+        remove: (_environmentId, key) => Effect.sync(() => void saved.delete(key)),
       },
     );
     const target = { environmentId: TARGET.environmentId, input: actionReference };
@@ -2436,6 +2437,7 @@ it.effect("puts readers back when the host refuses an action, and saves nothing 
         {
           load: (_environmentId, key) => Effect.sync(() => Option.fromUndefinedOr(saved.get(key))),
           save: (_environmentId, key, payload) => Effect.sync(() => void saved.set(key, payload)),
+          remove: (_environmentId, key) => Effect.sync(() => void saved.delete(key)),
         },
       );
       const target = { environmentId: TARGET.environmentId, input: actionReference };
@@ -2977,6 +2979,8 @@ it.effect("paints a saved stack answer at once while the host read is out", () =
           Effect.sync(() => Option.fromUndefinedOr(saved.get(key))),
         save: (_environmentId: EnvironmentId, key: string, payload: string) =>
           Effect.sync(() => void saved.set(key, payload)),
+        remove: (_environmentId: EnvironmentId, key: string) =>
+          Effect.sync(() => void saved.delete(key)),
       };
       const earlier = yield* makeTestRuntime(
         {
