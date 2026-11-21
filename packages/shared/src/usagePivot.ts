@@ -34,6 +34,8 @@ export interface UsageTotals {
  */
 export interface UsagePivotRow extends UsageTotals {
   readonly key: string;
+  /** The key without the period: rows of one series across periods share it. */
+  readonly seriesKey: string;
   readonly environmentId?: EnvironmentId;
   readonly provider?: UsageProviderKind;
   readonly model?: string;
@@ -157,8 +159,10 @@ export function pivotUsage(
     costUsd += entry.bucket.costUsd;
     totalTokens += tokens;
   }
+  const seriesDimensions = ordered.filter((dimension) => dimension !== "period");
   return Array.from(rows, ([key, row]) => ({
     key,
+    seriesKey: rowKey(row, seriesDimensions),
     ...row,
     costShare: costUsd === 0 ? 0 : row.costUsd / costUsd,
     tokenShare: totalTokens === 0 ? 0 : row.totalTokens / totalTokens,
@@ -177,36 +181,41 @@ export interface UsageSortCriterion {
 /** Labels come from the client, which alone knows environment names. */
 export type UsageRowLabel = (row: UsagePivotRow) => string;
 
-const SORT_VALUE: {
-  readonly [Field in UsageSortField]: (
-    row: UsagePivotRow,
-    labelOf: UsageRowLabel,
-  ) => string | number;
-} = {
-  costUsd: (row) => row.costUsd,
-  totalTokens: (row) => row.totalTokens,
-  label: (row, labelOf) => labelOf(row),
-  period: (row) => row.period ?? "",
-};
-
-function compareValues(left: string | number, right: string | number): number {
-  return typeof left === "number" && typeof right === "number"
-    ? left - right
-    : String(left).localeCompare(String(right));
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** Sorts by each criterion in turn, then by row key so the order is total. */
+/**
+ * Sorts by each criterion in turn, then by row key so the order is total.
+ * Rows that share a label stay apart by series, so a series' rows stay
+ * together even when two series are named alike.
+ */
 export function sortUsageRows(
   rows: readonly UsagePivotRow[],
   criteria: readonly UsageSortCriterion[],
   labelOf: UsageRowLabel,
 ): UsagePivotRow[] {
+  const labels = criteria.some((criterion) => criterion.field === "label")
+    ? new Map(rows.map((row) => [row, labelOf(row)]))
+    : undefined;
+  const compare = (field: UsageSortField, left: UsagePivotRow, right: UsagePivotRow) => {
+    switch (field) {
+      case "costUsd":
+        return left.costUsd - right.costUsd;
+      case "totalTokens":
+        return left.totalTokens - right.totalTokens;
+      case "period":
+        return compareStrings(left.period ?? "", right.period ?? "");
+      case "label":
+        return (
+          (labels?.get(left) ?? "").localeCompare(labels?.get(right) ?? "") ||
+          compareStrings(left.seriesKey, right.seriesKey)
+        );
+    }
+  };
   return [...rows].sort((left, right) => {
     for (const { field, direction } of criteria) {
-      const comparison = compareValues(
-        SORT_VALUE[field](left, labelOf),
-        SORT_VALUE[field](right, labelOf),
-      );
+      const comparison = compare(field, left, right);
       if (comparison !== 0) return direction === "ascending" ? comparison : -comparison;
     }
     return left.key.localeCompare(right.key);
@@ -215,24 +224,27 @@ export function sortUsageRows(
 
 export interface UsageRowGroup extends UsageTotals {
   readonly key: string;
-  readonly rows: readonly UsagePivotRow[];
+  readonly rows: readonly [UsagePivotRow, ...UsagePivotRow[]];
 }
 
-/** Consecutive runs of sorted rows that share the primary sort field's value. */
+/**
+ * Consecutive runs of sorted rows that share their values for `dimensions`,
+ * compared by identity, never by display name.
+ */
 export function groupUsageRows(
   sortedRows: readonly UsagePivotRow[],
-  primary: UsageSortField,
-  labelOf: UsageRowLabel,
+  dimensions: readonly UsageDimension[],
 ): UsageRowGroup[] {
-  const groups: { value: string | number; rows: UsagePivotRow[] }[] = [];
+  const ordered = orderedDimensions(dimensions);
+  const groups: { identity: string; rows: [UsagePivotRow, ...UsagePivotRow[]] }[] = [];
   for (const row of sortedRows) {
-    const value = SORT_VALUE[primary](row, labelOf);
+    const value = rowKey(row, ordered);
     const previous = groups.at(-1);
-    if (previous !== undefined && previous.value === value) previous.rows.push(row);
-    else groups.push({ value, rows: [row] });
+    if (previous !== undefined && previous.identity === value) previous.rows.push(row);
+    else groups.push({ identity: value, rows: [row] });
   }
   return groups.map(({ rows }) => ({
-    key: rows[0]!.key,
+    key: rows[0].key,
     rows,
     costUsd: sum(rows, (row) => row.costUsd),
     totalTokens: sum(rows, (row) => row.totalTokens),
@@ -247,7 +259,7 @@ function sum<T>(items: readonly T[], value: (item: T) => number): number {
   return items.reduce((total, item) => total + value(item), 0);
 }
 
-export function usageMetricValue(
+function usageMetricValue(
   totals: Pick<UsageTotals, "costUsd" | "totalTokens">,
   metric: UsagePivotMetric,
 ): number {
@@ -256,7 +268,7 @@ export function usageMetricValue(
 
 /** Past this many series, the smallest fold into one "Other" band. */
 const MAX_CHART_SERIES = 10;
-export const OTHER_SERIES_KEY = "other";
+const OTHER_SERIES_KEY = "other";
 
 export interface UsageStackedSeries {
   readonly key: string;
@@ -277,6 +289,8 @@ export interface UsageStack {
   readonly columns: readonly UsageStackedColumn[];
   /** The tallest column: the stack reaches the combined total. */
   readonly peak: number;
+  /** Keys of the series folded into "Other". */
+  readonly folded: readonly string[];
 }
 
 /**
@@ -325,5 +339,6 @@ export function buildStackedColumns(
     series,
     columns,
     peak: columns.reduce((peak, column) => Math.max(peak, column.total), 0),
+    folded: folded.map((entry) => entry.key),
   };
 }
