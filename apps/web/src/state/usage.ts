@@ -11,6 +11,7 @@ import {
 import { refreshUsage, usageSummaryInput } from "@t3tools/client-runtime/state/usage";
 import { resolveUsageAccess } from "@t3tools/client-runtime/state/usage-access";
 import { AsyncResult, Atom } from "effect/reactivity";
+import { msg } from "gt-react";
 import { useState } from "react";
 
 import { mergeUsage, type EnvironmentUsage, type MergedUsage } from "@t3tools/shared/usageMerge";
@@ -18,6 +19,7 @@ import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentPresentations } from "./presentation";
 import { serverEnvironment } from "./server";
 import { environmentSession, readEnvironmentScope } from "./session";
+import { m } from "../i18n/messages";
 
 export interface EnvironmentUsageStatus {
   readonly environmentId: EnvironmentId;
@@ -77,9 +79,9 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
         // Mid-connection, its last reported usage is not a failure.
         error:
           result._tag === "Failure"
-            ? "This environment could not report usage."
+            ? m(msg("This environment could not report usage."))
             : !isConnected && !isConnecting && phase !== "reconnecting" && summary !== null
-              ? "This environment is not connected. Totals include its last reported usage."
+              ? m(msg("This environment is not connected. Totals include its last reported usage."))
               : null,
         summary,
       });
