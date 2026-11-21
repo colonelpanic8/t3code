@@ -12,7 +12,7 @@ import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/threa
 import {
   AuthOrchestrationOperateScope,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
   type ContextMenuSource,
 } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
@@ -49,10 +49,13 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
+import { threadPopOutAvailability } from "@t3tools/client-runtime/state/thread-relationships";
+import { orchestrationEnvironment } from "../state/orchestration";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
-import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
+import { canTurnThreadIntoProject, usePopOutThread, useThreadActions } from "./useThreadActions";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -94,6 +97,8 @@ export function useThreadActionMenu(input: {
     markThreadUnread,
     turnThreadIntoProject,
   } = useThreadActions();
+  const popOutThread = usePopOutThread();
+  const loadPopOutParent = useAtomQueryRunner(orchestrationEnvironment.popOutParent);
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
     reportFailure: false,
   });
@@ -140,6 +145,21 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      let popOut = threadPopOutAvailability(thread.source);
+      if (popOut === "available" && thread.source.lineage.parentThreadId !== null) {
+        const parent = await loadPopOutParent({
+          environmentId: threadRef.environmentId,
+          input: { threadId: ThreadId.make(thread.source.lineage.parentThreadId) },
+        });
+        popOut =
+          parent._tag === "Success"
+            ? threadPopOutAvailability(
+                thread.source,
+                parent.value.subagents.filter((task) => task.childThreadId === threadRef.threadId),
+                parent.value.runs,
+              )
+            : "blocked";
+      }
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canTriage: threadTriagePermitted(threadRef.environmentId),
@@ -158,6 +178,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        popOut,
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position, source));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -275,6 +296,9 @@ export function useThreadActionMenu(input: {
         }
         case "mark-unread":
           markThreadUnread(threadRef);
+          return;
+        case "pop-out":
+          await reportFailure(m(msg("Failed to pop out thread")), () => popOutThread(threadRef));
           return;
         case "share-guest":
           openGuestShareDialog(threadRef);
