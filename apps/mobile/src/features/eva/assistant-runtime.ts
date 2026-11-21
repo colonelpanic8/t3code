@@ -4,6 +4,8 @@ import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections
 import {
   createEnvironmentRpcQueryAtomFamily,
   executeAtomQuery,
+  runAtomCommand,
+  type AtomCommand,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import {
@@ -234,7 +236,7 @@ async function branchWorkspace(
     clearTimeout(timer);
   }
   return preparedFrom(
-    await vcsEnvironment.createWorktree.run(appAtomRegistry, {
+    await runAtomCommand(appAtomRegistry, vcsEnvironment.createWorktree, {
       environmentId,
       input: { cwd, refName: branch, path: null },
     }),
@@ -248,7 +250,7 @@ async function prepareWorkspace(
 ): Promise<PreparedWorkspace> {
   if (request.kind === "branch") return branchWorkspace(environmentId, request.cwd, request.branch);
   return preparedFrom(
-    await gitEnvironment.preparePullRequestThread.run(appAtomRegistry, {
+    await runAtomCommand(appAtomRegistry, gitEnvironment.preparePullRequestThread, {
       environmentId,
       input: { cwd: request.cwd, reference: request.reference, mode: "worktree" },
     }),
@@ -273,7 +275,7 @@ async function configureThread(
   if (plan.modelSelection !== null) {
     const modelSelection = plan.modelSelection as ModelSelection;
     steps.push(() =>
-      threadEnvironment.updateMetadata.run(appAtomRegistry, {
+      runAtomCommand(appAtomRegistry, threadEnvironment.updateMetadata, {
         environmentId,
         input: { threadId, commandId: CommandId.make(plan.commandId), modelSelection },
       }),
@@ -282,7 +284,7 @@ async function configureThread(
   if (plan.runtimeMode !== null) {
     const runtimeMode = plan.runtimeMode;
     steps.push(() =>
-      threadEnvironment.setRuntimeMode.run(appAtomRegistry, {
+      runAtomCommand(appAtomRegistry, threadEnvironment.setRuntimeMode, {
         environmentId,
         input: { threadId, commandId: CommandId.make(`${plan.commandId}:runtime`), runtimeMode },
       }),
@@ -291,7 +293,7 @@ async function configureThread(
   if (plan.interactionMode !== null) {
     const interactionMode = plan.interactionMode;
     steps.push(() =>
-      threadEnvironment.setInteractionMode.run(appAtomRegistry, {
+      runAtomCommand(appAtomRegistry, threadEnvironment.setInteractionMode, {
         environmentId,
         input: {
           threadId,
@@ -316,15 +318,8 @@ async function dispatchThreadAction(
   const threadId = ThreadId.make(plan.threadId);
   const commandId = CommandId.make(plan.commandId);
   const target = { threadId, commandId };
-  const run = async <W>(
-    command: {
-      readonly run: (
-        registry: typeof appAtomRegistry,
-        input: W,
-      ) => Promise<AtomCommandResult<unknown, unknown>>;
-    },
-    input: W,
-  ) => classifyDispatch(await command.run(appAtomRegistry, input));
+  const run = async <W>(command: AtomCommand<W, unknown, unknown>, input: W) =>
+    classifyDispatch(await runAtomCommand(appAtomRegistry, command, input));
   switch (plan.kind) {
     case "interrupt_thread":
       return run(threadEnvironment.interruptTurn, {
@@ -445,14 +440,14 @@ function environmentClient(
     dispatchThreadAction: (plan) => dispatchThreadAction(environmentId, plan),
     startThread: async (plan) =>
       classifyDispatch(
-        await threadEnvironment.startTurn.run(appAtomRegistry, {
+        await runAtomCommand(appAtomRegistry, threadEnvironment.startTurn, {
           environmentId,
           input: startThreadInput(plan),
         }),
       ),
     sendMessage: async (plan: SendMessagePlan) =>
       classifyDispatch(
-        await threadEnvironment.startTurn.run(appAtomRegistry, {
+        await runAtomCommand(appAtomRegistry, threadEnvironment.startTurn, {
           environmentId,
           input: {
             commandId: CommandId.make(plan.commandId),
