@@ -4,7 +4,7 @@ import { ArrowDownIcon, ArrowUpIcon, PlusIcon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingResetButton, SettingsRow } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const SORT_KEYS: Record<
@@ -25,6 +25,7 @@ const SORT_KEYS: Record<
 };
 
 export function ActiveThreadSortRow() {
+  const searchableSetting = useSearchableSetting();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const criteria = settings.sidebarActiveThreadSort;
@@ -46,7 +47,10 @@ export function ActiveThreadSortRow() {
       description="How the Active list is ordered. Each criterion only orders threads the ones above it consider equal. With none, the list keeps its built-in order. Dragging within Active works only while Manual arrangement is first."
       resetAction={
         criteria.length === 0 ? null : (
-          <SettingResetButton label="active thread order" onClick={() => save([])} />
+          <SettingResetButton
+            ariaLabel="Reset active thread order to default"
+            onClick={() => save([])}
+          />
         )
       }
     >
