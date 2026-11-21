@@ -289,7 +289,7 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly onExpectedFailure?: (
     cause: Cause.Cause<EnvironmentRpcStreamFailure<TTag>>,
   ) => Effect.Effect<void, never, never>;
-  readonly retryExpectedFailureAfter?: Duration.Input;
+  readonly retryExpectedFailureAfter?: Duration.Input | ((attempt: number) => Duration.Input);
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
@@ -374,11 +374,17 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         : Effect.void,
                     ),
                     Stream.catchCause((cause) => {
-                      const retryAfter = (base: Duration.Input, retries: number) =>
-                        Stream.fromEffect(Effect.sleep(subscriptionRetryDelay(base, retries))).pipe(
-                          Stream.drain,
-                          Stream.concat(subscribeToSession()),
-                        );
+                      const retryAfter = (
+                        base: Duration.Input | ((attempt: number) => Duration.Input),
+                        retries: number,
+                      ) =>
+                        Stream.fromEffect(
+                          Effect.sleep(
+                            typeof base === "function"
+                              ? base(retries)
+                              : subscriptionRetryDelay(base, retries),
+                          ),
+                        ).pipe(Stream.drain, Stream.concat(subscribeToSession()));
                       const hasOnlyExpectedFailures =
                         cause.reasons.length > 0 &&
                         cause.reasons.every((reason) => reason._tag === "Fail");
