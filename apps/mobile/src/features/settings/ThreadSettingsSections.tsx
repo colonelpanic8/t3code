@@ -24,6 +24,8 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { planAutoSettleSettingsSync, type AutoSettleSettings } from "./autoSettleSettingsSync";
@@ -218,6 +220,7 @@ export function WorkingSectionSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
   const workingShelfEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
+  const managed = useManagedPreferenceKeys().has("workingShelfEnabled");
 
   return (
     <View className="gap-3">
@@ -226,11 +229,13 @@ export function WorkingSectionSettings() {
           icon="bolt.circle"
           label={gt("Working section")}
           value={workingShelfEnabled}
+          disabled={managed}
           onValueChange={(value) => {
             void savePreferences({ workingShelfEnabled: value });
           }}
         />
       </SettingsSection>
+      {managed ? <ManagedBySettingsFeedNote /> : null}
       <Text className="px-2 text-sm text-foreground-muted">
         <T>
           Fold working and monitoring threads into a Working section. They return to the top of the
