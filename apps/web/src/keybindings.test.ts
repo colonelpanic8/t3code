@@ -2,6 +2,7 @@ import { assert, describe, it } from "vite-plus/test";
 import {
   compileResolvedKeybindingsConfig,
   DEFAULT_RESOLVED_KEYBINDINGS,
+  applyManagedKeybindings,
   mergeWithDefaultKeybindings,
 } from "@t3tools/shared/keybindings";
 
@@ -169,13 +170,38 @@ const DEFAULT_BINDINGS = compile([
     command: "modelPicker.toggle",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
-  { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
-  { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
-  { shortcut: modShortcut("o"), command: "editor.openFavorite" },
-  { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
-  { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
   {
-    shortcut: modShortcut("c", { shiftKey: true }),
+    shortcut: modShortcut("o", {
+      shiftKey: true,
+    }),
+    command: "chat.new",
+  },
+  {
+    shortcut: modShortcut("n", {
+      shiftKey: true,
+    }),
+    command: "chat.newLocal",
+  },
+  {
+    shortcut: modShortcut("o"),
+    command: "editor.openFavorite",
+  },
+  {
+    shortcut: modShortcut("[", {
+      shiftKey: true,
+    }),
+    command: "thread.previous",
+  },
+  {
+    shortcut: modShortcut("]", {
+      shiftKey: true,
+    }),
+    command: "thread.next",
+  },
+  {
+    shortcut: modShortcut("c", {
+      shiftKey: true,
+    }),
     command: "thread.copyReference",
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
@@ -814,6 +840,59 @@ describe("isRichTextBoldShortcut", () => {
   });
 });
 
+describe("applyManagedKeybindings", () => {
+  it("replaces an environment's bindings for each managed command", () => {
+    const bindings = applyManagedKeybindings(mergeWithDefaultKeybindings([]), [
+      {
+        key: "alt+m",
+        command: "modelPicker.toggle",
+        when: "!terminalFocus",
+      },
+      {
+        key: "alt+d",
+        command: "threadPanel.toggle",
+      },
+    ]);
+    const resolve = (init: Parameters<typeof event>[0]) =>
+      resolveShortcutCommand(event(init), bindings, {
+        platform: "Linux",
+      });
+    assert.strictEqual(
+      resolve({
+        key: "m",
+        altKey: true,
+      }),
+      "modelPicker.toggle",
+    );
+    assert.isNull(
+      resolve({
+        key: "m",
+        ctrlKey: true,
+        shiftKey: true,
+      }),
+    );
+    assert.strictEqual(
+      resolve({
+        key: "d",
+        altKey: true,
+      }),
+      "threadPanel.toggle",
+    );
+    assert.strictEqual(
+      resolve({
+        key: "d",
+        ctrlKey: true,
+      }),
+      "diff.toggle",
+    );
+    assert.isTrue(
+      bindings
+        .filter((binding) => binding.command === "modelPicker.toggle")
+        .every((binding) => binding.managed === true),
+    );
+  });
+});
+
 describe("isSidebarToggleShortcut", () => {
   it("leaves Ctrl+B to a focused terminal, where it is the tmux prefix", () => {
     const ctrlB = event({ key: "b", ctrlKey: true });
@@ -940,11 +1019,22 @@ describe("composer and pull request shortcuts", () => {
         altKey: true,
         getModifierState: (key) => key === "AltGraph",
       });
-      assert.isNull(resolveShortcutCommand(input, altEffortBindings, { platform }));
-      assert.strictEqual(
-        resolveShortcutCommand({ ...input, getModifierState: () => false }, altEffortBindings, {
+      assert.isNull(
+        resolveShortcutCommand(input, altEffortBindings, {
           platform,
         }),
+      );
+      assert.strictEqual(
+        resolveShortcutCommand(
+          {
+            ...input,
+            getModifierState: () => false,
+          },
+          altEffortBindings,
+          {
+            platform,
+          },
+        ),
         "composer.effort",
       );
     }
