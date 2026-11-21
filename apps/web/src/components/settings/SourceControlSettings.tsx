@@ -476,6 +476,7 @@ function parseRepositoryList(value: string): string[] {
 }
 
 function HiddenPullRequestRepositoriesRow() {
+  const searchableSetting = useSearchableSetting();
   const { targets } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -494,7 +495,7 @@ function HiddenPullRequestRepositoriesRow() {
       resetAction={
         mixed || hidden.length > 0 ? (
           <SettingResetButton
-            label="hidden repositories"
+            ariaLabel="Reset hidden repositories to default"
             onClick={() => updateSettings({ hiddenPullRequestRepositories: [] })}
           />
         ) : null
