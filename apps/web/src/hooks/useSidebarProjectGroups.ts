@@ -45,6 +45,7 @@ export function useSidebarProjectGroups() {
       groupScratchProjects: true,
       settings: groupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: appOwnsLocalEnvironment(),
       resolveEnvironmentLabel: (environmentId) => labels.get(environmentId) ?? null,
     },
     resolve,

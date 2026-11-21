@@ -341,6 +341,7 @@ describe("environment grouping", () => {
       projects: [archived, open],
       settings: defaultGroupingSettings,
       primaryEnvironmentId,
+      ownsLocalEnvironment: true,
       resolveEnvironmentLabel: () => null,
     });
     const [entry] = buildSidebarProjectPickerEntries({
