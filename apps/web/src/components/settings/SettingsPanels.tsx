@@ -591,6 +591,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut
       ? [gt("Send shortcut")]
       : []),
+    ...(settings.composerShortcutHints !== DEFAULT_UNIFIED_SETTINGS.composerShortcutHints
+      ? [gt("Shortcut hints")]
+      : []),
     ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
       ? [gt("Follow-up behavior")]
       : []),
@@ -728,6 +731,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
+      composerShortcutHints: DEFAULT_UNIFIED_SETTINGS.composerShortcutHints,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       sideThreadOpenTarget: DEFAULT_UNIFIED_SETTINGS.sideThreadOpenTarget,
       toolCallVisibility: DEFAULT_UNIFIED_SETTINGS.toolCallVisibility,
@@ -1242,6 +1246,16 @@ export function ChatSettingsPanel() {
     },
     { value: "mod-enter", label: gt("{modifierLabel} + Enter always", { modifierLabel }) },
   ] as const;
+  const shortcutHintsOptions = [
+    { value: "auto", label: gt("While holding a shortcut's modifiers") },
+    {
+      value: "alt",
+      label: gt("While holding {modifier}", {
+        modifier: isMacPlatform(navigator.platform) ? "⌥" : "Alt",
+      }),
+    },
+    { value: "off", label: gt("Off") },
+  ] as const;
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
 
@@ -1313,6 +1327,57 @@ export function ChatSettingsPanel() {
                     <span className="flex items-center justify-between gap-4">
                       {option.label}
                       {settings.sendShortcut === option.value && <CheckIcon aria-hidden="true" />}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+        <SettingsRow
+          {...setting("composer-shortcut-hints")}
+          description={gt("When to show keyboard shortcut hints over the composer controls")}
+          resetAction={
+            settings.composerShortcutHints !== DEFAULT_UNIFIED_SETTINGS.composerShortcutHints ? (
+              <SettingResetButton
+                ariaLabel={gt("Reset shortcut hints to default")}
+                onClick={() =>
+                  updateSettings({
+                    composerShortcutHints: DEFAULT_UNIFIED_SETTINGS.composerShortcutHints,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.composerShortcutHints}
+              onValueChange={(value) => {
+                const option = shortcutHintsOptions.find((option) => option.value === value);
+                if (option) updateSettings({ composerShortcutHints: option.value });
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-auto min-w-0 max-w-full"
+                aria-label="Shortcut hints"
+              >
+                <SelectValue>
+                  {
+                    shortcutHintsOptions.find(
+                      (option) => option.value === settings.composerShortcutHints,
+                    )?.label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {shortcutHintsOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    <span className="flex items-center justify-between gap-4">
+                      {option.label}
+                      {settings.composerShortcutHints === option.value && (
+                        <CheckIcon aria-hidden="true" />
+                      )}
                     </span>
                   </SelectItem>
                 ))}
