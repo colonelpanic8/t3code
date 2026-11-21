@@ -44,7 +44,7 @@ import {
 
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
-import { formatShortcutLabel } from "../../keybindings";
+import { formatShortcutLabel, formatShortcutTokenLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -103,7 +103,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 function KeybindingPill({ shortcut }: { shortcut: KeybindingShortcut }) {
-  const isMac = navigator.platform.toLowerCase().includes("mac");
   const parts = shortcutToKeybindingParts(shortcut);
   const modifierParts = parts.slice(0, -1);
   const keyPart = parts.at(-1);
@@ -111,25 +110,9 @@ function KeybindingPill({ shortcut }: { shortcut: KeybindingShortcut }) {
   return (
     <KbdGroup>
       {modifierParts.map((part) => (
-        <Kbd key={part}>
-          {part === "mod"
-            ? isMac
-              ? "⌘"
-              : "Ctrl"
-            : part === "shift"
-              ? "⇧"
-              : part === "alt"
-                ? isMac
-                  ? "⌥"
-                  : "Alt"
-                : part === "ctrl"
-                  ? "⌃"
-                  : part}
-        </Kbd>
+        <Kbd key={part}>{formatShortcutTokenLabel(part)}</Kbd>
       ))}
-      {keyPart !== undefined ? (
-        <Kbd key="key">{keyPart.length === 1 ? keyPart.toUpperCase() : keyPart}</Kbd>
-      ) : null}
+      {keyPart !== undefined ? <Kbd key="key">{formatShortcutTokenLabel(keyPart)}</Kbd> : null}
     </KbdGroup>
   );
 }
