@@ -379,6 +379,7 @@ function BrowserViewportSetting({ disabled }: { readonly disabled: boolean }) {
 
   return (
     <SettingsRow
+      settingKeys={["browserDefaultViewport"]}
       {...searchableSetting("browser-default-viewport")}
       devicePreference
       description={gt(
@@ -502,6 +503,7 @@ function BrowserZoomSetting({ disabled }: { readonly disabled: boolean }) {
 
   return (
     <SettingsRow
+      settingKeys={["browserDefaultZoomFactor"]}
       {...searchableSetting("browser-default-zoom")}
       devicePreference
       description={gt("Page zoom applied to new browser tabs.")}
@@ -553,6 +555,7 @@ function BrowserAppearanceSetting({ disabled }: { readonly disabled: boolean }) 
 
   return (
     <SettingsRow
+      settingKeys={["browserDefaultAppearance"]}
       {...searchableSetting("browser-default-appearance")}
       devicePreference
       description={gt("The color scheme pages are told to prefer. System follows your OS setting.")}
@@ -603,6 +606,7 @@ function BrowserRecordingInputSettings({ disabled }: { readonly disabled: boolea
   return (
     <>
       <SettingsRow
+        settingKeys={["browserRecordingShowKeyPresses"]}
         {...searchableSetting("browser-recording-key-presses")}
         devicePreference
         description={gt(
@@ -620,6 +624,7 @@ function BrowserRecordingInputSettings({ disabled }: { readonly disabled: boolea
         }
       />
       <SettingsRow
+        settingKeys={["browserRecordingShowMousePresses"]}
         {...searchableSetting("browser-recording-mouse-presses")}
         devicePreference
         description={gt("Highlight mouse presses and held buttons in new recordings.")}
@@ -646,6 +651,7 @@ function BrowserRecordingFrameRateSetting({ disabled }: { readonly disabled: boo
 
   return (
     <SettingsRow
+      settingKeys={["browserRecordingFrameRate"]}
       {...searchableSetting("browser-recording-frame-rate")}
       devicePreference
       description={gt("Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.")}
@@ -704,6 +710,7 @@ function BrowserLinkTargetSetting({ disabled }: { readonly disabled: boolean }) 
 
   return (
     <SettingsRow
+      settingKeys={["browserLinkTarget"]}
       {...searchableSetting("browser-link-target")}
       devicePreference
       description={gt(
@@ -1149,6 +1156,7 @@ function BrowserAutoShowFloatingPreviewSetting({ disabled }: { readonly disabled
 
   return (
     <SettingsRow
+      settingKeys={["browserAutoShowFloatingPreview"]}
       {...searchableSetting("browser-auto-show-floating-preview")}
       devicePreference
       description={gt(
@@ -1382,6 +1390,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
 
   return (
     <SettingsRow
+      settingKeys={["browserProfiles", "browserDefaultProfileId"]}
       {...searchableSetting("browser-profiles")}
       description={gt(
         "Profiles separate cookies and logins. Incognito data is cleared when the app closes.",
