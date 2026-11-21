@@ -7,7 +7,8 @@ import {
   managedPreferenceKeys,
 } from "../../persistence/mobile-preferences";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { fetchSettingsFeed, nextSettingsFeedState } from "./settingsFeed";
 
 const FOREGROUND_REFRESH_INTERVAL_MS = 10 * 60_000;
@@ -15,7 +16,7 @@ const FOREGROUND_REFRESH_INTERVAL_MS = 10 * 60_000;
 export async function refreshSettingsFeed(url: string): Promise<void> {
   const result = await fetchSettingsFeed(url);
   const now = Date.now();
-  appAtomRegistry.set(updateMobilePreferencesAtom, {
+  await runAtomCommand(appAtomRegistry, saveMobilePreferences, {
     transform: (current) =>
       current.settingsFeed?.url === url
         ? { settingsFeed: nextSettingsFeedState(current.settingsFeed, result, now) }

@@ -1,4 +1,4 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import * as Result from "effect/Result";
 import { useState } from "react";
@@ -7,7 +7,8 @@ import { Pressable, View } from "react-native";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import * as Dialog from "../../components/ui/Dialog";
 import type { ManageablePreferenceKey } from "../../persistence/mobile-preferences";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { Button } from "../../components/ui/Button";
 import { parseSettingsFeedUrl } from "./settingsFeed";
@@ -45,7 +46,7 @@ function formatAge(fetchedAt: number): string {
 /** Tracks a settings file kept outside the app, such as one generated from dotfiles. */
 export function SettingsFeedSection() {
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const managedKeys = useManagedPreferenceKeys();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +69,7 @@ export function SettingsFeedSection() {
     }
     setError(null);
     setDraft("");
-    savePreferences({ settingsFeed: { url: parsed.success } });
+    void savePreferences({ settingsFeed: { url: parsed.success } });
     void runRefresh(parsed.success);
   };
 
@@ -78,7 +79,9 @@ export function SettingsFeedSection() {
       message: "Settings it controlled go back to the values you chose on this device.",
       confirmText: "Stop tracking",
       destructive: true,
-      onConfirm: () => savePreferences({ settingsFeed: undefined }),
+      onConfirm: () => {
+        void savePreferences({ settingsFeed: undefined });
+      },
     });
 
   return (
