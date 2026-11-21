@@ -1,3 +1,4 @@
+import type { AgentProfileControlProps } from "./ComposerAgentProfileControl";
 import { copySnapshot } from "./copySnapshot";
 import { VoiceInputSetup } from "./VoiceInputSetup";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
@@ -512,6 +513,7 @@ export interface ChatComposerProps {
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
+  agentProfile: AgentProfileControlProps;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -604,6 +606,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onOpenProviderSetup,
     getModelDisabledReason,
     handleRuntimeModeChange,
+    agentProfile,
     focusComposer,
     scheduleComposerFocus,
     setThreadError,
@@ -2709,6 +2712,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       defaultRuntimeMode={props.defaultRuntimeMode}
       compatibleRuntimeModeOptions={compatibleRuntimeModeOptions}
       handleRuntimeModeChange={handleRuntimeModeChange}
+      agentProfile={agentProfile}
       composerControlsCollapsed={composerControlsCollapsed}
       effortDisplay={settings.effortDisplay}
       permissionsShownInStrip={props.permissionsShownInStrip}
