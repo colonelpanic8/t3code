@@ -1,3 +1,4 @@
+import { useGT } from "gt-react-native";
 import { Platform } from "react-native";
 import { AndroidNavigationAppearanceSection } from "./appearance/sections/AndroidNavigationAppearanceSection";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -25,12 +26,13 @@ const APPEARANCE_KEYS = [
 ] as const;
 
 export function SettingsAppearanceRouteScreen() {
+  const gt = useGT();
   const insets = useSafeAreaInsets();
   const managedKeys = useManagedPreferenceKeys();
   const managed = APPEARANCE_KEYS.some((key) => managedKeys.has(key));
 
   return (
-    <SettingsScreen title="Appearance">
+    <SettingsScreen title={gt("Appearance")}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}

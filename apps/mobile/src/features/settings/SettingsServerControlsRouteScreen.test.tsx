@@ -42,7 +42,7 @@ vi.mock("@effect/atom-react", () => ({
 }));
 vi.mock("../../state/preferences", () => ({
   mobilePreferencesAtom: {},
-  updateMobilePreferencesAtom: {},
+  saveMobilePreferences: {},
 }));
 vi.mock("../settings-feed/SettingsFeedSync", () => ({
   useManagedPreferenceKeys: () => new Set(),
