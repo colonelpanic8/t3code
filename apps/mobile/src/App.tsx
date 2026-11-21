@@ -48,6 +48,7 @@ import {
   installAppearanceRuntime,
   useAppearancePreferences,
 } from "./features/settings/appearance/AppearancePreferencesProvider";
+import { VoiceLiveSurface } from "./features/voice/VoiceLiveOverlays";
 import { RootStack, rootPathnameFromState, workspaceLocationFromState } from "./Stack";
 import { I18nProvider } from "./i18n/I18nProvider";
 import { DEFAULT_LOCALE } from "./i18n/locales";
@@ -323,6 +324,10 @@ function AppContent() {
               </NativeLayoutMetricsProvider>
             </GlobalVoiceInputControl>
             <OverlayPortalHost />
+            {/* Live Voice call banner + environment picker; above the
+              navigation container so the active call follows the user
+              across every screen. */}
+            <VoiceLiveSurface />
           </SafeAreaProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>
