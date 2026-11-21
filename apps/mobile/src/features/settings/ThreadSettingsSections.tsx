@@ -213,7 +213,7 @@ export function AutoSettleSettingsRows(props: {
 }
 
 export function LinkSettingsSection() {
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const preferences = useAtomValue(mobilePreferencesAtom);
   const linkPromptSendEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.linkPromptSendEnabled === true;
@@ -225,7 +225,9 @@ export function LinkSettingsSection() {
           icon="link"
           label="Send prompts from links"
           value={linkPromptSendEnabled}
-          onValueChange={(value) => savePreferences({ linkPromptSendEnabled: value })}
+          onValueChange={(value) => {
+            void savePreferences({ linkPromptSendEnabled: value });
+          }}
         />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
