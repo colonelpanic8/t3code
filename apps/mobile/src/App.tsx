@@ -78,6 +78,7 @@ import {
 } from "./lib/foundation-fast-refresh";
 import { useMobileNavigationTheme } from "./lib/useMobileNavigationTheme";
 import { installUiRuntimeMemoryWarningGc } from "./lib/useUiRuntimeMemoryWarningGc";
+import { installSettingsFeedSync } from "./features/settings-feed/SettingsFeedSync";
 import { SubscriptionUsageCoordinator } from "./widgets/SubscriptionUsageCoordinator";
 import { ConnectDeviceApprovalCoordinator } from "./features/connection/ConnectDeviceApprovalCoordinator";
 import { installSubscriptionUsageRefresh } from "./widgets/useSubscriptionUsage";
@@ -208,6 +209,7 @@ const appServiceDisposers = [
     pendingThreadIdsAtom: threadEnvironment.pendingThreadIdsAtom,
   }),
   installAppearanceRuntime(),
+  installSettingsFeedSync(),
   installSubscriptionUsageRefresh(),
   installPermissionUpdateNotice(),
   installThreadOutboxDelivery(),
