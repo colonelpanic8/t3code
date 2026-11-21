@@ -57,7 +57,7 @@ describe("session environment group visibility", () => {
     const { atoms, registry, saved } = client();
     await expect.poll(() => registry.get(atoms.stateAtom).isReady).toBe(true);
     expect(registry.get(atoms.stateAtom).hiddenEnvironmentIds.has(familyId)).toBe(true);
-    await atoms.setVisible.run(registry, { groupId: "family", visible: true });
+    await Effect.runPromise(atoms.setVisible.run(registry, { groupId: "family", visible: true }));
     const unmount = registry.mount(atoms.stateAtom);
     unmount();
     expect(registry.get(atoms.stateAtom).hiddenEnvironmentIds.has(familyId)).toBe(false);
@@ -67,7 +67,7 @@ describe("session environment group visibility", () => {
     registries.push(nextSession);
     await expect.poll(() => nextSession.get(atoms.stateAtom).isReady).toBe(true);
     expect(nextSession.get(atoms.stateAtom).hiddenEnvironmentIds.has(familyId)).toBe(true);
-    await atoms.resetVisibility.run(registry, undefined);
+    await Effect.runPromise(atoms.resetVisibility.run(registry, undefined));
     expect(registry.get(atoms.stateAtom).hiddenEnvironmentIds.has(familyId)).toBe(true);
     expect(saved).toEqual([]);
   });
@@ -75,12 +75,13 @@ describe("session environment group visibility", () => {
   it("imports definitions while retaining only overrides for groups that still exist", async () => {
     const { atoms, registry, saved } = client();
     await expect.poll(() => registry.get(atoms.stateAtom).isReady).toBe(true);
-    await atoms.setVisible.run(registry, { groupId: "family", visible: true });
-    await atoms.setVisible.run(registry, { groupId: "personal", visible: false });
+    await Effect.runPromise(atoms.setVisible.run(registry, { groupId: "family", visible: true }));
+    await Effect.runPromise(
+      atoms.setVisible.run(registry, { groupId: "personal", visible: false }),
+    );
     const next = { family: groups.family };
-    const result = await atoms.importDocument.run(
-      registry,
-      JSON.stringify({ version: 1, groups: next }),
+    const result = await Effect.runPromiseExit(
+      atoms.importDocument.run(registry, JSON.stringify({ version: 1, groups: next })),
     );
     expect(result._tag).toBe("Success");
     expect(saved).toEqual([next]);
@@ -91,10 +92,9 @@ describe("session environment group visibility", () => {
   it("retains the current declaration and overrides when an import cannot be saved", async () => {
     const { atoms, registry } = client({ failSave: true });
     await expect.poll(() => registry.get(atoms.stateAtom).isReady).toBe(true);
-    await atoms.setVisible.run(registry, { groupId: "family", visible: true });
-    const result = await atoms.importDocument.run(
-      registry,
-      JSON.stringify({ version: 1, groups: {} }),
+    await Effect.runPromise(atoms.setVisible.run(registry, { groupId: "family", visible: true }));
+    const result = await Effect.runPromiseExit(
+      atoms.importDocument.run(registry, JSON.stringify({ version: 1, groups: {} })),
     );
     expect(result._tag).toBe("Failure");
     expect(registry.get(atoms.stateAtom).groups).toEqual(groups);
@@ -103,12 +103,14 @@ describe("session environment group visibility", () => {
 
   it("rejects invalid declarations before saving", async () => {
     const { atoms, registry, saved } = client();
-    const result = await atoms.importDocument.run(
-      registry,
-      JSON.stringify({
-        version: 1,
-        groups: { ...groups, duplicate: groups.family },
-      }),
+    const result = await Effect.runPromiseExit(
+      atoms.importDocument.run(
+        registry,
+        JSON.stringify({
+          version: 1,
+          groups: { ...groups, duplicate: groups.family },
+        }),
+      ),
     );
     expect(result._tag).toBe("Failure");
     expect(saved).toEqual([]);

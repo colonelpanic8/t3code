@@ -591,13 +591,13 @@ describe("EnvironmentRegistry", () => {
           await expect.poll(() => atomRegistry.get(atoms.catalogValueAtom).isReady).toBe(true);
           expect(atomRegistry.get(atoms.catalogValueAtom).entries.size).toBe(0);
           expect(atomRegistry.get(atoms.unfilteredCatalogValueAtom).entries.size).toBe(1);
-          await atoms.groups.setVisible.run(atomRegistry, { groupId: "family", visible: true });
-          expect(
-            atomRegistry.get(atoms.catalogValueAtom).entries.has(BEARER_TARGET.environmentId),
-          ).toBe(true);
-          await atoms.groups.resetVisibility.run(atomRegistry, undefined);
-          expect(atomRegistry.get(atoms.catalogValueAtom).entries.size).toBe(0);
         });
+        yield* atoms.groups.setVisible.run(atomRegistry, { groupId: "family", visible: true });
+        expect(
+          atomRegistry.get(atoms.catalogValueAtom).entries.has(BEARER_TARGET.environmentId),
+        ).toBe(true);
+        yield* atoms.groups.resetVisibility.run(atomRegistry, undefined);
+        expect(atomRegistry.get(atoms.catalogValueAtom).entries.size).toBe(0);
         expect((yield* connections.state(BEARER_TARGET.environmentId)).phase).toBe("connected");
         expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
         expect(yield* Ref.get(harness.storedDisabled)).toEqual(new Set());
