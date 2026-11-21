@@ -62,6 +62,7 @@ function StartFromRemoteRow() {
 }
 
 function WorktreePathTemplateRow() {
+  const searchableSetting = useSearchableSetting();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const mixed = useScopedSettingsMixed(["worktreePathTemplate"]);
@@ -74,7 +75,7 @@ function WorktreePathTemplateRow() {
       resetAction={
         settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate ? (
           <SettingResetButton
-            label="worktree path"
+            ariaLabel="Reset worktree path to default"
             onClick={() =>
               updateSettings({
                 worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
