@@ -1,11 +1,14 @@
 import { NewTaskEnvironmentRouteScreen } from "./NewTaskEnvironmentRouteScreen";
 import { isDraftThreadRoute } from "./thread-route-state";
+import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
+import { T, useGT, useMessages } from "gt-react-native";
 import * as Dialog from "../../components/ui/Dialog";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { NavigationRow } from "../../components/ui/NavigationRow";
 import { AppBar } from "../../components/ui/AppBar";
 import {
   StackActions,
+  useFocusEffect,
   useIsFocused,
   useNavigation,
   type StaticScreenProps,
@@ -19,7 +22,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
@@ -65,6 +68,7 @@ function NewTaskHeader(props: {
   readonly searchText: string;
   readonly onSearchTextChange: (text: string) => void;
 }) {
+  const gt = useGT();
   const navigation = useNavigation();
   const goBack = () => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -81,7 +85,7 @@ function NewTaskHeader(props: {
           props.canAddProject
             ? [
                 {
-                  accessibilityLabel: "Add project",
+                  accessibilityLabel: gt("Add project"),
                   icon: "plus",
                   onPress: props.onAddProject,
                 },
@@ -91,7 +95,7 @@ function NewTaskHeader(props: {
         search={{
           value: props.searchText,
           onChangeText: props.onSearchTextChange,
-          placeholder: "Search projects",
+          placeholder: gt("Search projects"),
         }}
       />
     </>
@@ -107,6 +111,8 @@ export function NewTaskRouteScreen(props: StaticScreenProps<NewTaskRouteParams |
 }
 
 function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRouteParams | undefined>) {
+  const gt = useGT();
+  const m = useMessages();
   const projects = useProjects();
   const [searchText, setSearchText] = useState("");
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -135,12 +141,20 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     : route.params?.draftId;
   const incomingShareSubtitle = incomingShare
     ? incomingShare.attachments.length === 0
-      ? "Choose a project for what you shared"
+      ? gt("Choose a project for what you shared")
       : incomingShare.attachments.length === 1
-        ? `Choose a project for the ${incomingShare.attachments[0]?.type === "image" ? "image" : "file"} you shared`
-        : `Choose a project for the ${incomingShare.attachments.length} ${incomingShare.attachments.every((attachment) => attachment.type === "image") ? "images" : "files"} you shared`
+        ? incomingShare.attachments[0]?.type === "image"
+          ? gt("Choose a project for the image you shared")
+          : gt("Choose a project for the file you shared")
+        : incomingShare.attachments.every((attachment) => attachment.type === "image")
+          ? gt("{count, plural, other {Choose a project for the {count} images you shared}}", {
+              count: incomingShare.attachments.length,
+            })
+          : gt("{count, plural, other {Choose a project for the {count} files you shared}}", {
+              count: incomingShare.attachments.length,
+            })
     : null;
-  const screenTitle = incomingShare ? "Start a task" : "Choose project";
+  const screenTitle = incomingShare ? gt("Start a task") : gt("Choose project");
   const canAddProject =
     selectedEnvironment !== null &&
     canCreateProjectInEnvironment(selectedEnvironment.connectionState);
@@ -200,23 +214,29 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   });
   const canStartScratch =
     canAddProject && scratchWorkspaceRoot !== undefined && reservedDestinationProject === null;
-  const scratchStartInFlightRef = useRef(false);
+  const pendingScratchRef = useRef<AbortController | null>(null);
+  const cancelPendingScratch = useCallback(() => {
+    pendingScratchRef.current?.abort();
+    pendingScratchRef.current = null;
+  }, []);
+  useFocusEffect(useCallback(() => cancelPendingScratch, [cancelPendingScratch]));
 
   const addProject = () => navigation.dispatch(StackActions.push("AddProject", { environmentId }));
 
-  async function selectProject(project: EnvironmentProject): Promise<void> {
+  async function selectProject(project: EnvironmentProject, signal?: AbortSignal): Promise<void> {
     if (incomingShare?.destination && !reservedDestinationProject) {
       try {
         await releaseShareReservation(incomingShare.id, incomingShare.destination);
       } catch (error) {
+        if (signal?.aborted) return;
         Dialog.alert(
-          "Could not change project",
-          error instanceof Error
-            ? error.message
-            : "The shared content reservation could not be updated.",
+          gt("Could not change project"),
+          errorDisplayMessage(error, m) ??
+            gt("The shared content reservation could not be updated."),
         );
         return;
       }
+      if (signal?.aborted) return;
     }
     const root = navigation.getState()?.routeNames.includes("NewTaskProject")
       ? navigation
@@ -232,15 +252,20 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     const retargeted =
       routeDraftId === undefined
         ? false
-        : await retargetSavedNewTaskDraft(routeDraftId, {
-            environmentId: project.environmentId,
-            projectId: project.id,
-          }).then(
+        : await retargetSavedNewTaskDraft(
+            routeDraftId,
+            { environmentId: project.environmentId, projectId: project.id },
+            signal,
+          ).then(
             (found) => found,
             () => null,
           );
+    if (signal?.aborted) return;
     if (retargeted === null) {
-      Dialog.alert("Could not change project", "Saved drafts could not be loaded. Try again.");
+      Dialog.alert(
+        gt("Could not change project"),
+        gt("Saved drafts could not be loaded. Try again."),
+      );
       return;
     }
     const draftId = retargeted ? routeDraftId : undefined;
@@ -269,26 +294,31 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     });
   }
 
+  function chooseProject(project: EnvironmentProject): void {
+    cancelPendingScratch();
+    void selectProject(project);
+  }
+
   async function startScratch(): Promise<void> {
-    if (!environmentId || !canStartScratch || scratchStartInFlightRef.current) return;
-    scratchStartInFlightRef.current = true;
+    if (!environmentId || !canStartScratch || pendingScratchRef.current) return;
+    const request = new AbortController();
+    pendingScratchRef.current = request;
     const result = await openScratch({ environmentId, input: {} });
+    if (request.signal.aborted) return;
     if (result._tag === "Failure") {
-      scratchStartInFlightRef.current = false;
+      pendingScratchRef.current = null;
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         Dialog.alert(
-          "Could not start without a project",
-          error instanceof Error
-            ? error.message
-            : "The folder for threads without a project could not be created.",
+          gt("Could not start without a project"),
+          errorDisplayMessage(error, m) ??
+            gt("The folder for threads without a project could not be created."),
         );
       }
       return;
     }
-    // selectProject handles its own failures, so this never throws.
-    await selectProject(result.value);
-    scratchStartInFlightRef.current = false;
+    await selectProject(result.value, request.signal);
+    if (pendingScratchRef.current === request) pendingScratchRef.current = null;
   }
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- navigates to the incoming share's reserved destination draft once its project loads and the screen is focused
@@ -357,8 +387,8 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               <View collapsable={false} className="overflow-hidden rounded-[28px] bg-grouped-card">
                 <NavigationRow
                   className="bg-grouped-card"
-                  title="No project"
-                  subtitle="Start a task without a project"
+                  title={gt("No project")}
+                  subtitle={gt("Start a task without a project")}
                   disabled={!canStartScratch}
                   onPress={() => void startScratch()}
                   leading={
@@ -375,7 +405,7 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               <View collapsable={false} className="overflow-hidden rounded-[24px] bg-grouped-card">
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="No project"
+                  accessibilityLabel={gt("No project")}
                   disabled={!canStartScratch}
                   onPress={() => void startScratch()}
                   className={cn(
@@ -392,9 +422,11 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     />
                   </View>
                   <View className="min-w-0 flex-1">
-                    <Text className="text-base font-t3-bold leading-snug">No project</Text>
+                    <Text className="text-base font-t3-bold leading-snug">
+                      <T>No project</T>
+                    </Text>
                     <Text className="text-xs leading-snug text-foreground-muted" numberOfLines={1}>
-                      Start a task without a project
+                      <T>Start a task without a project</T>
                     </Text>
                   </View>
                   <SymbolView
@@ -427,20 +459,20 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               {emptyStateAction === "add-environment" ? (
                 <View className={Platform.OS === "android" ? undefined : "mt-1"}>
                   <Button
-                    label="Add environment"
+                    label={gt("Add environment")}
                     tone="primary"
                     onPress={() => navigation.navigate("ConnectionsNew")}
                   />
                 </View>
               ) : emptyStateAction === "add-project" ? (
                 <View className={Platform.OS === "android" ? undefined : "mt-1"}>
-                  <Button label="Add new project" tone="primary" onPress={addProject} />
+                  <Button label={gt("Add new project")} tone="primary" onPress={addProject} />
                 </View>
               ) : null}
               {canStartScratch ? (
                 <View>
                   <Button
-                    label="Start without a project"
+                    label={gt("Start without a project")}
                     tone="secondary"
                     onPress={() => void startScratch()}
                   />
@@ -450,10 +482,10 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           ) : visibleScopes.length === 0 ? (
             <View className="items-center gap-2 px-6 py-8">
               <Text className="text-center text-lg font-t3-bold text-foreground">
-                No matching projects
+                <T>No matching projects</T>
               </Text>
               <Text className="text-center text-sm leading-normal text-foreground-muted">
-                Try a different project name or workspace path.
+                <T>Try a different project name or workspace path.</T>
               </Text>
             </View>
           ) : (
@@ -471,13 +503,15 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 const singleProject = hasMultipleProjects ? null : scope.representative;
                 const onPressScope = () => {
                   if (singleProject) {
-                    void selectProject(singleProject);
+                    chooseProject(singleProject);
                   } else {
                     toggleGroup(scope.key);
                   }
                 };
                 const subtitle = hasMultipleProjects
-                  ? `${scope.projects.length} workspaces`
+                  ? gt("{count, plural, other {{count} workspaces}}", {
+                      count: scope.projects.length,
+                    })
                   : scope.representative.workspaceRoot;
                 const workspaceRows = expanded
                   ? scope.projects.map((project) =>
@@ -488,7 +522,7 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           title={project.title}
                           subtitle={project.workspaceRoot}
                           disabled={reservedDestinationProject !== null}
-                          onPress={() => void selectProject(project)}
+                          onPress={() => chooseProject(project)}
                           leading={
                             <ProjectFavicon
                               environmentId={project.environmentId}
@@ -506,7 +540,7 @@ function NewTaskProjectRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           accessibilityRole="button"
                           accessibilityLabel={project.title}
                           disabled={reservedDestinationProject !== null}
-                          onPress={() => void selectProject(project)}
+                          onPress={() => chooseProject(project)}
                           className="flex-row items-center gap-3 border-t border-border-subtle bg-grouped-card py-3 pr-4 pl-10"
                         >
                           <ProjectFavicon
