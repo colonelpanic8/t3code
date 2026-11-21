@@ -1,4 +1,6 @@
 import type { UsageProviderKind, UsageSummary } from "@t3tools/contracts";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 
 interface UsageProgressEnvironment {
   readonly label: string;
@@ -8,17 +10,6 @@ interface UsageProgressEnvironment {
   readonly summary: UsageSummary | null;
 }
 
-/**
- * Where one environment's answer stands for the usage on screen.
- *
- * - `inactive`: disconnected or failed, so waiting on it changes nothing.
- * - `loading`: no summary yet.
- * - `stale`: its summary on screen predates the current request.
- * - `partway`: answered this round while slow sources finish refreshing.
- * - `ready`: answered.
- *
- * While a manual `refreshing` runs, every summary counts as stale.
- */
 export function usageEnvironmentProgress(
   environment: UsageProgressEnvironment,
   refreshing = false,
@@ -27,7 +18,6 @@ export function usageEnvironmentProgress(
   if (!environment.isConnected || environment.error !== null) return { phase: "inactive" } as const;
   if (summary === null) return { phase: "loading" } as const;
   if (refreshing) return { phase: "stale" } as const;
-  // A refreshing source without a pending follow-up has nothing left to wait on.
   if (!environment.isPending) return { phase: "ready" } as const;
   const providers = [
     ...new Set(
@@ -42,19 +32,13 @@ export function usageEnvironmentProgress(
 export function updatingProvidersLabel(
   providers: readonly UsageProviderKind[],
   providerLabel: (provider: UsageProviderKind) => string,
+  resolve: MFunctionType = mFallback,
 ) {
   return providers.length === 1
-    ? `Updating ${providerLabel(providers[0]!)}…`
-    : `Updating ${providers.length} providers…`;
+    ? resolve(msg("Updating {provider}…", { provider: providerLabel(providers[0]!) }))
+    : resolve(msg("Updating {count} providers…", { count: providers.length }));
 }
 
-/**
- * Loading state for the selected environments' merged usage.
- *
- * The page dims only while old numbers are all that is on screen. Once any
- * environment answers, the label carries what is still coming, so one slow
- * device never holds the page dimmed.
- */
 export function usageProgress(
   environments: readonly UsageProgressEnvironment[],
   {
@@ -64,6 +48,7 @@ export function usageProgress(
     readonly refreshing?: boolean;
     readonly providerLabel: (provider: UsageProviderKind) => string;
   },
+  resolve: MFunctionType = mFallback,
 ) {
   const progress = environments.map((environment) => ({
     label: environment.label,
@@ -80,24 +65,15 @@ export function usageProgress(
       waiting.length === 0
         ? providers.length === 0
           ? null
-          : updatingProvidersLabel(providers, providerLabel)
+          : updatingProvidersLabel(providers, providerLabel, resolve)
         : environments.length === 1
-          ? "Updating…"
+          ? resolve(msg("Updating…"))
           : waiting.length === 1
-            ? `Updating ${waiting[0]!.label}…`
-            : `Updating ${waiting.length} environments…`,
+            ? resolve(msg("Updating {environment}…", { environment: waiting[0]!.label }))
+            : resolve(msg("Updating {count} environments…", { count: waiting.length })),
   };
 }
 
-/**
- * Which figures in the merged usage on screen are still coming in, so clients
- * can mute just those.
- *
- * - `partial`: totals will change because some environment is still answering.
- * - `providers`: providers whose own figures will change. An environment that
- *   has not answered yet, or whose whole summary is stale, could change any
- *   provider, so it sets `everyProvider`.
- */
 export function usageLoadingState(
   environments: readonly UsageProgressEnvironment[],
   refreshing = false,

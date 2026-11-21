@@ -8,6 +8,7 @@ import {
   CLOUD_LINK_REVOKED,
   CLOUD_LINKED_USER_ID,
   CLOUD_MINT_PUBLIC_KEY,
+  HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET,
   PUBLISH_AGENT_ACTIVITY_SECRET,
   RELAY_ENVIRONMENT_CREDENTIAL_SECRET,
   RELAY_ISSUER_SECRET,
@@ -16,11 +17,6 @@ import {
 
 export const CLOUD_CLI_DESIRED_LINK_SECRET = "cloud-cli-desired-link";
 
-// "managed" provisions a Cloudflare tunnel (default, legacy value "true").
-// "publish_only" links the environment to the relay purely to publish agent
-// activity — no tunnel, no relay-advertised endpoint — so activity can flow to
-// mobile clients even when they reach the environment out of band (Tailscale,
-// direct pairing) without T3 Connect.
 export type CliDesiredLinkMode = "managed" | "publish_only";
 
 const MANAGED_BYTES = new TextEncoder().encode("managed");
@@ -37,7 +33,6 @@ export const readCliDesiredLinkMode = Effect.gen(function* () {
   if (Option.isNone(value)) {
     return "managed" as CliDesiredLinkMode;
   }
-  // Legacy links stored the literal "true" and are always managed.
   return new TextDecoder().decode(value.value) === "publish_only"
     ? ("publish_only" as CliDesiredLinkMode)
     : ("managed" as CliDesiredLinkMode);
@@ -58,11 +53,6 @@ export const setCliDesiredCloudLink = Effect.fn("cloud.cli_state.set_desired")(f
   }
 });
 
-/**
- * Drops a link the relay rejected, keeping the sign-in and preferences, so the
- * next start links this environment again. `t3 connect link` calls it: the
- * server never relinks a revoked link on its own. Returns whether it dropped one.
- */
 export const dropRevokedCloudLink = Effect.gen(function* () {
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   if (Option.isNone(yield* secrets.get(CLOUD_LINK_REVOKED))) {
@@ -96,6 +86,7 @@ export const clearPersistedCloudLink = Effect.gen(function* () {
       secrets.remove(CLOUD_ENDPOINT_RUNTIME_CONFIG),
       secrets.remove(CLOUD_ENDPOINT_CONFIRMED_ORIGIN),
       secrets.remove(PUBLISH_AGENT_ACTIVITY_SECRET),
+      secrets.remove(HOLD_WEBHOOKS_WHILE_OFFLINE_SECRET),
       secrets.remove(CLOUD_LINK_REVOKED),
     ],
     { concurrency: "unbounded" },
