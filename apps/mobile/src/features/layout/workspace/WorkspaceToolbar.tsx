@@ -17,6 +17,8 @@ import {
 } from "../../../native/v5-workspace-context";
 import { useHardwareKeyboardCommand } from "../../keyboard/hardwareKeyboardCommands";
 import { useAdaptiveWorkspaceLayout, useWorkspacePaneState } from "../AdaptiveWorkspaceLayout";
+import { useVoiceLiveTargets } from "../../voice/useVoiceLive";
+import { voiceLiveStoreActions } from "../../voice/voiceLiveStore";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { shouldRestoreNativeSearch } from "./workspace-tabs-state";
 import { useFloatingWorkspaceTabs, useSidebarWorkspaceTabs } from "./useSystemWorkspaceTabBar";
@@ -37,6 +39,7 @@ export function WorkspaceToolbar(props: {
   const gt = useGT();
   const m = useMessages();
   const workspace = useWorkspaceTabs()!;
+  const voiceLiveAvailable = useVoiceLiveTargets().length > 0;
   const activeNewTask = useActiveNewTask();
   const deviceType = useDeviceType();
   const sidebarTabs = useSidebarWorkspaceTabs();
@@ -197,6 +200,14 @@ export function WorkspaceToolbar(props: {
         </Toolbar>
       ) : (
         <Toolbar placement="right">
+          {voiceLiveAvailable ? (
+            <Toolbar.Button
+              identifier="workspace-voice-live"
+              accessibilityLabel="Start Live Voice"
+              icon="waveform"
+              onPress={voiceLiveStoreActions.openPicker}
+            />
+          ) : null}
           {searchButton}
           {nativeToolbarCompose && foldedSearch ? <Toolbar.Spacer width={8} /> : null}
           {composeButton}
