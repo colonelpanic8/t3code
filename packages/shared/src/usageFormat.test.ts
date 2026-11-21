@@ -6,9 +6,9 @@ import {
   formatHourShort,
   formatTokens,
   makeWindow,
-  usageSourceMessages,
   msUntilNextLocalDay,
   startOfLocalDay,
+  usageSourceMessages,
   windowForToday,
 } from "./usageFormat.ts";
 
