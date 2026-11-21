@@ -54,6 +54,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { readComposerImageBytes } from "./chat/composerAttachmentFiles";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
@@ -61,7 +62,6 @@ import {
   codexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
 } from "@t3tools/shared/codexArtifactTemplates";
-import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   type ChatMessage,
   isImageAttachment,
@@ -78,7 +78,12 @@ import {
 import * as Schema from "effect/Schema";
 import { threadHasStarted } from "../lib/chatThreadActions";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { environmentThreadDetails } from "../state/threads";
+import {
+  environmentThreadDetails,
+  environmentThreadShells,
+  environmentThreadStateAtom,
+} from "../state/threads";
+import { waitForAtomValue } from "../state/waitForAtomValue";
 import {
   filterTerminalContextsWithText,
   formatTerminalContextLabel,
@@ -870,6 +875,25 @@ export function recallCheckoutIsRepo(
     : sessionCheckoutIsRepo.get(checkoutIsRepoKey(environmentId, cwd));
 }
 
+/**
+ * Started-ness read from the authoritative per-thread detail stream. The shell
+ * stream is a separate subscription that can lag or miss the upsert for a
+ * freshly bootstrapped thread, so a draft must not depend on it alone.
+ */
+function threadProjectionHasStarted(thread: EnvironmentThread | null | undefined): boolean {
+  const projection = thread?.projection;
+  return (
+    projection !== undefined && (projection.runs.length > 0 || projection.turnItems.length > 0)
+  );
+}
+
+export function draftServerThreadHasStarted(input: {
+  shell: Thread | null | undefined;
+  projection: EnvironmentThread | null | undefined;
+}): boolean {
+  return threadHasStarted(input.shell) || threadProjectionHasStarted(input.projection);
+}
+
 // Imported history lacks a session until its first prompt; resolve its instance before locking the driver.
 export function deriveLockedProvider(input: {
   thread: Thread | null | undefined;
@@ -1008,6 +1032,50 @@ export async function waitForRevertedMessage(
         inspect();
       }, finish);
   });
+}
+
+async function waitForStartedServerThread(
+  threadRef: ScopedThreadRef,
+  timeoutMs: number,
+): Promise<boolean> {
+  return waitForAtomValue({
+    registry: appAtomRegistry,
+    atom: environmentThreadShells.threadShellAtom(threadRef),
+    predicate: threadHasStarted,
+    timeoutMs,
+  });
+}
+
+function readDraftServerThreadStarted(threadRef: ScopedThreadRef): boolean {
+  return draftServerThreadHasStarted({
+    shell: appAtomRegistry.get(environmentThreadShells.threadShellAtom(threadRef)),
+    projection: appAtomRegistry.get(environmentThreadDetails.threadAtom(threadRef)),
+  });
+}
+
+/**
+ * A draft reserves its server thread id before bootstrap creates it. If neither the shell
+ * nor the reserved detail stream hydrates after an accepted launch, restart only that
+ * thread's detail stream so the draft can promote without a reload.
+ */
+export async function recoverDraftThreadAfterBootstrap(
+  threadRef: ScopedThreadRef,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  if (await waitForStartedServerThread(threadRef, timeoutMs)) {
+    return true;
+  }
+
+  // Hydration can land after the timeout callback unsubscribes but before this
+  // continuation runs, and the detail stream is not covered by the wait above.
+  // Re-read both authoritative sources before tearing down a stream that has
+  // already recovered.
+  if (readDraftServerThreadStarted(threadRef)) {
+    return true;
+  }
+
+  appAtomRegistry.refresh(environmentThreadStateAtom(threadRef));
+  return false;
 }
 
 export interface LocalDispatchSnapshot {
