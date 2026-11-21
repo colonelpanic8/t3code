@@ -1,15 +1,9 @@
-/**
- * Pure checks behind T3 Connect link proofs and relay requests: which local
- * origin a link may point at, and which scopes and lifetimes a proof claims and
- * accepts.
- */
 import type {
   RelayEnvironmentLinkProofPayload,
   RelayLinkProofRequest,
   RelayManagedEndpointOrigin,
   RelayManagedEndpointRuntimeConfig,
 } from "@t3tools/contracts/relay";
-import type { HttpServerRequest } from "effect/http";
 
 const CLOUD_PROOF_MAX_LIFETIME_SECONDS = 5 * 60;
 const CLOUD_PROOF_CLOCK_SKEW_SECONDS = 60;
@@ -24,33 +18,6 @@ function normalizeHostname(hostname: string): string {
 
 function isLoopbackHostname(hostname: string): boolean {
   return LOOPBACK_HOSTNAMES.has(normalizeHostname(hostname));
-}
-
-function firstForwardedHeaderValue(value: string | undefined): string | undefined {
-  const first = value?.split(",")[0]?.trim();
-  return first && first.length > 0 ? first : undefined;
-}
-
-export function requestAbsoluteUrl(request: HttpServerRequest.HttpServerRequest): string | null {
-  try {
-    return new URL(request.originalUrl).href;
-  } catch {
-    const host = firstForwardedHeaderValue(request.headers.host) ?? "127.0.0.1";
-    try {
-      return new URL(request.originalUrl, `http://${host}`).href;
-    } catch {
-      return null;
-    }
-  }
-}
-
-export function hasForwardedAuthorityHeaders(
-  request: HttpServerRequest.HttpServerRequest,
-): boolean {
-  return (
-    firstForwardedHeaderValue(request.headers["x-forwarded-host"]) !== undefined ||
-    firstForwardedHeaderValue(request.headers["x-forwarded-proto"]) !== undefined
-  );
 }
 
 function endpointRequestPort(url: URL): number {
@@ -84,26 +51,10 @@ export function parseManagedEndpointLocalOrigin(localOrigin: string) {
   };
 }
 
-export function isAllowedEndpointOrigin(input: {
-  readonly origin: RelayManagedEndpointOrigin;
-  readonly requestUrl: string;
-}): boolean {
-  if (!isLoopbackHostname(input.origin.localHttpHost)) {
-    return false;
-  }
-
-  const url = new URL(input.requestUrl);
-  if (!isLoopbackHostname(url.hostname)) {
-    return false;
-  }
-
-  return input.origin.localHttpPort === endpointRequestPort(url);
+export function isLoopbackEndpointOrigin(origin: RelayManagedEndpointOrigin): boolean {
+  return isLoopbackHostname(origin.localHttpHost);
 }
 
-// A managed (Cloudflare tunnel) endpoint is provisioned by the relay and must
-// point at a loopback origin. A manual endpoint is reached out of band (e.g.
-// Tailscale) or not advertised at all for publish-only links, so it is not
-// tied to the managed-tunnel scope.
 export function isSupportedLinkProviderKind(request: RelayLinkProofRequest): boolean {
   return (
     request.endpoint.providerKind === "cloudflare_tunnel" ||

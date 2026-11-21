@@ -1,59 +1,83 @@
+import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
+import { AsyncResult } from "effect/reactivity";
+import * as Dialog from "../../components/ui/Dialog";
 import { useAtomRefresh } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { changeRequestTermKind } from "../../lib/changeRequestTerm";
 import type {
   PullRequestAction,
   PullRequestDetail,
   PullRequestUpdateMethod,
 } from "@t3tools/contracts";
+import { useGT, useMessages } from "gt-react-native";
 import { useRef, useState } from "react";
-import { Alert } from "react-native";
 import { composerPullRequests } from "../../state/pull-requests";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { canPerformPullRequestAction } from "./pullRequestActions";
+import { canPerformPullRequestAction, pullRequestActionLabel } from "./pullRequestActions";
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
 import { usePullRequestPermissions } from "./usePullRequestPermissions";
+import { m as resolveMessage } from "../../i18n/messages";
 
-/** Small row actions stay in place, preserving expanded rows and scroll position. */
-export function usePullRequestAction(params: PullRequestParams, pr: PullRequestDetail) {
+export function usePullRequestAction(params: PullRequestParams, pr: PullRequestDetail | null) {
   const target = pullRequestTarget(params);
+  const gt = useGT();
+  const m = useMessages();
   const permissions = usePullRequestPermissions(params, pr);
   const run = useAtomCommand(composerPullRequests.runAction, { reportFailure: false });
-  const refreshDetail = useAtomRefresh(composerPullRequests.detail(target));
   const refreshActivity = useAtomRefresh(composerPullRequests.activity(target));
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const available = (action: PullRequestAction) =>
-    !busy && permissions.canWrite && canPerformPullRequestAction(pr, action);
+    pr !== null && !busy && permissions.canWrite && canPerformPullRequestAction(pr, action);
   const perform = async (action: PullRequestAction, updateMethod?: PullRequestUpdateMethod) => {
     if (pending.current || !available(action)) return;
     pending.current = true;
     setBusy(true);
-    try {
-      const response = await run({
-        ...target,
-        input: { ...target.input, action, ...(updateMethod ? { updateMethod } : {}) },
-      });
-      if (response._tag === "Failure") throw squashAtomCommandFailure(response);
-      refreshDetail();
-      refreshActivity();
-    } catch (cause) {
-      Alert.alert(
-        "Couldn't update this pull request",
-        cause instanceof Error ? cause.message : "Try again.",
+    const response = await run({
+      ...target,
+      input: { ...target.input, action, ...(updateMethod ? { updateMethod } : {}) },
+    });
+    pending.current = false;
+    setBusy(false);
+    if (AsyncResult.isFailure(response)) {
+      const cause = squashAtomCommandFailure(response);
+      Dialog.alert(
+        gt(
+          "Couldn't update this {term, select, mr {merge request} cr {change request} other {pull request}}",
+          {
+            term: changeRequestTermKind(sourceControlClients.get(pr?.provider).changeRequest),
+          },
+        ),
+        cause instanceof Error
+          ? (errorDisplayMessage(cause, resolveMessage) ?? cause.message)
+          : gt("Try again."),
       );
-    } finally {
-      pending.current = false;
-      setBusy(false);
+      return;
     }
+    refreshActivity();
   };
   const confirm = (action: PullRequestAction, title: string, message: string) =>
-    Alert.alert(title, message, [
-      { text: "Cancel", style: "cancel" },
+    Dialog.alert(title, message, [
+      { text: gt("Cancel"), style: "cancel" },
       {
         text: title,
-        style: action === "close" ? "destructive" : "default",
+        style: action === "close" || action === "delete-branch" ? "destructive" : "default",
         onPress: () => void perform(action),
       },
     ]);
-  return { available, perform, confirm, busy };
+  const confirmClose = () => {
+    const terminology = sourceControlClients.get(pr?.provider).changeRequest;
+    confirm(
+      "close",
+      pullRequestActionLabel("close", terminology, m),
+      gt(
+        "Close this {term, select, mr {merge request} cr {change request} other {pull request}} without merging its changes?",
+        {
+          term: changeRequestTermKind(terminology),
+        },
+      ),
+    );
+  };
+  return { available, perform, confirm, confirmClose, busy };
 }
