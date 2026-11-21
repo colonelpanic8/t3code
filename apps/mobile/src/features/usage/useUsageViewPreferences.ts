@@ -1,19 +1,21 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-react";
 import type { UsageViewPreferences } from "@t3tools/client-runtime/usage-view";
 import { AsyncResult } from "effect/reactivity";
 
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
+import { useAtomCommand } from "../../state/use-atom-command";
 
 const NO_VIEW: UsageViewPreferences = {};
 
 export function useUsageViewPreferences() {
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   return {
     view: AsyncResult.isSuccess(preferences) ? (preferences.value.usageView ?? NO_VIEW) : NO_VIEW,
-    update: (patch: UsageViewPreferences) =>
-      savePreferences({
+    update: (patch: UsageViewPreferences) => {
+      void savePreferences({
         transform: (current) => ({ usageView: { ...current.usageView, ...patch } }),
-      }),
+      });
+    },
   };
 }
