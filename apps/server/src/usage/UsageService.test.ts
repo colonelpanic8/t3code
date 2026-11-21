@@ -2128,7 +2128,7 @@ describe("UsageService", () => {
           layerService({
             prefix: "usage-service-cursor-large-account",
             home,
-            settings,
+            settings: { ...settings, usageHistoryRetentionDays: 92 },
             platform: "darwin",
             environment: {},
             secretStore: {
