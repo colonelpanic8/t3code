@@ -1,3 +1,4 @@
+import { ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -8,6 +9,8 @@ import {
   readPersistedServerRuntimeState,
   ServerRuntimeStateError,
 } from "@t3tools/shared/serverRuntimeState";
+import * as Schema from "effect/Schema";
+import { FetchHttpClient, HttpClient } from "effect/http";
 
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import { formatHostForUrl, isWildcardHost } from "@t3tools/shared/hostClassification";
@@ -96,6 +99,32 @@ export const clearPersistedServerRuntimeState = Effect.fn(
     }),
   );
 });
+
+const isExecutionEnvironmentDescriptor = Schema.is(ExecutionEnvironmentDescriptor);
+
+/**
+ * Whether a recorded server is another live process that still answers as a T3
+ * server at its recorded origin. A crash can leave a record whose pid was since
+ * reused, so a live pid alone is not proof of ownership.
+ */
+export const isRespondingServerRuntime = Effect.fn("serverRuntimeState.isRespondingServerRuntime")(
+  function* (state: PersistedServerRuntimeState) {
+    if (state.pid <= 0 || state.pid === process.pid || !isProcessAlive(state.pid)) {
+      return false;
+    }
+    const client = yield* HttpClient.HttpClient;
+    const response = yield* client.get(
+      new URL("/.well-known/t3/environment", state.origin).toString(),
+    );
+    if (response.status < 200 || response.status >= 300) {
+      return false;
+    }
+    return isExecutionEnvironmentDescriptor(yield* response.json);
+  },
+  Effect.timeout(1_000),
+  Effect.orElseSucceed(() => false),
+  Effect.provide(FetchHttpClient.layer),
+);
 
 /**
  * The runtime record, only while its server process is alive. Read this before sending
