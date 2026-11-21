@@ -1,3 +1,5 @@
+import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
+import { T, useGT } from "gt-react-native";
 import { ListRow } from "../../components/ui/ListRow";
 import * as Dialog from "../../components/ui/Dialog";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -29,17 +31,21 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
 import { autoConnectReport, devAutoConnectAttemptAtom } from "./devAutoConnect";
+import { linkedEnvironmentPrefillAtom } from "./linkedEnvironmentPrefill";
 import { type FleetFileRequest, FleetEnrollmentSection } from "./FleetEnrollmentSection";
 import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import { splitEnvironmentSections } from "./environmentSections";
 import { leaveSettingsPage } from "../settings/settings-navigation";
 import { workspaceHasColumns } from "../layout/workspace/workspace-selection-store";
+import { m } from "../../i18n/messages";
 
 type ConnectionsNewRouteParams = {
   readonly mode?: string;
   readonly pairingUrl?: string;
   readonly autoConnect?: string;
   readonly routeFor?: EnvironmentId;
+  /** A linked machine this app chose to pair with; its details come from app state, never the link. */
+  readonly linked?: string;
   readonly fleetEnrollment?: string;
 };
 
@@ -52,6 +58,8 @@ export function ConnectionsNewRouteScreen({
   const params = route.params ?? {};
   // Dev-only prefill prevents production links from supplying an attacker-chosen host and token.
   const routePairingUrl = __DEV__ ? (params.pairingUrl?.trim() ?? "") : "";
+  const known = useAtomValue(linkedEnvironmentPrefillAtom);
+  const linked = known !== null && known.environmentId === params.linked ? known : null;
   // Unlike pairing prefill, an enrollment link needs no __DEV__ gate: it only
   // opens the file, and joining still takes this device's own key and the
   // user's confirmation of its machines.
@@ -68,9 +76,10 @@ export function ConnectionsNewRouteScreen({
   // A new prefill link replaces whatever the form held.
   return (
     <PairingForm
-      key={routePairingUrl}
+      key={`${routePairingUrl}:${linked?.environmentId ?? ""}`}
       routePairingUrl={routePairingUrl}
-      routeFor={params.routeFor}
+      routeFor={params.routeFor ?? linked?.environmentId}
+      linked={linked}
       fleetRequest={fleetRequest}
       onFleetRequest={setFleetRequest}
     />
@@ -80,14 +89,17 @@ export function ConnectionsNewRouteScreen({
 function PairingForm({
   routePairingUrl,
   routeFor,
+  linked,
   fleetRequest,
   onFleetRequest,
 }: {
   readonly routePairingUrl: string;
   readonly routeFor: EnvironmentId | undefined;
+  readonly linked: { readonly label: string; readonly host: string | null } | null;
   readonly fleetRequest: FleetFileRequest | null;
   readonly onFleetRequest: (request: FleetFileRequest) => void;
 }) {
+  const gt = useGT();
   const { connectionPairingUrl, onChangeConnectionPairingUrl, onConnectPress } =
     useRemoteConnections();
   const navigation = useNavigation();
@@ -96,7 +108,7 @@ function PairingForm({
   const fleetScrollPending = useRef(false);
   const insets = useSafeAreaInsets();
   const [initialPairing] = useState(() => parsePairingUrl(routePairingUrl || connectionPairingUrl));
-  const [hostInput, setHostInput] = useState(initialPairing.host);
+  const [hostInput, setHostInput] = useState(linked?.host ?? initialPairing.host);
   const [codeInput, setCodeInput] = useState(initialPairing.code);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -160,11 +172,11 @@ function PairingForm({
     }
     if (permission.canAskAgain) return;
     Dialog.alert(
-      "Camera access needed",
-      "Camera access was denied for this app. Open Settings to enable it.",
+      gt("Camera access needed"),
+      gt("Camera access was denied for this app. Open Settings to enable it."),
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "Open Settings", onPress: () => void Linking.openSettings() },
+        { text: gt("Cancel"), style: "cancel" },
+        { text: gt("Open Settings"), onPress: () => void Linking.openSettings() },
       ],
     );
   };
@@ -178,7 +190,7 @@ function PairingForm({
 
     const rejectScan = (message: string) => {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Dialog.alert("Invalid QR code", message);
+      Dialog.alert(gt("Invalid QR code"), message);
       setTimeout(() => {
         setScannerLocked(false);
       }, 600);
@@ -205,7 +217,11 @@ function PairingForm({
       setScanComplete(true);
       setScannerLocked(false);
     } catch (error) {
-      rejectScan(error instanceof Error ? error.message : "Scanned QR code was not recognized.");
+      rejectScan(
+        error instanceof Error
+          ? (errorDisplayMessage(error, m) ?? error.message)
+          : gt("Scanned QR code was not recognized."),
+      );
     }
   };
 
@@ -236,10 +252,16 @@ function PairingForm({
 
   return (
     <SettingsScreen
-      title="Add environment"
+      title={
+        linked
+          ? gt("Connect to {environment}", { environment: linked.label })
+          : gt("Add environment")
+      }
       actions={[
         {
-          accessibilityLabel: connecting ? "Connecting" : "Add environment",
+          accessibilityLabel: connecting
+            ? gt("Connecting", { $context: "connection status" })
+            : gt("Add environment"),
           loading: connecting,
           icon: "checkmark",
           tintColor: headerIconColor,
@@ -287,7 +309,9 @@ function PairingForm({
           ) : null}
 
           <View collapsable={false} className="gap-2">
-            <Text className="px-4 text-sm font-t3-medium text-foreground-muted">Or enter it</Text>
+            <Text className="px-4 text-sm font-t3-medium text-foreground-muted">
+              <T>Or enter it</T>
+            </Text>
             <View
               collapsable={false}
               className={cn(
@@ -296,7 +320,7 @@ function PairingForm({
               )}
             >
               <PairingInputRow
-                label="Address"
+                label={gt("Address")}
                 keyboardType="url"
                 placeholder="192.168.1.100:3773"
                 value={hostInput}
@@ -304,8 +328,8 @@ function PairingForm({
               />
               <View className="ml-4 border-t border-border-subtle" />
               <PairingInputRow
-                label="Code"
-                placeholder="Pairing code"
+                label={gt("Code", { $context: "pairing code field" })}
+                placeholder={gt("Pairing code")}
                 returnKeyType="go"
                 value={codeInput}
                 onChangeText={handleCodeChange}
@@ -322,7 +346,14 @@ function PairingForm({
               )}
             >
               {pairingConnectionError ??
-                "For machines on your local network or tailnet. The machine keeps its own provider credentials."}
+                (linked
+                  ? gt(
+                      "Create a pairing code on {environment}, in its Settings → Sharing & access or with `t3 auth pairing create`, and enter it here.",
+                      { environment: linked.label },
+                    )
+                  : gt(
+                      "For machines on your local network or tailnet. The machine keeps its own provider credentials.",
+                    ))}
             </Text>
           </View>
 
@@ -343,11 +374,12 @@ function PairingScanCard(props: {
   readonly onScan: (result: { readonly data: string }) => void;
   readonly onScanPress: () => void;
 }) {
+  const gt = useGT();
   const light = useAppearancePreferences().themeAppearance === "light";
   return (
     <Pressable
       accessibilityRole={props.cameraActive ? undefined : "button"}
-      accessibilityLabel={props.cameraActive ? undefined : "Scan QR code"}
+      accessibilityLabel={props.cameraActive ? undefined : gt("Scan QR code")}
       disabled={props.cameraActive}
       onPress={props.onScanPress}
       className={cn(
@@ -412,13 +444,15 @@ function PairingScanCard(props: {
               <Text
                 className={cn("font-t3-medium text-sm", light ? "text-black/70" : "text-white/80")}
               >
-                Tap to scan
+                <T>Tap to scan</T>
               </Text>
             </>
           )}
         </View>
         <Text className={cn("text-center text-sm", light ? "text-black/70" : "text-white/80")}>
-          Scan the code from t3 pair or desktop Connections settings
+          {gt("Scan the code from {command} or desktop Connections settings", {
+            command: "t3 pair",
+          })}
         </Text>
       </View>
     </Pressable>
@@ -426,6 +460,7 @@ function PairingScanCard(props: {
 }
 
 function T3ConnectSection() {
+  const gt = useGT();
   const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const navigation = useNavigation();
   const { connectedEnvironments, onSetEnvironmentEnabled, onRemoveEnvironmentPress } =
@@ -438,7 +473,7 @@ function T3ConnectSection() {
   return (
     <View collapsable={false} className="gap-2">
       <Text className="px-4 text-sm font-t3-medium text-foreground-muted">
-        Or use the managed relay
+        <T>Or use the managed relay</T>
       </Text>
       {isSignedIn ? (
         <CloudEnvironmentRows
@@ -449,8 +484,8 @@ function T3ConnectSection() {
         />
       ) : (
         <ListRow
-          label="Sign in to T3 Connect"
-          description="Reach your machines from anywhere, no network setup."
+          label={gt("Sign in to {product}", { product: "T3 Connect" })}
+          description={gt("Reach your machines from anywhere, no network setup.")}
           disabled={!isLoaded}
           onPress={() => navigation.navigate("SettingsAuth")}
         />
