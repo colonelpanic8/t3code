@@ -14,6 +14,7 @@ import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
 import { FleetEnrollmentKeySettings } from "../connection/FleetEnrollmentKeySettings";
 import { PullRequestRoutingSettings } from "../connection/PullRequestRoutingSettings";
 import { SettingsFeedSection } from "../settings-feed/SettingsFeedSection";
+import { EnvironmentGroupsSettings } from "../connection/EnvironmentGroupsSettings";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -132,6 +133,7 @@ export function SettingsEnvironmentsRouteScreen() {
           ) : undefined
         }
       >
+        <EnvironmentGroupsSettings />
         <LocalEnvironmentList
           environments={localEnvironments}
           expandedId={null}
