@@ -133,13 +133,22 @@ export function formatDayShort(day: string, locale?: string): string {
   return `${MONTHS[month - 1] ?? ""} ${dayOfMonth}`;
 }
 
-export function formatMonthShort(day: string): string {
+export function formatMonthShort(day: string, locale?: string): string {
   const [year, month] = day.split("-").map((part) => Number(part));
   if (year === undefined || month === undefined) return day;
+  const intlLocale = formatLocale(locale);
+  if (intlLocale !== "en-US") {
+    const date = new Date(Date.UTC(year, month - 1, 1));
+    return Number.isNaN(date.getTime())
+      ? day
+      : dateTimeFormatter(intlLocale, { timeZone: "UTC", month: "short", year: "numeric" }).format(
+          date,
+        );
+  }
   return `${MONTHS[month - 1] ?? ""} ${year}`;
 }
 
-export function enumerateDays(sinceDay: string, untilDay: string): readonly string[] {
+function enumerateDays(sinceDay: string, untilDay: string): readonly string[] {
   const days: string[] = [];
   const start = Date.parse(`${sinceDay}T00:00:00Z`);
   const end = Date.parse(`${untilDay}T00:00:00Z`);
