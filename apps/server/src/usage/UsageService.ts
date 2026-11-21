@@ -106,6 +106,7 @@ interface TranscriptSource {
   readonly volumeId: string;
   readonly physicalSourceId?: string;
   readonly fileName?: string;
+  readonly accounts: NonNullable<UsageSource["accounts"]>;
 }
 
 const RatesCacheFile = Schema.Struct({
@@ -391,20 +392,48 @@ export const make = Effect.gen(function* () {
     awaitRefresh: boolean,
   ) {
     const dirs: Array<TranscriptSource> = [];
-    const pending: Array<ScannedDir> = [];
-    const seen = new Set<string>();
+    const pending: Array<ScannedDir & { readonly accounts: TranscriptSource["accounts"] }> = [];
+    const pendingSeen = new Map<string, number>();
+    const seen = new Map<string, number>();
     for (const { driver, reader } of transcriptReaders) {
       const { provider, format } = reader;
       const directories = yield* Effect.forEach(
         yield* usageInstances(driver, settings),
-        (instance) => reader.directories(instance, { awaitRefresh }),
+        (instance) =>
+          reader.directories(instance, { awaitRefresh }).pipe(
+            Effect.map((directories) =>
+              directories.map((directory) => ({
+                ...directory,
+                account: {
+                  id: instance.instanceId,
+                  label:
+                    settings.providerInstances[instance.instanceId]?.displayName ??
+                    instance.instanceId,
+                },
+              })),
+            ),
+          ),
       );
-      for (const { dir: directory, fileName, refreshing } of directories.flat()) {
+      for (const { dir: directory, fileName, refreshing, account } of directories.flat()) {
         if (refreshing) {
           const key = `${provider}\0${directory}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          pending.push({ provider, dir: directory, volumeId: "", files: [], refreshing });
+          const index = pendingSeen.get(key);
+          if (index !== undefined) {
+            const source = pending[index];
+            if (source !== undefined && !source.accounts.some(({ id }) => id === account.id)) {
+              pending[index] = { ...source, accounts: [...source.accounts, account] };
+            }
+            continue;
+          }
+          pendingSeen.set(key, pending.length);
+          pending.push({
+            provider,
+            dir: directory,
+            volumeId: "",
+            accounts: [account],
+            files: [],
+            refreshing,
+          });
           continue;
         }
         const sourceKey = provider + "\0" + directory;
@@ -431,14 +460,22 @@ export const make = Effect.gen(function* () {
           cacheDirty = true;
         }
         const key = `${provider}\0${dir}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        const index = seen.get(key);
+        if (index !== undefined) {
+          const source = dirs[index];
+          if (source !== undefined && !source.accounts.some(({ id }) => id === account.id)) {
+            dirs[index] = { ...source, accounts: [...source.accounts, account] };
+          }
+          continue;
+        }
+        seen.set(key, dirs.length);
         const sourceId = yield* physicalSourceId(dir);
         dirs.push({
           provider,
           format,
           dir,
           volumeId,
+          accounts: [account],
           ...(sourceId === undefined ? {} : { physicalSourceId: sourceId }),
           ...(fileName === undefined ? {} : { fileName }),
         });
@@ -681,6 +718,7 @@ export const make = Effect.gen(function* () {
     readonly volumeId: string;
     readonly physicalSourceId?: string;
     readonly hostId?: string;
+    readonly accounts?: UsageSource["accounts"];
     readonly status?: UsageSource["status"];
     readonly message?: string;
     readonly files:
@@ -700,7 +738,7 @@ export const make = Effect.gen(function* () {
     windowStartMs: number,
     fromMemory: boolean,
   ) {
-    const { provider, format, dir, volumeId, physicalSourceId, fileName } = source;
+    const { provider, format, dir, volumeId, physicalSourceId, fileName, accounts } = source;
     const identity = {
       provider,
       dir,
@@ -712,10 +750,10 @@ export const make = Effect.gen(function* () {
       .pipe(Effect.catchCause(() => Effect.succeed(false)));
     if (!exists) {
       cover(source, windowStartMs);
-      return { ...identity, files: null } satisfies ScannedDir;
+      return { ...identity, accounts, files: null } satisfies ScannedDir;
     }
     // scanSummary aggregates the saved files, as it does for a deleted directory.
-    if (fromMemory) return { ...identity, files: [] } satisfies ScannedDir;
+    if (fromMemory) return { ...identity, accounts, files: [] } satisfies ScannedDir;
     const { files, walked, failedPaths } = yield* Effect.promise(() =>
       listTranscriptFiles(dir, windowStartMs, fileName === undefined ? undefined : { fileName }),
     );
@@ -763,6 +801,7 @@ export const make = Effect.gen(function* () {
     return {
       ...identity,
       files: parsedFiles,
+      accounts,
       walked,
       ...(unread > 0
         ? {
@@ -1065,6 +1104,7 @@ export const make = Effect.gen(function* () {
         status,
         message,
         refreshing,
+        accounts,
         hostId: sourceHostId,
       },
     ] of scannedDirs.entries()) {
@@ -1120,6 +1160,7 @@ export const make = Effect.gen(function* () {
           volumeId,
           ...(physicalSourceId === undefined ? {} : { physicalSourceId }),
         },
+        ...(accounts === undefined ? {} : { accounts }),
         status:
           files === null && scannedFiles === 0
             ? "missing"
