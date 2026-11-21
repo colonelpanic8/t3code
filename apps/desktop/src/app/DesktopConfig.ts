@@ -28,6 +28,43 @@ const commaSeparatedStrings = (name: string) =>
     ),
   );
 
+export interface DesktopUpdateNoticeFeed {
+  readonly repository: string;
+  readonly branch: string;
+  readonly commit: string;
+}
+
+const GITHUB_REPOSITORY_SEGMENT = /^[A-Za-z0-9._-]+$/u;
+const COMMIT_SHA = /^[0-9a-f]{40}$/u;
+
+export const isFullCommitSha = (value: string): boolean => COMMIT_SHA.test(value);
+
+const isGitHubRepository = (repository: string): boolean => {
+  const segments = repository.split("/");
+  return (
+    segments.length === 2 &&
+    segments.every(
+      (segment) => segment !== "." && segment !== ".." && GITHUB_REPOSITORY_SEGMENT.test(segment),
+    )
+  );
+};
+
+const updateNoticeFeed = Config.all({
+  repository: trimmedString("T3CODE_UPDATE_NOTICE_REPOSITORY"),
+  branch: trimmedString("T3CODE_UPDATE_NOTICE_BRANCH"),
+  commit: trimmedString("T3CODE_UPDATE_NOTICE_COMMIT").pipe(
+    Config.map(Option.map((commit) => commit.toLowerCase())),
+  ),
+}).pipe(
+  Config.map((feed): Option.Option<DesktopUpdateNoticeFeed> =>
+    Option.all(feed).pipe(
+      Option.filter(
+        ({ repository, commit }) => isGitHubRepository(repository) && isFullCommitSha(commit),
+      ),
+    ),
+  ),
+);
+
 const compactEnv = (env: Readonly<Record<string, string | undefined>>): Record<string, string> =>
   Object.fromEntries(
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
@@ -58,6 +95,7 @@ export const DesktopConfig = Config.all({
   desktopLauncherPath: trimmedString("T3CODE_DESKTOP_LAUNCHER_PATH"),
   appImagePath: trimmedString("APPIMAGE"),
   disableAutoUpdate: optionalBoolean("T3CODE_DISABLE_AUTO_UPDATE"),
+  updateNoticeFeed,
   mockUpdates: optionalBoolean("T3CODE_DESKTOP_MOCK_UPDATES"),
   mockUpdateServerPort: Config.Port("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.withDefault(3000),

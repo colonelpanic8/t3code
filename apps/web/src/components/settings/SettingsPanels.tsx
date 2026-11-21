@@ -221,6 +221,12 @@ function AboutVersionSection() {
 
     const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
 
+    const manualUpdateUrl = updateState?.manualUpdate?.url;
+    if (action === "open" && manualUpdateUrl) {
+      void bridge.openExternal(manualUpdateUrl);
+      return;
+    }
+
     if (action === "download") {
       void downloadLocalUpdate(bridge, { notifyDownloaded: false });
       return;
@@ -312,7 +318,11 @@ function AboutVersionSection() {
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: gt("Download"), install: gt("Install") };
+  const actionLabel: Record<string, string> = {
+    download: gt("Download"),
+    install: gt("Install"),
+    open: gt("View Changes"),
+  };
   const statusLabel: Record<string, string> = {
     checking: gt("Checking…"),
     downloading: gt("Downloading…"),
@@ -322,10 +332,12 @@ function AboutVersionSection() {
   const buttonLabel =
     actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? gt("Check for Updates");
   const description =
-    action === "download" || action === "install"
-      ? gt("Update available.")
-      : (getDesktopUpdateDisabledReason(updateState, updatesDenial, messages) ??
-        gt("Current version of the application."));
+    action === "open"
+      ? gt("A newer build is published. Rebuild to update.")
+      : action === "download" || action === "install"
+        ? gt("Update available.")
+        : (getDesktopUpdateDisabledReason(updateState, updatesDenial, messages) ??
+          gt("Current version of the application."));
 
   return (
     <>
@@ -352,7 +364,7 @@ function AboutVersionSection() {
           </Tooltip>
         }
       />
-      {hasDesktopBridge ? (
+      {hasDesktopBridge && updateState?.manualUpdate === undefined ? (
         <SettingsRow
           {...setting("update-track")}
           description={
