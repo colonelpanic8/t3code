@@ -1,4 +1,5 @@
 import { msg } from "gt-react";
+import { layerEnvironmentGroups } from "./environmentGroups";
 import {
   ClientCapabilities,
   PlatformConnectionSource,
@@ -864,6 +865,7 @@ const layerRpcRequestObserver = Layer.succeed(
 );
 
 type ConnectionPlatformLayerSource =
+  | typeof layerEnvironmentGroups
   | typeof ConnectionStorage.layer
   | typeof layerConnectivity
   | typeof layerWakeups
@@ -877,6 +879,7 @@ export const layer: Layer.Layer<
   Layer.Error<ConnectionPlatformLayerSource>,
   Layer.Services<ConnectionPlatformLayerSource>
 > = Layer.mergeAll(
+  layerEnvironmentGroups,
   ConnectionStorage.layer,
   layerConnectivity,
   layerWakeups,

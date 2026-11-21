@@ -662,6 +662,10 @@
     "./pull-request-references": {
       "types": "./src/pullRequestReferences.ts",
       "default": "./src/pullRequestReferences.ts"
+    },
+    "./state/environment-groups": {
+      "types": "./src/state/environmentGroups.ts",
+      "default": "./src/state/environmentGroups.ts"
     }
   },
   "scripts": {
