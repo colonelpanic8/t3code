@@ -11,8 +11,10 @@ import { refreshUsage, usageSummaryInput } from "@t3tools/client-runtime/state/u
 import { resolveUsageAccess } from "@t3tools/client-runtime/state/usage-access";
 import { mergeUsage, type EnvironmentUsage, type MergedUsage } from "@t3tools/shared/usageMerge";
 import { AsyncResult, Atom } from "effect/reactivity";
+import { msg, useMessages } from "gt-react-native";
 import { useCallback, useMemo } from "react";
 
+import { keepMarked } from "../i18n/messages";
 import { appAtomRegistry } from "./atom-registry";
 import { environmentPresentations } from "./presentation";
 import { serverEnvironment } from "./server";
@@ -40,11 +42,14 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
       const isConnected = phase === "connected";
       const isConnecting = phase === "connecting";
       const sessionResult = get(environmentSession.sessionStateAtom(environmentId));
-      const access = resolveUsageAccess({
-        connectionPhase: phase,
-        session: AsyncResult.getOrElse(sessionResult, () => null),
-        hasSessionError: sessionResult._tag === "Failure",
-      });
+      const access = resolveUsageAccess(
+        {
+          connectionPhase: phase,
+          session: AsyncResult.getOrElse(sessionResult, () => null),
+          hasSessionError: sessionResult._tag === "Failure",
+        },
+        keepMarked,
+      );
       if (!access.canReadDiagnostics) {
         statuses.push({
           environmentId,
@@ -77,12 +82,12 @@ export const usageByWindowAtom = Atom.family((windowKey: string) =>
         error:
           !isConnected && summary === null
             ? phase === "available"
-              ? "This environment is not connected."
+              ? msg("This environment is not connected.")
               : connectionStatusTitle(presentation.connection)
             : result._tag === "Failure"
-              ? "This environment could not report usage."
+              ? msg("This environment could not report usage.")
               : !isConnected && !isConnecting && phase !== "reconnecting"
-                ? "This environment is not connected."
+                ? msg("This environment is not connected.")
                 : null,
         summary,
       });
@@ -141,7 +146,19 @@ export function useUsage(
       input.untilTime,
     ],
   );
-  const environments = useAtomValue(load ? usageByWindowAtom(windowKey) : usageEnvironmentsAtom);
+  const messages = useMessages();
+  const markedEnvironments = useAtomValue(
+    load ? usageByWindowAtom(windowKey) : usageEnvironmentsAtom,
+  );
+  const environments = useMemo(
+    () =>
+      markedEnvironments.map((environment) =>
+        environment.error === null
+          ? environment
+          : { ...environment, error: messages(environment.error) },
+      ),
+    [markedEnvironments, messages],
+  );
   const selectedEnvironments = useMemo(
     () =>
       selectedEnvironmentIds === null
