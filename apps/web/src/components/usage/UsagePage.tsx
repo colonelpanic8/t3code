@@ -45,6 +45,8 @@ import {
   formatTokens,
   formatUsd,
   makeWindow,
+  msUntilNextLocalDay,
+  windowForToday,
   usageWindowDays,
 } from "@t3tools/shared/usageFormat";
 import { formatUsageContractMismatch, usageSourceMessages } from "@t3tools/shared/usageFormatCopy";
@@ -116,6 +118,8 @@ function isUsageWindowDays(value: number): value is UsagePagePreferences["window
 }
 
 const providerLabel = (provider: UsageProviderKind) => PROVIDER_PRESENTATION[provider].label;
+/** A timer that fires a hair before midnight re-arms itself; the slack keeps that rare. */
+const DAY_ROLLOVER_SLACK_MS = 1000;
 
 /**
  * Takes the joined members so the compiler caches on a string and the set keeps its identity
@@ -208,6 +212,34 @@ export function UsagePage() {
       preferences.windowDays === 1 ? "hour" : "day",
     ),
   }));
+  // Re-anchor at local midnight, and when a sleeping or hidden page returns,
+  // so a page left open overnight asks for today.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- syncs the window with the wall clock and page visibility.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const reanchor = () =>
+      setWindowSelection((selection) => {
+        const today = windowForToday(selection.window, selection.days);
+        return today === selection.window ? selection : { days: selection.days, window: today };
+      });
+    const arm = () => {
+      timer = setTimeout(() => {
+        reanchor();
+        arm();
+      }, msUntilNextLocalDay() + DAY_ROLLOVER_SLACK_MS);
+    };
+    const reanchorWhenVisible = () => {
+      if (document.visibilityState === "visible") reanchor();
+    };
+    arm();
+    document.addEventListener("visibilitychange", reanchorWhenVisible);
+    globalThis.window.addEventListener("focus", reanchor);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", reanchorWhenVisible);
+      globalThis.window.removeEventListener("focus", reanchor);
+    };
+  }, []);
   const metric = preferences.metric;
   const showingLimits = metric === "limits";
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -1021,6 +1053,10 @@ function UsageCoverageNotice({
   const gt = useGT();
   const m = useMessages();
   const failed = environments.filter((environment) => environment.error !== null);
+  const lastReported = environments.filter(
+    (environment) =>
+      !environment.isConnected && environment.error === null && environment.summary !== null,
+  );
   const mismatchByEnvironment = new Map(
     contractMismatches.map((mismatch) => [mismatch.environmentId, mismatch]),
   );
@@ -1028,7 +1064,12 @@ function UsageCoverageNotice({
     const mismatch = mismatchByEnvironment.get(environment.environmentId);
     return mismatch === undefined ? [] : [{ environment, mismatch }];
   });
-  if (failed.length === 0 && incompatible.length === 0 && duplicateSources.length === 0) {
+  if (
+    failed.length === 0 &&
+    lastReported.length === 0 &&
+    incompatible.length === 0 &&
+    duplicateSources.length === 0
+  ) {
     return null;
   }
 
@@ -1043,6 +1084,11 @@ function UsageCoverageNotice({
           {environment.summary !== null && !mismatchByEnvironment.has(environment.environmentId)
             ? gt(" (totals include its last reported usage)")
             : gt(" (excluded from totals)")}
+        </span>
+      ))}
+      {lastReported.map((environment) => (
+        <span key={environment.environmentId}>
+          {environment.label}: Showing its last reported usage until it connects.
         </span>
       ))}
       {incompatible.map(({ environment, mismatch }) => (
