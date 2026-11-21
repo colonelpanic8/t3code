@@ -38,7 +38,11 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import { discoverFolders, mergeProjectFolders } from "../workspace/WorkspaceFolders.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { type CliAuthLocationFlags, serverLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import {
+  type CliAuthLocationFlags,
+  serverConfigFileFlags,
+  resolveCliAuthConfig,
+} from "./config.ts";
 import * as RunningServer from "./runningServer.ts";
 
 type ProjectMutationTarget = {
@@ -368,7 +372,7 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
 });
 
 const projectAddCommand = Command.make("add", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   workspaceRoot: Argument.String("path").pipe(
     Argument.withDescription("Workspace root to add as a project."),
   ),
@@ -482,7 +486,7 @@ const projectAddCommand = Command.make("add", {
 );
 
 const projectRemoveCommand = Command.make("remove", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to remove."),
   ),
@@ -521,7 +525,7 @@ const projectRemoveCommand = Command.make("remove", {
 );
 
 const projectRenameCommand = Command.make("rename", {
-  ...serverLocationFlags,
+  ...serverConfigFileFlags,
   project: Argument.String("project").pipe(
     Argument.withDescription("Project id or workspace root to rename."),
   ),
