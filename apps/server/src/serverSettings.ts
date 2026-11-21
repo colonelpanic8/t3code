@@ -58,6 +58,7 @@ import {
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 import { secretProviderDefinitions } from "./secrets/secretProviderDefinitions.ts";
+import { watchDirectoryReplacements } from "./watchDirectoryReplacements.ts";
 import {
   readSecretFieldValues,
   sourceControlHostSecretName,
@@ -1771,21 +1772,45 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  const watchFileChanges = (filePath: string) => {
+  // `ready` completes once the watch is registered, or once it fails to be.
+  const watchFileChanges = (filePath: string, ready: Deferred.Deferred<void>) => {
     const directory = pathService.dirname(filePath);
     const fileName = pathService.basename(filePath);
     const resolvedFilePath = pathService.resolve(filePath);
-    return fs
-      .watch(directory)
-      .pipe(
-        Stream.filter(
-          (event) =>
-            event.path === fileName ||
-            event.path === filePath ||
-            pathService.resolve(directory, event.path) === resolvedFilePath,
-        ),
-      );
+    const markReady = () => Deferred.doneUnsafe(ready, Exit.void);
+    return fs.watch(directory, { onReady: markReady }).pipe(
+      Stream.filter(
+        (event) =>
+          event.path === fileName ||
+          event.path === filePath ||
+          pathService.resolve(directory, event.path) === resolvedFilePath,
+      ),
+      Stream.as(undefined),
+      Stream.ensuring(Effect.sync(markReady)),
+    );
   };
+
+  // A directory watch follows the directory's inode, so when the target's
+  // directory is renamed away and another takes its path, watch the new one.
+  const watchLinkTargetChanges = (linkTargetPath: string, ready: Deferred.Deferred<void>) =>
+    watchDirectoryReplacements(
+      (parentReady) => watchFileChanges(pathService.dirname(linkTargetPath), parentReady),
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const registered = yield* Deferred.make<void>();
+          return Stream.merge(
+            watchFileChanges(linkTargetPath, registered).pipe(Stream.ignoreCause({ log: true })),
+            // Startup reloads once ready. Later watches trigger their own reload.
+            Stream.fromEffect(
+              Deferred.await(registered).pipe(Effect.andThen(Deferred.succeed(ready, undefined))),
+            ).pipe(
+              Stream.filter((completedStartup) => !completedStartup),
+              Stream.as(undefined),
+            ),
+          );
+        }),
+      ),
+    );
 
   const startWatcher = Effect.gen(function* () {
     const settingsDir = pathService.dirname(settingsPath);
@@ -1824,43 +1849,48 @@ const make = Effect.gen(function* () {
         return Option.some(linkTargetPath);
       }).pipe(Effect.orElseSucceed(() => Option.none<string>()));
 
-      const initialLinkTarget = yield* watchLinkTarget;
-      const linkTargetEvents = Stream.make(initialLinkTarget).pipe(
-        Stream.concat(watchFileChanges(filePath).pipe(Stream.mapEffect(() => watchLinkTarget))),
-        Stream.changes,
-        Stream.switchMap(
-          Option.match({
-            onNone: () => Stream.empty,
-            onSome: (linkTargetPath) =>
-              watchFileChanges(linkTargetPath).pipe(Stream.ignore({ log: true })),
-          }),
-        ),
+      const fileReady = yield* Deferred.make<void>();
+      const linkTargetReady = yield* Deferred.make<void>();
+      yield* Effect.gen(function* () {
+        const [fileEvents, resolveEvents] = yield* watchFileChanges(filePath, fileReady).pipe(
+          Stream.ignoreCause({ log: true }),
+          Stream.broadcastN({ n: 2, capacity: 1, strategy: "sliding" }),
+        );
+        // Buffer file path changes while resolving the first target.
+        const linkTargetEvents = Stream.fromEffect(
+          Deferred.await(fileReady).pipe(Effect.andThen(watchLinkTarget)),
+        ).pipe(
+          Stream.concat(resolveEvents.pipe(Stream.mapEffect(() => watchLinkTarget))),
+          Stream.changes,
+          Stream.switchMap(
+            Option.match({
+              onNone: () =>
+                Stream.fromEffect(Deferred.succeed(linkTargetReady, undefined)).pipe(Stream.drain),
+              onSome: (linkTargetPath) => watchLinkTargetChanges(linkTargetPath, linkTargetReady),
+            }),
+          ),
+        );
+        // Saves emit multiple events; fs.watch may fire before content is flushed.
+        yield* Stream.merge(fileEvents, linkTargetEvents).pipe(
+          Stream.debounce(Duration.millis(100)),
+          Stream.runForEach(() => revalidateAndEmitSafely),
+        );
+      }).pipe(
+        Effect.scoped,
+        Effect.ignoreCause({ log: true }),
+        Effect.ensuring(Deferred.succeed(linkTargetReady, undefined)),
+        Effect.forkIn(watcherScope),
       );
-      return Stream.merge(watchFileChanges(filePath), linkTargetEvents);
+      // Edits made once `start` returns must reach a registered watch.
+      yield* Deferred.await(linkTargetReady);
     });
 
-    const settingsEvents = yield* watchSettingsFile(settingsPath, {
-      prepareLinkTargetDirectory: true,
-    });
-    // Nothing is created for the read-only shared file, and a watch that fails
-    // there must not take the settings.json watch down with it.
-    const sharedSettingsEvents =
-      sharedSettingsPath === undefined
-        ? Stream.empty
-        : (yield* watchSettingsFile(sharedSettingsPath, {
-            prepareLinkTargetDirectory: false,
-          })).pipe(Stream.ignore({ log: true }));
-
-    // Saves emit multiple events; fs.watch may fire before content is flushed.
-    const debouncedSettingsEvents = Stream.merge(settingsEvents, sharedSettingsEvents).pipe(
-      Stream.debounce(Duration.millis(100)),
-    );
-
-    yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
-    );
+    yield* watchSettingsFile(settingsPath, { prepareLinkTargetDirectory: true });
+    // Nothing is created for the read-only shared file, and its watch fails
+    // independently of the settings.json watch.
+    if (sharedSettingsPath !== undefined) {
+      yield* watchSettingsFile(sharedSettingsPath, { prepareLinkTargetDirectory: false });
+    }
   });
 
   const start = Effect.gen(function* () {
