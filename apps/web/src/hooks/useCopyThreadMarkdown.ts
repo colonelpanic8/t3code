@@ -8,7 +8,7 @@ import { threadTranscriptMarkdown } from "@t3tools/shared/threadTranscript";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { useAtomCommand } from "../state/use-atom-command";
-import { writeTextToClipboard } from "./useCopyToClipboard";
+import { namedClipboardTarget, writeTextToClipboard } from "./useCopyToClipboard";
 import { useStableCallback } from "./useStableCallback";
 
 function copyFailureToast(error: unknown) {
@@ -37,7 +37,7 @@ export function useCopyThreadMarkdown() {
     try {
       const didCopy = await writeTextToClipboard(
         threadTranscriptMarkdown(result.value),
-        "thread as Markdown",
+        namedClipboardTarget("thread as Markdown"),
       );
       if (!didCopy) return;
       toastManager.add({
