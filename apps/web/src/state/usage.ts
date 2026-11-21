@@ -27,21 +27,24 @@ export interface EnvironmentUsageStatus {
   readonly isPending: boolean;
   readonly canReadDiagnostics: boolean;
   readonly isConnected: boolean;
+  readonly isConnecting: boolean;
   readonly error: string | null;
   readonly summary: UsageSummary | null;
 }
 
-const usageByWindowAtom = Atom.family((windowKey: string) =>
+export const usageByWindowAtom = Atom.family((windowKey: string) =>
   Atom.make((get): readonly EnvironmentUsageStatus[] => {
     const input = JSON.parse(windowKey) as UsageSummaryInput;
     const presentations = get(environmentPresentations.presentationsAtom);
 
     const statuses: EnvironmentUsageStatus[] = [];
     for (const [environmentId, presentation] of presentations) {
-      const isConnected = presentation.connection.phase === "connected";
+      const { phase } = presentation.connection;
+      const isConnected = phase === "connected";
+      const isConnecting = phase === "connecting";
       const sessionResult = get(environmentSession.sessionStateAtom(environmentId));
       const access = resolveUsageAccess({
-        connectionPhase: presentation.connection.phase,
+        connectionPhase: phase,
         session: AsyncResult.getOrElse(sessionResult, () => null),
         hasSessionError: sessionResult._tag === "Failure",
       });
@@ -50,6 +53,7 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
           environmentId,
           label: presentation.entry.target.label,
           isConnected,
+          isConnecting,
           ...access,
           summary: null,
         });
@@ -71,8 +75,14 @@ const usageByWindowAtom = Atom.family((windowKey: string) =>
         isPending: result.waiting,
         canReadDiagnostics: true,
         isConnected,
+        isConnecting,
+        // Mid-connection, its last reported usage is not a failure.
         error:
-          result._tag === "Failure" ? m(msg("This environment could not report usage.")) : null,
+          result._tag === "Failure"
+            ? m(msg("This environment could not report usage."))
+            : !isConnected && !isConnecting && phase !== "reconnecting" && summary !== null
+              ? m(msg("This environment is not connected. Totals include its last reported usage."))
+              : null,
         summary,
       });
     }
