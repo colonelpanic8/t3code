@@ -40,6 +40,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopPrimaryPaste from "../app/DesktopPrimaryPaste.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../app/DesktopBackendMode.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
@@ -336,7 +337,7 @@ function layerTest(input: {
         input.platform === undefined
           ? layerDesktopEnvironment
           : layerDesktopEnvironmentFor(input.platform),
-        layerDesktopAppSettings,
+        DesktopBackendMode.layerTest().pipe(Layer.provideMerge(layerDesktopAppSettings)),
         layerDesktopClientSettings,
         layerDesktopServerExposure,
         DesktopState.layer,
@@ -458,7 +459,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
             shutdown: Effect.void,
           }),
           layerDesktopEnvironment,
-          DesktopAppSettings.layerTest(),
+          DesktopBackendMode.layerTest().pipe(Layer.provideMerge(DesktopAppSettings.layerTest())),
           layerDesktopClientSettings,
           layerDesktopServerExposure,
           DesktopState.layer,
