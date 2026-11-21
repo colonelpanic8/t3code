@@ -129,7 +129,7 @@ function ChatBeside({
         },
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
-    branchToolbarRef: { current: null },
+    branchToolbarRefs: [],
     closeThreadFind: () => {},
     commands: {},
     fallback: () => undefined,

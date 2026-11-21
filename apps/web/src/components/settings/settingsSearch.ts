@@ -814,6 +814,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("enter return command ctrl multiline prompt new line composer")],
   },
   {
+    id: "composer-shortcut-hints",
+    title: "Shortcut hints",
+    to: "/settings/chat",
+    searchTerms: ["keyboard shortcut hints keybinding reminder alt option hold modifier composer"],
+  },
+  {
     id: "follow-up-behavior",
     title: msg("Follow-up behavior"),
     to: "/settings/chat",
