@@ -974,12 +974,12 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
-          {...searchableSetting("large-project-icons")}
-          description="Show larger project icons in sidebar thread rows."
+          {...setting("large-project-icons")}
+          description={gt("Show larger project icons in sidebar thread rows.")}
           resetAction={
             settings.sidebarV2LargeIcons ? (
               <SettingResetButton
-                label="large project icons"
+                ariaLabel={gt("Reset large project icons to default")}
                 onClick={() => updateSettings({ sidebarV2LargeIcons: false })}
               />
             ) : null
@@ -990,7 +990,7 @@ export function GeneralSettingsPanel() {
               onCheckedChange={(checked) =>
                 updateSettings({ sidebarV2LargeIcons: Boolean(checked) })
               }
-              aria-label="Large project icons"
+              aria-label={gt("Large project icons")}
             />
           }
         />
