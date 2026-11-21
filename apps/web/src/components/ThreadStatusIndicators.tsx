@@ -21,7 +21,8 @@ import {
 import { msg, T, useGT, useMessages } from "gt-react";
 import { FolderGit2Icon, TerminalIcon } from "lucide-react";
 import { m, type MessageResolver } from "../i18n/messages";
-import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
+import { isRemoteEnvironmentId } from "../environmentPresence";
+import { useEnvironment, useEnvironmentPresenceScope } from "../state/environments";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject } from "../state/entities";
 import {
@@ -972,8 +973,8 @@ export function ThreadRowTrailingStatus({ thread }: { thread: SidebarThreadSumma
     threadId: thread.id,
   });
   const environment = useEnvironment(thread.environmentId);
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const isRemoteThread = thread.environmentId !== primaryEnvironmentId;
+  const presenceScope = useEnvironmentPresenceScope();
+  const isRemoteThread = isRemoteEnvironmentId(thread.environmentId, presenceScope);
   const remoteEnvLabel = environment?.label ?? null;
   const threadEnvironmentLabel = isRemoteThread
     ? (remoteEnvLabel ?? gt("Remote", { $context: "machine location" }))
