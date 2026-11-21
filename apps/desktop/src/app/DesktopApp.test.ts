@@ -68,6 +68,7 @@ import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublish
 import * as DesktopWebLinks from "./DesktopWebLinks.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
+import * as ElectronPowerMonitor from "../electron/ElectronPowerMonitor.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
@@ -230,6 +231,7 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           Layer.mock(DesktopWebLinks.DesktopWebLinks, {}),
           Layer.mock(DesktopWslEnvironment.DesktopWslEnvironment, {}),
           Layer.mock(ElectronMenu.ElectronMenu, {}),
+          Layer.mock(ElectronPowerMonitor.ElectronPowerMonitor, {}),
           Layer.mock(ElectronShell.ElectronShell, {}),
           Layer.mock(ElectronTheme.ElectronTheme, {}),
           Layer.mock(ElectronWindow.ElectronWindow, {}),
