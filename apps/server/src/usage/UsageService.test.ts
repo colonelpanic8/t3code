@@ -1868,7 +1868,8 @@ describe("UsageService", () => {
   );
 
   it.effect.each([
-    { label: "default", retention: undefined, cutoff: CURSOR_NOW - 92 * 24 * HOUR_MS },
+    { label: "default", retention: undefined, cutoff: 0 },
+    { label: "92 days", retention: 92, cutoff: CURSOR_NOW - 92 * 24 * HOUR_MS },
     { label: "unlimited", retention: "unlimited" as const, cutoff: 0 },
     { label: "36500 days", retention: 36500, cutoff: 0 },
   ])(
@@ -3686,7 +3687,8 @@ describe("UsageService", () => {
   );
 
   it.effect.each([
-    { label: "the default 92 days", retention: undefined, expected: 1 },
+    { label: "the default", retention: undefined, expected: 15 },
+    { label: "92 days", retention: 92, expected: 1 },
     { label: "unlimited", retention: "unlimited" as const, expected: 15 },
   ])(
     "retains deleted transcripts according to $label across restart and settings changes",
@@ -3791,7 +3793,15 @@ describe("UsageService", () => {
         yield* service.awaitPersisted;
         const restarted = yield* UsageService.make;
         assert.strictEqual(totalOutputTokens(yield* restarted.readSummary(window)), 11);
-      }).pipe(Effect.provide(layerService({ prefix: "usage-retention-race", home, settings })));
+      }).pipe(
+        Effect.provide(
+          layerService({
+            prefix: "usage-retention-race",
+            home,
+            settings: { ...settings, usageHistoryRetentionDays: 92 },
+          }),
+        ),
+      );
     }),
   );
 
@@ -3998,6 +4008,38 @@ describe("UsageService", () => {
       assert.deepStrictEqual(later.buckets, []);
       assert.strictEqual(later.sources[0]?.status, "missing");
       assert.strictEqual(later.sources[0]?.scannedFiles, 0);
+    }),
+  );
+
+  it.effect("keeps saved usage of a deleted transcript for all-time windows by default", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-08-02T00:00:00Z"));
+      const { transcript, settings, home } = yield* setup;
+      yield* Effect.promise(async () => {
+        await NodeFSP.writeFile(transcript, claudeLine(1, 5));
+        const lastWrite = Date.parse("2026-08-01T10:00:00Z") / 1000;
+        await NodeFSP.utimes(transcript, lastWrite, lastWrite);
+      });
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(layerService({ prefix: "usage-service-all-time-test", home, settings })),
+      );
+      const first = yield* service.readSummary(WINDOW);
+      assert.isNotEmpty(first.buckets);
+      yield* Effect.promise(() => NodeFSP.rm(transcript));
+
+      yield* TestClock.setTime(Date.parse("2027-03-01T00:00:00Z"));
+      const recent = yield* service.readSummary({
+        timeZone: "UTC",
+        sinceDay: UsageDay.make("2027-02-01"),
+        untilDay: UsageDay.make("2027-03-01"),
+      });
+      assert.deepStrictEqual(recent.buckets, []);
+      const allTime = yield* service.readSummary({
+        timeZone: "UTC",
+        sinceDay: UsageDay.make("2017-03-01"),
+        untilDay: UsageDay.make("2027-03-01"),
+      });
+      assert.deepStrictEqual(allTime.buckets, first.buckets);
     }),
   );
 
