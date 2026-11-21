@@ -12,6 +12,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
 import { LocalEnvironmentList } from "../connection/LocalEnvironmentList";
 import { PullRequestRoutingSettings } from "../connection/PullRequestRoutingSettings";
+import { EnvironmentGroupsSettings } from "../connection/EnvironmentGroupsSettings";
 import { splitEnvironmentSections } from "../connection/environmentSections";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
@@ -130,6 +131,7 @@ export function SettingsEnvironmentsRouteScreen() {
           ) : undefined
         }
       >
+        <EnvironmentGroupsSettings />
         <LocalEnvironmentList
           environments={localEnvironments}
           expandedId={null}

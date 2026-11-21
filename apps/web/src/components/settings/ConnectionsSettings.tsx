@@ -1,6 +1,7 @@
 import { errorDisplayMessage, thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 import { SessionPermissions } from "./SessionPermissions";
 import { useSearch } from "@tanstack/react-router";
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react";
@@ -1826,6 +1827,7 @@ function ConnectionsSettingsContent({
 
   return (
     <SettingsPageContainer>
+      <EnvironmentGroupsSettings />
       {desktopBridge ? (
         <SettingsSection id="this-app" title={gt("This app")}>
           <LocalEnvironmentSetting />
