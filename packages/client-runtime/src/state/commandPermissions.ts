@@ -1,8 +1,6 @@
 import {
   clientRpcRequiredScopes,
   sessionGrantsScope,
-  authScopeRequiredResponse,
-  EnvironmentAuthorizationError,
   type EnvironmentId,
   type AuthSessionState,
   type AuthEnvironmentScope,
@@ -11,9 +9,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { scopeRequiredError } from "../rpc/client.ts";
 import { createEnvironmentSessionAtoms } from "./session.ts";
 
-/** UI availability and dispatch use the same target session and method policy. */
 function makeCommandPermissions<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
   method: string,
@@ -27,7 +25,7 @@ function makeCommandPermissions<R, E>(
         const scopes = scopeKey.split(",").filter(Boolean) as AuthEnvironmentScope[];
         if (scopes.length === 0) return true;
         const result = get(sessions.sessionStateAtom(environmentId));
-        const session = Option.getOrNull(AsyncResult.value(result));
+        const session = AsyncResult.getOrElse(result, () => null);
         return (
           result._tag !== "Failure" &&
           session !== null &&
@@ -54,18 +52,12 @@ function makeCommandPermissions<R, E>(
             suspendOnWaiting: false,
           }).pipe(
             Effect.timeoutOption(6_000),
-            Effect.catch(() => Effect.succeed(Option.none<AuthSessionState>())),
+            Effect.orElseSucceed(() => Option.none<AuthSessionState>()),
           );
           const missing = scopes.find(
             (scope) => Option.isNone(session) || !sessionGrantsScope(session.value, scope),
           );
-          if (missing !== undefined)
-            return yield* Effect.fail(
-              new EnvironmentAuthorizationError({
-                ...authScopeRequiredResponse(missing),
-                message: `This connection requires ${missing}.`,
-              }),
-            );
+          if (missing !== undefined) return yield* scopeRequiredError(missing);
         }),
       );
     });
@@ -77,7 +69,6 @@ const permissionsByRuntime = new WeakMap<
   Map<string, ReturnType<typeof makeCommandPermissions>>
 >();
 
-/** Reuse availability atoms and dispatch guards across commands on the same runtime. */
 export function createCommandPermissions<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
   method: string,

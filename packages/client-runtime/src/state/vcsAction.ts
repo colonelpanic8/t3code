@@ -1,3 +1,6 @@
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
+import { type MarkedText, markedTextEnglish } from "../errors/translatable.ts";
 import {
   EnvironmentId,
   type EnvironmentId as EnvironmentIdType,
@@ -79,7 +82,6 @@ export interface RunVcsStackedActionInput {
   readonly commitMessage?: string;
   readonly featureBranch?: boolean;
   readonly filePaths?: ReadonlyArray<string>;
-  /** The thread the action runs beside; the server links a pull request it creates to it. */
   readonly threadId?: ThreadId;
   readonly projectId?: ProjectId;
   readonly onProgress?: (event: GitActionProgressEvent) => void;
@@ -94,7 +96,15 @@ export class VcsActionUnavailableError extends Schema.TaggedError<VcsActionUnava
   },
 ) {
   override get message(): string {
-    return `Source control operation '${this.operation.replaceAll("_", " ")}' is unavailable.`;
+    return markedTextEnglish(this.i18nMessage);
+  }
+
+  get i18nMessage(): MarkedText {
+    return [
+      msg("Source control operation ''{operation}'' is unavailable.", {
+        operation: this.operation.replaceAll("_", " "),
+      }),
+    ];
   }
 }
 
@@ -111,8 +121,20 @@ export class VcsActionRemoteFailureError extends Schema.TaggedError<VcsActionRem
   },
 ) {
   override get message(): string {
-    const phase = this.phase === null ? "execution" : this.phase;
-    return `Source control action '${this.action}' failed during ${phase}.`;
+    return markedTextEnglish(this.i18nMessage);
+  }
+
+  get i18nMessage(): MarkedText {
+    return [
+      this.phase === null
+        ? msg("Source control action ''{action}'' failed during execution.", {
+            action: this.action,
+          })
+        : msg("Source control action ''{action}'' failed during {phase}.", {
+            action: this.action,
+            phase: this.phase,
+          }),
+    ];
   }
 }
 
@@ -127,7 +149,15 @@ export class VcsActionMissingTerminalEventError extends Schema.TaggedError<VcsAc
   },
 ) {
   override get message(): string {
-    return `Source control action '${this.action}' ended without a terminal result.`;
+    return markedTextEnglish(this.i18nMessage);
+  }
+
+  get i18nMessage(): MarkedText {
+    return [
+      msg("Source control action ''{action}'' ended without a terminal result.", {
+        action: this.action,
+      }),
+    ];
   }
 }
 
@@ -181,7 +211,7 @@ const EMPTY_VCS_ACTION_ATOM = Atom.make(EMPTY_VCS_ACTION_STATE).pipe(
   Atom.withLabel("vcs-action:null"),
 );
 
-export function getVcsActionTargetKey(target: VcsActionTarget): string | null {
+function getVcsActionTargetKey(target: VcsActionTarget): string | null {
   if (target.environmentId === null || target.cwd === null) {
     return null;
   }
@@ -223,6 +253,38 @@ export function beginVcsActionState(
   };
 }
 
+const RUN_ACTION_LABEL = msg("Running source control action");
+const ACTION_FAILED_ERROR = msg("Source control action failed.");
+
+function hookRunningText(hookName: string): string {
+  return msg("Running {hook}...", { hook: hookName });
+}
+
+/**
+ * The action's progress label in the active language. Labels this module wrote translate;
+ * phase labels from the server stay as they are.
+ * @public
+ */
+export function vcsActionLabelText(
+  state: Pick<VcsActionState, "currentLabel" | "hookName">,
+  resolve: MFunctionType = mFallback,
+): string | null {
+  const label = state.currentLabel;
+  if (label === RUN_ACTION_LABEL) return resolve(RUN_ACTION_LABEL);
+  if (state.hookName !== null && label === markedTextEnglish([hookRunningText(state.hookName)])) {
+    return resolve(hookRunningText(state.hookName));
+  }
+  return label;
+}
+
+/** @public The action's error in the active language; messages from the server stay as they are. */
+export function vcsActionErrorText(
+  state: Pick<VcsActionState, "error">,
+  resolve: MFunctionType = mFallback,
+): string | null {
+  return state.error === ACTION_FAILED_ERROR ? resolve(ACTION_FAILED_ERROR) : state.error;
+}
+
 function failVcsActionState(
   operation: VcsActionOperation,
   actionId: string,
@@ -232,7 +294,7 @@ function failVcsActionState(
     ...EMPTY_VCS_ACTION_STATE,
     operation,
     actionId,
-    error: error instanceof Error ? error.message : "Source control action failed.",
+    error: error instanceof Error ? error.message : ACTION_FAILED_ERROR,
   };
 }
 
@@ -363,7 +425,7 @@ export function applyVcsActionProgressEvent(
         actionId: event.actionId,
         action: event.action,
         operation: "run_change_request",
-        currentLabel: `Running ${event.hookName}...`,
+        currentLabel: markedTextEnglish([hookRunningText(event.hookName)]),
         hookName: event.hookName,
         hookStartedAtMs: now,
         lastOutputLine: null,
@@ -445,22 +507,23 @@ export function createVcsActionManager<R, E>(
       label: `vcs-action:run-stacked:${commandKey}`,
       scheduler: vcsCommandScheduler,
       concurrency: { mode: "serial", key: () => commandKey },
-      execute: (input: RunVcsStackedActionInput, registry) => {
+      execute: Effect.fn("VcsAction.runStackedAction")(function* (
+        input: RunVcsStackedActionInput,
+        registry,
+      ) {
         if (target === null) {
-          return Effect.fail(
-            new VcsActionUnavailableError({
-              operation: "run_change_request",
-              environmentId: requestedTarget.environmentId,
-              cwd: requestedTarget.cwd,
-            }),
-          );
+          return yield* new VcsActionUnavailableError({
+            operation: "run_change_request",
+            environmentId: requestedTarget.environmentId,
+            cwd: requestedTarget.cwd,
+          });
         }
         const transportActionId = createVcsActionTransportId(target, input.actionId);
         registry.set(
           stateAtom,
           beginVcsActionState({
             operation: "run_change_request",
-            label: "Running source control action",
+            label: RUN_ACTION_LABEL,
             actionId: input.actionId,
           }),
         );
@@ -481,7 +544,7 @@ export function createVcsActionManager<R, E>(
             registry.set(stateAtom, EMPTY_VCS_ACTION_STATE);
           }
         });
-        return consumeVcsActionProgress(
+        return yield* consumeVcsActionProgress(
           runStreamInEnvironment(
             target.environmentId,
             runStreamGuarded(WS_METHODS.gitRunStackedAction, rpcInput),
@@ -501,9 +564,7 @@ export function createVcsActionManager<R, E>(
                 if (input.onProgress !== undefined) {
                   try {
                     input.onProgress(event);
-                  } catch {
-                    // Presentation callbacks must not fail the source-control operation.
-                  }
+                  } catch {}
                 }
               }),
           },
@@ -527,7 +588,7 @@ export function createVcsActionManager<R, E>(
           ),
           Effect.onInterrupt(() => clearOwnedState),
         );
-      },
+      }),
     });
     runStackedActionCommands.set(commandKey, command);
     return command;
