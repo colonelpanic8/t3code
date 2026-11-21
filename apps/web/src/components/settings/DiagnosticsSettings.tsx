@@ -37,7 +37,7 @@ import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
-import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { namedClipboardTarget, useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -148,7 +148,7 @@ function EmptyRows({ label }: { label: string }) {
 
 function StoragePathRow({ label, path }: { label: string; path: string }) {
   const { copyToClipboard, isCopied } = useCopyToClipboard({
-    target: `${label.toLowerCase()} path`,
+    target: namedClipboardTarget(`${label.toLowerCase()} path`),
     timeout: 1_200,
   });
   return (
