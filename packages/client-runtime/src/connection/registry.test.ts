@@ -429,6 +429,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
                   type: "snapshot" as const,
                   config: { directEndpoints: options.directEndpoints } as ServerConfig,
                 }),
+          opened: Effect.void,
           ready: Effect.void,
           probe: Effect.void,
           inboundFrames: Effect.succeed(0),
@@ -441,12 +442,11 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
     });
   const driver = ConnectionDriver.ConnectionDriver.of({
     connect: (entry, reportProgress) =>
-      reportProgress({ stage: "preparing" }).pipe(
-        Effect.andThen(
-          ConnectionDriver.connectOverRoutes(entry, checkRoute, (route) =>
-            connectRoute(entry, route),
-          ),
-        ),
+      ConnectionDriver.connectOverRoutes(
+        entry,
+        checkRoute,
+        (route) => connectRoute(entry, route),
+        reportProgress,
       ),
     preflight: (_entry, route) =>
       checkRoute(route).pipe(
