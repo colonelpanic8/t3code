@@ -1,4 +1,5 @@
 import type { AgentProfileId, RuntimeMode } from "@t3tools/contracts";
+import { useGT } from "gt-react";
 import { memo, useRef } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
@@ -29,6 +30,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   /** Set while the profile block is folded into this menu. */
   agentProfile?: AgentProfileControlProps;
 }) {
+  const gt = useGT();
   const agentProfile = props.agentProfile;
   const composerFloatingLayerProps = useComposerMenuProps();
   const size = props.size ?? "sm";
@@ -47,7 +49,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             ref={triggerRef}
             size={size}
             className="shrink-0"
-            aria-label="More composer controls"
+            aria-label={gt("More composer controls")}
             data-composer-shortcut={props.showPermissions ? "composer.mode" : undefined}
           />
         }
