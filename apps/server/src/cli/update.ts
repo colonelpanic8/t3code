@@ -349,6 +349,7 @@ const targetServiceLayer = (
     logsDir: input.logsDir,
     cliVersion: targetVersion,
   });
+
 export const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   readonly baseDir: string;
   readonly logsDir: string;

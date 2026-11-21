@@ -14,8 +14,8 @@ export interface DesktopClientPaths {
 /**
  * The desktop app's own files, shared by the pre-ready password-store read and
  * DesktopEnvironment. `--client-dir` beats T3CODE_CLIENT_DIR and holds everything;
- * otherwise settings use the layout's config dir and state its state dir. Shells
- * leave `~` unexpanded after `=` and in .desktop Exec lines, so it is expanded here.
+ * otherwise settings use the client config root and state the client state root.
+ * Shells leave `~` unexpanded after `=` and in .desktop Exec lines, so it is expanded here.
  */
 export function resolveDesktopClientPaths(input: {
   readonly configDir: string;
