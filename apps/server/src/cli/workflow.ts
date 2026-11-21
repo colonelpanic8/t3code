@@ -7,7 +7,7 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import * as Workflows from "../workflows/Workflows.ts";
 import { WorkflowRun, WorkflowStep } from "../workflows/WorkflowStore.ts";
-import { projectLocationFlags } from "./config.ts";
+import { serverLocationFlags } from "./config.ts";
 import {
   jsonFlag,
   printJson,
@@ -55,7 +55,7 @@ const readRun = (tools: ThreadTools, runId: string) =>
   tools.call("t3_workflow", { action: "read", runId }, RunResult);
 
 const startCommand = Command.make("start", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   workflow: Argument.String("workflow").pipe(Argument.withDescription("Workflow name.")),
   input: Flag.String("input").pipe(
     Flag.withDescription("The run's payload, as JSON. Defaults to {}."),
@@ -91,7 +91,7 @@ const startCommand = Command.make("start", {
 );
 
 const listCommand = Command.make("list", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   status: Flag.Literals("status", WorkflowRunStatus.literals).pipe(
     Flag.withDescription(
       "Only runs in this state. A skipped run is listed only with `skipped`, unless another run invoked it.",
@@ -125,7 +125,7 @@ const listCommand = Command.make("list", {
 );
 
 const showCommand = Command.make("show", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   run: runArgument,
   json: jsonFlag,
 }).pipe(
@@ -177,7 +177,7 @@ const steer = Effect.fn("cli.workflow.steer")(function* (
 });
 
 const resumeCommand = Command.make("resume", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   run: runArgument,
   json: jsonFlag,
 }).pipe(
@@ -190,7 +190,7 @@ const resumeCommand = Command.make("resume", {
 );
 
 const cancelCommand = Command.make("cancel", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   run: runArgument,
   reason: Flag.String("reason").pipe(
     Flag.withDescription("Why, kept as the run's detail."),
@@ -205,7 +205,7 @@ const cancelCommand = Command.make("cancel", {
 );
 
 const signalCommand = Command.make("signal", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   value: Argument.String("value").pipe(
     Argument.withDescription('What the wait receives, as JSON. A question takes {"choice": ...}.'),
   ),
@@ -270,7 +270,7 @@ const signalCommand = Command.make("signal", {
 );
 
 const questionsCommand = Command.make("questions", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   json: jsonFlag,
 }).pipe(
   Command.withDescription("List the questions runs are waiting on a person to answer."),
@@ -294,7 +294,7 @@ const questionsCommand = Command.make("questions", {
 );
 
 const hooksCommand = Command.make("hooks", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   json: jsonFlag,
 }).pipe(
   Command.withDescription(
@@ -320,7 +320,7 @@ const StoreResult = Schema.Struct({
 const keyArgument = Argument.String("key").pipe(Argument.withDescription("The key in the store."));
 
 const storeListCommand = Command.make("list", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   prefix: Argument.String("prefix").pipe(
     Argument.withDescription("Only keys that start with this."),
     Argument.withDefault(""),
@@ -348,7 +348,7 @@ const storeListCommand = Command.make("list", {
 );
 
 const storeSetCommand = Command.make("set", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   key: keyArgument,
   value: Argument.String("value").pipe(Argument.withDescription("The value, as JSON.")),
 }).pipe(
@@ -372,7 +372,7 @@ const storeSetCommand = Command.make("set", {
 );
 
 const storeDeleteCommand = Command.make("delete", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   key: keyArgument,
 }).pipe(
   Command.withDescription("Delete a key of the store."),
