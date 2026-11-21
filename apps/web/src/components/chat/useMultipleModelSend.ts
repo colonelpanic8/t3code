@@ -2,6 +2,7 @@ import { msg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import {
+  type AgentProfileId,
   type EnvironmentId,
   type ModelSelection,
   type RuntimeMode,
@@ -56,6 +57,7 @@ interface MultipleModelSendInput {
   readonly runtimeMode: RuntimeMode;
   readonly startFromOrigin: boolean;
   readonly worktreeRepositories: ReadonlyArray<{ readonly path: string }> | undefined;
+  readonly agentProfile: AgentProfileId | undefined;
   readonly resetLocalDispatch: ReturnType<typeof useLocalDispatchState>["resetLocalDispatch"];
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
 }
@@ -77,6 +79,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     runtimeMode,
     startFromOrigin,
     worktreeRepositories,
+    agentProfile,
     resetLocalDispatch,
     setThreadError,
   } = input;
@@ -199,6 +202,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       branch,
                       worktreePath: null,
                       createdAt: createdAt,
+                      ...(agentProfile === undefined ? {} : { agentProfile }),
                     },
                     prepareWorktree: {
                       projectCwd: project.workspaceRoot,
