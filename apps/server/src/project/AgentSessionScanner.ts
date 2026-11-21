@@ -968,14 +968,20 @@ export const make = Effect.gen(function* () {
   const projectStore = yield* ProjectStore.ProjectStoreV2;
   const runtimes = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
   const configuredT3Dirs = {
-    baseDir: path.resolve(serverConfig.baseDir),
+    // The data dir holds triage scratch directories that agents run in.
+    serverDirs: [
+      serverConfig.baseDir,
+      serverConfig.configDir,
+      serverConfig.dataDir,
+      serverConfig.cacheDir,
+    ].map((directory) => path.resolve(directory)),
     worktreesDir: path.resolve(serverConfig.worktreesDir),
   };
   // Resolved candidates are compared with T3's folders as resolved too, so a symlinked base still matches.
   const realPathOf = (directory: string) =>
     fileSystem.realPath(directory).pipe(Effect.orElseSucceed(() => directory));
   const realT3Dirs = {
-    baseDir: yield* realPathOf(configuredT3Dirs.baseDir),
+    serverDirs: yield* Effect.forEach(configuredT3Dirs.serverDirs, realPathOf),
     worktreesDir: yield* realPathOf(configuredT3Dirs.worktreesDir),
   };
   const platform = yield* HostProcess.Platform;
@@ -1002,8 +1008,10 @@ export const make = Effect.gen(function* () {
       ),
     );
   const isT3OwnedPath = (candidatePath: string, t3Dirs = configuredT3Dirs) =>
-    normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
-      normalizeForWorktreeMatch(t3Dirs.baseDir, foldWorktreeCase),
+    t3Dirs.serverDirs.some((directory) =>
+      normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
+        normalizeForWorktreeMatch(directory, foldWorktreeCase),
+      ),
     ) || isT3ManagedWorktree(candidatePath, t3Dirs.worktreesDir, foldWorktreeCase);
   const isExcludedProjectPath = (candidatePath: string, t3Dirs = configuredT3Dirs) =>
     isScratchPath(candidatePath) || isT3OwnedPath(candidatePath, t3Dirs);
