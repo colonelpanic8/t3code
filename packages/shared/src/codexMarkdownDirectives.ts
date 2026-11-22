@@ -23,15 +23,6 @@ const CODEX_FILE_CITATION_NAME = "codex-file-citation";
 const CODEX_FOLLOW_UP_NAME = "codex-followup";
 const CODEX_ARTIFACT_TEMPLATE_NAME = "artifact-template";
 
-export const CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES = [
-  "dataCodexArtifactTemplate",
-  "dataArtifactKind",
-  "dataDisplayName",
-  "dataGalleryKind",
-  "dataSkillDirectory",
-  "dataSkillName",
-] as const;
-
 interface MarkdownPosition {
   readonly start: { readonly offset?: number };
   readonly end: { readonly offset?: number };
@@ -209,7 +200,6 @@ function renderFileCitation(node: MarkdownAstNode, source: string, insideLink: b
   delete node.value;
 }
 
-/** Shows only the label. T3 has no suggestion UI, so the hidden prompt is not shown. */
 function renderFollowUp(node: MarkdownAstNode, source: string): void {
   if (!node.attributes?.prompt?.trim() || !textContent(node).trim()) {
     restoreTextDirective(node, source);
@@ -267,7 +257,6 @@ function transformCodexDirectives(node: MarkdownAstNode, source: string, insideL
   }
 }
 
-/** Adds grammar only for the directives emitted by Codex, then renders them as mdast. */
 function attachCodexDirectives(this: Processor) {
   const data = this.data();
   const micromarkExtensions = data.micromarkExtensions ?? (data.micromarkExtensions = []);
@@ -338,7 +327,6 @@ function renderDirectiveMatches(
   return rendered;
 }
 
-/** Native Markdown renderers use this adapter because they cannot consume a Remark tree. */
 export function renderCodexInlineDirectivesAsMarkdown(markdown: string): string {
   if (
     !markdown.includes(`:${CODEX_FILE_CITATION_NAME}`) &&
@@ -350,7 +338,6 @@ export function renderCodexInlineDirectivesAsMarkdown(markdown: string): string 
   return renderDirectiveMatches(markdown, (match) => match.markdown);
 }
 
-/** Matches the Markdown emitted when users copy rendered Codex directive UI. */
 export function renderCodexDirectivesForCopy(markdown: string): string {
   if (
     !markdown.includes(`:${CODEX_FILE_CITATION_NAME}`) &&
@@ -367,7 +354,6 @@ export function renderCodexDirectivesForCopy(markdown: string): string {
   });
 }
 
-/** Native renderers split cards out because they cannot host a view inside Markdown text. */
 export function splitCodexArtifactTemplateMarkdown(
   markdown: string,
 ): ReadonlyArray<CodexArtifactTemplateMarkdownSegment> {
@@ -408,21 +394,4 @@ export function splitCodexArtifactTemplateMarkdown(
     segments.push({ kind: "markdown", markdown: markdown.slice(cursor), sourceOffset: cursor });
   }
   return segments;
-}
-
-export function artifactTemplateFromHastProperties(
-  properties: Readonly<Record<string, unknown>> | null | undefined,
-): CodexArtifactTemplate | null {
-  if (properties?.dataCodexArtifactTemplate !== "true") return null;
-  const stringProperty = (name: string) => {
-    const value = properties[name];
-    return typeof value === "string" ? value : undefined;
-  };
-  return resolveCodexArtifactTemplate({
-    artifact_kind: stringProperty("dataArtifactKind"),
-    display_name: stringProperty("dataDisplayName"),
-    gallery_kind: stringProperty("dataGalleryKind"),
-    skill_directory: stringProperty("dataSkillDirectory"),
-    skill_name: stringProperty("dataSkillName"),
-  });
 }

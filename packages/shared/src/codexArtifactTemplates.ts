@@ -62,7 +62,6 @@ function isAbsoluteSkillDirectory(value: string): boolean {
   );
 }
 
-/** Mirrors the Codex result-card schema so malformed directives remain literal Markdown. */
 export function resolveCodexArtifactTemplate(
   attributes: CodexArtifactTemplateAttributes | null | undefined,
 ): CodexArtifactTemplate | null {
@@ -133,4 +132,30 @@ export function appendCodexArtifactTemplateUsePrompt(
 
   const needsLeadingSpace = draft.length > 0 && !/\s$/.test(draft);
   return `${draft}${needsLeadingSpace ? " " : ""}${prompt}`;
+}
+
+export const CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES = [
+  "dataCodexArtifactTemplate",
+  "dataArtifactKind",
+  "dataDisplayName",
+  "dataGalleryKind",
+  "dataSkillDirectory",
+  "dataSkillName",
+] as const;
+
+export function artifactTemplateFromHastProperties(
+  properties: Readonly<Record<string, unknown>> | null | undefined,
+): CodexArtifactTemplate | null {
+  if (properties?.dataCodexArtifactTemplate !== "true") return null;
+  const stringProperty = (name: string) => {
+    const value = properties[name];
+    return typeof value === "string" ? value : undefined;
+  };
+  return resolveCodexArtifactTemplate({
+    artifact_kind: stringProperty("dataArtifactKind"),
+    display_name: stringProperty("dataDisplayName"),
+    gallery_kind: stringProperty("dataGalleryKind"),
+    skill_directory: stringProperty("dataSkillDirectory"),
+    skill_name: stringProperty("dataSkillName"),
+  });
 }

@@ -50,11 +50,9 @@ export function withVcsRefsPersistenceLock<A, E, R>(
 }
 
 /**
- * Clears persisted snapshots and then restarts live ref streams while holding
- * the same lock used by generation-checked refresh writes. Clearing first
- * prevents the restarted stream from rehydrating the invalidated snapshot. A
- * refresh that wins the lock is cleared afterward; one that loses observes the
- * new revision and cannot repersist its pre-mutation result.
+ * Clearing first prevents the restarted stream from rehydrating the invalidated
+ * snapshot. A refresh that wins the lock is cleared afterward; one that loses
+ * observes the new revision and cannot repersist its pre-mutation result.
  */
 export const invalidateCachedVcsRefs = Effect.fn("VcsRefsState.invalidateCached")(function* (
   registry: AtomRegistry.AtomRegistry,
@@ -81,3 +79,32 @@ export const invalidateCachedVcsRefs = Effect.fn("VcsRefsState.invalidateCached"
     }),
   );
 });
+
+// Ref digests from each cwd's last status refresh; the cached branch list is at least that new.
+const refsDigestsByEnvironment = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make<ReadonlyMap<string, string>>(new Map()).pipe(
+    Atom.keepAlive,
+    Atom.withLabel(`environment-data:vcs:refs-digests:${environmentId}`),
+  ),
+);
+
+/** Skips the branch list reload when a status refresh saw the same refs as the last one. */
+export const invalidateCachedVcsRefsIfChanged = Effect.fn("VcsRefsState.invalidateCachedIfChanged")(
+  function* (
+    registry: AtomRegistry.AtomRegistry,
+    target: CachedVcsRefsInvalidationTarget,
+    refsDigest: string | undefined,
+  ) {
+    const digestsAtom = refsDigestsByEnvironment(target.environmentId);
+    if (refsDigest !== undefined && registry.get(digestsAtom).get(target.cwd) === refsDigest) {
+      return;
+    }
+    registry.update(digestsAtom, (digests) => {
+      const next = new Map(digests);
+      if (refsDigest === undefined) next.delete(target.cwd);
+      else next.set(target.cwd, refsDigest);
+      return next;
+    });
+    yield* invalidateCachedVcsRefs(registry, target);
+  },
+);
