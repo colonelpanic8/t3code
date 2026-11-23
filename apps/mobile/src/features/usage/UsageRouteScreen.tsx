@@ -62,6 +62,7 @@ import { DEFAULT_BASE_FONT_SIZE } from "../../lib/appearancePreferences";
 import { UsageBreakdownSection } from "./UsageBreakdownSection";
 import { UsageDailyChart } from "./UsageDailyChart";
 import { toggleUsageEnvironment } from "./usageEnvironmentSelection";
+import { useUsageWindow } from "./useUsageWindow";
 import { useRefreshLimits } from "./UsageLimitsSection";
 import { UsageLimitsSection } from "./UsageLimitsPooled";
 import { ListFilterMenu } from "../layout/workspace/ListFilterMenu";
@@ -157,10 +158,7 @@ function UsageScreen(props: {
   // A workspace pane knows its width in the render that resizes it; measuring lags a frame.
   const width = useWorkspaceSettledContentWidth() ?? measuredWidth;
   const wide = width >= WIDE_WIDTH;
-  const [windowSelection, setWindowSelection] = useState(() => ({
-    days: 30,
-    window: makeWindow(30),
-  }));
+  const [windowSelection, setWindowSelection] = useUsageWindow();
   const { days: windowDays, window } = windowSelection;
   const isPast24Hours = windowDays === 1;
   const [selectedEnvironmentIds, setSelectedEnvironmentIds] =
@@ -432,6 +430,17 @@ function UsageScreen(props: {
                         </Text>
                       ))}
                     </View>
+                  ) : selectedEnvironments.every(
+                      (environment) =>
+                        environment.summary === null ||
+                        merged.contractMismatches.some(
+                          (mismatch) => mismatch.environmentId === environment.environmentId,
+                        ),
+                    ) ? (
+                    <Text className="py-16 text-center text-base text-foreground-muted">
+                      Usage is unavailable for the selected environments. Check their connection
+                      status in the environment filter or pull to refresh.
+                    </Text>
                   ) : (
                     <>
                       {sourceMessages.map((message) => (
@@ -997,11 +1006,13 @@ function usageEnvironmentStatus(
   }
   if (environment.error)
     return environment.summary
-      ? resolve(msg("{error} Showing saved totals.", { error: environment.error }))
+      ? resolve(msg("{error} Showing last reported usage.", { error: environment.error }))
       : environment.error;
   if (!environment.isConnected)
     return environment.summary
-      ? resolve(msg("Disconnected · showing saved usage"))
+      ? environment.isConnecting
+        ? resolve(msg("Connecting · showing last reported usage"))
+        : resolve(msg("Reconnecting · showing last reported usage"))
       : resolve(msg("Waiting for connection…"));
   const progress = usageEnvironmentProgress(environment, refreshing);
   if (progress.phase === "loading") return resolve(msg("Loading usage…"));
