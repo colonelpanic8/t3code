@@ -284,6 +284,8 @@ export const make = Effect.gen(function* () {
       ignoredFileListing: true,
       ignoredFileSearch: true,
       triage: true,
+      voiceLive: true,
+      voiceLiveToolExecution: true,
       oneTimeSchedules: true,
       freshContext: true,
       scheduledTaskThreadModes: true,
