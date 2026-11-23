@@ -220,3 +220,37 @@ it.effect("points to Labs only when the server hides the feedback tool", () =>
     ),
   ),
 );
+
+it.effect("reads layered feedback settings before opening a database", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-feedback-layers-" });
+    const shared = path.join(baseDir, "shared.json");
+    yield* fs.writeFileString(shared, '{"agentFeedback":{"mode":"auto"}}');
+    const env = { T3CODE_PORT: "3773", T3CODE_SERVER_SHARED_SETTINGS_FILE: shared };
+    const run = (env: Record<string, string>) =>
+      Command.runWith(feedbackCommand, { version: "0.0.0" })([
+        "list",
+        "--json",
+        "--base-dir",
+        baseDir,
+      ]).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))));
+
+    yield* run(env);
+    const sharedOutput = yield* TestConsole.logLines;
+    expect(sharedOutput.at(-1)).toBe("[]");
+    const stateDir = path.join(baseDir, "userdata");
+    yield* fs.makeDirectory(stateDir, { recursive: true });
+    const settings = path.join(stateDir, "settings.json");
+    const local = '{"agentFeedback":{"mode":"off"}}';
+    yield* fs.writeFileString(settings, local);
+    const error = yield* run(env).pipe(Effect.flip);
+    expect(String(error)).toContain(FEEDBACK_OFF_MESSAGE);
+    expect(yield* fs.readFileString(settings)).toBe(local);
+    expect(yield* fs.exists(path.join(stateDir, "statev2.sqlite"))).toBe(false);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer)),
+  ),
+);
