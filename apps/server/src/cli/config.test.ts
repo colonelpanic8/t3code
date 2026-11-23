@@ -1701,6 +1701,7 @@ const storageFlags = (overrides: Partial<CliServerFlags> = {}): CliServerFlags =
   logWebSocketEvents: Option.none(),
   tailscaleServeEnabled: Option.none(),
   tailscaleServePort: Option.none(),
+  sharedSettingsFile: Option.none(),
   lan: Option.none(),
   ...overrides,
 });
