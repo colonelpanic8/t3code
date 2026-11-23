@@ -1710,9 +1710,10 @@ describe("remote launch and pairing scripts", () => {
   const windowsHost = HostProcess.Platform.defaultValue() === "win32";
 
   // Stands in for the t3 CLI: records each invocation, and `serve` answers the
-  // readiness probe on its --port.
+  // readiness probe on its --port and writes the runtime record.
   const FAKE_T3 = `const fs = require("node:fs");
 const http = require("node:http");
+const path = require("node:path");
 const args = process.argv.slice(2);
 fs.appendFileSync(
   process.env.T3_FAKE_RECORD,
@@ -1725,7 +1726,17 @@ fs.appendFileSync(
 );
 if (args[0] === "serve") {
   const port = Number(args[args.indexOf("--port") + 1]);
-  http.createServer((_request, response) => response.end("ok")).listen(port, "127.0.0.1");
+  const baseDirIndex = args.indexOf("--base-dir");
+  const runtimeDir = baseDirIndex === -1
+    ? path.join(process.env.XDG_RUNTIME_DIR, "t3code")
+    : path.join(args[baseDirIndex + 1], "userdata");
+  http.createServer((_request, response) => response.end("ok")).listen(port, "127.0.0.1", () => {
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "server-runtime.json"),
+      JSON.stringify({ pid: process.pid, port, origin: "http://127.0.0.1:" + port }),
+    );
+  });
   setTimeout(() => process.exit(0), 10_000);
 } else {
   process.stdout.write("{}\\n");
@@ -1734,7 +1745,7 @@ if (args[0] === "serve") {
   const runScript = (
     script: string,
     args: ReadonlyArray<string>,
-    env: Record<string, string>,
+    env: Record<string, string> & { readonly HOME: string },
     options: {
       readonly login?: boolean;
     } = {},
@@ -1743,7 +1754,7 @@ if (args[0] === "serve") {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const child = yield* spawner.spawn(
         ChildProcess.make("sh", [...(options.login ? ["-l"] : []), "-c", script, "sh", ...args], {
-          env,
+          env: { XDG_RUNTIME_DIR: NodePath.join(env.HOME, "run"), ...env },
           extendEnv: false,
         }),
       );
