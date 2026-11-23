@@ -10,6 +10,7 @@ import * as Path from "effect/Path";
 import * as HttpClient from "effect/http/HttpClient";
 import { ChildProcessSpawner } from "effect/process";
 import * as NetService from "@t3tools/shared/Net";
+import { resolveLegacyT3StorageRoots } from "@t3tools/shared/storagePaths";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -351,7 +352,7 @@ it.effect(
         DesktopCliShim.renderCliShim({
           target: { kind: "appimage", appImage: removedAppImage, executableName: "t3code" },
           shimPath: launcher,
-          t3Home: baseDir,
+          storageEnvironment: { T3CODE_HOME: baseDir },
         }),
       );
       yield* fs.writeFileString(updatedAppImage, "", { mode: 0o755 });
@@ -364,6 +365,11 @@ it.effect(
         environment: {
           path,
           baseDir,
+          storageRoots: resolveLegacyT3StorageRoots({
+            baseDir,
+            stateDirectoryName: "userdata",
+            path,
+          }),
           serverRoot: path.join(baseDir, "resources", "app.asar"),
           appImagePath: Option.some(updatedAppImage),
         },
