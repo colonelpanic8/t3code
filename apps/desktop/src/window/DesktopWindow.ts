@@ -39,6 +39,7 @@ import {
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopBackendMode from "../app/DesktopBackendMode.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { m } from "../i18n/messages.ts";
@@ -396,6 +397,7 @@ export const make = Effect.gen(function* () {
   const previewPasskeys = yield* PreviewPasskeys.PreviewPasskeys;
   const primaryPaste = yield* DesktopPrimaryPaste.DesktopPrimaryPaste;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const backendMode = yield* DesktopBackendMode.DesktopBackendMode;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const windowState = yield* DesktopWindowState.DesktopWindowState;
   const electronApp = yield* ElectronApp.ElectronApp;
@@ -1105,7 +1107,7 @@ export const make = Effect.gen(function* () {
 
   const waitingForBackend = Effect.gen(function* () {
     if (yield* Ref.get(backendReadyRef)) return false;
-    return (yield* desktopSettings.get).localEnvironmentEnabled;
+    return yield* backendMode.localEnvironmentEnabled;
   });
 
   const createMainIfBackendReady = Effect.gen(function* () {

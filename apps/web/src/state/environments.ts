@@ -10,6 +10,9 @@ import * as Option from "effect/Option";
 import { useState } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
+import type { EnvironmentPresenceScope } from "../environmentPresence";
+import { isHostedStaticApp } from "../hostedPairing";
+import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   environmentPresentations,
@@ -74,6 +77,20 @@ export function usePrimaryEnvironmentId(): EnvironmentId | null {
 
 export function readPrimaryEnvironmentId(): EnvironmentId | null {
   return appAtomRegistry.get(primaryEnvironmentIdAtom);
+}
+
+let cachedAppOwnsLocalEnvironment: boolean | undefined;
+
+// Fixed for the life of the page: the hosting mode and the desktop launch mode
+// never change without a reload, so the desktop bridge is asked only once.
+export function appOwnsLocalEnvironment(): boolean {
+  cachedAppOwnsLocalEnvironment ??= !isHostedStaticApp() && !isLocalEnvironmentDisabled();
+  return cachedAppOwnsLocalEnvironment;
+}
+
+export function useEnvironmentPresenceScope(): EnvironmentPresenceScope {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  return { primaryEnvironmentId, ownsLocalEnvironment: appOwnsLocalEnvironment() };
 }
 
 /** The environment's state now, for handlers that should not re-render on every change. */
