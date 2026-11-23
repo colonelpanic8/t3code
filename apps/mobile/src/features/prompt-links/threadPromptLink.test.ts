@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 const fixture = vi.hoisted(() => ({
   applied: [] as { draftKey: string; text: string }[],
+  sent: [] as { threadId: string; text: string }[],
   root: undefined as NavigationState | undefined,
   detailOpens: 0,
 }));
@@ -14,7 +15,15 @@ vi.mock("./prompt-link-actions", () => ({
   applyLinkedPromptToThreadDraft: async (draftKey: string, prompt: { text: string }) => {
     fixture.applied.push({ draftKey, text: prompt.text });
   },
+  sendLinkedPromptToThread: async (target: { threadId: string }, prompt: { text: string }) => {
+    fixture.sent.push({ threadId: target.threadId, text: prompt.text });
+  },
 }));
+vi.mock("../../native/android-intents", () => ({ isLaunchedFromHistory: () => false }));
+vi.mock("../../state/preferences", async () => {
+  const { AsyncResult, Atom } = await import("effect/reactivity");
+  return { mobilePreferencesAtom: Atom.make(AsyncResult.success({})) };
+});
 vi.mock("../../lib/rootNavigation", () => ({
   rootNavigationRef: { getRootState: () => fixture.root },
 }));
@@ -48,14 +57,21 @@ const { fixtureDetail, fixtureDetailSource, fixtureShell } =
     fixtureDetail: Atom.Atom<unknown>;
     fixtureDetailSource: Atom.Writable<AsyncResult.AsyncResult<{ data: Option.Option<object> }>>;
   };
+const { mobilePreferencesAtom } = (await import("../../state/preferences")) as unknown as {
+  mobilePreferencesAtom: Atom.Writable<
+    AsyncResult.AsyncResult<{ linkPromptSendEnabled?: boolean }>
+  >;
+};
 const { resolvePendingThreadPromptLink, takeThreadPromptLink } = await import("./threadPromptLink");
 
 function setup() {
   fixture.applied.length = 0;
+  fixture.sent.length = 0;
   fixture.root = undefined;
   appAtomRegistry.reset();
   appAtomRegistry.set(fixtureShell, null);
   appAtomRegistry.set(fixtureDetailSource, AsyncResult.success({ data: Option.none() }));
+  appAtomRegistry.set(mobilePreferencesAtom, AsyncResult.success({}));
   fixture.detailOpens = 0;
 }
 
@@ -130,6 +146,37 @@ describe("takeThreadPromptLink", () => {
     expect(fixture.detailOpens).toBe(0);
     expect(fixture.applied).toEqual([]);
     resolvePendingThreadPromptLink(stack([{ key: "home", name: "Home" }]));
+  });
+
+  it("queues a send=1 prompt once preferences load with sending from links on", () => {
+    setup();
+    appAtomRegistry.set(mobilePreferencesAtom, AsyncResult.initial());
+    takeThreadPromptLink({
+      routes: [{ name: "Thread", params: { ...threadParams, prompt: "Fix the bug", send: "1" } }],
+    });
+    fixture.root = threadRoute;
+    appAtomRegistry.set(fixtureShell, { id: "thread-1" });
+    resolvePendingThreadPromptLink(threadRoute);
+    expect(fixture.sent).toEqual([]);
+
+    appAtomRegistry.set(
+      mobilePreferencesAtom,
+      AsyncResult.success({ linkPromptSendEnabled: true }),
+    );
+    expect(fixture.sent).toEqual([{ threadId: "thread-1", text: "Fix the bug" }]);
+    expect(fixture.applied).toEqual([]);
+  });
+
+  it("drafts a send=1 prompt while sending from links is off", () => {
+    setup();
+    takeThreadPromptLink({
+      routes: [{ name: "Thread", params: { ...threadParams, prompt: "Fix the bug", send: "1" } }],
+    });
+    fixture.root = threadRoute;
+    appAtomRegistry.set(fixtureShell, { id: "thread-1" });
+    resolvePendingThreadPromptLink(threadRoute);
+    expect(fixture.sent).toEqual([]);
+    expect(fixture.applied).toEqual([{ draftKey: expect.any(String), text: "Fix the bug" }]);
   });
 
   it("drops an earlier link to the thread when a newer one is invalid", () => {

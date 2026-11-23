@@ -220,6 +220,32 @@ export function AutoSettleSettingsRows(props: {
   );
 }
 
+export function LinkSettingsSection() {
+  const savePreferences = useAtomCommand(saveMobilePreferences);
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const linkPromptSendEnabled =
+    AsyncResult.isSuccess(preferences) && preferences.value.linkPromptSendEnabled === true;
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Links">
+        <SettingsSwitchRow
+          icon="link"
+          label="Send prompts from links"
+          value={linkPromptSendEnabled}
+          onValueChange={(value) => {
+            void savePreferences({ linkPromptSendEnabled: value });
+          }}
+        />
+      </SettingsSection>
+      <Text className="px-2 text-sm text-foreground-muted">
+        A thread link with send=1 sends its prompt right away instead of leaving it as a draft. Any
+        app on this device can open such a link.
+      </Text>
+    </View>
+  );
+}
+
 export function WorkingSectionSettings() {
   const gt = useGT();
   const savePreferences = useAtomCommand(saveMobilePreferences);
