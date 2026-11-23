@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cliArchiveTarCommand, newestCliReleaseVersion, parseChecksums } from "./cliRelease.ts";
+import {
+  cliArchiveTarCommand,
+  cliReleaseChannelOf,
+  newestCliReleaseVersion,
+  parseChecksums,
+} from "./cliRelease.ts";
 
 describe("cliRelease", () => {
   it("parses sha256sum output including binary-mode markers", () => {
@@ -38,5 +43,14 @@ describe("cliRelease", () => {
     expect(newestCliReleaseVersion(releases, "nightly")).toBe("1.2.4-nightly.20260912.7");
     expect(newestCliReleaseVersion(releases, "stable")).toBe("1.2.3");
     expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
+  });
+
+  it("classifies prerelease channels with or without build metadata", () => {
+    expect(cliReleaseChannelOf("0.1.1-nightly.20261019.3348")).toBe("nightly");
+    expect(cliReleaseChannelOf("0.1.1-nightly.20261019.3348+17.g1451e7cb.assembly.0a1b2c3d")).toBe(
+      "nightly",
+    );
+    expect(cliReleaseChannelOf("0.1.1-preview.20261019.2+3.gabc")).toBe("preview");
+    expect(cliReleaseChannelOf("0.1.1+3.gabc")).toBe("stable");
   });
 });
