@@ -52,7 +52,11 @@ import { readBootstrapEnvelope } from "../bootstrap.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "../os-jank.ts";
-import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
+import {
+  isProcessAlive,
+  isRespondingServerRuntime,
+  readPersistedServerRuntimeState,
+} from "../serverRuntimeState.ts";
 import { isServerOwnershipHeld } from "../serverOwnership.ts";
 import { readServerConfigFile } from "./serverConfigFile.ts";
 import { resolveHostCliCommand } from "./invocation.ts";
@@ -851,6 +855,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
     readonly rejectRunningServer?: boolean;
     readonly storageHost?: StorageHost;
+    readonly intent?: "start-server" | "manage-auth";
     readonly selectAutomaticPort?: (
       preferred: number,
     ) => Effect.Effect<number, NetService.NetError | CliError.UserError>;
@@ -932,28 +937,39 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     mode === "web" && devUrl !== undefined ? yield* DevAuthTokenConfig : undefined;
   const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
   const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
-  // An interactive CLI must not start over a discovered server. Lifetime locking
-  // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
-  if (options?.rejectRunningServer && mode === "web") {
-    const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
-    // A killed container can leave a record whose PID is now ours or an unrelated process's.
-    // Lock-aware records are live only while their owner still holds the lock.
-    if (
-      Option.isSome(runtime) &&
-      runtime.value.pid > 0 &&
-      runtime.value.pid !== process.pid &&
-      isProcessAlive(runtime.value.pid) &&
-      (runtime.value.ownerId === undefined ||
-        isServerOwnershipHeld(derivedPaths.serverRuntimeStatePath))
-    ) {
-      // Bare `t3 pair` prefers a linked worktree's `.t3`, so always name this home.
-      const { command: pairCommand } = yield* resolveHostCliCommand("pair", [
-        "--base-dir",
-        baseDir,
-      ]);
-      return yield* new CliError.UserError({
-        cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). To open it, run \`${pairCommand}\` and open the pairing URL it prints. To start another server, stop this one first or use a different --base-dir.`,
-      });
+  if (options?.intent !== "manage-auth") {
+    // An interactive CLI must not start over a discovered server. Lifetime locking
+    // and supervisor handoff are separate; this preflight cannot arbitrate two starts.
+    if (options?.rejectRunningServer && mode === "web") {
+      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+      // A killed container can leave a record whose PID is now ours or an unrelated process's.
+      // Lock-aware records are live only while their owner still holds the lock.
+      if (
+        Option.isSome(runtime) &&
+        runtime.value.pid > 0 &&
+        runtime.value.pid !== process.pid &&
+        isProcessAlive(runtime.value.pid) &&
+        (runtime.value.ownerId === undefined ||
+          isServerOwnershipHeld(derivedPaths.serverRuntimeStatePath))
+      ) {
+        // Bare `t3 pair` prefers a linked worktree's `.t3`, so always name this home.
+        const { command: pairCommand } = yield* resolveHostCliCommand("pair", [
+          "--base-dir",
+          baseDir,
+        ]);
+        return yield* new CliError.UserError({
+          cause: `A T3 Code server is already running for ${baseDir} (pid ${runtime.value.pid}, ${runtime.value.origin}). To open it, run \`${pairCommand}\` and open the pairing URL it prints. To start another server, stop this one first or use a different --base-dir.`,
+        });
+      }
+    } else {
+      // Supervised (`t3 serve`) and desktop-spawned servers restart after crashes,
+      // so they yield only to a server that still answers at its recorded origin.
+      const runtime = yield* readPersistedServerRuntimeState(derivedPaths.serverRuntimeStatePath);
+      if (Option.isSome(runtime) && (yield* isRespondingServerRuntime(runtime.value))) {
+        return yield* new CliError.UserError({
+          cause: `Another T3 Code server (pid ${runtime.value.pid}, ${runtime.value.origin}) already owns ${baseDir}. Two servers sharing one T3 home corrupt its state. Stop that server or use a different --base-dir.`,
+        });
+      }
     }
   }
   yield* fs.makeDirectory(cwd, { recursive: true });
@@ -1206,6 +1222,7 @@ export const resolveCliAuthConfig = (
       lan: Option.none(),
     },
     cliLogLevel,
+    { intent: "manage-auth" },
   );
   // Logs go to stdout, where --json and --token-only print, and resolving can
   // log, for example when it sweeps abandoned attachment uploads.
