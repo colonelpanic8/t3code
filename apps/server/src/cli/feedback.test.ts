@@ -228,6 +228,8 @@ it.effect("reads layered feedback settings before opening a database", () =>
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-feedback-layers-" });
     const shared = path.join(baseDir, "shared.json");
     yield* fs.writeFileString(shared, '{"agentFeedback":{"mode":"auto"}}');
+    const managed = path.join(baseDir, "managed.json");
+    yield* fs.writeFileString(managed, '{"agentFeedback":{"mode":"auto"}}');
     const env = { T3CODE_PORT: "3773", T3CODE_SERVER_SHARED_SETTINGS_FILE: shared };
     const run = (env: Record<string, string>) =>
       Command.runWith(feedbackCommand, { version: "0.0.0" })([
@@ -247,6 +249,9 @@ it.effect("reads layered feedback settings before opening a database", () =>
     yield* fs.writeFileString(settings, local);
     const error = yield* run(env).pipe(Effect.flip);
     expect(String(error)).toContain(FEEDBACK_OFF_MESSAGE);
+    yield* run({ ...env, T3CODE_MANAGED_SETTINGS_FILE: managed });
+    const managedOutput = yield* TestConsole.logLines;
+    expect(managedOutput.at(-1)).toBe("[]");
     expect(yield* fs.readFileString(settings)).toBe(local);
     expect(yield* fs.exists(path.join(stateDir, "statev2.sqlite"))).toBe(false);
   }).pipe(
