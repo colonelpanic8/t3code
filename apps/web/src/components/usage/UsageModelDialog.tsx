@@ -1,6 +1,7 @@
 import { T, useGT, useLocale, Var } from "gt-react";
 import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type ModelTotals } from "@t3tools/shared/usageMerge";
+import type { UsageTimeGrouping } from "@t3tools/shared/usagePivot";
 
 import { mergeAnsweredUsage, type EnvironmentUsageStatus } from "../../state/usage";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
@@ -14,7 +15,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { UsageProviderChart, type UsageChartMetric } from "./UsageProviderChart";
+import { UsageChart, type UsageChartMetric } from "./UsageChart";
 import { UsageShareBar } from "./UsageShareBar";
 import {
   cacheHitRate,
@@ -24,11 +25,13 @@ import {
   tokenTypeSegments,
 } from "./usageBreakdown";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
+import { buildUsageChartSeries } from "./usageSeries";
+
+const BY_PROVIDER = ["provider"] as const;
 
 export interface UsageChartWindow {
-  readonly days: readonly string[];
-  readonly hours: readonly string[];
-  readonly resolution: "day" | "hour";
+  readonly periods: readonly string[];
+  readonly grouping: UsageTimeGrouping;
   readonly timeZone: string;
   readonly referenceTime: string | undefined;
   readonly hour12: boolean;
@@ -55,9 +58,17 @@ export function UsageModelDialog({
     environments,
     (bucket) => bucket.provider === model.provider && bucket.model === model.model,
   );
-  const providers = [model.provider];
   const presentation = PROVIDER_PRESENTATION[model.provider];
   const costUnknown = isModelCostUnknown(model);
+  // Unpriced cost is unknown, not zero, so its trend shows tokens.
+  const chartMetric = costUnknown ? "tokens" : metric;
+  const chartSeries = buildUsageChartSeries(
+    usage.entries,
+    BY_PROVIDER,
+    chartWindow.grouping,
+    chartWindow.periods,
+    chartMetric,
+  );
   const hitRate = cacheHitRate(model);
   const perMillion = costPerMillionTokens(model);
   const stats = [
@@ -104,16 +115,11 @@ export function UsageModelDialog({
               ))}
             </dl>
 
-            {/* Unpriced cost is unknown, not zero, so its trend shows tokens. */}
-            <UsageProviderChart
-              providers={providers}
-              days={chartWindow.days}
-              daily={usage.daily}
-              hours={chartWindow.hours}
-              hourly={usage.hourly}
-              metric={costUnknown ? "tokens" : metric}
+            <UsageChart
+              series={chartSeries}
+              grouping={chartWindow.grouping}
+              metric={chartMetric}
               referenceTime={chartWindow.referenceTime}
-              resolution={chartWindow.resolution}
               timeZone={chartWindow.timeZone}
               hour12={chartWindow.hour12}
             />
