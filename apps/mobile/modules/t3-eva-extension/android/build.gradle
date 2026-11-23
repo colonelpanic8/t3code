@@ -1,0 +1,24 @@
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+group = 'com.t3tools.evaextension'
+version = '0.0.0'
+
+android {
+  namespace 'expo.modules.t3evaextension'
+  compileSdk rootProject.ext.compileSdkVersion
+  defaultConfig {
+    minSdkVersion rootProject.ext.minSdkVersion
+    targetSdkVersion rootProject.ext.targetSdkVersion
+  }
+  buildFeatures {
+    aidl true
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+  // ReactHost and HeadlessJsTaskContext for AssistantRuntime.
+  implementation 'com.facebook.react:react-android'
+  testImplementation 'junit:junit:4.13.2'
+}
