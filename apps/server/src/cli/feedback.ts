@@ -23,8 +23,8 @@ import {
 import {
   authLocationFlags,
   type CliAuthLocationFlags,
-  projectLocationFlags,
   resolveCliAuthConfig,
+  serverLocationFlags,
 } from "./config.ts";
 import {
   jsonFlag,
@@ -119,7 +119,7 @@ const feedbackListCommand = Command.make("list", { ...authLocationFlags, json: j
 );
 
 export const feedbackCommand = Command.make("feedback", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   kind: Flag.Literals("kind", FeedbackInput.fields.kind.literals).pipe(
     Flag.withDescription("What went wrong."),
   ),
@@ -136,9 +136,9 @@ export const feedbackCommand = Command.make("feedback", {
   Command.withDescription(
     "Send feedback about T3 Code to the T3 team. Needs Agent feedback set to Automatic in Settings > Labs; to approve a report first, ask your agent in a thread.",
   ),
-  Command.withHandler(({ baseDir, kind, subject, expected, actual, workaround }) =>
+  Command.withHandler(({ kind, subject, expected, actual, workaround, ...location }) =>
     withThreadTools(
-      { baseDir, json: true, clientLabel: FEEDBACK_CLI_CLIENT_LABEL },
+      { ...location, json: true, clientLabel: FEEDBACK_CLI_CLIENT_LABEL },
       Effect.fn("cli.feedback.submit")(function* (tools) {
         const report = yield* tools.call(
           "t3_feedback",

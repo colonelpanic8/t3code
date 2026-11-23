@@ -14,10 +14,12 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as AutomaticPort from "./automaticPort.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
 
+/** Every location flag is present once the command line is parsed. */
+type ServerCommandFlags = Required<CliServerFlags>;
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
 const runServerCommand = Effect.fn("server.runServerCommand")(function* (
-  flags: CliServerFlags,
+  flags: ServerCommandFlags,
   options?: {
     readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
@@ -51,7 +53,7 @@ const runServerCommand = Effect.fn("server.runServerCommand")(function* (
 });
 
 export const runDefaultServerCommand = Effect.fn("server.runDefaultServerCommand")(function* (
-  flags: CliServerFlags,
+  flags: ServerCommandFlags,
 ) {
   if (Option.isSome(flags.cwd)) {
     const cwd = flags.cwd.value.trim();

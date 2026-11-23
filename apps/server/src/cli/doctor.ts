@@ -10,7 +10,7 @@ import * as BootService from "../cloud/bootService.ts";
 import * as DatabaseMaintenance from "../persistence/DatabaseMaintenance.ts";
 import * as ServerOwnership from "../serverOwnership.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
-import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
+import { serverLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import * as CliService from "./service.ts";
 
 // Pick the unit after rounding, so a size just under 1 GiB reads "1.00 GiB", not "1024.0 MiB".
@@ -193,7 +193,7 @@ export const runDoctor = Effect.fn("runDoctor")(function* (
 });
 
 export const doctorCommand = Command.make("doctor", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   fix: Flag.Boolean("fix").pipe(
     Flag.withDescription("Apply the recommended repairs without prompting."),
     Flag.withDefault(false),
