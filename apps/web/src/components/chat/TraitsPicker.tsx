@@ -548,6 +548,7 @@ export const TraitsPicker = memo(function TraitsPicker({
                 <ComposerControl
                   disabled={disabled}
                   aria-label={triggerLabel}
+                  data-chat-provider-traits-picker="true"
                   size={size}
                   className={cn(
                     isCodexStyle
