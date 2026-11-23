@@ -15,6 +15,7 @@ import { pendingBackgroundTurnItems } from "@t3tools/shared/orchestrationV2Pendi
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
@@ -189,6 +190,14 @@ function settleTurnItems(
   return changed ? { ...projection, turnItems, visibleTurnItems } : projection;
 }
 
+const RETRY_BASE_MILLIS = 250;
+const RETRY_CAP_NO_DATA_MILLIS = 2_000;
+const RETRY_CAP_WITH_DATA_MILLIS = 10_000;
+
+function retrySubscribeBackoff(attempt: number, capMillis: number): Duration.Duration {
+  return Duration.millis(Math.min(RETRY_BASE_MILLIS * 2 ** attempt, capMillis));
+}
+
 interface ThreadResumeSnapshot {
   readonly state: EnvironmentThreadState;
   readonly sequence: number;
@@ -308,6 +317,10 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         }),
         sequence: initialSequence,
       };
+  let hasData = Option.isSome(initialState.data) && initialState.data.value.messages.length > 0;
+  // A disk-cached detail can be persisted incomplete. Until the server confirms
+  // it, an empty one is reloaded instead of resumed.
+  let cachedDetailUnconfirmed = retained === undefined;
   const state = yield* SubscriptionRef.make(initialState);
   const canLoadHistory = Option.isSome(httpClient) && Option.isSome(historyController);
   const acceptsBoundedSocketSnapshots = yield* Ref.make(canLoadHistory);
@@ -467,6 +480,8 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       readonly history?: ThreadHistoryMeta;
     },
   ) {
+    hasData = thread.messages.length > 0;
+    cachedDetailUnconfirmed = false;
     const waiting = yield* Ref.get(awaitingCompletion);
     const sequence = yield* SubscriptionRef.get(lastSequence);
     // Atomic with concurrent history meta updates: never get-then-set the whole
@@ -515,6 +530,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     }));
 
   const setDeleted = Effect.fn("EnvironmentThreadState.setDeleted")(function* () {
+    hasData = false;
     yield* Ref.set(awaitingCompletion, false);
     yield* SubscriptionRef.set(state, {
       data: Option.none(),
@@ -682,6 +698,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     item: OrchestrationV2ThreadStreamItem,
   ) {
     if (item.kind === "synchronized") {
+      cachedDetailUnconfirmed = false;
       yield* Ref.set(awaitingCompletion, false);
       yield* SubscriptionRef.updateSome(state, (current) =>
         Option.isSome(current.data) &&
@@ -1107,7 +1124,12 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           !(yield* Ref.getAndSet(socketOpenTried, true));
         yield* Ref.set(socketOnlyOpen, socketOnly);
 
-        if (Option.isNone(current.data) && !socketOnly) {
+        if (
+          (Option.isNone(current.data) && !socketOnly) ||
+          (cachedDetailUnconfirmed &&
+            Option.isSome(current.data) &&
+            current.data.value.messages.length === 0)
+        ) {
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
             Effect.flatMap(
               Option.match({
@@ -1214,7 +1236,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           const retryOverHttp = !isAuthorizationFailure(cause) && (yield* failedSocketOnlyOpen);
           if (!retryOverHttp) yield* setStreamError(formatThreadError(cause));
         }),
-        retryExpectedFailureAfter: THREAD_SUBSCRIPTION_RETRY_DELAY,
+        retryExpectedFailureAfter: (attempt) =>
+          retrySubscribeBackoff(
+            attempt,
+            hasData ? RETRY_CAP_WITH_DATA_MILLIS : RETRY_CAP_NO_DATA_MILLIS,
+          ),
         resubscribe: Stream.merge(foregroundResubscriptions, Stream.fromQueue(resubscribes)),
       },
     ).pipe(
