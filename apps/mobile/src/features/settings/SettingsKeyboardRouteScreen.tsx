@@ -15,6 +15,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
 
 const SEND_MODIFIER = Platform.OS === "android" ? "Ctrl" : "Command";
 
@@ -48,6 +50,7 @@ export function SettingsKeyboardRouteScreen() {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomCommand(saveMobilePreferences);
   const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
+  const managed = useManagedPreferenceKeys().has("composerEnterBehavior");
   const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.composerEnterBehavior ?? DEFAULT_COMPOSER_ENTER_BEHAVIOR)
     : null;
@@ -69,13 +72,14 @@ export function SettingsKeyboardRouteScreen() {
               description={m(option.description)}
               selected={selectedBehavior === option.behavior}
               separated={index > 0}
-              disabled={!preferencesReady}
+              disabled={!preferencesReady || managed}
               onPress={() => {
                 void savePreferences({ composerEnterBehavior: option.behavior });
               }}
             />
           ))}
         </SettingsSection>
+        {managed ? <ManagedBySettingsFeedNote /> : null}
         <Text className="px-2 text-sm text-foreground-muted">
           <T>Applies to the composer when a hardware keyboard is connected.</T>
         </Text>
