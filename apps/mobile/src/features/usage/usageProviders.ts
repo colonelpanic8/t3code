@@ -1,4 +1,5 @@
 import type { UsageProviderKind } from "@t3tools/contracts";
+import type { UsageSeriesPalette } from "@t3tools/client-runtime/usage-view";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { providerColors } from "./providerColors";
 
@@ -31,6 +32,31 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
 
 export function useProviderColors(): Record<UsageProviderKind, string> {
   return providerColors(useAppearancePreferences().themeAppearance);
+}
+
+/** Hues spaced for separation, at a lightness that reads on both themes. */
+const SERIES_COLORS = [
+  "#5e9ae7",
+  "#db7a58",
+  "#56ae6c",
+  "#b180d4",
+  "#bd9121",
+  "#00afb8",
+  "#d87495",
+  "#8ea43d",
+  "#898ee7",
+  "#d2833b",
+];
+
+export function useUsageSeriesPalette(): UsageSeriesPalette {
+  const providers = useProviderColors();
+  const { themeAppearance: scheme } = useAppearancePreferences();
+  return {
+    series: SERIES_COLORS,
+    other: scheme === "dark" ? "#6b6b6b" : "#a3a3a3",
+    total: providers.codex,
+    providers,
+  };
 }
 
 export function useUsageMixColors() {
