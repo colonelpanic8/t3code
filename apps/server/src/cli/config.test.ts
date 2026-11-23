@@ -87,6 +87,7 @@ const minimalDesktopFlags = (baseDir: string) => ({
   logWebSocketEvents: Option.none<boolean>(),
   tailscaleServeEnabled: Option.none<boolean>(),
   tailscaleServePort: Option.none<number>(),
+  sharedSettingsFile: Option.none<string>(),
   lan: Option.none<boolean>(),
 });
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
