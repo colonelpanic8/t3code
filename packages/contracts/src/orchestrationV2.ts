@@ -490,6 +490,12 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
   Schema.catchDecoding(() => Effect.succeedSome(null)),
 );
 
+/** Names a directory under the server's agent profiles directory. */
+export const AgentProfileId = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+);
+export type AgentProfileId = typeof AgentProfileId.Type;
+
 const OrchestrationV2LastTitleRegeneration = Schema.Struct({
   ...ThreadTitleRegenerationOutcome.fields,
   requestId: CommandId,
@@ -507,6 +513,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  agentProfile: Schema.optional(AgentProfileId),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -2396,6 +2403,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  agentProfile: Schema.optional(AgentProfileId),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -3311,6 +3319,7 @@ export const OrchestrationV2Command = Schema.Union([
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
     /** Only the server sets this, for a thread that is a workflow run's agent step. */
     workflowRun: Schema.optional(OrchestrationV2WorkflowOrigin),
+    agentProfile: Schema.optional(AgentProfileId),
     importedNativeThread: Schema.optional(
       Schema.Struct({
         ref: Schema.Struct({
@@ -4154,6 +4163,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  agentProfile: Schema.optional(AgentProfileId),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   initialMessage: Schema.optional(
     Schema.Struct({
