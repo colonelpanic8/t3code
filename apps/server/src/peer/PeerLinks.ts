@@ -101,7 +101,12 @@ export class PeerLinks extends Context.Service<
   {
     /** Whether the Linked environments beta (Settings → Labs) is on here. */
     readonly enabled: Effect.Effect<boolean>;
-    readonly link: (input: PeerLinkCreateInput) => Effect.Effect<PeerLink, PeerLinkError>;
+    readonly link: (
+      input: PeerLinkCreateInput,
+      options?: { readonly managedFingerprint?: string },
+    ) => Effect.Effect<PeerLink, PeerLinkError>;
+    /** Links a managed peer links file owns, with the fingerprint of the entry each came from. */
+    readonly listManaged: Effect.Effect<ReadonlyArray<ManagedPeerLinkRow>, PeerLinkError>;
     /**
      * Links like `link`, except that a machine whose link has not expired is
      * left as it is, with its pairing code unused.
@@ -136,6 +141,23 @@ export class PeerLinks extends Context.Service<
     ) => Effect.Effect<void>;
   }
 >()("t3/peer/PeerLinks") {}
+
+export interface ManagedPeerLinkRow {
+  readonly environmentId: EnvironmentId;
+  readonly fingerprint: string;
+  readonly expiresAt: DateTime.Utc;
+}
+
+/**
+ * A link a managed peer links file owns is told apart by its token's name, which
+ * also carries the fingerprint of the entry it was made from.
+ */
+const MANAGED_SECRET_PREFIX = "managed-peer-link-";
+const managedFingerprintOf = (secretName: string) => {
+  if (!secretName.startsWith(MANAGED_SECRET_PREFIX)) return undefined;
+  const [fingerprint] = secretName.slice(MANAGED_SECRET_PREFIX.length).split("-");
+  return fingerprint === undefined || fingerprint === "" ? undefined : fingerprint;
+};
 
 interface PeerLinkRow {
   readonly environment_id: string;
@@ -257,10 +279,15 @@ const make = Effect.gen(function* () {
   );
 
   /** A fresh name for one link's token; the row records it. */
-  const newSecretName = random.randomBytes(16).pipe(
-    Effect.map((bytes) => `peer-link-${Hex.encode(bytes)}`),
-    Effect.orDie,
-  );
+  const newSecretName = (managedFingerprint: string | undefined) =>
+    random.randomBytes(16).pipe(
+      Effect.map((bytes) =>
+        managedFingerprint === undefined
+          ? `peer-link-${Hex.encode(bytes)}`
+          : `${MANAGED_SECRET_PREFIX}${managedFingerprint}-${Hex.encode(bytes)}`,
+      ),
+      Effect.orDie,
+    );
 
   // Only the origin `peerOrigin` checked may receive a pairing code or token:
   // a redirect could forward them anywhere, including plain http.
@@ -510,6 +537,7 @@ const make = Effect.gen(function* () {
   const linkWith = Effect.fn("PeerLinks.link")(function* (
     input: PeerLinkCreateInput,
     keepLinked: boolean,
+    options?: { readonly managedFingerprint?: string },
   ) {
     if (!(yield* enabled)) {
       return yield* new PeerLinkError({ reason: "disabled", message: LINKED_ENVIRONMENTS_OFF });
@@ -571,7 +599,7 @@ const make = Effect.gen(function* () {
     };
     // The token goes under a name of its own before the row points at it,
     // so the row and its token are replaced together.
-    const secretName = yield* newSecretName;
+    const secretName = yield* newSecretName(options?.managedFingerprint);
     yield* secrets
       .set(secretName, new TextEncoder().encode(issued.access_token))
       .pipe(Effect.catch(failStorage));
@@ -609,10 +637,27 @@ const make = Effect.gen(function* () {
     return { link: linked, alreadyLinked: false };
   });
 
-  const link: PeerLinks["Service"]["link"] = (input) =>
-    linkWith(input, false).pipe(Effect.map((result) => result.link));
+  const link: PeerLinks["Service"]["link"] = (input, options) =>
+    linkWith(input, false, options).pipe(Effect.map((result) => result.link));
   const linkUnlessLinked: PeerLinks["Service"]["linkUnlessLinked"] = (input) =>
     linkWith(input, true);
+
+  const listManaged: PeerLinks["Service"]["listManaged"] = readRows.pipe(
+    Effect.map((rows) =>
+      rows.flatMap((row) => {
+        const fingerprint = managedFingerprintOf(row.secret_name);
+        return fingerprint === undefined
+          ? []
+          : [
+              {
+                environmentId: EnvironmentId.make(row.environment_id),
+                fingerprint,
+                expiresAt: DateTime.makeUnsafe(row.fenced === 1 ? row.expires_at : row.linked_at),
+              },
+            ];
+      }),
+    ),
+  );
 
   /** A peer's label follows its machine name, so the link takes the one its own address answers with. */
   const withLabel = (link: PeerLink, label: string) =>
@@ -817,6 +862,7 @@ const make = Effect.gen(function* () {
     enabled,
     link,
     linkUnlessLinked,
+    listManaged,
     list,
     names,
     get,
