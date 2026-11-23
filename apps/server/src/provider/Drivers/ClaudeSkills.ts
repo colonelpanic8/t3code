@@ -760,6 +760,8 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
   config: Pick<ClaudeSettings, "homePath"> & Partial<Pick<ClaudeSettings, "launchArgs">>,
   cwd?: string,
   environment?: NodeJS.ProcessEnv,
+  /** An agent profile's skills replace the user's skills and plugins. */
+  profileSkillsDirectory?: string,
 ): Effect.fn.Return<ReadonlyArray<ServerProviderSkill>, never, FileSystem.FileSystem | Path.Path> {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -793,7 +795,7 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
     ...(managedDirectory
       ? [{ directory: path.join(managedDirectory, ".claude", "skills"), scope: "user" as const }]
       : []),
-    { directory: path.join(configDirPath, "skills"), scope: "user" },
+    { directory: profileSkillsDirectory ?? path.join(configDirPath, "skills"), scope: "user" },
     ...(cwd ? [{ directory: path.join(cwd, ".claude", "skills"), scope: "project" as const }] : []),
     ...claudeLaunchArgDirectories(config.launchArgs)
       .filter((directory) => directory && (cwd || path.isAbsolute(directory)))
@@ -801,15 +803,19 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
         directory: path.join(path.resolve(cwd ?? ".", directory), ".claude", "skills"),
         scope: "project" as const,
       })),
-    ...inlinePlugins.roots,
-    ...(yield* discoverPluginSkillRoots(
-      configDirPath,
-      cwd,
-      enabledPlugins,
-      inlinePlugins.names,
-      syncedBucket,
-      env,
-    )),
+    ...(profileSkillsDirectory === undefined
+      ? [
+          ...inlinePlugins.roots,
+          ...(yield* discoverPluginSkillRoots(
+            configDirPath,
+            cwd,
+            enabledPlugins,
+            inlinePlugins.names,
+            syncedBucket,
+            env,
+          )),
+        ]
+      : []),
   ];
 
   const skillsByName = new Map<string, ServerProviderSkill>();
