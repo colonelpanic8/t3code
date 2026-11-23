@@ -13,9 +13,10 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import type { EnvironmentId } from "@t3tools/contracts";
+import * as Result from "effect/Result";
 import { useAtomValue } from "@effect/atom-react";
-import { useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Linking, Pressable, type ScrollViewInstance, StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
@@ -31,6 +32,8 @@ import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { CloudEnvironmentRows } from "./CloudEnvironmentRows";
 import { autoConnectReport, devAutoConnectAttemptAtom } from "./devAutoConnect";
 import { linkedEnvironmentPrefillAtom } from "./linkedEnvironmentPrefill";
+import { type FleetFileRequest, FleetEnrollmentSection } from "./FleetEnrollmentSection";
+import { parseFleetEnrollmentLink, parseFleetEnrollmentUrl } from "./fleetEnrollmentLink";
 import { splitEnvironmentSections } from "./environmentSections";
 import { leaveSettingsPage } from "../settings/settings-navigation";
 import { workspaceHasColumns } from "../layout/workspace/workspace-selection-store";
@@ -43,7 +46,11 @@ type ConnectionsNewRouteParams = {
   readonly routeFor?: EnvironmentId;
   /** A linked machine this app chose to pair with; its details come from app state, never the link. */
   readonly linked?: string;
+  readonly fleetEnrollment?: string;
 };
+
+const fleetRequestFromParam = (value: string | undefined): FleetFileRequest | null =>
+  value === undefined ? null : { link: parseFleetEnrollmentUrl(value) };
 
 export function ConnectionsNewRouteScreen({
   route,
@@ -53,6 +60,19 @@ export function ConnectionsNewRouteScreen({
   const routePairingUrl = __DEV__ ? (params.pairingUrl?.trim() ?? "") : "";
   const known = useAtomValue(linkedEnvironmentPrefillAtom);
   const linked = known !== null && known.environmentId === params.linked ? known : null;
+  // Unlike pairing prefill, an enrollment link needs no __DEV__ gate: it only
+  // opens the file, and joining still takes this device's own key and the
+  // user's confirmation of its machines.
+  const [fleetRequest, setFleetRequest] = useState(() =>
+    fleetRequestFromParam(params.fleetEnrollment),
+  );
+  // A link that arrives while this screen is open updates its params in place.
+  const [fleetRequestParams, setFleetRequestParams] = useState(route.params);
+  if (route.params !== fleetRequestParams) {
+    setFleetRequestParams(route.params);
+    const next = fleetRequestFromParam(route.params?.fleetEnrollment);
+    if (next !== null) setFleetRequest(next);
+  }
   // A new prefill link replaces whatever the form held.
   return (
     <PairingForm
@@ -60,6 +80,8 @@ export function ConnectionsNewRouteScreen({
       routePairingUrl={routePairingUrl}
       routeFor={params.routeFor ?? linked?.environmentId}
       linked={linked}
+      fleetRequest={fleetRequest}
+      onFleetRequest={setFleetRequest}
     />
   );
 }
@@ -68,15 +90,22 @@ function PairingForm({
   routePairingUrl,
   routeFor,
   linked,
+  fleetRequest,
+  onFleetRequest,
 }: {
   readonly routePairingUrl: string;
   readonly routeFor: EnvironmentId | undefined;
   readonly linked: { readonly label: string; readonly host: string | null } | null;
+  readonly fleetRequest: FleetFileRequest | null;
+  readonly onFleetRequest: (request: FleetFileRequest) => void;
 }) {
   const gt = useGT();
   const { connectionPairingUrl, onChangeConnectionPairingUrl, onConnectPress } =
     useRemoteConnections();
   const navigation = useNavigation();
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  const fleetSectionY = useRef<number | null>(null);
+  const fleetScrollPending = useRef(false);
   const insets = useSafeAreaInsets();
   const [initialPairing] = useState(() => parsePairingUrl(routePairingUrl || connectionPairingUrl));
   const [hostInput, setHostInput] = useState(linked?.host ?? initialPairing.host);
@@ -107,6 +136,13 @@ function PairingForm({
     setOwnAttempt(true);
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the native scroll view: the sheet opens short enough to hide the import section below the scanner
+  useEffect(() => {
+    if (fleetRequest === null) return;
+    if (fleetSectionY.current === null) fleetScrollPending.current = true;
+    else scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+  }, [fleetRequest]);
+
   const handleHostChange = (value: string) => {
     const pairing = parsePairingUrl(value);
     if (pairing.code) {
@@ -116,6 +152,11 @@ function PairingForm({
       setHostInput(value);
     }
     clearError();
+  };
+
+  const handleFleetDone = () => {
+    if (!navigation.canGoBack()) navigation.dispatch(StackActions.replace("Home"));
+    else leaveSettingsPage(navigation, workspaceHasColumns(), "SettingsEnvironments");
   };
 
   const handleCodeChange = (value: string) => {
@@ -147,6 +188,26 @@ function PairingForm({
 
     setScannerLocked(true);
 
+    const rejectScan = (message: string) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Dialog.alert(gt("Invalid QR code"), message);
+      setTimeout(() => {
+        setScannerLocked(false);
+      }, 600);
+    };
+
+    const fleetLink = parseFleetEnrollmentLink(data);
+    if (fleetLink !== null) {
+      if (Result.isFailure(fleetLink)) return rejectScan(fleetLink.failure);
+      if (routeFor !== undefined) {
+        return rejectScan("A fleet enrollment link can't add a route to a saved machine.");
+      }
+      onFleetRequest({ link: fleetLink });
+      setScanComplete(true);
+      setScannerLocked(false);
+      return;
+    }
+
     try {
       const pairingUrl = extractPairingUrlFromQrPayload(data);
       const { host, code } = parsePairingUrl(pairingUrl);
@@ -156,16 +217,11 @@ function PairingForm({
       setScanComplete(true);
       setScannerLocked(false);
     } catch (error) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Dialog.alert(
-        gt("Invalid QR code"),
+      rejectScan(
         error instanceof Error
           ? (errorDisplayMessage(error, m) ?? error.message)
           : gt("Scanned QR code was not recognized."),
       );
-      setTimeout(() => {
-        setScannerLocked(false);
-      }, 600);
     }
   };
 
@@ -217,6 +273,7 @@ function PairingForm({
       ]}
     >
       <ScrollView
+        ref={scrollRef}
         nestedScrollEnabled
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -236,6 +293,20 @@ function PairingForm({
               void handleScanPress();
             }}
           />
+
+          {routeFor === undefined ? (
+            <View
+              collapsable={false}
+              onLayout={(event) => {
+                fleetSectionY.current = event.nativeEvent.layout.y;
+                if (!fleetScrollPending.current) return;
+                fleetScrollPending.current = false;
+                scrollRef.current?.scrollTo({ y: fleetSectionY.current, animated: true });
+              }}
+            >
+              <FleetEnrollmentSection onDone={handleFleetDone} request={fleetRequest} />
+            </View>
+          ) : null}
 
           <View collapsable={false} className="gap-2">
             <Text className="px-4 text-sm font-t3-medium text-foreground-muted">
