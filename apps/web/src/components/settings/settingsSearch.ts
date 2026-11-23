@@ -1493,6 +1493,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("link peer another machine vps agents work there handoff pairing code")],
   },
   {
+    id: "environment-groups",
+    title: "Environment groups",
+    to: "/settings/connections",
+    searchTerms: [
+      "machines groups family visibility show hide session defaults declarative import",
+    ],
+  },
+  {
     id: "remote-environments",
     title: msg("Environments"),
     to: "/settings/connections",

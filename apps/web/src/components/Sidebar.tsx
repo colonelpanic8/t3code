@@ -2,6 +2,7 @@ import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { msg, T, useGT, useMessages } from "gt-react";
 import { m } from "../i18n/messages";
 import { attachSidebarTree } from "../lib/sidebarTree";
+import { environmentCatalog } from "../connection/catalog";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import {
@@ -920,6 +921,7 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const gt = useGT();
   const messages = useMessages();
+  const groupVisibility = useAtomValue(environmentCatalog.groups.stateAtom);
   const {
     projects,
     serverConfigs,
@@ -1087,6 +1089,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
 
   // A selection made under one scope can hold threads the next scope hides.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- group visibility changes outside the sidebar
+  useEffect(() => {
+    if (groupVisibility.hiddenEnvironmentIds.size > 0) clearSelection();
+  }, [clearSelection, groupVisibility.hiddenEnvironmentIds]);
+
   // The viewport outlives the scope and does not anchor, so a new list starts at the top.
   const setProjectScopeKeys = (keys: readonly string[]) => {
     clearSelection();
@@ -1104,7 +1111,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     groups: projectGroups,
     keys: persistedProjectScopeKeys,
     settings: projectGroupingSettings,
-    canClearMissingScope: allProjectSnapshotsReady && allProjectConfigsReady,
+    canClearMissingScope:
+      allProjectSnapshotsReady &&
+      allProjectConfigsReady &&
+      groupVisibility.hiddenEnvironmentIds.size === 0,
   }).filter((key) => !archivedProjectKeys.has(key));
   const chosenProjectGroups = scopeGroups.filter((project) =>
     chosenProjectScopeKeys.includes(project.projectKey),
@@ -1210,7 +1220,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const visibleDraftSessionCount = useComposerDraftStore((store) => {
     let count = 0;
     for (const [draftKey, session] of Object.entries(store.draftThreadsByThreadKey)) {
-      if (session.promotedTo != null) {
+      if (
+        session.promotedTo != null ||
+        groupVisibility.hiddenEnvironmentIds.has(session.environmentId)
+      ) {
         continue;
       }
       if (
