@@ -13,6 +13,7 @@ import { LocalEnvironmentList } from "./LocalEnvironmentList";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { LinkedEnvironmentsSection } from "./LinkedEnvironmentsSection";
 import { LinkSeveralEnvironmentsAction } from "./LinkSeveralEnvironments";
+import { EnvironmentGroupsSettings } from "./EnvironmentGroupsSettings";
 
 export function ConnectionsRouteScreen() {
   const gt = useGT();
@@ -54,6 +55,7 @@ export function ConnectionsRouteScreen() {
           paddingTop: 16,
         }}
       >
+        <EnvironmentGroupsSettings />
         <LocalEnvironmentList
           environments={connectedEnvironments}
           expandedId={expandedId}
