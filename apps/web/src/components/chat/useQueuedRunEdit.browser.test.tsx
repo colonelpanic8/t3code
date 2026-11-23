@@ -102,6 +102,7 @@ vi.mock("../../state/threads", async () => {
     environmentThreadShells: {
       threadShellAtom: () => Atom.make(null),
     },
+    environmentThreadStateAtom: () => Atom.make(null),
   };
 });
 
