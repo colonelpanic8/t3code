@@ -40,6 +40,7 @@ import {
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
   withoutRemovedCheckout,
+  upcomingSidebarScheduledTasks,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -48,7 +49,14 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import { resolveProjectExpanded } from "../uiStateStore";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
-import { EnvironmentId, ProjectId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  RunId,
+  ScheduledTaskId,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import {
   DEFAULT_INTERACTION_MODE,
@@ -64,6 +72,53 @@ import {
 } from "./sidebar/routeReveal";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
+
+describe("upcomingSidebarScheduledTasks", () => {
+  it("lists pending one-time runs in order and respects the environment and project scope", () => {
+    const remote = EnvironmentId.make("environment-remote");
+    const projectId = ProjectId.make("project");
+    const early = "2026-12-01T03:00:00.000Z";
+    const late = "2026-12-02T03:00:00.000Z";
+    const pending = {
+      id: ScheduledTaskId.make("once"),
+      title: "Run once",
+      projectId,
+      enabled: true,
+      schedule: { type: "once", runAt: late } as const,
+      nextRunAt: late,
+    };
+    const environments = [
+      {
+        environmentId: localEnvironmentId,
+        tasks: [
+          pending,
+          { ...pending, id: ScheduledTaskId.make("paused"), enabled: false },
+          { ...pending, id: ScheduledTaskId.make("done"), nextRunAt: null },
+          { ...pending, id: ScheduledTaskId.make("blocked"), blockedByPolicy: "Blocked" },
+          {
+            ...pending,
+            id: ScheduledTaskId.make("recurring"),
+            schedule: { type: "interval", everyMs: 60_000 } as const,
+          },
+        ],
+      },
+      {
+        environmentId: remote,
+        tasks: [
+          { ...pending, schedule: { type: "once", runAt: early } as const, nextRunAt: early },
+        ],
+      },
+    ];
+    const remoteRow = { environmentId: remote, id: pending.id, title: pending.title, runAt: early };
+    expect(upcomingSidebarScheduledTasks(environments, null)).toEqual([
+      remoteRow,
+      { ...remoteRow, environmentId: localEnvironmentId, runAt: late },
+    ]);
+    expect(
+      upcomingSidebarScheduledTasks(environments, new Set([`${remote}:${projectId}`])),
+    ).toEqual([remoteRow]);
+  });
+});
 
 describe("deleteSelectedThreadEntries", () => {
   const entries = [{ threadKey: "one" }, { threadKey: "two" }, { threadKey: "three" }] as const;
