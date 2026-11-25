@@ -46,7 +46,8 @@ interface ChatShortcutsInput {
   readonly threadFindActive: boolean;
   /** Takes type-to-focus keys and the composer and branch toolbar chords. */
   readonly composerRef: ComposerHandleRef;
-  readonly branchToolbarRef: { readonly current: BranchToolbarHandle | null };
+  /** The first mounted toolbar takes the branch chords. */
+  readonly branchToolbarRefs: ReadonlyArray<{ readonly current: BranchToolbarHandle | null }>;
   readonly closeThreadFind: () => void;
   readonly commands: ChatShortcutCommands;
   /** Handles commands not in `commands`, such as project scripts. */
@@ -99,7 +100,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     if (!command || (inSideChatPane && !SIDE_CHAT_PANE_COMMANDS.has(command))) return;
     const run =
       input.commands[command] ??
-      composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
+      composerShortcutCommands(input.composerRef, input.branchToolbarRefs)[command] ??
       input.fallback(command);
     if (!run) return;
     const handled = run({ event, terminalFocusOwner });
@@ -138,7 +139,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     let run: ChatShortcutHandler | undefined;
     if (command === "chat.find") run = input.commands[command];
     else if (command && event.target instanceof Node && composerElement?.contains(event.target)) {
-      run = composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command];
+      run = composerShortcutCommands(input.composerRef, input.branchToolbarRefs)[command];
     }
     if (!run || run({ event, terminalFocusOwner: null }) === false) return;
     event.preventDefault();
