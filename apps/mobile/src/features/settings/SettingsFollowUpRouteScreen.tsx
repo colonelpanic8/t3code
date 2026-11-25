@@ -12,6 +12,8 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsScreen } from "./components/SettingsScreen";
+import { ManagedBySettingsFeedNote } from "../settings-feed/ManagedBySettingsFeedNote";
+import { useManagedPreferenceKeys } from "../settings-feed/SettingsFeedSync";
 
 const FOLLOW_UP_OPTIONS: ReadonlyArray<{
   readonly behavior: FollowUpBehavior;
@@ -40,6 +42,7 @@ export function SettingsFollowUpRouteScreen() {
   const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR)
     : null;
+  const managed = useManagedPreferenceKeys().has("followUpBehavior");
 
   const content = (
     <ScrollView
@@ -57,13 +60,14 @@ export function SettingsFollowUpRouteScreen() {
             description={m(option.description)}
             selected={selectedBehavior === option.behavior}
             separated={index > 0}
-            disabled={!preferencesReady}
+            disabled={!preferencesReady || managed}
             onPress={() => {
               void savePreferences({ followUpBehavior: option.behavior });
             }}
           />
         ))}
       </SettingsSection>
+      {managed ? <ManagedBySettingsFeedNote /> : null}
       <Text className="px-2 text-sm text-foreground-muted">
         <T>
           Long-press the send button to use the other option for a single message. With a hardware
