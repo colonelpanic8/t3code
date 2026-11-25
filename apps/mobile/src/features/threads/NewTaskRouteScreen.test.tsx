@@ -35,8 +35,12 @@ const harness = vi.hoisted(() => ({
     goBack: vi.fn(),
     getState: () => ({
       routeNames: ["Thread", "NewTaskProject"],
-      index: 1,
-      routes: [{ name: "Thread", params: { draft: {} } }, { name: "NewTaskProject" }],
+      index: 2,
+      routes: [
+        { name: "Thread", params: { draft: {} } },
+        { name: "NewTaskProject" },
+        { name: "NewTaskProject", params: { environmentId } },
+      ],
     }),
     getParent: () => undefined,
     canGoBack: () => true,
@@ -69,7 +73,10 @@ vi.mock("gt-react-native", () => ({
   useMessages: () => (text: string) => text,
 }));
 vi.mock("@react-navigation/native", () => ({
-  StackActions: { push: (name: string) => ({ type: "PUSH", name }) },
+  StackActions: {
+    push: (name: string) => ({ type: "PUSH", name }),
+    popTo: (name: string, params?: object) => ({ type: "POP_TO", payload: { name, params } }),
+  },
   useFocusEffect: (effect: () => () => void) => React.useEffect(effect, [effect]),
   useIsFocused: () => true,
   useNavigation: () => harness.navigation,
@@ -96,21 +103,21 @@ vi.mock("../../components/ui/AppText", () => ({
   AppText: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("../../components/ProjectFavicon", () => ({ ProjectFavicon: () => null }));
-vi.mock("../connection/environmentStatusText", () => ({ runtimeConnectionErrorText: () => null }));
 vi.mock("../../state/entities", () => ({
   useProjects: () => [regular, scratch],
   useServerConfigs: () => new Map([[environmentId, { scratchWorkspaceRoot: "/scratch" }]]),
 }));
 vi.mock("../../state/projects", () => ({ projectEnvironment: { openScratch: {} } }));
+vi.mock("../../state/shell", () => ({
+  useEnvironmentShellAvailability: () => ({ status: "live", error: null, hasSnapshot: true }),
+}));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => harness.openScratch }));
 vi.mock("../../state/use-composer-drafts", () => ({ retargetSavedNewTaskDraft: vi.fn() }));
-vi.mock("../../state/use-remote-environment-registry", () => ({
-  useRemoteConnectionStatus: () => ({
-    connectedEnvironments: [{ environmentId, connectionState: "connected" }],
-  }),
-}));
 vi.mock("../../state/workspace", () => ({
-  useWorkspaceState: () => ({ state: { hasReadyEnvironment: true } }),
+  useWorkspaceState: () => ({
+    environments: [{ environmentId, environmentLabel: "Local", connectionState: "connected" }],
+    state: { hasReadyEnvironment: true },
+  }),
 }));
 vi.mock("../sharing/IncomingShareProvider", () => ({
   useIncomingShare: () => ({ getShare: () => null, releaseShareReservation: vi.fn() }),
@@ -131,7 +138,6 @@ vi.mock("./new-task-flow-provider", () => ({
         archived: false,
       },
     ],
-    selectedEnvironmentId: environmentId,
     setProject: harness.setProject,
   }),
 }));
@@ -146,7 +152,7 @@ it("keeps the project picked while No project was still opening", async () => {
   const container = document.createElement("div");
   const root = createRoot(container);
   using _root = { [Symbol.dispose]: () => act(() => root.unmount()) };
-  act(() => root.render(<NewTaskRouteScreen route={{ params: undefined } as never} />));
+  act(() => root.render(<NewTaskRouteScreen route={{ params: { environmentId } } as never} />));
   const row = (label: string) => container.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
 
   act(() => row("No project").click());
@@ -154,7 +160,9 @@ it("keeps the project picked while No project was still opening", async () => {
   await act(async () => opening.resolve({ _tag: "Success", value: scratch }));
 
   expect(harness.setProject.mock.calls).toEqual([[regular]]);
-  expect(harness.navigation.goBack).toHaveBeenCalledTimes(1);
+  expect(harness.navigation.dispatch.mock.calls).toEqual([
+    [{ type: "POP_TO", payload: { name: "Thread", params: { draft: {} } } }],
+  ]);
 });
 
 function renderWithSavedDraft() {
@@ -171,7 +179,7 @@ function renderWithSavedDraft() {
 
   const container = document.createElement("div");
   const root = createRoot(container);
-  const route = { params: { draftId: "existing-draft" } } as never;
+  const route = { params: { environmentId, draftId: "existing-draft" } } as never;
   act(() => root.render(<NewTaskRouteScreen key="first" route={route} />));
   return {
     opening,
