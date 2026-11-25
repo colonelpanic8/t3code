@@ -185,6 +185,8 @@ export const T3_CLI_COMMANDS: ReadonlyArray<string> = [
   "t3 update",
   "t3 install",
   "t3 uninstall",
+  "t3 storage",
+  "t3 storage migrate",
   "t3 theme",
   "t3 theme set",
   "t3 theme clear",
