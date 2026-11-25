@@ -44,6 +44,9 @@ vi.mock("../../state/preferences", () => ({
   mobilePreferencesAtom: {},
   saveMobilePreferences: {},
 }));
+vi.mock("../settings-feed/SettingsFeedSync", () => ({
+  useManagedPreferenceKeys: () => new Set(),
+}));
 vi.mock("./components/AutoSettleDaysField", () => ({ AutoSettleDaysField: () => null }));
 vi.mock("./components/IssueTrackerSection", () => ({ IssueTrackerSection: () => null }));
 vi.mock("./components/SourceControlProvidersSection", () => ({
