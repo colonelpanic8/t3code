@@ -6,7 +6,8 @@ Server observability has three outputs: pretty stdout logs (not persisted locall
 
 Default trace paths (`server.trace.ndjson`):
 
-- Production / explicit `--home-dir` / `T3CODE_HOME`: `<home>/userdata/logs/server.trace.ndjson`
+- Production: find the path in **Settings → Diagnostics → Storage Locations**. New Linux installations default to `${XDG_STATE_HOME:-$HOME/.local/state}/t3code/logs/server.trace.ndjson`.
+- Legacy / explicit `T3CODE_HOME`: `<home>/userdata/logs/server.trace.ndjson`.
 - Linked worktree dev run: `<worktree>/.t3/userdata/logs/server.trace.ndjson`
 - Non-worktree dev run: `~/.t3/dev/logs/server.trace.ndjson`
 
