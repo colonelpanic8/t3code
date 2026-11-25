@@ -10,7 +10,7 @@ import { msg } from "gt-react";
 import { m, type MessageResolver } from "../i18n/messages";
 import { channelSwitchLabel } from "./sidebar/updateEverything.logic";
 
-export type DesktopUpdateButtonAction = "download" | "install" | "none";
+export type DesktopUpdateButtonAction = "download" | "install" | "open" | "none";
 
 const DEFAULT_DESKTOP_RELEASE_REPOSITORY = "pingdotgg/t3code";
 const GITHUB_REPOSITORY_SEGMENT = /^[A-Za-z0-9._-]+$/u;
@@ -54,6 +54,9 @@ export function getDesktopUpdateReleaseHistoryUrl(
 export function resolveDesktopUpdateButtonAction(
   state: DesktopUpdateState,
 ): DesktopUpdateButtonAction {
+  if (state.manualUpdate !== undefined) {
+    return state.status === "available" && state.manualUpdate.url !== null ? "open" : "none";
+  }
   if (
     state.downloadedVersion &&
     (state.status === "downloaded" ||
@@ -123,6 +126,9 @@ export function getDesktopUpdateButtonTooltip(
     return resolve(
       msg("Update {version} did not apply. Click to retry.", { version: state.notAppliedVersion }),
     );
+  }
+  if (state.manualUpdate !== undefined && state.status === "available") {
+    return `Assembly build ${state.availableVersion ?? "update"} is published. Rebuild to update.`;
   }
   if (
     (state.status === "available" || state.status === "error") &&
