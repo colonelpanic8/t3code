@@ -127,9 +127,9 @@ describe("KeybindingsSettings.logic", () => {
       const binding = compileResolvedKeybindingsConfig([{ command, key: "mod+enter" }]);
       const labels = (mode: "enter" | "mod-enter" | "mod-enter-multiline") =>
         buildKeybindingRows(binding, "Win32", mode)[0]?.previewLabels;
-      expect(labels("enter")).toEqual(["Ctrl+Enter"]);
-      expect(labels("mod-enter")).toEqual(["Ctrl+Shift+Enter"]);
-      expect(labels("mod-enter-multiline")).toEqual(["Ctrl+Enter", "Ctrl+Shift+Enter"]);
+      expect(labels("enter")).toEqual(["⌃⏎"]);
+      expect(labels("mod-enter")).toEqual(["⌃⇧⏎"]);
+      expect(labels("mod-enter-multiline")).toEqual(["⌃⏎", "⌃⇧⏎"]);
     }
     const shiftedBindings = compileResolvedKeybindingsConfig([
       { command: "chat.new", key: "mod+shift+enter" },
