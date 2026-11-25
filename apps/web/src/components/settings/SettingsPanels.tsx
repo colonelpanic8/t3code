@@ -869,6 +869,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="notifications" title={gt("Notifications")}>
         <NotificationSettings />
         <SettingsRow
+          settingKeys={["inAppNotificationsEnabled"]}
           {...setting("in-app-notifications")}
           description={
             <T>
@@ -888,6 +889,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="sidebar" title={gt("Sidebar")}>
         <SettingsRow
+          settingKeys={["sidebarProjectGroupingMode"]}
           {...setting("project-grouping")}
           description={<T>Combine matching repositories across environments.</T>}
           resetAction={
@@ -923,6 +925,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["sidebarProjectSortOrder"]}
           {...setting("project-order")}
           description={<T>Order of projects in the sidebar project picker and command palette.</T>}
           resetAction={
@@ -963,6 +966,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["sidebarWorkingShelfEnabled"]}
           {...setting("working-shelf")}
           description={
             <T>
@@ -1018,6 +1022,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="confirmations" title={gt("Confirmations")}>
         <SettingsRow
+          settingKeys={["confirmThreadUnpin"]}
           {...setting("unpin-confirmation")}
           description={<T>Ask before unpinning a thread from the pinned section.</T>}
           resetAction={
@@ -1043,6 +1048,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["confirmThreadArchive"]}
           {...setting("archive-confirmation")}
           description={
             <T>Require a second click on the inline archive action before a thread is archived.</T>
@@ -1070,6 +1076,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["confirmThreadDelete"]}
           {...setting("delete-confirmation")}
           description={<T>Ask before deleting a thread and its chat history.</T>}
           resetAction={
@@ -1121,6 +1128,7 @@ export function GeneralSettingsPanel() {
         />
         {isElectron ? (
           <SettingsRow
+            settingKeys={["confirmQuit"]}
             {...setting("quit-confirmation")}
             description={<T>Hold mode also quits on two quick presses.</T>}
             resetAction={
@@ -1166,6 +1174,7 @@ export function GeneralSettingsPanel() {
 
       <SettingsSection id="display" title={gt("Display")}>
         <SettingsRow
+          settingKeys={["language"]}
           {...setting("language")}
           description={<T>System default follows your browser or OS language.</T>}
           resetAction={
@@ -1210,6 +1219,7 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["timestampFormat"]}
           {...setting("time-format")}
           description={<T>System default follows your browser or OS clock preference.</T>}
           resetAction={
@@ -1278,6 +1288,7 @@ export function ChatSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection id="composer" title={gt("Composer")}>
         <SettingsRow
+          settingKeys={["composerRichTextEnabled"]}
           {...setting("composer-rich-text")}
           description={gt("Show formatted Markdown as you type.")}
           resetAction={
@@ -1304,6 +1315,7 @@ export function ChatSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["sendShortcut"]}
           {...setting("send-shortcut")}
           description={gt("Choose when Enter sends a prompt or inserts a new line")}
           resetAction={
@@ -1351,6 +1363,7 @@ export function ChatSettingsPanel() {
         />
         <AdvancedSettings targetIds={[setting("skills-in-slash-menu").id]}>
           <SettingsRow
+            settingKeys={["showSkillsInSlashMenu"]}
             {...setting("skills-in-slash-menu")}
             description={gt(
               "Also include skills in the / command menu. Skills always appear when you type $.",
@@ -1382,6 +1395,7 @@ export function ChatSettingsPanel() {
 
       <SettingsSection id="follow-ups" title={gt("Follow-ups")}>
         <SettingsRow
+          settingKeys={["followUpBehavior"]}
           {...setting("follow-up-behavior")}
           description={
             settings.sendShortcut === "mod-enter-multiline"
@@ -1672,6 +1686,7 @@ function DiffColorsSettingsRow() {
   const updateSettings = useUpdateScopedSettings();
   return (
     <SettingsRow
+      settingKeys={["diffColorScheme"]}
       {...setting("diff-color-scheme")}
       description={gt("Choose colors for additions and deletions, including change counts.")}
       resetAction={
@@ -1737,6 +1752,7 @@ export function DiffsSettingsPanel() {
     <SettingsPageContainer>
       <SettingsSection id="diffs" title={gt("Diffs")}>
         <SettingsRow
+          settingKeys={["diffLayout"]}
           {...setting("diff-layout")}
           description={gt(
             "Show diffs stacked or side by side. The toggle in the diff toolbar changes this too.",
@@ -1773,6 +1789,7 @@ export function DiffsSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffIgnoreWhitespace"]}
           {...setting("hide-whitespace-changes")}
           description={gt("Set whether the diff panel ignores whitespace-only edits by default.")}
           resetAction={
@@ -1798,6 +1815,7 @@ export function DiffsSettingsPanel() {
           }
         />
         <SettingsRow
+          settingKeys={["diffFilesCollapsed"]}
           {...setting("default-diff-file-state")}
           description={gt(
             "Start with files expanded or collapsed when opening diffs or a pull request's Code tab.",
@@ -1848,6 +1866,7 @@ export function DiffsSettingsPanel() {
 
       <SettingsSection id="pull-requests" title={gt("Pull requests")}>
         <SettingsRow
+          settingKeys={["proactivePanelsEnabled"]}
           {...setting("proactive-panels")}
           description={gt(
             "Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines.",

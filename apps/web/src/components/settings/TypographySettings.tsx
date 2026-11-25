@@ -10,6 +10,7 @@ import {
   MIN_INTERFACE_FONT_SIZE,
   MIN_PROMPT_FONT_SIZE,
   MIN_TERMINAL_FONT_SIZE,
+  type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import * as Schema from "effect/Schema";
 import { useGT } from "gt-react";
@@ -76,6 +77,7 @@ function InterfaceFontRow({ preview }: { preview?: ReactNode }) {
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilySans", "fontSizeInterface"]}
       {...searchableSetting("interface-font")}
       resetLabel={gt("Reset interface font to default")}
       description={gt("Everything outside code blocks and the terminal.")}
@@ -110,6 +112,7 @@ function PromptFontRow() {
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyComposer", "fontSizePrompt"]}
       {...searchableSetting("prompt-font")}
       resetLabel={gt("Reset prompt font to default")}
       description={gt("Only the box you write prompts in. Mono works well here.")}
@@ -154,6 +157,7 @@ function CodeFontRow({
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyCode", "fontSizeCode"]}
       {...searchableSetting("code-font")}
       {...(title !== undefined ? { title } : {})}
       resetLabel={resetLabel ?? gt("Reset code font to default")}
@@ -190,6 +194,7 @@ function TerminalFontRow() {
   const defaults = useFontDefaultFamilies();
   return (
     <FontFamilySettingsRow
+      settingKeys={["fontFamilyTerminal", "fontSizeTerminal"]}
       {...searchableSetting("terminal-font")}
       resetLabel={gt("Reset terminal font to default")}
       description={gt("Terminal output, independent from code blocks and diffs.")}
@@ -234,6 +239,7 @@ function FontSmoothingRow() {
   if (!isMacPlatform(navigator.platform)) return null;
   return (
     <SettingsRow
+      settingKeys={["fontSmoothing"]}
       {...searchableSetting("font-smoothing")}
       description={gt("Use thinner grayscale text smoothing instead of the macOS default.")}
       resetAction={
@@ -264,6 +270,7 @@ function WordWrapRow() {
   const updateSettings = useUpdateScopedSettings();
   return (
     <SettingsRow
+      settingKeys={["wordWrap"]}
       {...searchableSetting("word-wrap")}
       description={gt("Wrap long lines in code blocks, diffs, and file previews by default.")}
       resetAction={
@@ -399,8 +406,10 @@ function FontFamilySettingsRow({
   onReset,
   requireMonospace = false,
   size,
+  settingKeys,
 }: {
   id?: string;
+  settingKeys: readonly (keyof UnifiedSettings)[];
   title: string;
   resetLabel: string;
   description: string;
@@ -567,6 +576,7 @@ function FontFamilySettingsRow({
       {...(id !== undefined ? { id } : {})}
       title={title}
       description={description}
+      settingKeys={settingKeys}
       resetAction={resetAction}
       control={control}
     >
