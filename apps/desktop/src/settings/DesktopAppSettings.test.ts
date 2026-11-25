@@ -6,7 +6,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
-import * as Tracer from "effect/Tracer";
 
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -97,37 +96,6 @@ function writeSettingsPatch(patch: typeof DesktopSettingsPatch.Type) {
 }
 
 describe("DesktopSettings", () => {
-  it.effect("records one bounds operation span with its input attributes", () =>
-    Effect.gen(function* () {
-      const spans: Array<Tracer.Span> = [];
-      const tracer = Tracer.make({
-        span: (options) => {
-          const span = new Tracer.NativeSpan(options);
-          spans.push(span);
-          return span;
-        },
-      });
-      yield* withSettings(
-        Effect.gen(function* () {
-          const settings = yield* DesktopAppSettings.DesktopAppSettings;
-          yield* settings.setMainWindowBounds({ x: 10, y: 20, width: 900, height: 600 }, true);
-        }),
-      ).pipe(Effect.provideService(Tracer.Tracer, tracer));
-      const operationSpans = spans.filter(
-        (span) => span.name === "desktop.settings.setMainWindowBounds",
-      );
-      assert.lengthOf(operationSpans, 1);
-      assert.deepEqual(Object.fromEntries(operationSpans[0]!.attributes), {
-        x: 10,
-        y: 20,
-        width: 900,
-        height: 600,
-        isMaximized: true,
-      });
-      assert.equal(operationSpans[0]!.status._tag, "Ended");
-    }),
-  );
-
   it.effect(
     "persists disabling and re-enabling local execution without clearing backend settings",
     () =>
@@ -161,7 +129,7 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("keeps saved preferences when a read fails before a bounds save", () =>
+  it.effect("keeps saved preferences when a read fails before a settings save", () =>
     withSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -192,9 +160,7 @@ describe("DesktopSettings", () => {
         );
 
         yield* Effect.exit(settings.load);
-        yield* Effect.exit(
-          settings.setMainWindowBounds({ x: 10, y: 20, width: 900, height: 600 }, false),
-        );
+        yield* Effect.exit(settings.setUpdateChannel("nightly"));
 
         const persisted = yield* decodeDesktopSettingsPatch(
           yield* fileSystem.readFileString(environment.desktopSettingsPath),
@@ -253,7 +219,7 @@ describe("DesktopSettings", () => {
         );
 
         assert.isFalse((yield* settings.load).localEnvironmentEnabled);
-        yield* settings.setMainWindowBounds({ x: 10, y: 20, width: 800, height: 600 }, false);
+        yield* settings.setUpdateChannel("nightly");
         assert.include(
           yield* fileSystem.readFileString(environment.desktopSettingsPath),
           `"localEnvironmentEnabled":false`,
@@ -286,14 +252,18 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("persists sparse desktop settings documents", () =>
+  it.effect("keeps legacy window state when persisting sparse desktop settings", () =>
     withSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
+        yield* writeSettingsPatch({
+          mainWindowBounds: { x: -1200, y: 40, width: 400, height: 360 },
+          mainWindowMaximized: true,
+        });
 
-        yield* settings.setMainWindowBounds({ x: -1200, y: 40, width: 400, height: 360 }, true);
+        yield* settings.load;
         yield* settings.setServerExposureMode("network-accessible");
 
         const persisted = yield* decodeDesktopSettingsPatch(
