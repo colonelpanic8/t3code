@@ -954,6 +954,8 @@ const layerMakeRoutes = Layer.mergeAll(
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
   Layer.provide(ManagedPeerLinks.layer),
+  // Layer pipes take at most 20 arguments.
+).pipe(
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
   Layer.provide(layerPullRequestService),
   Layer.provide(layerThreadIssueService),
