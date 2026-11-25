@@ -5,6 +5,7 @@ import {
   useClientSettings,
   useClientSettingsHydrated,
   updateClientSettings,
+  useManagedClientSettings,
 } from "~/hooks/useSettings";
 import type { MessageResolver } from "~/i18n/messages";
 import type { EnvironmentPresentation } from "~/state/environments";
@@ -12,6 +13,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { EnvironmentRow, EnvironmentTransportLabel } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { MANAGED_SETTING_MESSAGE } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 
 const preferences = [
@@ -63,6 +65,9 @@ export function LoadBalancingSettings({
   const gt = useGT();
   const m = useMessages();
   const items = preferences.map((entry) => ({ ...entry, label: m(entry.label) }));
+  const managed = useManagedClientSettings();
+  const enabledManaged = Object.hasOwn(managed, "loadBalancingEnabled");
+  const weightsManaged = Object.hasOwn(managed, "loadBalancingWeights");
 
   if (environments.length < 2) return null;
 
@@ -71,16 +76,19 @@ export function LoadBalancingSettings({
     <FoldedSettingsSection
       id={id}
       title={title}
-      summary={
+      summary={[
         settings.loadBalancingEnabled
           ? summarizeLoadPreferences(environments, settings.loadBalancingWeights, m)
-          : gt("Off", { $context: "load balancing is turned off" })
-      }
+          : gt("Off", { $context: "load balancing is turned off" }),
+        enabledManaged || weightsManaged ? MANAGED_SETTING_MESSAGE : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       control={
         <Switch
           aria-label={gt("Automatically balance load")}
           checked={settings.loadBalancingEnabled}
-          disabled={!settingsHydrated}
+          disabled={!settingsHydrated || enabledManaged}
           onCheckedChange={(loadBalancingEnabled) => updateClientSettings({ loadBalancingEnabled })}
         />
       }
@@ -103,7 +111,7 @@ export function LoadBalancingSettings({
             value={loadPreferenceForWeight(
               settings.loadBalancingWeights[environment.environmentId],
             )}
-            disabled={!settingsHydrated || !settings.loadBalancingEnabled}
+            disabled={!settingsHydrated || !settings.loadBalancingEnabled || weightsManaged}
             onValueChange={(value) => {
               if (value === null) return;
               updateClientSettings({
