@@ -234,6 +234,7 @@ import {
   remoteProjectInputPlaceholder,
   reduceCommandPaletteSearchState,
   type SearchOverlayMode,
+  resolveBrowseTabCompletion,
 } from "./CommandPalette.logic";
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent, type PendingInputSelection } from "./CommandPaletteContent";
@@ -2751,6 +2752,30 @@ function OpenCommandPaletteDialog(props: {
           title: gt("Thread search is unavailable on this server."),
           description: gt("Update the server to enable it."),
         });
+      return;
+    }
+
+    const isPlainTab =
+      event.key === "Tab" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+
+    if (isBrowsing && isPlainTab) {
+      event.preventDefault();
+
+      if (relativePathNeedsActiveProject || (isBrowsePending && browseResult === null)) {
+        return;
+      }
+
+      const completion = resolveBrowseTabCompletion({
+        allowFirstEntryFallback: browsePath.filterQuery.length > 0,
+        exactEntry: exactBrowseEntry,
+        filteredEntries: visibleBrowseEntries,
+        highlightedItemValue,
+      });
+      if (completion?.kind === "up") {
+        void browseUp();
+      } else if (completion?.kind === "entry") {
+        void browseTo(completion.entry.name);
+      }
       return;
     }
 
