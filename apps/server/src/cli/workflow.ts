@@ -304,7 +304,7 @@ const signalCommand = Command.make("signal", {
 );
 
 const withdrawCommand = Command.make("withdraw", {
-  ...projectLocationFlags,
+  ...serverLocationFlags,
   run: Flag.String("run").pipe(Flag.withDescription("Run id.")),
   wait: Flag.String("wait").pipe(Flag.withDescription("The question's name in that run.")),
   reason: Flag.String("reason").pipe(
