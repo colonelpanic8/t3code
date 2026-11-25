@@ -1,6 +1,7 @@
 import { msg } from "gt-react";
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
-import type { UsageChartMetric } from "./UsageProviderChart";
+import { USAGE_ALL_TIME_DAYS } from "@t3tools/shared/usageFormat";
+import type { UsageChartMetric } from "./UsageChart";
 import { resolveShortcutCommand, type ShortcutEventLike } from "../../keybindings";
 
 export type UsageMetric = UsageChartMetric | "limits";
@@ -15,6 +16,7 @@ export const WINDOW_OPTIONS = [
   { days: 7, label: msg("7 days"), command: "usage.period.week" },
   { days: 30, label: msg("30 days"), command: "usage.period.month" },
   { days: 90, label: msg("90 days"), command: "usage.period.quarter" },
+  { days: USAGE_ALL_TIME_DAYS, label: msg("All time"), command: "usage.period.all" },
 ] as const;
 
 export function resolveUsageShortcut(
