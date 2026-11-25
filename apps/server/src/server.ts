@@ -978,8 +978,8 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(layerServerSettings),
   Layer.provide(PreviewAutomationBroker.layer),
   // One broker instance serves both the WebSocket voice RPCs and /mcp/voice.
-  Layer.provide(VoiceLiveService.layer),
-  Layer.provide(VoiceLiveToolExecutor.layer),
+  (layer) =>
+    layer.pipe(Layer.provide(VoiceLiveService.layer), Layer.provide(VoiceLiveToolExecutor.layer)),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
   Layer.provide(ProviderMaintenanceRunner.layer),
   Layer.provide(layerCommandReadiness),
