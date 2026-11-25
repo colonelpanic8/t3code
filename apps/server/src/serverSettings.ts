@@ -47,6 +47,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { normalizeServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { resolveSymlinkTarget } from "@t3tools/shared/symlink";
 import * as ServerConfig from "./config.ts";
 import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
@@ -81,7 +82,10 @@ export {
 } from "@t3tools/shared/serverSettings";
 
 const encodeServerSettings = Schema.encodeEffect(ServerSettings);
-const encodeServerSettingsJson = Schema.encodeUnknownEffect(fromJsonStringPretty(ServerSettings));
+const encodeServerSettingsDocument = Schema.encodeUnknownEffect(ServerSettings);
+const encodeSettingsDocumentJson = Schema.encodeEffect(
+  fromJsonStringPretty(Schema.Record(Schema.String, Schema.Unknown)),
+);
 const decodeServerSettings = Schema.decodeUnknownEffect(ServerSettings);
 
 const textEncoder = new TextEncoder();
@@ -413,22 +417,82 @@ const PersistedServerSettings = Schema.Struct({
     ),
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
-// Parse first and decode second, so a managed policy can fill its defaults in between.
-const decodeSettingsFileJsonExit = Schema.decodeUnknownExit(fromLenientJson(Schema.Unknown));
 const decodePersistedServerSettingsExit = Schema.decodeUnknownExit(PersistedServerSettings);
+// Parse first and decode second, so a managed policy can fill its defaults in between.
+const decodeSettingsDocumentExit = Schema.decodeUnknownExit(
+  fromLenientJson(Schema.Record(Schema.String, Schema.Unknown)),
+);
+
+interface SharedSettings {
+  readonly document: SettingsDocument;
+  readonly baseline: ServerSettings;
+  readonly status: "loaded" | "missing" | "unusable";
+}
+
+const warnDuplicateSecretHosts = (path: string, duplicates: number) =>
+  duplicates === 0
+    ? Effect.void
+    : Effect.logWarning("a settings file names one secret host more than once; the last wins", {
+        path,
+        duplicates,
+      });
+
+/** Read on every load like settings.json. */
+const loadSharedSettings = Effect.fn("serverSettings.loadSharedSettings")(function* (
+  fs: FileSystem.FileSystem,
+  sharedSettingsPath: string | undefined,
+  managed: ManagedPolicy.ManagedPolicy["Service"]["settings"],
+) {
+  // An unusable shared file is ignored the way an unusable settings.json is.
+  const unusableSharedSettings = (cause: unknown) =>
+    Effect.logWarning("failed to read the shared settings file, ignoring it", {
+      path: sharedSettingsPath,
+      cause,
+    }).pipe(
+      Effect.as<SharedSettings>({
+        // It may hold an opt-out we can no longer read; never resume threads on a guess.
+        document: { continueThreadsAfterServerUpdate: false },
+        baseline: { ...managed.defaults, continueThreadsAfterServerUpdate: false },
+        status: "unusable",
+      }),
+    );
+
+  if (sharedSettingsPath === undefined) return undefined;
+  if (!(yield* fs.exists(sharedSettingsPath).pipe(Effect.orElseSucceed(() => false)))) {
+    yield* Effect.logWarning("shared settings file not found, ignoring it", {
+      path: sharedSettingsPath,
+    });
+    return { document: {}, baseline: managed.defaults, status: "missing" } as const;
+  }
+  const contents = yield* Effect.exit(fs.readFileString(sharedSettingsPath));
+  if (Exit.isFailure(contents)) return yield* unusableSharedSettings(contents.cause);
+  const parsed = decodeSettingsDocumentExit(contents.value);
+  if (Exit.isFailure(parsed)) return yield* unusableSharedSettings(Cause.pretty(parsed.cause));
+  // The fold marker records this machine's migration history, not a preference.
+  const { projectSettingsFolded: _machineLocal, ...raw } = parsed.value;
+  const { document, duplicates } = canonicalizeSecretFields(raw);
+  yield* warnDuplicateSecretHosts(sharedSettingsPath, duplicates);
+  const decoded = decodePersistedServerSettingsExit(managed.withDefaults(document));
+  if (Exit.isFailure(decoded)) return yield* unusableSharedSettings(Cause.pretty(decoded.cause));
+  const baseline = yield* Effect.exit(normalizeServerSettings(decoded.value));
+  if (Exit.isFailure(baseline)) return yield* unusableSharedSettings(baseline.cause);
+  return { document, baseline: baseline.value, status: "loaded" } as const;
+});
 
 /**
- * The settings on disk with the managed policy laid over them, read without the service: no
- * database, no write, no legacy migration. A missing or unreadable file reads as the defaults.
+ * Reads effective settings without opening a database, watching files, or performing migrations.
  */
 export const readServerSettingsFromDisk = Effect.gen(function* () {
-  const { settingsPath } = yield* ServerConfig.ServerConfig;
+  const { settingsPath, sharedSettingsPath } = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const { settings: managed } = yield* ManagedPolicy.ManagedPolicy;
+  const shared = yield* loadSharedSettings(fs, sharedSettingsPath, managed);
+  const baseline = shared?.baseline ?? managed.defaults;
   const raw = yield* fs.readFileString(settingsPath).pipe(Effect.option);
-  return managed.applyLocks(
-    Option.isNone(raw) ? managed.defaults : decodeSettingsFile(raw.value, managed).settings,
-  );
+  const settings = Option.isNone(raw)
+    ? baseline
+    : decodeSettingsFile(raw.value, managed, shared).settings;
+  return managed.applyLocks(settings);
 }).pipe(Effect.withSpan("ServerSettings.readServerSettingsFromDisk"));
 const LegacyProviderSettingsJson = fromLenientJson(
   Schema.Struct({
@@ -440,17 +504,29 @@ const LegacyProviderSettingsJson = fromLenientJson(
 const decodeLegacyProviderSettingsJsonExit = Schema.decodeUnknownExit(LegacyProviderSettingsJson);
 
 /**
- * A settings file as the server reads it: its settings, or the defaults when the file or its
- * legacy fields are rejected, with the cause. Pure, so the CLI reads files as the server does.
+ * A settings file as the server reads it, over an optional shared layer: its settings, or the
+ * layer's baseline when the file or its legacy fields are rejected, with the cause. Pure, so the
+ * CLI reads files as the server does.
  */
 function decodeSettingsFile(
   raw: string,
   managed: ManagedPolicy.ManagedPolicy["Service"]["settings"],
+  shared?: { readonly document: SettingsDocument; readonly baseline: ServerSettings },
 ) {
-  const parsed = decodeSettingsFileJsonExit(raw);
+  const parsed = decodeSettingsDocumentExit(raw);
+  const local =
+    shared !== undefined && Exit.isSuccess(parsed)
+      ? canonicalizeSecretFields(parsed.value)
+      : undefined;
   const decoded = Exit.isFailure(parsed)
     ? parsed
-    : decodePersistedServerSettingsExit(managed.withDefaults(parsed.value));
+    : decodePersistedServerSettingsExit(
+        managed.withDefaults(
+          shared === undefined || local === undefined
+            ? parsed.value
+            : layerSettingsDocuments(shared.document, local.document),
+        ),
+      );
   const legacy = decodeLegacyProviderSettingsJsonExit(raw);
   const failure = Exit.isFailure(decoded)
     ? decoded.cause
@@ -462,7 +538,7 @@ function decodeSettingsFile(
       ? decoded.value
       : // The file may hold choices we can no longer read, so opt-in behaviour stays off.
         {
-          ...managed.defaults,
+          ...(shared?.baseline ?? managed.defaults),
           continueThreadsAfterServerUpdate: false,
           usageHistoryRetentionDays: "unlimited",
           requireConnectDeviceApproval: true,
@@ -470,7 +546,13 @@ function decodeSettingsFile(
           enableAgentBrowserAccess: false,
           defaultRuntimeMode: "approval-required",
         };
-  return { settings, legacy: Exit.isSuccess(legacy) ? legacy.value : undefined, failure };
+  return {
+    settings,
+    document: Exit.isSuccess(parsed) ? parsed.value : undefined,
+    duplicates: local?.duplicates ?? 0,
+    legacy: Exit.isSuccess(legacy) ? legacy.value : undefined,
+    failure,
+  };
 }
 
 const LEGACY_BITBUCKET_SECRET_NAMES: Readonly<Record<string, string>> = {
@@ -480,20 +562,68 @@ const LEGACY_BITBUCKET_SECRET_NAMES: Readonly<Record<string, string>> = {
 const legacyGitHubTokenSecretName = (host: string) =>
   `github-token-${Buffer.from(host.trim().toLowerCase(), "utf8").toString("base64url")}`;
 
+function dropUnstoredPlaceholders(
+  blob: Readonly<Record<string, unknown>>,
+  unstored: ReadonlySet<string>,
+  legacyName: (field: string, serverHost: string | null) => string | undefined,
+): Record<string, unknown> {
+  const isUnstored = (value: unknown, field: string, serverHost: string | null) => {
+    if (value !== SECRET_REDACTED) return false;
+    const name = legacyName(field, serverHost);
+    return name !== undefined && unstored.has(name);
+  };
+  const next: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(blob)) {
+    if (isUnstored(value, field, null)) continue;
+    next[field] = isSettingsDocument(value)
+      ? Object.fromEntries(
+          Object.entries(value).filter(
+            ([serverHost, entry]) => !isUnstored(entry, field, serverHost),
+          ),
+        )
+      : value;
+  }
+  return next;
+}
+
 function migrateLegacySourceControlSettings(
   settings: ServerSettings,
   legacy: {
     readonly bitbucket?: Readonly<Record<string, unknown>> | undefined;
     readonly github?: Readonly<Record<string, unknown>> | undefined;
   },
+  localKinds: ReadonlySet<string>,
+  unstoredSecrets: ReadonlySet<string> = new Set(),
 ): {
   readonly settings: ServerSettings;
   readonly secretMoves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+  /** Host spellings the folded blobs repeated; the last of each was kept. */
+  readonly duplicates: number;
 } {
   const sourceControlHosts = { ...settings.sourceControlHosts };
   const secretMoves: Array<{ readonly from: string; readonly to: string }> = [];
-  if (legacy.bitbucket !== undefined && sourceControlHosts.bitbucket === undefined) {
-    sourceControlHosts.bitbucket = legacy.bitbucket;
+  let duplicates = 0;
+  const fold = (
+    kind: string,
+    blob: Readonly<Record<string, unknown>>,
+    legacyName: (field: string, serverHost: string | null) => string | undefined,
+  ) => {
+    const shared = sourceControlHosts[kind];
+    if (shared === undefined) {
+      sourceControlHosts[kind] = blob;
+      return;
+    }
+    const folded = canonicalizeSecretFields({
+      sourceControlHosts: { [kind]: dropUnstoredPlaceholders(blob, unstoredSecrets, legacyName) },
+    });
+    duplicates += folded.duplicates;
+    const hosts = folded.document.sourceControlHosts as SettingsDocument;
+    sourceControlHosts[kind] = layerSettingsDocuments(shared, hosts[kind] as SettingsDocument);
+  };
+  if (legacy.bitbucket !== undefined && !localKinds.has("bitbucket")) {
+    fold("bitbucket", legacy.bitbucket, (field, serverHost) =>
+      serverHost === null ? LEGACY_BITBUCKET_SECRET_NAMES[field] : undefined,
+    );
     for (const [field, from] of Object.entries(LEGACY_BITBUCKET_SECRET_NAMES)) {
       if (legacy.bitbucket[field] !== SECRET_REDACTED) continue;
       secretMoves.push({
@@ -502,8 +632,12 @@ function migrateLegacySourceControlSettings(
       });
     }
   }
-  if (legacy.github !== undefined && sourceControlHosts.github === undefined) {
-    sourceControlHosts.github = legacy.github;
+  if (legacy.github !== undefined && !localKinds.has("github")) {
+    fold("github", legacy.github, (field, serverHost) =>
+      field === "tokens" && serverHost !== null
+        ? legacyGitHubTokenSecretName(serverHost)
+        : undefined,
+    );
     for (const [serverHost, value] of readSecretFieldValues(legacy.github.tokens)) {
       if (serverHost === null || value !== SECRET_REDACTED) continue;
       secretMoves.push({
@@ -512,7 +646,7 @@ function migrateLegacySourceControlSettings(
       });
     }
   }
-  return { settings: { ...settings, sourceControlHosts }, secretMoves };
+  return { settings: { ...settings, sourceControlHosts }, secretMoves, duplicates };
 }
 
 const HISTORY_RESTORED_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
@@ -526,6 +660,8 @@ function migrateLegacyProviderSettings(
     readonly providerName: string;
     readonly providerInstanceId: string | null;
   }>,
+  /** Instances settings.json itself configures; a shared one is replaced by the migrated slot. */
+  localInstanceIds: ReadonlySet<string>,
 ): ServerSettings {
   const usedProviders = new Set<string>(providerHistory.map(({ providerName }) => providerName));
   const usedProviderInstances = new Set<string>(
@@ -555,10 +691,22 @@ function migrateLegacyProviderSettings(
     if (Array.isArray(blob)) continue;
     const driver = kind;
     const instanceId = defaultInstanceIdForDriver(driver);
-    if (Object.hasOwn(providerInstances, instanceId)) continue;
-
     const { enabled: rawEnabled, ...config } = blob as Record<string, unknown>;
     const explicitEnabled = typeof rawEnabled === "boolean" ? rawEnabled : undefined;
+    if (localInstanceIds.has(instanceId)) continue;
+    // An enabled-only blob keeps an inherited entry's config, and one matching the
+    // inherited state keeps the entry itself. Without a flag, the loop above already
+    // enabled it if history shows use.
+    const inherited = settings.providerInstances[instanceId];
+    if (inherited !== undefined && Object.keys(config).length === 0) {
+      if (explicitEnabled !== undefined) {
+        providerInstances[instanceId] =
+          explicitEnabled === resolveProviderInstanceEnabled(inherited)
+            ? inherited
+            : { ...inherited, enabled: explicitEnabled };
+      }
+      continue;
+    }
     const enabled =
       explicitEnabled ??
       (HISTORY_RESTORED_DRIVERS.has(driver) && usedProviders.has(driver) ? true : undefined);
@@ -617,18 +765,35 @@ const ATOMIC_SETTINGS_KEYS: ReadonlySet<string> = new Set([
   "backgroundActivity",
   "automaticGitFetchInterval",
   "providerHealthRefreshInterval",
+  "defaultModelSelection",
   "sourceControlWriterModelSelection",
   "reviewGuideModelSelection",
   "textGenerationModelSelection",
   "fallbackModelSelection",
   "pullRequestMergeMethod",
+  "worktreeCleanup",
   // Empty by default, these hold one whole value, which a managed policy can default.
   ...Object.entries(DEFAULT_SERVER_SETTINGS).flatMap(([key, value]) =>
     value === null ? [key] : [],
   ),
 ]);
 
-function stripDefaultServerSettings(current: unknown, defaults: unknown): unknown | undefined {
+// Maps whose entries are compared as a whole: a partial entry fails to decode,
+// and a driver's config blob only means anything next to that driver.
+const ATOMIC_ENTRY_SETTINGS_KEYS: ReadonlySet<string> = new Set([
+  "providerInstances",
+  "usageLimitSources",
+  "usagePriceOverrides",
+]);
+
+const isAtomicSettingsValue = (key: string, inAtomicEntryMap: boolean) =>
+  inAtomicEntryMap || ATOMIC_SETTINGS_KEYS.has(key);
+
+function stripDefaultServerSettings(
+  current: unknown,
+  defaults: unknown,
+  inAtomicEntryMap = false,
+): unknown | undefined {
   if (Array.isArray(current) || Array.isArray(defaults)) {
     return Equal.equals(current, defaults) ? undefined : current;
   }
@@ -644,12 +809,16 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
     const next: Record<string, unknown> = {};
 
     for (const key of Object.keys(currentRecord)) {
-      if (ATOMIC_SETTINGS_KEYS.has(key)) {
+      if (isAtomicSettingsValue(key, inAtomicEntryMap)) {
         if (!Equal.equals(currentRecord[key], defaultsRecord[key])) {
           next[key] = currentRecord[key];
         }
       } else {
-        const stripped = stripDefaultServerSettings(currentRecord[key], defaultsRecord[key]);
+        const stripped = stripDefaultServerSettings(
+          currentRecord[key],
+          defaultsRecord[key],
+          ATOMIC_ENTRY_SETTINGS_KEYS.has(key),
+        );
         if (stripped !== undefined) {
           next[key] = stripped;
         }
@@ -660,6 +829,174 @@ function stripDefaultServerSettings(current: unknown, defaults: unknown): unknow
   }
 
   return Object.is(current, defaults) ? undefined : current;
+}
+
+type SettingsDocument = Record<string, unknown>;
+
+const isSettingsDocument = (value: unknown): value is SettingsDocument =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const SECRET_SECTIONS = ["providerInstances", "sourceControlHosts", "usageLimitSources"] as const;
+
+/** Whether `mapSettingsSecrets` can walk a raw entry; the decoder rejects the rest. */
+const isWalkableSecretEntry = (section: string, entry: unknown) =>
+  isSettingsDocument(entry) &&
+  (section !== "providerInstances" ||
+    entry.environment === undefined ||
+    (Array.isArray(entry.environment) &&
+      entry.environment.every(
+        (variable) => isSettingsDocument(variable) && typeof variable.name === "string",
+      )));
+
+/**
+ * Rewrites secret fields into the form `mapSettingsSecrets` saves (host keys trimmed and lowercased,
+ * `valueRedacted: false` dropped, non-string values removed), so settings.json wins per host it names
+ * and inherited shared values match a save. Of several spellings of one host the last wins;
+ * `duplicates` counts the rest.
+ */
+function canonicalizeSecretFields(document: SettingsDocument): {
+  readonly document: SettingsDocument;
+  readonly duplicates: number;
+} {
+  const sections: Record<string, SettingsDocument> = {};
+  for (const section of SECRET_SECTIONS) {
+    const value = document[section];
+    if (!isSettingsDocument(value)) continue;
+    sections[section] = Object.fromEntries(
+      Object.entries(value).filter(([, entry]) => isWalkableSecretEntry(section, entry)),
+    );
+  }
+  if (Object.keys(sections).length === 0) return { document, duplicates: 0 };
+  const seen = new Set<string>();
+  let duplicates = 0;
+  const canonical = mapSettingsSecrets(
+    {
+      ...DEFAULT_SERVER_SETTINGS,
+      ...sections,
+    } as unknown as ServerSettings,
+    (secret) => {
+      if (secret.kind === "field") {
+        if (seen.has(secret.secretName)) duplicates += 1;
+        seen.add(secret.secretName);
+      }
+      return secret;
+    },
+  ) as unknown as Record<string, SettingsDocument>;
+  const next = { ...document };
+  for (const section of Object.keys(sections)) {
+    next[section] = { ...(document[section] as SettingsDocument), ...canonical[section] };
+  }
+  return { document: next, duplicates };
+}
+
+/**
+ * The inverse of `stripDefaultServerSettings`: objects merge key by key, while
+ * atomic values, arrays, and scalars from `top` replace what `base` holds.
+ */
+function layerSettingsDocuments(
+  base: SettingsDocument,
+  top: SettingsDocument,
+  inAtomicEntryMap = false,
+): SettingsDocument {
+  const next = { ...base };
+  for (const [key, value] of Object.entries(top)) {
+    const below = next[key];
+    next[key] =
+      !isAtomicSettingsValue(key, inAtomicEntryMap) &&
+      isSettingsDocument(value) &&
+      isSettingsDocument(below)
+        ? layerSettingsDocuments(below, value, ATOMIC_ENTRY_SETTINGS_KEYS.has(key))
+        : value;
+  }
+  return next;
+}
+
+/** Adds back every key path `document` holds, taking its value from `settings`. */
+function restoreDocumentKeys(
+  sparse: SettingsDocument,
+  settings: SettingsDocument,
+  document: SettingsDocument,
+  inAtomicEntryMap = false,
+): SettingsDocument {
+  const next = { ...sparse };
+  for (const [key, below] of Object.entries(document)) {
+    if (!Object.hasOwn(settings, key)) continue;
+    const value = settings[key];
+    const kept = next[key];
+    next[key] =
+      !isAtomicSettingsValue(key, inAtomicEntryMap) &&
+      isSettingsDocument(value) &&
+      isSettingsDocument(below)
+        ? restoreDocumentKeys(
+            isSettingsDocument(kept) ? kept : {},
+            value,
+            below,
+            ATOMIC_ENTRY_SETTINGS_KEYS.has(key),
+          )
+        : value;
+  }
+  return next;
+}
+
+/**
+ * Plaintext shared-file secrets, keyed by secret name, for entries `settings` still inherits
+ * unchanged; an edited entry is saved whole to settings.json, so its secrets go to the store.
+ * Redacted secrets compare by their `resolvedValues` value; one it lacks never matches.
+ */
+function inheritedSecretValues(
+  settings: ServerSettings,
+  baseline: ServerSettings,
+  resolvedValues: ReadonlyMap<string, string> = new Map(),
+): ReadonlyMap<string, string> {
+  const withPlainSecrets = (value: ServerSettings, stored: ReadonlyMap<string, string>) =>
+    mapSettingsSecrets(value, (secret) => {
+      const resolved =
+        secret.sensitive && secret.redacted ? stored.get(secret.secretName) : undefined;
+      return resolved === undefined ? secret : { value: resolved, redacted: false };
+    });
+  const ours = withPlainSecrets(settings, resolvedValues);
+  const theirs = withPlainSecrets(baseline, new Map());
+  const unchanged = <K extends "providerInstances" | "usageLimitSources">(key: K) =>
+    Object.fromEntries(
+      Object.entries(baseline[key]).filter(([id]) =>
+        Equal.equals(
+          (ours[key] as Record<string, unknown>)[id],
+          (theirs[key] as Record<string, unknown>)[id],
+        ),
+      ),
+    ) as ServerSettings[K];
+  const inherited: ServerSettings = {
+    ...baseline,
+    providerInstances: unchanged("providerInstances"),
+    usageLimitSources: unchanged("usageLimitSources"),
+  };
+  const values = new Map<string, string>();
+  mapSettingsSecrets(inherited, (secret) => {
+    if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
+      values.set(secret.secretName, secret.value);
+    }
+    return secret;
+  });
+  return values;
+}
+
+interface SettingsLayer {
+  /**
+   * What a key missing from settings.json resolves to: the defaults, with the
+   * shared settings file applied when one is configured. settings.json
+   * persists only where `settings` differs from it.
+   */
+  readonly baseline: ServerSettings;
+  /**
+   * The shared file is configured but missing or unusable, so `baseline` may
+   * lack values settings.json overrides; every key settings.json holds is kept.
+   */
+  readonly keepLocalKeys: boolean;
+}
+
+interface SettingsState extends SettingsLayer {
+  readonly parseFailure: Option.Option<unknown>;
+  readonly settings: ServerSettings;
 }
 
 const decodeProjectScriptsJson = Schema.decodeUnknownOption(
@@ -742,7 +1079,7 @@ function foldLegacyProjectSettings(
 }
 
 const make = Effect.gen(function* () {
-  const { settingsPath } = yield* ServerConfig.ServerConfig;
+  const { settingsPath, sharedSettingsPath } = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -791,23 +1128,35 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  // The file before this write, parsed; only read when policy defaults need it.
-  const readStoredSettings = Effect.gen(function* () {
-    if (!(yield* readConfigExists)) return undefined;
-    const parsed = decodeSettingsFileJsonExit(yield* readRawConfig);
-    return Exit.isSuccess(parsed) ? parsed.value : undefined;
+  // The file before this write, parsed; read for policy defaults and kept local keys.
+  const readLocalDocument = Effect.gen(function* () {
+    if (!(yield* readConfigExists)) return {};
+    const document = decodeSettingsDocumentExit(yield* readRawConfig);
+    return Exit.isSuccess(document) ? document.value : {};
   });
 
   const writeSettingsAtomically = Effect.fnUntraced(
-    function* (settings: ServerSettings) {
-      const stripped = stripDefaultServerSettings(settings, managed.defaults) ?? {};
-      const sparseSettingsJson = yield* encodeServerSettingsJson(
+    function* (settings: ServerSettings, layer: SettingsLayer) {
+      const stripped = (stripDefaultServerSettings(settings, layer.baseline) ??
+        {}) as SettingsDocument;
+      const local =
+        managed.keepStored !== undefined || layer.keepLocalKeys ? yield* readLocalDocument : {};
+      const sparse =
         managed.keepStored === undefined
           ? stripped
-          : managed.keepStored(stripped, settings, yield* readStoredSettings, (key) =>
+          : (managed.keepStored(stripped, settings, local, (key) =>
               ATOMIC_SETTINGS_KEYS.has(key),
-            ),
+            ) as SettingsDocument);
+      const document = layer.keepLocalKeys ? restoreDocumentKeys(sparse, settings, local) : sparse;
+      const encoded = yield* encodeServerSettingsDocument(document);
+      // Some fields encode null as a missing key, which would let the shared value win again.
+      const nulls = Object.keys(document).filter(
+        (key) => document[key] === null && !Object.hasOwn(encoded, key),
       );
+      const sparseSettingsJson = yield* encodeSettingsDocumentJson({
+        ...encoded,
+        ...Object.fromEntries(nulls.map((key) => [key, null])),
+      });
 
       return yield* writeFileStringAtomically({
         filePath: settingsPath,
@@ -828,16 +1177,30 @@ const make = Effect.gen(function* () {
   );
 
   const moveInlineSettingsSecrets = Effect.fn("serverSettings.moveInlineSettingsSecrets")(
-    function* (settings: ServerSettings) {
+    function* (settings: ServerSettings, baseline: ServerSettings) {
+      // A secret the shared file supplies stays there; moving it would pin a copy in settings.json.
+      const inherited = inheritedSecretValues(settings, baseline);
+      const shared = new Map<string, string>();
+      mapSettingsSecrets(baseline, (secret) => {
+        if (secret.sensitive && !secret.redacted) shared.set(secret.secretName, secret.value);
+        return secret;
+      });
+      const isShared = (secret: SettingsSecret) => shared.get(secret.secretName) === secret.value;
       const pending: SettingsSecret[] = [];
       mapSettingsSecrets(settings, (secret) => {
-        if (secret.kind === "field" && !secret.redacted && secret.value.length > 0) {
+        if (
+          secret.sensitive &&
+          (secret.kind === "field" || isShared(secret)) &&
+          !secret.redacted &&
+          secret.value.length > 0 &&
+          inherited.get(secret.secretName) !== secret.value
+        ) {
           pending.push(secret);
         }
         return secret;
       });
       const moved = new Set<string>();
-      for (const secret of pending) {
+      for (const secret of pending.filter((secret) => !isShared(secret))) {
         const stored = yield* secretStore
           .set(secret.secretName, textEncoder.encode(secret.value))
           .pipe(
@@ -850,33 +1213,91 @@ const make = Effect.gen(function* () {
           );
         if (stored) moved.add(secret.secretName);
       }
-      if (moved.size === 0) return settings;
-      return mapSettingsSecrets(settings, (secret) =>
-        moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
+      const sharedPending = pending.filter(isShared);
+      const rollbackSharedSecrets = yield* applySettingsSecretChanges(
+        sharedPending.map((secret) => ({
+          kind: "write" as const,
+          secretName: secret.secretName,
+          value: textEncoder.encode(secret.value),
+          ...(secret.providerInstanceId !== undefined
+            ? { providerInstanceId: secret.providerInstanceId }
+            : {}),
+          ...(secret.environmentVariable !== undefined
+            ? { environmentVariable: secret.environmentVariable }
+            : {}),
+        })),
+      ).pipe(
+        Effect.catch(() =>
+          Effect.logWarning("failed to move shared settings secrets into the secret store").pipe(
+            Effect.as(undefined),
+          ),
+        ),
       );
+      if (rollbackSharedSecrets !== undefined) {
+        for (const secret of sharedPending) moved.add(secret.secretName);
+      }
+      return {
+        settings:
+          moved.size === 0
+            ? settings
+            : mapSettingsSecrets(settings, (secret) =>
+                moved.has(secret.secretName) ? { value: "", redacted: true } : secret,
+              ),
+        sharedSecretLeftInline: rollbackSharedSecrets === undefined,
+        rollbackSharedSecrets: rollbackSharedSecrets ?? Effect.void,
+      };
     },
   );
 
   const loadSettingsFromDisk = Effect.gen(function* () {
-    let settings = managed.defaults;
+    const shared = yield* loadSharedSettings(fs, sharedSettingsPath, managed);
+    // Every patch stores `backgroundActivity` normalized. Over a shared layer the
+    // loaded settings and the baseline must hold that same form, or each write
+    // would persist the shared value's normalized copy.
+    const normalizeBackgroundActivity = (settings: ServerSettings): ServerSettings =>
+      shared === undefined
+        ? settings
+        : { ...settings, backgroundActivity: normalizeServerBackgroundActivitySettings(settings) };
+    const baseline = normalizeBackgroundActivity(shared?.baseline ?? managed.defaults);
+    const layer: SettingsLayer = {
+      baseline,
+      keepLocalKeys: shared !== undefined && shared.status !== "loaded",
+    };
+    let settings = baseline;
     let legacyProviders: Readonly<Record<string, unknown>> | undefined;
     let legacySourceControl: Parameters<typeof migrateLegacySourceControlSettings>[1] = {};
     let parseFailure = Option.none<unknown>();
+    let localInstanceIds: ReadonlySet<string> = new Set();
+    let localSourceControlKinds: ReadonlySet<string> = new Set();
 
     if (yield* readConfigExists) {
-      const file = decodeSettingsFile(yield* readRawConfig, managed);
+      const file = decodeSettingsFile(
+        yield* readRawConfig,
+        managed,
+        shared === undefined ? undefined : { document: shared.document, baseline },
+      );
+      yield* warnDuplicateSecretHosts(settingsPath, file.duplicates);
       if (file.legacy !== undefined) {
         legacyProviders = file.legacy.providers;
         legacySourceControl = { bitbucket: file.legacy.bitbucket, github: file.legacy.github };
       }
-      settings = file.settings;
       if (file.failure !== undefined) {
+        settings = file.settings;
         parseFailure = Option.some(Cause.squash(file.failure));
         yield* Effect.logWarning("failed to parse settings.json, using defaults", {
           path: settingsPath,
           issues: Cause.pretty(file.failure),
           cause: file.failure,
         });
+      } else {
+        settings = normalizeBackgroundActivity(file.settings);
+        const document = file.document ?? {};
+        if (isSettingsDocument(document.providerInstances)) {
+          localInstanceIds = new Set(Object.keys(document.providerInstances));
+        }
+        if (isSettingsDocument(document.sourceControlHosts)) {
+          localSourceControlKinds = new Set(Object.keys(document.sourceControlHosts));
+        }
       }
     }
     // Settings saved by a server that kept the mode in `compactIdleThreads` move
@@ -885,7 +1306,7 @@ const make = Effect.gen(function* () {
     settings = withIdleCompaction(settings, globalIdleCompaction(settings));
 
     // A file that failed to decode must stay on disk for the user to repair.
-    const settingsFileTrusted = Option.isNone(parseFailure);
+    const settingsFileTrusted = shared?.status !== "unusable" && Option.isNone(parseFailure);
     const providerHistory = yield* sql<{
       readonly providerName: string;
       readonly providerInstanceId: string | null;
@@ -940,20 +1361,39 @@ const make = Effect.gen(function* () {
     const loaded = foldProviderInstanceEnabledFlags(
       legacyProviders === undefined
         ? settings
-        : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
+        : migrateLegacyProviderSettings(
+            settings,
+            legacyProviders,
+            providerHistory,
+            localInstanceIds,
+          ),
     );
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)
       : loaded;
     // Remove retired keys only after copying secrets and writing the new file; failures retry on next load.
+    const unstoredLegacySecrets = new Set<string>();
+    // Only a shared host can replace a placeholder, and a failed read may hide a stored value.
+    const noteUnstoredPlaceholder = (move: { readonly from: string; readonly to: string }) =>
+      shared === undefined
+        ? Effect.void
+        : secretStore.get(move.to).pipe(
+            Effect.map((current) => {
+              if (Option.isNone(current)) unstoredLegacySecrets.add(move.from);
+            }),
+            Effect.ignore,
+          );
     const legacySecretsCopied = yield* Effect.forEach(
       settingsFileTrusted
-        ? migrateLegacySourceControlSettings(folded, legacySourceControl).secretMoves
+        ? migrateLegacySourceControlSettings(folded, legacySourceControl, localSourceControlKinds)
+            .secretMoves
         : [],
       (move) =>
         secretStore.get(move.from).pipe(
           Effect.flatMap((secret) =>
-            Option.isNone(secret) ? Effect.void : secretStore.set(move.to, secret.value),
+            Option.isSome(secret)
+              ? secretStore.set(move.to, secret.value)
+              : noteUnstoredPlaceholder(move),
           ),
           Effect.as(true),
           Effect.catch(() =>
@@ -968,28 +1408,44 @@ const make = Effect.gen(function* () {
       legacySecretsCopied &&
       (legacySourceControl.bitbucket !== undefined || legacySourceControl.github !== undefined);
     const sourceControlMigration = hasLegacySourceControl
-      ? migrateLegacySourceControlSettings(folded, legacySourceControl)
-      : { settings: folded, secretMoves: [] };
-    const migrated = settingsFileTrusted
-      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings)
-      : folded;
+      ? migrateLegacySourceControlSettings(
+          folded,
+          legacySourceControl,
+          localSourceControlKinds,
+          unstoredLegacySecrets,
+        )
+      : { settings: folded, secretMoves: [], duplicates: 0 };
+    yield* warnDuplicateSecretHosts(settingsPath, sourceControlMigration.duplicates);
+    const {
+      settings: migrated,
+      sharedSecretLeftInline,
+      rollbackSharedSecrets,
+    } = settingsFileTrusted
+      ? yield* moveInlineSettingsSecrets(sourceControlMigration.settings, baseline)
+      : { settings: folded, sharedSecretLeftInline: false, rollbackSharedSecrets: Effect.void };
     if (
-      migrated !== loaded ||
-      (settingsFileTrusted && legacyProviders !== undefined) ||
-      hasLegacySourceControl
+      !sharedSecretLeftInline &&
+      (migrated !== loaded ||
+        (settingsFileTrusted && legacyProviders !== undefined) ||
+        hasLegacySourceControl)
     ) {
-      yield* writeSettingsAtomically(migrated);
+      yield* writeSettingsAtomically(migrated, layer).pipe(
+        Effect.tapError(() => rollbackSharedSecrets),
+      );
       for (const move of sourceControlMigration.secretMoves) {
         yield* secretStore.remove(move.from).pipe(Effect.ignore);
       }
     }
-    return { settings: migrated, parseFailure };
+    return { ...layer, settings: migrated, parseFailure } satisfies SettingsState;
   });
 
-  const settingsCache = yield* Cache.makeWith((_key: typeof cacheKey) => loadSettingsFromDisk, {
-    capacity: 1,
-    timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
-  });
+  const settingsCache = yield* Cache.makeWith<typeof cacheKey, SettingsState, ServerSettingsError>(
+    () => loadSettingsFromDisk,
+    {
+      capacity: 1,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
+    },
+  );
 
   const getSettingsFromCache = Cache.get(settingsCache, cacheKey).pipe(
     Effect.map((loaded) => loaded.settings),
@@ -1085,87 +1541,140 @@ const make = Effect.gen(function* () {
     | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
   );
 
-  const persistSettingsSecrets = (current: ServerSettings, next: ServerSettings) =>
-    Effect.sync(() => {
-      // Only sensitive rows own a stored secret; a plain duplicate must not hide one from cleanup.
-      const previous = new Map<string, SettingsSecret>();
-      const inlineValues = new Map<string, string>();
-      mapSettingsSecrets(current, (secret) => {
-        if (!secret.sensitive) return secret;
-        previous.set(secret.secretName, secret);
-        if (!secret.redacted && secret.value.length > 0) {
-          inlineValues.set(secret.secretName, secret.value);
-        }
-        return secret;
-      });
-      const changes: SecretChange[] = [];
-      const nextSecretNames = new Set<string>();
-      const keptSecretNames = new Set<string>();
-      const writtenSecretNames = new Set<string>();
-      const inlineWrites = new Map<string, SecretChange>();
-      const settings = mapSettingsSecrets(withEchoedSecretReferences(current, next), (secret) => {
-        const metadata = {
-          secretName: secret.secretName,
-          ...(secret.providerInstanceId !== undefined
-            ? { providerInstanceId: secret.providerInstanceId }
-            : {}),
-          ...(secret.environmentVariable !== undefined
-            ? { environmentVariable: secret.environmentVariable }
-            : {}),
-        };
-        if (!secret.sensitive) {
-          changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
-          return { value: secret.value, redacted: false };
-        }
-        if (secret.redacted) {
-          keptSecretNames.add(secret.secretName);
-          nextSecretNames.add(secret.secretName);
-          const inlineValue = inlineValues.get(secret.secretName);
-          if (inlineValue !== undefined) {
-            inlineWrites.set(secret.secretName, {
-              ...metadata,
-              kind: "write",
-              value: textEncoder.encode(inlineValue),
-            });
-          }
-          return { value: "", redacted: true };
-        }
-        if (secret.value.length === 0) {
-          changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
-          return { value: "", redacted: false };
-        }
-        nextSecretNames.add(secret.secretName);
-        writtenSecretNames.add(secret.secretName);
-        changes.push({ ...metadata, kind: "write", value: textEncoder.encode(secret.value) });
-        return { value: "", redacted: true };
-      });
-      // A legacy inline value only moves to the store when no row in this save replaces it.
-      for (const [secretName, change] of inlineWrites) {
-        if (!writtenSecretNames.has(secretName)) changes.push(change);
+  const persistSettingsSecrets = Effect.fn("serverSettings.persistSettingsSecrets")(function* (
+    current: ServerSettings,
+    requested: ServerSettings,
+    baseline: ServerSettings,
+  ) {
+    const next = withEchoedSecretReferences(current, requested);
+    // Only sensitive rows own a stored secret; a plain duplicate must not hide one from cleanup.
+    const previous = new Map<string, SettingsSecret>();
+    const inlineValues = new Map<string, string>();
+    mapSettingsSecrets(current, (secret) => {
+      if (!secret.sensitive) return secret;
+      previous.set(secret.secretName, secret);
+      if (!secret.redacted && secret.value.length > 0) {
+        inlineValues.set(secret.secretName, secret.value);
       }
-      for (const secret of previous.values()) {
-        if (nextSecretNames.has(secret.secretName)) continue;
-        if (changes.some((change) => change.secretName === secret.secretName)) continue;
-        changes.push({
-          kind: "remove",
-          secretName: secret.secretName,
-          operation: "remove-stale-secret",
-          ...(secret.providerInstanceId !== undefined
-            ? { providerInstanceId: secret.providerInstanceId }
-            : {}),
-          ...(secret.environmentVariable !== undefined
-            ? { environmentVariable: secret.environmentVariable }
-            : {}),
-        });
-      }
-      return {
-        settings,
-        // A redacted row still claims its stored secret, so a duplicate row must not remove it.
-        changes: changes.filter(
-          (change) => change.kind === "write" || !keptSecretNames.has(change.secretName),
-        ),
-      };
+      return secret;
     });
+    // What each redacted secret holds: its previous inline value, or the stored one where
+    // the shared file supplies that secret, so an entry reverted to shared matches it again.
+    const sharedSecretNames = new Set<string>();
+    mapSettingsSecrets(baseline, (secret) => {
+      if (secret.sensitive && !secret.redacted && secret.value.length > 0) {
+        sharedSecretNames.add(secret.secretName);
+      }
+      return secret;
+    });
+    const resolvable: SettingsSecret[] = [];
+    mapSettingsSecrets(next, (secret) => {
+      if (secret.sensitive && secret.redacted) resolvable.push(secret);
+      return secret;
+    });
+    const resolvedValues = new Map<string, string>();
+    for (const secret of resolvable) {
+      const inline = inlineValues.get(secret.secretName);
+      if (inline !== undefined) {
+        resolvedValues.set(secret.secretName, inline);
+        continue;
+      }
+      if (!sharedSecretNames.has(secret.secretName)) continue;
+      const stored = yield* secretStore.get(secret.secretName).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ServerSettingsError({
+              settingsPath,
+              operation: "read-secret",
+              providerInstanceId: secret.providerInstanceId,
+              environmentVariable: secret.environmentVariable,
+              cause,
+            }),
+        ),
+      );
+      if (Option.isSome(stored)) {
+        resolvedValues.set(secret.secretName, textDecoder.decode(stored.value));
+      }
+    }
+    const inherited = inheritedSecretValues(next, baseline, resolvedValues);
+    const changes: SecretChange[] = [];
+    const nextSecretNames = new Set<string>();
+    const keptSecretNames = new Set<string>();
+    const writtenSecretNames = new Set<string>();
+    const inlineWrites = new Map<string, SecretChange>();
+    const settings = mapSettingsSecrets(next, (secret) => {
+      const metadata = {
+        secretName: secret.secretName,
+        ...(secret.providerInstanceId !== undefined
+          ? { providerInstanceId: secret.providerInstanceId }
+          : {}),
+        ...(secret.environmentVariable !== undefined
+          ? { environmentVariable: secret.environmentVariable }
+          : {}),
+      };
+      if (!secret.sensitive) {
+        changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
+        return { value: secret.value, redacted: false };
+      }
+      if (secret.redacted) {
+        const inlineValue = inlineValues.get(secret.secretName);
+        const resolved = resolvedValues.get(secret.secretName);
+        const value =
+          inlineValue ?? (inherited.get(secret.secretName) === resolved ? resolved : undefined);
+        // Left inline so the write sees it unchanged from the shared file and omits it.
+        if (value !== undefined && inherited.get(secret.secretName) === value) {
+          return { value, redacted: false };
+        }
+        keptSecretNames.add(secret.secretName);
+        nextSecretNames.add(secret.secretName);
+        if (inlineValue !== undefined) {
+          inlineWrites.set(secret.secretName, {
+            ...metadata,
+            kind: "write",
+            value: textEncoder.encode(inlineValue),
+          });
+        }
+        return { value: "", redacted: true };
+      }
+      if (inherited.get(secret.secretName) === secret.value) {
+        return { value: secret.value, redacted: false };
+      }
+      if (secret.value.length === 0) {
+        changes.push({ ...metadata, kind: "remove", operation: "remove-secret" });
+        return { value: "", redacted: false };
+      }
+      nextSecretNames.add(secret.secretName);
+      writtenSecretNames.add(secret.secretName);
+      changes.push({ ...metadata, kind: "write", value: textEncoder.encode(secret.value) });
+      return { value: "", redacted: true };
+    });
+    // A legacy inline value only moves to the store when no row in this save replaces it.
+    for (const [secretName, change] of inlineWrites) {
+      if (!writtenSecretNames.has(secretName)) changes.push(change);
+    }
+    for (const secret of previous.values()) {
+      if (nextSecretNames.has(secret.secretName)) continue;
+      if (changes.some((change) => change.secretName === secret.secretName)) continue;
+      changes.push({
+        kind: "remove",
+        secretName: secret.secretName,
+        operation: "remove-stale-secret",
+        ...(secret.providerInstanceId !== undefined
+          ? { providerInstanceId: secret.providerInstanceId }
+          : {}),
+        ...(secret.environmentVariable !== undefined
+          ? { environmentVariable: secret.environmentVariable }
+          : {}),
+      });
+    }
+    return {
+      settings,
+      // A redacted row still claims its stored secret, so a duplicate row must not remove it.
+      changes: changes.filter(
+        (change) => change.kind === "write" || !keptSecretNames.has(change.secretName),
+      ),
+    };
+  });
 
   const rollbackSettingsSecretWrites = (
     writes: ReadonlyArray<{
@@ -1249,7 +1758,8 @@ const make = Effect.gen(function* () {
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
-        const { settings: current, parseFailure } = yield* reloadSettings;
+        const state = yield* reloadSettings;
+        const { settings: current, parseFailure } = state;
         if (Option.isSome(parseFailure)) {
           return yield* new ServerSettingsError({
             settingsPath,
@@ -1295,6 +1805,7 @@ const make = Effect.gen(function* () {
         const persisted = yield* persistSettingsSecrets(
           current,
           withoutRemovedSecretProviderReferences(current, vettedProviders.settings),
+          state.baseline,
         );
         const next = yield* normalizeServerSettings(persisted.settings);
         const materializedNext = yield* Effect.uninterruptibleMask(() =>
@@ -1306,7 +1817,7 @@ const make = Effect.gen(function* () {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(materializedExit.cause);
             }
-            const writeExit = yield* Effect.exit(writeSettingsAtomically(next));
+            const writeExit = yield* Effect.exit(writeSettingsAtomically(next, state));
             if (Exit.isFailure(writeExit)) {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(writeExit.cause);
@@ -1314,7 +1825,11 @@ const make = Effect.gen(function* () {
             return materializedExit.value;
           }).pipe(Effect.ensuring(invalidateMaterialized)),
         );
-        yield* Cache.set(settingsCache, cacheKey, { settings: next, parseFailure: Option.none() });
+        yield* Cache.set(settingsCache, cacheKey, {
+          ...state,
+          settings: next,
+          parseFailure: Option.none(),
+        });
         const resolved = toEffective(materializedNext);
         materialized = { source: next, value: resolved };
         yield* emitChange(next);
@@ -1389,58 +1904,68 @@ const make = Effect.gen(function* () {
     const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
 
     // Watch symlink targets' directories for rewrites; re-resolve link changes to follow repointing.
-    const watchLinkTarget = Effect.gen(function* () {
-      const linkTargetPath = yield* resolveSymlinkTarget(settingsPath).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, pathService),
-      );
-      if (linkTargetPath === pathService.resolve(settingsPath)) {
-        return Option.none<string>();
-      }
-      yield* fs
-        .makeDirectory(pathService.dirname(linkTargetPath), { recursive: true })
-        .pipe(Effect.ignore({ log: true }));
-      return Option.some(linkTargetPath);
-    }).pipe(Effect.orElseSucceed(() => Option.none<string>()));
+    const watchSettingsFile = Effect.fnUntraced(function* (
+      filePath: string,
+      options: { readonly prepareLinkTargetDirectory: boolean },
+    ) {
+      const watchLinkTarget = Effect.gen(function* () {
+        const linkTargetPath = yield* resolveSymlinkTarget(filePath).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, pathService),
+        );
+        if (linkTargetPath === pathService.resolve(filePath)) {
+          return Option.none<string>();
+        }
+        if (options.prepareLinkTargetDirectory) {
+          yield* fs
+            .makeDirectory(pathService.dirname(linkTargetPath), { recursive: true })
+            .pipe(Effect.ignore({ log: true }));
+        }
+        return Option.some(linkTargetPath);
+      }).pipe(Effect.orElseSucceed(() => Option.none<string>()));
 
-    const settingsReady = yield* Deferred.make<void>();
-    const linkTargetReady = yield* Deferred.make<void>();
-    yield* Effect.gen(function* () {
-      const [settingsEvents, resolveEvents] = yield* watchFileChanges(
-        settingsPath,
-        settingsReady,
-      ).pipe(
-        Stream.ignoreCause({ log: true }),
-        Stream.broadcastN({ n: 2, capacity: 1, strategy: "sliding" }),
+      const fileReady = yield* Deferred.make<void>();
+      const linkTargetReady = yield* Deferred.make<void>();
+      yield* Effect.gen(function* () {
+        const [fileEvents, resolveEvents] = yield* watchFileChanges(filePath, fileReady).pipe(
+          Stream.ignoreCause({ log: true }),
+          Stream.broadcastN({ n: 2, capacity: 1, strategy: "sliding" }),
+        );
+        // Buffer file path changes while resolving the first target.
+        const linkTargetEvents = Stream.fromEffect(
+          Deferred.await(fileReady).pipe(Effect.andThen(watchLinkTarget)),
+        ).pipe(
+          Stream.concat(resolveEvents.pipe(Stream.mapEffect(() => watchLinkTarget))),
+          Stream.changes,
+          Stream.switchMap(
+            Option.match({
+              onNone: () =>
+                Stream.fromEffect(Deferred.succeed(linkTargetReady, undefined)).pipe(Stream.drain),
+              onSome: (linkTargetPath) => watchLinkTargetChanges(linkTargetPath, linkTargetReady),
+            }),
+          ),
+        );
+        // Saves emit multiple events; fs.watch may fire before content is flushed.
+        yield* Stream.merge(fileEvents, linkTargetEvents).pipe(
+          Stream.debounce(Duration.millis(100)),
+          Stream.runForEach(() => revalidateAndEmitSafely),
+        );
+      }).pipe(
+        Effect.scoped,
+        Effect.ignoreCause({ log: true }),
+        Effect.ensuring(Deferred.succeed(linkTargetReady, undefined)),
+        Effect.forkIn(watcherScope),
       );
-      // Buffer settings path changes while resolving the first target.
-      const linkTargetEvents = Stream.fromEffect(
-        Deferred.await(settingsReady).pipe(Effect.andThen(watchLinkTarget)),
-      ).pipe(
-        Stream.concat(resolveEvents.pipe(Stream.mapEffect(() => watchLinkTarget))),
-        Stream.changes,
-        Stream.switchMap(
-          Option.match({
-            onNone: () =>
-              Stream.fromEffect(Deferred.succeed(linkTargetReady, undefined)).pipe(Stream.drain),
-            onSome: (linkTargetPath) => watchLinkTargetChanges(linkTargetPath, linkTargetReady),
-          }),
-        ),
-      );
+      // Edits made once `start` returns must reach a registered watch.
+      yield* Deferred.await(linkTargetReady);
+    });
 
-      // Saves emit multiple events; fs.watch may fire before content is flushed.
-      yield* Stream.merge(settingsEvents, linkTargetEvents).pipe(
-        Stream.debounce(Duration.millis(100)),
-        Stream.runForEach(() => revalidateAndEmitSafely),
-      );
-    }).pipe(
-      Effect.scoped,
-      Effect.ignoreCause({ log: true }),
-      Effect.ensuring(Deferred.succeed(linkTargetReady, undefined)),
-      Effect.forkIn(watcherScope),
-    );
-    // Edits made once `start` returns must reach a registered watch.
-    yield* Deferred.await(linkTargetReady);
+    yield* watchSettingsFile(settingsPath, { prepareLinkTargetDirectory: true });
+    // Nothing is created for the read-only shared file, and its watch fails
+    // independently of the settings.json watch.
+    if (sharedSettingsPath !== undefined) {
+      yield* watchSettingsFile(sharedSettingsPath, { prepareLinkTargetDirectory: false });
+    }
   });
 
   const start = Effect.gen(function* () {
