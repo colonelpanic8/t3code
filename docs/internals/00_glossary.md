@@ -40,3 +40,10 @@ Shared vocabulary across T3 Code. Architecture and lifecycle constraints belong 
 | Runtime mode      | The thread's permission policy. See [permission modes](../user/permission-modes.md).                         |
 | Interaction mode  | How the agent approaches the task, such as planning. Separate from permission policy.                        |
 | Checkpoint        | A saved workspace state used for diffs and restore, stored as a hidden Git ref.                              |
+
+## Live voice
+
+| Term                | Meaning                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live voice call     | An ephemeral speech-to-speech session between a client and OpenAI, brokered by one server through a hidden Codex app-server session and owned by the client socket that started it.      |
+| Voice route request | A tool call sent by the hidden voice session through its owning client for execution against another connected environment. See [live voice](./live-voice.md) for the routing lifecycle. |
