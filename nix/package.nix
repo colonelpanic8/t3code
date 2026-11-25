@@ -129,7 +129,13 @@
       # Fixed-output hash over the offline dependency closure. When
       # pnpm-lock.yaml changes, replace this with lib.fakeHash, build
       # .#unwrapped, and copy the reported hash here.
-      hash = "sha256-XRgN5NIC94VsLIhoMsMj8ocLtxiVfLFvG+nlK1spqmI=";
+      # pnpm fetches only the host platform's optional dependencies, so
+      # each system has its own closure.
+      hash =
+        {
+          x86_64-linux = "sha256-OCqoxySe0paljpgOBd0ZSZKuD8iEnlVGf2veL9RUbmA=";
+          aarch64-darwin = "sha256-VOGOXS2qkjQy2hrEavbRLzxoDt7gWskVOfDXntYA57A=";
+        }.${pkgs.stdenv.hostPlatform.system} or lib.fakeHash;
     };
 
     env.APP_VERSION = finalAttrs.version;
