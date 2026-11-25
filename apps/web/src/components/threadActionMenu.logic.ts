@@ -28,6 +28,7 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread"
+  | "copy-thread-markdown"
   | "copy-thread-id"
   | "archive"
   | "delete";
@@ -141,6 +142,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-path",
     "copy-branch",
     "copy-thread",
+    "copy-thread-markdown",
     "copy-thread-id",
   ].includes(action);
 }
@@ -305,6 +307,11 @@ export function buildThreadActionMenuItems(
           id: "copy-thread",
           label: resolve(msg("Thread", { $context: "copy the thread contents" })),
           icon: "message-square",
+        },
+        {
+          id: "copy-thread-markdown",
+          label: resolve(msg("Thread as Markdown")),
+          icon: "file-text",
         },
         { id: "copy-thread-id", label: resolve(msg("Thread ID")), icon: "hash" },
       ],
