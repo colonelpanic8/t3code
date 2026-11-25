@@ -1133,7 +1133,9 @@ export function firstValidTimestampMs(
 
 export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 export {
+  activeSortCriteriaAreAutomatic,
   sortInboxThreadsByReturn,
+  sortThreadsByCriteria,
   sortWorkingThreadsBySend,
 } from "@t3tools/client-runtime/state/thread-inbox";
 
