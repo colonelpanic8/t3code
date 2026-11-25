@@ -128,7 +128,7 @@ export function resolveLocalVersionStatusLabel(
       ? resolve(msg("Update {version} downloaded", { version }))
       : resolve(msg("Update downloaded"));
   }
-  if (action === "download") {
+  if (action === "download" || action === "open") {
     return state.availableVersion
       ? resolve(msg("Update {version} available", { version: state.availableVersion }))
       : resolve(msg("Update available"));
