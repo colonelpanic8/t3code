@@ -285,6 +285,7 @@ import {
   useDraftTerminalLabels,
   useSidebarDrafts,
 } from "./sidebar/SidebarDraftBlock";
+import { SidebarScheduledTasks } from "./sidebar/SidebarScheduledTasks";
 import {
   SidebarProjectFolderHeader,
   sidebarFolderRowId,
@@ -3382,6 +3383,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {!isSearchingThreads && (
+            <SidebarScheduledTasks
+              environmentIds={connectedEnvironmentIds}
+              scopedProjectKeys={scopedProjectKeys}
+              timestampFormat={timestampFormat}
+            />
+          )}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider

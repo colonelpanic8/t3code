@@ -22,6 +22,7 @@ import {
   type ContextMenuItem,
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
+  type ScheduledTask,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -55,6 +56,33 @@ import { isModelPickerOpen, subscribeToModelPickerVisibility } from "../modelPic
 import { shortcutModifierStore } from "../shortcutModifierState";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
+
+export function upcomingSidebarScheduledTasks(
+  environments: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly tasks: ReadonlyArray<
+      Pick<
+        ScheduledTask,
+        "id" | "title" | "schedule" | "projectId" | "enabled" | "nextRunAt" | "blockedByPolicy"
+      >
+    >;
+  }>,
+  scopedProjectKeys: ReadonlySet<string> | null,
+) {
+  return environments
+    .flatMap(({ environmentId, tasks }) =>
+      tasks.flatMap((task) =>
+        task.schedule.type === "once" &&
+        task.enabled &&
+        task.nextRunAt !== null &&
+        task.blockedByPolicy === undefined &&
+        (scopedProjectKeys === null || scopedProjectKeys.has(`${environmentId}:${task.projectId}`))
+          ? [{ environmentId, id: task.id, title: task.title, runAt: task.nextRunAt }]
+          : [],
+      ),
+    )
+    .toSorted((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
+}
 
 export function shouldNavigateAfterThreadPark(input: {
   readonly threadKey: string;
