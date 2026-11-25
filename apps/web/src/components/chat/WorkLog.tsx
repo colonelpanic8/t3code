@@ -1,6 +1,7 @@
 import {
   createContext,
   use,
+  useId,
   useLayoutEffect,
   useRef,
   type ComponentProps,
@@ -35,7 +36,6 @@ export function WorkLogBlock({
   );
 }
 
-/** Expanded members align with the header and use the same compact row geometry. */
 export function WorkLogList({ children }: { children: ReactNode }) {
   return (
     <GroupedRows value>
@@ -51,18 +51,23 @@ type RowContent = {
   wrapLabel?: boolean;
 };
 
-function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
+const focusRingClassName =
+  "rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
+
+type LineProps = Omit<ComponentProps<"div">, "className" | "style" | "children">;
+
+function WorkLogLine({ icon, label, trailing, wrapLabel, ...lineProps }: RowContent & LineProps) {
   return (
     <div
+      {...lineProps}
       className={cn(
         "flex min-h-6 min-w-0 gap-1.5 text-sm leading-relaxed select-none [&_*]:select-none",
         wrapLabel ? "items-start" : "items-center",
+        lineProps.role === "button" && focusRingClassName,
       )}
     >
       <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
         {icon ? (
-          // Align with the first line's capital letters. Centering line boxes drifts
-          // when font ascent/descent rounding changes at fractional browser zoom.
           <span className="relative w-6 shrink-0 leading-0">
             <span className="inline-block size-6 overflow-hidden align-[calc(0.5cap_-_0.75rem)]">
               <span className="flex size-full items-center justify-center">{icon}</span>
@@ -83,19 +88,16 @@ function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
   );
 }
 
-const interactionClassName =
-  "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
-
-function useRowClassName(interactive: boolean) {
+function useRowClassName(interactive: boolean, focusable = interactive) {
   const grouped = use(GroupedRows);
   return cn(
     "group/timeline-row relative w-full min-w-0 rounded-md px-0.5 text-left transition-colors",
     grouped ? "py-0" : "py-0.5",
-    interactive && interactionClassName,
+    interactive && "cursor-pointer",
+    focusable && focusRingClassName,
   );
 }
 
-// No className/style escape hatch: consumers supply content and behavior, not geometry.
 export function WorkLogButton({
   icon,
   label,
@@ -111,25 +113,40 @@ export function WorkLogButton({
   );
 }
 
-/** Div-based disclosure supports selectable detail and nested actions in an entry. */
+type RowProps = Omit<ComponentProps<"div">, "className" | "style"> & {
+  toggle?: LineProps | undefined;
+};
+
+/**
+ * Div disclosure permits selectable detail and nested actions. `toggle` goes on
+ * the header line only: assistive tech hides a button's children.
+ */
 export function WorkLogRow({
   icon,
   label,
   trailing,
   wrapLabel = false,
+  toggle,
   children,
   ...rowProps
-}: RowContent & Omit<ComponentProps<"div">, "className" | "style">) {
-  const className = useRowClassName(rowProps.onClick !== undefined);
+}: RowContent & RowProps) {
+  const className = useRowClassName(rowProps.onClick !== undefined, false);
+  const detailsId = useId();
   return (
     <div {...rowProps} className={className}>
-      <WorkLogLine icon={icon} label={label} trailing={trailing} wrapLabel={wrapLabel} />
-      {children}
+      <WorkLogLine
+        aria-controls={toggle ? detailsId : undefined}
+        {...toggle}
+        icon={icon}
+        label={label}
+        trailing={trailing}
+        wrapLabel={wrapLabel}
+      />
+      {toggle ? <div id={detailsId}>{children}</div> : children}
     </div>
   );
 }
 
-/** Distance from the end, in px, that still counts as reading the newest text. */
 const LIVE_EDGE_PX = 4;
 
 export function WorkLogDetails({
@@ -139,13 +156,12 @@ export function WorkLogDetails({
 }: {
   children: ReactNode;
   kind?: "text" | "panel" | "media";
-  /** Keep streamed text in view. Scrolling up pauses this until the reader returns to the end. */
+
   followLive?: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const atLiveEdgeRef = useRef(true);
-  // No deps: each streamed chunk re-renders this, and pinning before paint
-  // shows the new text without a visible jump.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pins the scroller's scrollTop to the bottom after each commit while following live output
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (followLive && atLiveEdgeRef.current && scroller) {

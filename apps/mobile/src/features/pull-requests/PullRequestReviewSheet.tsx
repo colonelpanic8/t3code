@@ -1,26 +1,34 @@
+import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
+import { AsyncResult } from "effect/reactivity";
 import { useAtomRefresh } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { changeRequestTermKind } from "../../lib/changeRequestTerm";
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { PullRequestReviewVerdict } from "@t3tools/contracts";
-import { useCallback, useRef, useState } from "react";
+import { msg, T, useGT, useMessages } from "gt-react-native";
+import { useRef, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-import { Platform, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { clearSubmittedReview } from "./pullRequestReviewDrafts";
 import { usePullRequestReviewDraft } from "./usePullRequestReviewDraft";
 import { reviewPositionLabel } from "./pullRequestDiffComments";
-import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
-import { MaterialButton } from "../../components/MaterialButton";
-import { SegmentedControl } from "../../components/SegmentedControl";
+import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
+import { Button } from "../../components/ui/Button";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { composerPullRequests } from "../../state/pull-requests";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { PullRequestSheetContent as SheetContent } from "./PullRequestSheetContent";
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
 import { usePullRequestPermissions } from "./usePullRequestPermissions";
+import { PullRequestCompletionSuggestions } from "./PullRequestCompletionSuggestions";
+import { usePullRequestCompletions } from "./usePullRequestCompletions";
+import { m as resolveMessage } from "../../i18n/messages";
 
 function useActionSubmission(params: PullRequestParams) {
   const navigation = useNavigation();
+  const gt = useGT();
   const refreshDetail = useAtomRefresh(composerPullRequests.detail(pullRequestTarget(params)));
   const refreshActivity = useAtomRefresh(composerPullRequests.activity(pullRequestTarget(params)));
   const pending = useRef(false);
@@ -31,42 +39,51 @@ function useActionSubmission(params: PullRequestParams) {
     pending.current = true;
     setBusy(true);
     setError(null);
-    try {
+    const result = await settlePromise(async () => {
       await operation();
       refreshDetail();
       refreshActivity();
       navigation.goBack();
-    } catch (cause) {
+    });
+    pending.current = false;
+    setBusy(false);
+    if (AsyncResult.isFailure(result)) {
+      const cause = squashAtomCommandFailure(result);
       setError(
         cause instanceof Error
-          ? cause.message
-          : "The provider could not complete this action. Try again.",
+          ? (errorDisplayMessage(cause, resolveMessage) ?? cause.message)
+          : gt("The provider could not complete this action. Try again."),
       );
-    } finally {
-      pending.current = false;
-      setBusy(false);
     }
   };
   return { busy, error, submit };
 }
 
 const VERDICTS = [
-  { value: "comment", title: "Comment" },
-  { value: "approve", title: "Approve" },
+  { value: "comment", title: msg("Comment", { $context: "review verdict" }) },
+  { value: "approve", title: msg("Approve", { $context: "review verdict" }) },
   {
     value: "request-changes",
-    title: "Request changes",
+    title: msg("Request changes"),
   },
 ] as const;
 
 export function PullRequestReviewSheet({
   route,
-}: StaticScreenProps<PullRequestParams & { readonly mode: "review" | "comment" }>) {
+}: StaticScreenProps<
+  PullRequestParams & {
+    readonly mode: "review" | "comment";
+    /** The head the opening screen showed; this sheet's own read can run ahead of it. */
+    readonly reviewedHeadSha?: string | undefined;
+  }
+>) {
   const params = route.params;
+  const gt = useGT();
+  const m = useMessages();
   const target = pullRequestTarget(params);
   const result = useEnvironmentQuery(composerPullRequests.detail(target));
   const { refresh: refreshDetail } = result;
-  useFocusEffect(useCallback(() => refreshDetail(), [refreshDetail]));
+  useFocusEffect(refreshDetail);
   const permissions = usePullRequestPermissions(params, result.data);
   const submission = useActionSubmission(params);
   const review = useAtomCommand(composerPullRequests.submitReview, { reportFailure: false });
@@ -79,6 +96,14 @@ export function PullRequestReviewSheet({
       ...draft,
       ...(params.mode === "review" ? { summary: body } : { comment: body }),
     }));
+  const completions = usePullRequestCompletions({
+    environmentId: params.environmentId,
+    projectId: params.projectId,
+    value: body,
+    onChangeValue: setBody,
+    support: result.data?.capabilities ?? null,
+  });
+  const reviewedHeadSha = params.reviewedHeadSha ?? result.data?.headSha;
   const stale = store.draft.comments.some((comment) => comment.headSha !== result.data?.headSha);
   const [requestedVerdict, setRequestedVerdict] = useState<PullRequestReviewVerdict>("comment");
   const offered = VERDICTS.filter((option) => permissions.verdicts.includes(option.value));
@@ -104,7 +129,7 @@ export function PullRequestReviewSheet({
   const perform = () =>
     submission.submit(async () => {
       if (!canSubmit)
-        throw new Error("Add your feedback and check your permissions before submitting.");
+        throw new Error(gt("Add your feedback and check your permissions before submitting."));
       const submitted = store.draft;
       const response =
         reviewing && verdict
@@ -112,6 +137,7 @@ export function PullRequestReviewSheet({
               ...target,
               input: {
                 ...target.input,
+                ...(reviewedHeadSha ? { expectedHeadSha: reviewedHeadSha } : {}),
                 verdict: verdict.value,
                 body,
                 comments: submitted.comments.map(
@@ -130,24 +156,28 @@ export function PullRequestReviewSheet({
     });
   return (
     <SheetContent
-      title={reviewing ? "Submit review" : "Add comment"}
-      subtitle={`#${params.number}${reviewing && result.data?.headSha ? ` · reviewing ${result.data.headSha.slice(0, 7)}` : ` · ${params.repository}`}`}
+      title={reviewing ? gt("Submit review") : gt("Add comment")}
+      subtitle={`#${params.number} · ${
+        reviewing && reviewedHeadSha
+          ? gt("reviewing {sha}", { sha: reviewedHeadSha.slice(0, 7) })
+          : params.repository
+      }`}
       busy={submission.busy}
       footer={
-        <MaterialButton
+        <Button
           label={
             submission.busy
-              ? "Submitting…"
+              ? gt("Submitting…")
               : reviewing
                 ? verdict?.value === "approve"
-                  ? "Approve"
+                  ? gt("Approve", { $context: "review verdict" })
                   : verdict?.value === "request-changes"
-                    ? "Request changes"
-                    : "Submit review"
-                : "Post comment"
+                    ? gt("Request changes")
+                    : gt("Submit review")
+                : gt("Post comment")
           }
           fullWidth
-          tone={Platform.OS === "android" ? "primary" : "contrast"}
+          tone="contrast"
           loading={submission.busy}
           disabled={!canSubmit || result.isPending || result.error !== null}
           onPress={() => void perform()}
@@ -156,7 +186,7 @@ export function PullRequestReviewSheet({
     >
       {reviewing && offered.length > 1 ? (
         <SegmentedControl
-          options={offered.map((option) => ({ value: option.value, label: option.title }))}
+          options={offered.map((option) => ({ value: option.value, label: m(option.title) }))}
           selected={verdict?.value ?? "comment"}
           onSelect={(value) => {
             if (!submission.busy) setRequestedVerdict(value);
@@ -165,17 +195,23 @@ export function PullRequestReviewSheet({
         />
       ) : null}
       <Text className="px-4 text-xs text-foreground-muted">
-        {reviewing ? "Summary" : "Comment"}
+        {reviewing ? gt("Summary") : gt("Comment", { $context: "noun, field label" })}
       </Text>
+      <PullRequestCompletionSuggestions completions={completions} />
       <TextInput
         multiline
-        accessibilityLabel={reviewing ? "Review summary" : "Comment"}
+        selection={completions.selection}
+        onSelectionChange={completions.onSelectionChange}
+        onBlur={completions.onBlur}
+        accessibilityLabel={
+          reviewing ? gt("Review summary") : gt("Comment", { $context: "noun, field label" })
+        }
         placeholder={
           reviewing
             ? summaryRequired
-              ? "Summary required to request changes…"
-              : "Summarize your review…"
-            : "Write a comment…"
+              ? gt("Summary required to request changes…")
+              : gt("Summarize your review…")
+            : gt("Write a comment…")
         }
         placeholderTextColorClassName="accent-foreground-muted"
         editable={store.ready && !submission.busy}
@@ -188,8 +224,10 @@ export function PullRequestReviewSheet({
       {reviewing && store.draft.comments.length ? (
         <View className="gap-2">
           <Text className="text-sm font-t3-medium">
-            {store.draft.comments.length} pending line{" "}
-            {store.draft.comments.length === 1 ? "comment" : "comments"}
+            {gt(
+              "{count, plural, one {{count} pending line comment} other {{count} pending line comments}}",
+              { count: store.draft.comments.length },
+            )}
           </Text>
           {store.draft.comments.map((draft) => (
             <Pressable
@@ -218,15 +256,15 @@ export function PullRequestReviewSheet({
               className="gap-1 rounded-[20px] bg-grouped-card p-4"
             >
               <Text className="font-mono text-xs text-foreground-muted">
-                {draft.path} · {reviewPositionLabel(draft.position)}
+                {draft.path} · {reviewPositionLabel(draft.position, m)}
               </Text>
               <Text numberOfLines={3} className="text-sm">
                 {draft.body}
               </Text>
               <Text className="text-2xs text-foreground-muted">
                 {draft.headSha !== result.data?.headSha
-                  ? "Branch changed · Tap to choose a new line"
-                  : "Tap to edit"}
+                  ? gt("Branch changed · Tap to choose a new line")
+                  : gt("Tap to edit")}
               </Text>
             </Pressable>
           ))}
@@ -234,12 +272,21 @@ export function PullRequestReviewSheet({
       ) : null}
       {reviewing && stale ? (
         <Text className="text-sm text-danger-foreground">
-          The branch changed since you wrote a comment. Choose its current line before submitting.
+          <T>
+            The branch changed since you wrote a comment. Choose its current line before submitting.
+          </T>
         </Text>
       ) : null}
       {reviewing && !canSubmitComments ? (
         <Text className="text-sm text-danger-foreground">
-          You can no longer submit line comments on this pull request. Your drafts are kept here.
+          {gt(
+            "You can no longer submit line comments on this {term, select, mr {merge request} cr {change request} other {pull request}}. Your drafts are kept here.",
+            {
+              term: changeRequestTermKind(
+                sourceControlClients.get(result.data?.provider).changeRequest,
+              ),
+            },
+          )}
         </Text>
       ) : null}
       {submission.error || result.error || store.error ? (

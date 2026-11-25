@@ -1,7 +1,7 @@
 import type { PullRequestActivity, PullRequestDetail } from "@t3tools/contracts";
 import type { ReviewGuideGenerationInput } from "@t3tools/provider-core/server/textGeneration";
+import { splitsSurrogatePair } from "@t3tools/shared/assistantCitations";
 
-/** Longest a settled remark is quoted. The guide needs what was raised, not the argument. */
 const SETTLED_REMARK_CHARS = 200;
 
 function oneLine(text: string): string {
@@ -9,15 +9,14 @@ function oneLine(text: string): string {
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return flat.length > SETTLED_REMARK_CHARS ? `${flat.slice(0, SETTLED_REMARK_CHARS)}…` : flat;
+  if (flat.length <= SETTLED_REMARK_CHARS) return flat;
+  const end = splitsSurrogatePair(flat, SETTLED_REMARK_CHARS)
+    ? SETTLED_REMARK_CHARS - 1
+    : SETTLED_REMARK_CHARS;
+  return `${flat.slice(0, end)}…`;
 }
 
-/**
- * What review already settled, one line per conversation: resolved threads, and threads whose
- * line a later push removed. These are the review loop's finished work; the guide is told about
- * them so it does not raise them again.
- */
-export function settledReviewSummary(activity: PullRequestActivity): string {
+function settledReviewSummary(activity: PullRequestActivity): string {
   return activity.reviewThreads
     .filter((thread) => thread.isResolved || thread.isOutdated)
     .flatMap((thread) => {
@@ -30,12 +29,11 @@ export function settledReviewSummary(activity: PullRequestActivity): string {
     .join("\n");
 }
 
-/** The prompt input for a guide, minus the checkout and model the caller provides. */
 export function reviewGuideInputFromPullRequest(
   detail: PullRequestDetail,
   activity: PullRequestActivity,
   baseCommit: string,
-): Omit<ReviewGuideGenerationInput, "cwd" | "modelSelection"> {
+): Omit<ReviewGuideGenerationInput, "cwd" | "projectCwd" | "modelSelection"> {
   return {
     number: detail.number,
     title: detail.title,

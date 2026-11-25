@@ -1,5 +1,8 @@
+import * as Dialog from "../../components/ui/Dialog";
 import { buildNewThreadLink, type LinkedPrompt } from "@t3tools/shared/promptLinks";
-import { Alert } from "react-native";
+import { msg } from "gt-react-native";
+
+import { m } from "../../i18n/messages";
 
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import {
@@ -9,16 +12,10 @@ import {
 } from "../../state/use-composer-drafts";
 import { linkedThreadDraftAction } from "./prompt-link-model";
 
-/** Shows the one notice a prompt link owes the user, built with `promptLinkNotice`. */
 export function showPromptLinkNotice(notice: string): void {
-  Alert.alert("Prompt from a link", notice);
+  Dialog.alert(m(msg("Prompt from a link")), notice);
 }
 
-/**
- * Puts a linked prompt into an existing thread's composer draft. An empty composer is filled;
- * typed text is replaced only when the user says so. The notice rides in the same alert, so a
- * link never stacks two dialogs.
- */
 export async function applyLinkedPromptToThreadDraft(
   draftKey: string,
   prompt: LinkedPrompt,
@@ -27,7 +24,10 @@ export async function applyLinkedPromptToThreadDraft(
   try {
     await waitForComposerDraftsLoaded();
   } catch {
-    Alert.alert("Could not open link", "Drafts could not be loaded, so the prompt was not added.");
+    Dialog.alert(
+      m(msg("Could not open link")),
+      m(msg("Drafts could not be loaded, so the prompt was not added.")),
+    );
     return;
   }
   const action = linkedThreadDraftAction(getComposerDraftSnapshot(draftKey).text, prompt.text);
@@ -36,15 +36,17 @@ export async function applyLinkedPromptToThreadDraft(
     showPromptLinkNotice(notice);
     return;
   }
-  Alert.alert("Linked prompt ready. Replace draft?", notice, [
-    { text: "Keep mine", style: "cancel" },
-    { text: "Replace", onPress: () => setComposerDraftText(draftKey, prompt.text) },
+  Dialog.alert(m(msg("Linked prompt ready. Replace draft?")), notice, [
+    { text: m(msg("Keep mine")), style: "cancel" },
+    {
+      text: m(msg("Replace", { $context: "verb, replaces the draft" })),
+      onPress: () => setComposerDraftText(draftKey, prompt.text),
+    },
   ]);
 }
 
-/** Copies a shareable link that opens a new task with this prompt. Used by sent user messages. */
 export async function copyPromptLink(prompt: string): Promise<void> {
   if (!(await tryCopyTextWithHaptic(buildNewThreadLink({ prompt }), { target: "prompt link" }))) {
-    Alert.alert("Could not copy", "Try again.");
+    Dialog.alert(m(msg("Could not copy")), m(msg("Try again.")));
   }
 }

@@ -1,6 +1,8 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentShellStatus } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadState } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import type { DraftId } from "./composerDraftStore";
 
 export type ThreadRouteTarget =
@@ -19,10 +21,10 @@ type DraftThreadRouteState = {
   promotedTo?: ScopedThreadRef | null;
 };
 
-export type ThreadRouteRenderState = "loading" | "ready" | "missing";
+export type ThreadRouteRenderState = "loading" | "ready" | "missing" | "unreachable";
 
 export function isThreadRouteSnapshotAuthoritative(
-  status: EnvironmentShellStatus | undefined,
+  status: EnvironmentShellStatus | null | undefined,
 ): boolean {
   return status === "live";
 }
@@ -31,15 +33,31 @@ export function resolveThreadRouteRenderState(input: {
   bootstrapComplete: boolean;
   serverThreadExists: boolean;
   serverThreadDeleted: boolean;
+  unlistedThreadDetail: EnvironmentThreadState;
   draftThreadExists: boolean;
+  /** The app has no enabled connection to the thread's environment, so its shell never goes live. */
+  environmentUnreachable?: boolean;
 }): ThreadRouteRenderState {
   if (input.draftThreadExists || (input.serverThreadExists && !input.serverThreadDeleted)) {
     return "ready";
   }
+  if (input.environmentUnreachable) {
+    return "unreachable";
+  }
   if (!input.bootstrapComplete) {
     return "loading";
   }
-  return "missing";
+  if (input.serverThreadExists || input.unlistedThreadDetail.status === "deleted") {
+    return "missing";
+  }
+  // Shell membership can lag a new thread; its detail decides.
+  const projection = Option.getOrNull(input.unlistedThreadDetail.data);
+  if (projection === null) {
+    return "loading";
+  }
+  return projection.thread.deletedAt !== null || projection.thread.archivedAt !== null
+    ? "missing"
+    : "ready";
 }
 
 export function buildThreadRouteParams(ref: ScopedThreadRef): {
@@ -50,6 +68,20 @@ export function buildThreadRouteParams(ref: ScopedThreadRef): {
     environmentId: ref.environmentId,
     threadId: ref.threadId,
   };
+}
+
+/** The router keeps reserved characters encoded in location.pathname. */
+export function isThreadRoutePathname(pathname: string, ref: ScopedThreadRef): boolean {
+  const parts = pathname.replace(/\/$/, "").split("/");
+  if (parts.length !== 3 || parts[0] !== "") return false;
+  try {
+    return (
+      decodeURIComponent(parts[1]!) === ref.environmentId &&
+      decodeURIComponent(parts[2]!) === ref.threadId
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function buildDraftThreadRouteParams(draftId: DraftId): {
@@ -88,19 +120,16 @@ export function resolveThreadRouteTarget(
   };
 }
 
-/**
- * Resolves the thread represented by either a canonical thread route or a
- * draft route whose promotion to a server thread has been recorded.
- */
 export function resolveActiveThreadRouteRef(
   target: ThreadRouteTarget | null,
   draftThread: DraftThreadRouteState | null,
+  promotedDraftRedirect: ScopedThreadRef | null = null,
 ): ScopedThreadRef | null {
   if (target?.kind === "server") {
     return target.threadRef;
   }
-  if (target?.kind !== "draft" || !draftThread?.promotedTo) {
+  if (target?.kind !== "draft") {
     return null;
   }
-  return draftThread.promotedTo;
+  return draftThread?.promotedTo ?? promotedDraftRedirect;
 }

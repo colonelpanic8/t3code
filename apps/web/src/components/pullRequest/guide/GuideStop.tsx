@@ -13,7 +13,8 @@ import {
   MessageCircleQuestionIcon,
   MessageSquareIcon,
 } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
+import type { ReactNode } from "react";
 
 import { getDiffLineStat } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
@@ -31,17 +32,13 @@ import { GuideProse } from "./GuideProse";
 import { letterStopNotes } from "@t3tools/client-runtime/review-guide-tour";
 
 const ATTENTION_LABELS = {
-  tradeoff: "A tradeoff to weigh",
-  contract: "A contract to check",
-  product: "A product call",
-  risk: "A risk to judge",
-  accessibility: "An accessibility call",
+  tradeoff: msg("A tradeoff to weigh"),
+  contract: msg("A contract to check"),
+  product: msg("A product call"),
+  risk: msg("A risk to judge"),
+  accessibility: msg("An accessibility call"),
 } as const satisfies Record<PullRequestReviewGuideAttention["kind"], string>;
 
-/**
- * One stop of the tour: what it is about, where to look, and the two things a reader does with
- * it: comment on its lines for the review, or ask an agent about it.
- */
 export function GuideStop({
   stop,
   index,
@@ -62,46 +59,38 @@ export function GuideStop({
   stop: PullRequestReviewGuideStop;
   index: number;
   stopCount: number;
-  /** Whether the stop list is folded open under the header, on a narrow panel. */
   railOpen: boolean;
   onRailOpenChange: (open: boolean) => void;
-  /** The tour's stop list, folded under the header on a narrow panel. */
   stopList: ReactNode;
-  /** The following stop's title, null on the last stop. */
   nextTitle: string | null;
   files: ReadonlyMap<string, FileDiffMetadata>;
-  /** Loads a file's unchanged lines for the bars between hunks. */
   loadDiffFiles: FileDiffContentsLoader;
   diffLoading: boolean;
-  /** Commenting on excerpt lines; null where the reader can neither comment nor ask. */
   commenting: ExcerptCommenting | null;
   onStep: (delta: 1 | -1) => void;
-  /** Opens an agent thread about this stop, with the question prefilled or empty. */
   onAsk: ((question: string) => void) | null;
-  /** Opens the review composer, on the last stop. Null where the reader cannot review. */
   onFinish: (() => void) | null;
   onOpenFile: (path: string) => void;
 }) {
-  const { lettered, byExcerpt } = useMemo(() => letterStopNotes(stop), [stop]);
+  const gt = useGT();
+  const resolve = useMessages();
+  const { lettered, byExcerpt } = letterStopNotes(stop);
   const excerptPaths = new Set(stop.excerpts.map((excerpt) => excerpt.path));
-  // Files the stop owns without excerpting, and excerpted ones listed again with a note.
   const otherFiles = stop.files.filter((file) => !excerptPaths.has(file.path));
 
   const hasNotes = lettered.length > 0;
 
   return (
-    // On a maximized panel the notes take a sticky column of their own beside the stop; a stop
-    // without notes keeps the whole width. Narrower, they follow the excerpts.
     <div
       className={cn("grid gap-8", hasNotes && "@min-[90rem]/guide:grid-cols-[minmax(0,1fr)_20rem]")}
     >
       <article className="flex min-w-0 flex-col gap-5">
-        {/* Narrow, the stop list folds open under this line like an accordion, so one place
-            says where the reader is. Wide, the list sits beside the stop and this is a label. */}
         <Collapsible open={railOpen} onOpenChange={onRailOpenChange}>
           <header className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground tabular-nums @max-[56rem]/guide:hidden">
-              Stop {index + 1} of {stopCount}
+              <T>
+                Stop <Var>{index + 1}</Var> of <Var>{stopCount}</Var>
+              </T>
             </p>
             <CollapsibleTrigger
               render={
@@ -109,7 +98,9 @@ export function GuideStop({
               }
             >
               <span className="tabular-nums">
-                Stop {index + 1} of {stopCount}
+                <T>
+                  Stop <Var>{index + 1}</Var> of <Var>{stopCount}</Var>
+                </T>
               </span>
               <ChevronDownIcon aria-hidden className={cn(railOpen && "rotate-180")} />
             </CollapsibleTrigger>
@@ -117,7 +108,7 @@ export function GuideStop({
               <Button
                 size="icon-xs"
                 variant="outline"
-                aria-label="Previous stop"
+                aria-label={gt("Previous stop")}
                 disabled={index === 0}
                 onClick={() => onStep(-1)}
               >
@@ -126,7 +117,7 @@ export function GuideStop({
               <Button
                 size="icon-xs"
                 variant="outline"
-                aria-label="Next stop"
+                aria-label={gt("Next stop")}
                 disabled={index === stopCount - 1}
                 onClick={() => onStep(1)}
               >
@@ -156,10 +147,9 @@ export function GuideStop({
         </div>
 
         {stop.attention !== null ? (
-          // A call for the reader to make, not a warning, so it reads as a plain notice.
           <Alert controlAlignment="first-line">
             <EyeIcon />
-            <AlertTitle>{ATTENTION_LABELS[stop.attention.kind]}</AlertTitle>
+            <AlertTitle>{resolve(ATTENTION_LABELS[stop.attention.kind])}</AlertTitle>
             <AlertDescription>
               <div>
                 <GuideProse text={stop.attention.note} />
@@ -191,7 +181,7 @@ export function GuideStop({
         {otherFiles.length > 0 ? (
           <section className="flex flex-col gap-1.5">
             <h3 className="text-xs font-medium text-muted-foreground">
-              {stop.excerpts.length > 0 ? "Also in this stop" : "Files in this stop"}
+              {stop.excerpts.length > 0 ? gt("Also in this stop") : gt("Files in this stop")}
             </h3>
             <DiffWorkerPoolProvider>
               <ul className="flex flex-col overflow-hidden rounded-lg border border-border/60">
@@ -228,12 +218,17 @@ export function GuideStop({
                         </CollapsibleTrigger>
                         <CollapsiblePanel animate={false}>
                           {diff !== undefined ? (
-                            <GuideFileDiff file={diff} loadDiffFiles={loadDiffFiles} />
+                            <GuideFileDiff
+                              path={file.path}
+                              file={diff}
+                              commenting={commenting}
+                              loadDiffFiles={loadDiffFiles}
+                            />
                           ) : (
                             <p className="px-3 py-2 text-xs text-muted-foreground">
                               {diffLoading
-                                ? "Loading the diff..."
-                                : "This file is not in the loaded diff."}
+                                ? gt("Loading the diff...")
+                                : gt("This file is not in the loaded diff.")}
                             </p>
                           )}
                         </CollapsiblePanel>
@@ -249,7 +244,9 @@ export function GuideStop({
         {stop.questions.length > 0 || onAsk !== null ? (
           <section className="flex flex-col gap-1.5">
             {stop.questions.length > 0 ? (
-              <h3 className="text-xs font-medium text-muted-foreground">Questions to consider</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">
+                <T>Questions to consider</T>
+              </h3>
             ) : null}
             <div className="flex flex-col items-start gap-1.5">
               {stop.questions.map((question) =>
@@ -258,7 +255,6 @@ export function GuideStop({
                     <GuideProse text={question} />
                   </div>
                 ) : (
-                  // A question is a sentence, so it wraps rather than truncating as a button would.
                   <button
                     key={question}
                     type="button"
@@ -267,9 +263,9 @@ export function GuideStop({
                   >
                     <MessageCircleQuestionIcon
                       aria-hidden
-                      className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+                      className="size-3.5 h-lh shrink-0 text-muted-foreground"
                     />
-                    <span className="sr-only">Ask an agent: </span>
+                    <span className="sr-only">{gt("Ask an agent: ")}</span>
                     <span>
                       <GuideProse text={question} plain />
                     </span>
@@ -279,7 +275,7 @@ export function GuideStop({
               {onAsk !== null ? (
                 <Button size="sm" variant="ghost-muted" onClick={() => onAsk("")}>
                   <MessageCircleQuestionIcon aria-hidden />
-                  Ask about this stop
+                  <T>Ask about this stop</T>
                 </Button>
               ) : null}
             </div>
@@ -288,14 +284,18 @@ export function GuideStop({
 
         <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-border/60 pt-4">
           {nextTitle !== null ? (
-            <Button className="min-w-0" onClick={() => onStep(1)}>
-              <span className="min-w-0 truncate">Next: {nextTitle}</span>
+            <Button size="multiline" className="max-w-full" onClick={() => onStep(1)}>
+              <span className="min-w-0 break-words">
+                <T>
+                  Next: <Var>{nextTitle}</Var>
+                </T>
+              </span>
               <ArrowRightIcon aria-hidden />
             </Button>
           ) : onFinish !== null ? (
             <Button onClick={onFinish}>
               <MessageSquareIcon aria-hidden />
-              Finish review
+              <T>Finish review</T>
             </Button>
           ) : null}
         </footer>

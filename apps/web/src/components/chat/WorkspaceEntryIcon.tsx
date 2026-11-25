@@ -1,11 +1,10 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
+import { useMessages } from "gt-react";
 
 import { useFileMetadata } from "../../hooks/useFileMetadata";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 
-/** Path chips share metadata queries across messages and the composer. A file
- * icon is neutral while the environment is offline or the path is unknown. */
 export function WorkspaceEntryIcon(props: {
   path: string;
   environmentId?: EnvironmentId | null | undefined;
@@ -30,12 +29,13 @@ export function WorkspaceEntryTooltip(props: {
   cwd?: string | undefined;
 }) {
   const metadata = useFileMetadata(props.environmentId, props.path, props.cwd);
+  const messages = useMessages();
   return (
     <>
       {props.label ?? props.path}
       {metadata?.byteLength === undefined
         ? null
-        : ` · ${formatAttachmentSize(metadata.byteLength)}`}
+        : ` · ${formatAttachmentSize(metadata.byteLength, messages)}`}
     </>
   );
 }
