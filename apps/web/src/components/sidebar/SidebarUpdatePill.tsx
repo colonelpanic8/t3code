@@ -106,7 +106,7 @@ function resolveSidebarUpdatePresentation({
           ? "everything"
           : action === "install"
             ? "downloaded"
-            : action === "download"
+            : action === "download" || action === "open"
               ? "available"
               : "idle";
 
@@ -237,8 +237,9 @@ function SidebarUpdateControl() {
 
   const action = state ? resolveDesktopUpdateButtonAction(state) : "none";
   const isDownloading = state?.status === "downloading";
+  const appliesLocalUpdate = action === "download" || action === "install";
   const localUpdateVersion =
-    state && action !== "none" ? getDesktopUpdateDownloadedVersion(state) : null;
+    state && appliesLocalUpdate ? getDesktopUpdateDownloadedVersion(state) : null;
   const everything = useUpdateEverything(localUpdateVersion);
   const checkProviderUpdates = useCheckProviderUpdates();
   const runsEverything = everything.hasUpdates && !isDownloading;
@@ -303,6 +304,13 @@ function SidebarUpdateControl() {
     }
 
     if (!bridge || !state) return;
+
+    const manualUpdateUrl = state.manualUpdate?.url;
+    if (action === "open" && manualUpdateUrl) {
+      void bridge.openExternal(manualUpdateUrl);
+      return;
+    }
+
     setIsActionPending(true);
 
     if (action === "download") {
@@ -383,7 +391,7 @@ function SidebarUpdateControl() {
                 downloadLocalUpdate(bridge, { notifyDownloaded: false, reportError }),
             }
           : {}),
-        ...(bridge && action !== "none"
+        ...(bridge && appliesLocalUpdate
           ? { installLocal: (reportError) => installLocalUpdate(bridge, reportError) }
           : {}),
       }),
