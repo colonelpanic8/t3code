@@ -42,6 +42,10 @@ export const environmentUpdateStatesAtom = environmentAtomList(
   "web-environment-update-states",
   serverEnvironment.updateStateAtom,
 );
+export const scheduledTasksListAtom = environmentAtomList(
+  "web-scheduled-tasks-list",
+  (environmentId) => serverEnvironment.scheduledTasksLive({ environmentId, input: {} }),
+);
 export const updateOutdatedServer = createOutdatedServerUpdateCommand(connectionAtomRuntime);
 export const environmentServerConfigsAtom = createEnvironmentServerConfigsAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
