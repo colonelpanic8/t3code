@@ -1,6 +1,7 @@
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import { useGT } from "gt-react";
 
+import { DraftInput } from "../ui/draft-input";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { BranchNamingSettings } from "./BranchNamingSettings";
 import { WorktreeSubmodulesRow } from "./ProjectDefaultsSettings";
@@ -14,7 +15,11 @@ import {
 } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 import { WorktreeCleanupSection, WorktreesDirectoryRow } from "./StorageSettings";
-import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
+import {
+  useScopedSettings,
+  useScopedSettingsMixed,
+  useUpdateScopedSettings,
+} from "./useScopedSettings";
 
 function StartFromRemoteRow() {
   const gt = useGT();
@@ -56,6 +61,48 @@ function StartFromRemoteRow() {
   );
 }
 
+function WorktreePathTemplateRow() {
+  const searchableSetting = useSearchableSetting();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const mixed = useScopedSettingsMixed(["worktreePathTemplate"]);
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["worktreePathTemplate"]}
+      {...searchableSetting("worktree-path")}
+      description="Template for new worktrees. Relative paths start at the repository root. Variables: {repoRoot}, {repoName}, {branch}, and {worktreesDir} (the worktree location)."
+      resetAction={
+        settings.worktreePathTemplate !== DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate ? (
+          <SettingResetButton
+            ariaLabel="Reset worktree path to default"
+            onClick={() =>
+              updateSettings({
+                worktreePathTemplate: DEFAULT_UNIFIED_SETTINGS.worktreePathTemplate,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <DraftInput
+          className="w-full sm:w-96"
+          value={mixed ? "" : settings.worktreePathTemplate}
+          onCommit={(next) => {
+            const trimmed = next.trim();
+            if (trimmed.length > 0) {
+              updateSettings({ worktreePathTemplate: trimmed });
+            }
+          }}
+          placeholder={mixed ? "Mixed" : "{repoRoot}/.worktrees/{branch}"}
+          spellCheck={false}
+          aria-label="Worktree path template"
+        />
+      }
+    />
+  );
+}
+
 export function WorktreesSettingsPanel() {
   const gt = useGT();
   const searchableSetting = useSearchableSetting();
@@ -69,6 +116,7 @@ export function WorktreesSettingsPanel() {
         title={gt("Creation", { $context: "settings section about creating worktrees" })}
       >
         {!isProjectScope && <WorktreesDirectoryRow />}
+        {!isProjectScope && <WorktreePathTemplateRow />}
         <StartFromRemoteRow />
         <AdvancedSettings targetIds={[searchableSetting("worktree-submodules").id]}>
           <WorktreeSubmodulesRow />
