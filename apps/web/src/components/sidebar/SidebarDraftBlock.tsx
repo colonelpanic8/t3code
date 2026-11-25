@@ -1,3 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
+import { environmentCatalog } from "../../connection/catalog";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import type { ContextMenuSource } from "@t3tools/contracts";
 import { contextMenuSourceOf } from "../../contextMenuSource";
@@ -64,6 +67,13 @@ export function draftTerminalLabel(
 ): string | null {
   return terminalLabels.get(`${session.environmentId}:${session.threadId}`) ?? null;
 }
+
+const hiddenDraftEnvironmentIdsAtom = environmentCatalog.groups.stateAtom.pipe(
+  Atom.map((state) => state.hiddenEnvironmentIds),
+  Atom.withEquality<ReadonlySet<EnvironmentId>>(
+    (left, right) => left.size === right.size && [...left].every((id) => right.has(id)),
+  ),
+);
 
 const SidebarDraftRow = memo(function SidebarDraftRow(props: {
   draftId: DraftId;
@@ -225,11 +235,14 @@ export function useSidebarDrafts(
   }
   const routeDraftComposer =
     frozenRoute.routeDraftId === routeDraftId ? frozenRoute.composer : null;
+  const hiddenEnvironmentIds = useAtomValue(hiddenDraftEnvironmentIdsAtom);
   const draftIds = useComposerDraftStore(
     useShallow((store) => {
       const listed: [string, DraftSessionState][] = [];
       for (const [draftKey, session] of Object.entries(store.draftThreadsByThreadKey)) {
-        if (session.promotedTo != null) continue;
+        if (session.promotedTo != null || hiddenEnvironmentIds.has(session.environmentId)) {
+          continue;
+        }
         if (
           scopedProjectKeys !== null &&
           !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
