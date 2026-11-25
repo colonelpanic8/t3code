@@ -12,7 +12,7 @@ import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/threa
 import {
   AuthOrchestrationOperateScope,
   type ScopedThreadRef,
-  type ThreadId,
+  ThreadId,
   type ContextMenuSource,
 } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
@@ -49,11 +49,17 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
+import {
+  threadPopOutAvailability,
+  type ThreadPopOutAvailability,
+} from "@t3tools/client-runtime/state/thread-relationships";
+import { orchestrationEnvironment } from "../state/orchestration";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useCopyThreadMarkdown } from "./useCopyThreadMarkdown";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
-import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
+import { canTurnThreadIntoProject, usePopOutThread, useThreadActions } from "./useThreadActions";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -96,6 +102,8 @@ export function useThreadActionMenu(input: {
     markThreadUnread,
     turnThreadIntoProject,
   } = useThreadActions();
+  const popOutThread = usePopOutThread();
+  const loadPopOutParent = useAtomQueryRunner(orchestrationEnvironment.popOutParent);
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
     reportFailure: false,
   });
@@ -120,7 +128,7 @@ export function useThreadActionMenu(input: {
   });
 
   /** The thread's menu as of now, and a runner for its actions. Null until the thread loads. */
-  const readMenu = () => {
+  const readMenu = (popOut?: ThreadPopOutAvailability) => {
     if (threadRef === null) return null;
     const thread = readThreadShell(threadRef);
     if (!thread) return null;
@@ -154,6 +162,7 @@ export function useThreadActionMenu(input: {
       snoozePresets,
       canShareWithGuest,
       canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+      ...(popOut ? { popOut } : {}),
     });
     const run = async (action: ThreadActionMenuId) => {
       const api = readLocalApi();
@@ -272,6 +281,9 @@ export function useThreadActionMenu(input: {
         case "mark-unread":
           markThreadUnread(threadRef);
           return;
+        case "pop-out":
+          await reportFailure(m(msg("Failed to pop out thread")), () => popOutThread(threadRef));
+          return;
         case "share-guest":
           openGuestShareDialog(threadRef);
           return;
@@ -376,11 +388,29 @@ export function useThreadActionMenu(input: {
     return { items, run };
   };
 
+  const resolvePopOut = async (ref: ScopedThreadRef) => {
+    const thread = readThreadShell(ref);
+    if (!thread) return undefined;
+    const popOut = threadPopOutAvailability(thread.source);
+    if (popOut !== "available" || thread.source.lineage.parentThreadId === null) return popOut;
+    const parent = await loadPopOutParent({
+      environmentId: ref.environmentId,
+      input: { threadId: ThreadId.make(thread.source.lineage.parentThreadId) },
+    });
+    return parent._tag === "Success"
+      ? threadPopOutAvailability(
+          thread.source,
+          parent.value.subagents.filter((task) => task.childThreadId === ref.threadId),
+          parent.value.runs,
+        )
+      : "blocked";
+  };
+
   const openMenu = (position: { x: number; y: number }, source?: ContextMenuSource) => {
     void (async () => {
       const api = readLocalApi();
       if (!api || threadRef === null) return;
-      const menu = readMenu();
+      const menu = readMenu(await resolvePopOut(threadRef));
       if (!menu) {
         failureToast(
           m(msg("Thread actions unavailable")),
