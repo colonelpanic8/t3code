@@ -1,5 +1,3 @@
-"use client";
-
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 
 import { cn } from "~/lib/utils";
@@ -29,20 +27,18 @@ function ScrollArea({
   scrollbarGutter = false,
   hideScrollbars = false,
   chainVerticalScroll = false,
+  observeContent = false,
   radius = "inherit",
   viewportTabIndex,
   ...props
 }: ScrollAreaPrimitive.Root.Props & {
   scrollFade?: boolean;
-  /** Keep focused and highlighted items clear of the fade. Off for lists
-   * whose rows take focus on click, where the scroll would nudge the list. */
   scrollFadePadding?: boolean;
   scrollbarGutter?: boolean;
   hideScrollbars?: boolean;
   chainVerticalScroll?: boolean;
-  /** The viewport clips to the parent's radius; "none" for a region flush to an edge. */
+  observeContent?: boolean;
   radius?: "inherit" | "none";
-  /** Override Base UI's focusable viewport when focusable descendants provide scroll access. */
   viewportTabIndex?: number;
 }) {
   return (
@@ -69,7 +65,14 @@ function ScrollArea({
         )}
         data-slot="scroll-area-viewport"
       >
-        {children}
+        {observeContent ? (
+          // Base UI only observes content resizes through Content; minWidth overrides its fit-content default.
+          <ScrollAreaPrimitive.Content style={{ minWidth: 0 }}>
+            {children}
+          </ScrollAreaPrimitive.Content>
+        ) : (
+          children
+        )}
       </ScrollAreaPrimitive.Viewport>
       {!hideScrollbars && (
         <>

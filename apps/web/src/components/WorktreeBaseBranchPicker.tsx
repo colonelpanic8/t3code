@@ -1,9 +1,11 @@
 import type { EnvironmentId } from "@t3tools/contracts";
+import { useGT, useMessages } from "gt-react";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useState } from "react";
 
 import { usePaginatedBranches } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
+import { useAtomCommand } from "../state/use-atom-command";
 import { vcsEnvironment } from "../state/vcs";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { resolveBranchTriggerLabel, sanitizeNewRefName } from "./BranchToolbar.logic";
@@ -11,7 +13,6 @@ import { MiddleTruncate } from "./ui/middle-truncate";
 import { Button } from "./ui/button";
 import { ComboboxTrigger } from "./ui/combobox";
 
-/** Select a future worktree's base without changing the project's current checkout. */
 export function WorktreeBaseBranchPicker({
   environmentId,
   cwd,
@@ -31,14 +32,21 @@ export function WorktreeBaseBranchPicker({
   disabled?: boolean;
   id?: string;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query.trim());
-  const branches = usePaginatedBranches({
-    environmentId,
-    cwd,
-    query: sanitizeNewRefName(deferredQuery),
+  const refreshLocalStatusForPicker = useAtomCommand(vcsEnvironment.refreshLocalStatusForPicker, {
+    reportFailure: false,
   });
+  const branches = usePaginatedBranches(
+    {
+      environmentId,
+      cwd,
+      query: sanitizeNewRefName(query.trim()),
+    },
+    messages,
+  );
   const selectedRefQuery = useEnvironmentQuery(
     cwd && value
       ? vcsEnvironment.listRefs({
@@ -50,30 +58,39 @@ export function WorktreeBaseBranchPicker({
   const selectedRef =
     branches.refs.find((branch) => branch.name === value) ??
     selectedRefQuery.data?.refs.find((branch) => branch.name === value);
-  const label = resolveBranchTriggerLabel({
-    activeWorktreePath: null,
-    effectiveEnvMode: "worktree",
-    resolvedActiveBranch: value || null,
-    resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
-    startFromOrigin,
-  });
-  const branchByName = useMemo(
-    () => new Map(branches.refs.map((branch) => [branch.name, branch])),
-    [branches.refs],
+  const label = resolveBranchTriggerLabel(
+    {
+      activeWorktreePath: null,
+      effectiveEnvMode: "worktree",
+      resolvedActiveBranch: value || null,
+      resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
+      startFromOrigin,
+    },
+    messages,
   );
+  const branchByName = new Map(branches.refs.map((branch) => [branch.name, branch]));
   const items = [...branchByName.keys()];
   const hasNextPage = branches.data?.nextCursor != null;
   const statusText =
     branches.error ??
     (branches.isPending && branches.data === null
-      ? "Loading refs..."
+      ? gt("Loading refs...")
       : branches.isFetchingNextPage
-        ? "Loading more refs..."
+        ? gt("Loading more refs...")
         : hasNextPage
-          ? `Showing ${branches.refs.length} of ${branches.data?.totalCount} refs`
+          ? gt(
+              "{total, plural, one {Showing {shown} of {total} refs} other {Showing {shown} of {total} refs}}",
+              {
+                shown: branches.refs.length,
+                total: String(branches.data?.totalCount),
+              },
+            )
           : null);
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
+    if (next && !open && cwd !== null) {
+      void refreshLocalStatusForPicker({ environmentId, input: { cwd } });
+    }
     if (!next) setQuery("");
   };
   return (
@@ -82,7 +99,6 @@ export function WorktreeBaseBranchPicker({
       filteredItems={items}
       value={value || null}
       query={query}
-      resultsQuery={deferredQuery}
       onQueryChange={setQuery}
       open={open && !disabled}
       onOpenChange={handleOpenChange}

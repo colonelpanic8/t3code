@@ -1,5 +1,7 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import type { SourceControlClientDefinition } from "@t3tools/client-runtime/source-control-clients";
+import type { SourceControlDefinition } from "@t3tools/client-runtime/source-control-clients";
+import * as Equal from "effect/Equal";
+import { T } from "gt-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -8,19 +10,14 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { ProviderSettingsForm } from "./ProviderSettingsForm";
 
-/**
- * One host's settings, drawn from its definition's settings schema and saved under
- * `sourceControlHosts[kind]`. Secret fields are write-only: the server keeps them in its secret
- * store and only reports whether each one is set.
- */
 export function SourceControlHostSettings({
   environmentId,
   definition,
   onSaved,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly definition: SourceControlClientDefinition & {
-    readonly settings: NonNullable<SourceControlClientDefinition["settings"]>;
+  readonly definition: SourceControlDefinition & {
+    readonly settings: NonNullable<SourceControlDefinition["settings"]>;
   };
   readonly onSaved: () => void;
 }) {
@@ -37,15 +34,12 @@ export function SourceControlHostSettings({
 
   const save = async (fields: Record<string, unknown>) => {
     setSaving(true);
-    try {
-      const result = await updateSettings({
-        environmentId,
-        input: { patch: { sourceControlHosts: { [definition.kind]: fields } } },
-      });
-      if (result._tag === "Success") onSaved();
-    } finally {
-      setSaving(false);
-    }
+    const result = await updateSettings({
+      environmentId,
+      input: { patch: { sourceControlHosts: { [definition.kind]: fields } } },
+    });
+    setSaving(false);
+    if (result._tag === "Success") onSaved();
   };
 
   return (
@@ -56,11 +50,11 @@ export function SourceControlHostSettings({
         value={saved ?? {}}
         idPrefix={`source-control-${definition.kind}-${environmentId}`}
         variant="settings"
+        environmentId={environmentId}
         onChange={(next) => {
           const fields = next ?? {};
-          // Only what changed: each saved secret travels as its redaction marker anyway.
           const changed = Object.fromEntries(
-            Object.entries(fields).filter(([key, value]) => saved?.[key] !== value),
+            Object.entries(fields).filter(([key, value]) => !Equal.equals(saved?.[key], value)),
           );
           const cleared = Object.keys(saved ?? {}).filter((key) => !(key in fields));
           void save({ ...changed, ...Object.fromEntries(cleared.map((key) => [key, ""])) });
@@ -75,7 +69,7 @@ export function SourceControlHostSettings({
               void save(Object.fromEntries(Object.keys(saved ?? {}).map((key) => [key, ""])))
             }
           >
-            Remove
+            <T>Remove</T>
           </Button>
         </div>
       ) : null}

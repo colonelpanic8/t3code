@@ -1,11 +1,28 @@
 import type { RelayAgentActivityAggregateState } from "@t3tools/contracts/relay";
+import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
+import { hashTelemetryId } from "@t3tools/shared/telemetryId";
 import {
   activityPhasePriority,
   TERMINAL_AGENT_ACTIVITY_DISPLAY_TTL_MS,
 } from "./agentActivityAggregate.ts";
 import { agentActivityExpiresAt } from "./agentActivityPayloads.ts";
 
-/** Android focuses the priority thread while retaining rows for older clients. */
+/**
+ * Lets the device ignore pushes for an account it no longer has without FCM
+ * seeing the account id. Builds before 2.4.0 only match the raw `user_id`.
+ */
+export function androidRecipientData(userId: string, deviceId: string, appVersion: string | null) {
+  const readsHash =
+    appVersion !== null &&
+    parseSemver(appVersion) !== null &&
+    compareSemverVersions(appVersion, "2.4.0") >= 0;
+  return {
+    device_id: deviceId,
+    user_hash: hashTelemetryId(`${userId}:${deviceId}`),
+    ...(readsHash ? {} : { user_id: userId }),
+  };
+}
+
 export function androidActivityData(aggregate: RelayAgentActivityAggregateState | null) {
   const rows = [...(aggregate?.activities ?? [])].sort(
     (a, b) => activityPhasePriority(a.phase) - activityPhasePriority(b.phase),
@@ -34,7 +51,6 @@ export function androidActivityData(aggregate: RelayAgentActivityAggregateState 
   );
   return {
     active: String(activeCount > 0),
-    // Keep the status bar chip short enough to display alongside the app icon.
     activity_chip: activeCount > 0 ? (attentionCount > 0 ? "Review" : "Active") : "",
     activity_title: title,
     activity_phase: hero?.phase ?? "",
@@ -43,7 +59,6 @@ export function androidActivityData(aggregate: RelayAgentActivityAggregateState 
     activity_body: hero
       ? `${hero.status}: ${clean(hero.threadTitle)} · ${clean(hero.projectTitle)}`
       : "",
-    // Separate keys avoid double JSON encoding and preserve each expanded row when bounding the payload.
     ...Object.fromEntries(lines.map((line, index) => [`activity_line_${index}`, line])),
     activity_path: rows[0]?.deepLink ?? "/",
     activity_expires_at: String(expiresAt),

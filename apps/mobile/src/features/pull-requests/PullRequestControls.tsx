@@ -1,17 +1,23 @@
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { changeRequestTermKind } from "../../lib/changeRequestTerm";
 import Animated from "react-native-reanimated";
 import { PR_ROW_LAYOUT } from "./pullRequestAnimations";
 import { useNavigation } from "@react-navigation/native";
 import type { PullRequestDetail } from "@t3tools/contracts";
+import type { MenuAction } from "@react-native-menu/menu";
+import { useGT } from "gt-react-native";
 import type { ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppText as Text } from "../../components/AppText";
-import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
-import { MaterialButton } from "../../components/MaterialButton";
-import { MaterialIconButton } from "../../components/MaterialIconButton";
-import { MaterialFloatingToolbar } from "./MaterialFloatingToolbar";
-import { ControlPillMenu } from "../../components/ControlPillMenu";
-import { NativeHeaderToolbar } from "../../native/StackHeader";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
+import { Button } from "../../components/ui/Button";
+import { IconButton } from "../../components/ui/IconButton";
+import { Toolbar } from "../../components/ui/Toolbar";
+import { Menu } from "../../components/ui/Menu";
+import type { AppBarMenu, AppBarMenuItem } from "../../components/ui/AppBar.types";
+import { createNativeHeaderMenu } from "../../components/ui/nativeHeaderMenu.ios";
+
 import { useNativeLayoutMetrics } from "../../native/native-layout-metrics";
 import { type PullRequestParams } from "./usePullRequestDiff";
 import { usePullRequestPermissions } from "./usePullRequestPermissions";
@@ -103,41 +109,69 @@ export function PullRequestCardRow(props: {
   );
 }
 
+/** The Duo's vertical bar, where this toolbar and the screen's bar share one column of buttons. */
+export function usePullRequestVerticalControls() {
+  const nativeMetrics = useNativeLayoutMetrics();
+  return nativeMetrics !== null && nativeMetrics.verticalBarEdge !== "none";
+}
+
 export function PullRequestActionToolbar(props: {
   readonly pr: PullRequestDetail | null;
   readonly params: PullRequestParams;
   readonly filePath?: string;
+  /** The head of the diff on screen, when the screen shows one. */
+  readonly reviewedHeadSha?: string | undefined;
+  /** The screen's actions menu; the vertical bar shows it here with the toolbar's tools. */
+  readonly menu: AppBarMenu;
   readonly onOpenFiles?: () => void;
   readonly onHeightChange?: (height: number) => void;
 }) {
   const navigation = useNavigation();
+  const gt = useGT();
   const { draft } = usePullRequestReviewDraft(props.params);
   const { themeVariables: colors } = useAppearancePreferences();
   const insets = useSafeAreaInsets();
-  const nativeMetrics = useNativeLayoutMetrics();
-  const verticalControls = nativeMetrics !== null && nativeMetrics.verticalBarEdge !== "none";
+  const verticalControls = usePullRequestVerticalControls();
   const permissions = usePullRequestPermissions(props.params, props.pr);
   const agent = usePullRequestAgentActions(props.params, props.pr, props.filePath);
   const canReview = permissions.verdicts.length > 0;
   const pendingReview = canReview && draft.comments.length > 0;
   const showAgentControls = agent.canAsk || !permissions.connected;
   const canOpenThread = agent.threads.length > 0 || showAgentControls;
-  const threadLabel = agent.threads.length ? "Continue thread" : "Work on PR";
-  const primaryLabel = pendingReview ? `Submit review · ${draft.comments.length}` : threadLabel;
-  const chooseThread = agent.threads.length > 1;
+  const term = changeRequestTermKind(
+    sourceControlClients.get((props.pr ?? props.params.initialSummary)?.provider).changeRequest,
+  );
+  const threadLabel = agent.threads.length
+    ? gt("Continue thread")
+    : gt("Work on {term, select, mr {MR} cr {change request} other {PR}}", { term });
+  const primaryLabel = pendingReview
+    ? gt("Submit review · {count}", { count: draft.comments.length })
+    : threadLabel;
+  const agentActionsLabel = gt(
+    "{term, select, mr {MR} cr {change request} other {PR}} agent actions",
+    { term },
+  );
+  const chooseThread = agent.chooseThread;
   const agentActions = agent.actions.filter((action) => action.task !== "ask");
   const open = (mode: "review" | "comment") =>
-    navigation.navigate("PullRequestReview", { ...props.params, mode });
+    navigation.navigate("PullRequestReview", {
+      ...props.params,
+      mode,
+      reviewedHeadSha: props.reviewedHeadSha ?? props.pr?.headSha,
+    });
   const primaryPress = () => (pendingReview ? open("review") : agent.start("ask"));
   const threadMenuItems = agent.threadActions("ask");
   const openFiles =
     props.onOpenFiles ?? (() => navigation.navigate("PullRequestFiles", props.params));
-  if (!props.pr) return null;
+  if (!props.pr)
+    return verticalControls ? (
+      <Toolbar placement="bottom">{createNativeHeaderMenu(props.menu)}</Toolbar>
+    ) : null;
   const primaryDisabled = pendingReview ? false : agent.disabled;
   const showPrimary = pendingReview || canOpenThread;
   if (Platform.OS === "android") {
     const primary = (
-      <MaterialButton
+      <Button
         label={primaryLabel}
         tone="primary"
         disabled={primaryDisabled}
@@ -151,62 +185,51 @@ export function PullRequestActionToolbar(props: {
         style={{ paddingBottom: insets.bottom + 16 }}
         onLayout={(event) => props.onHeightChange?.(event.nativeEvent.layout.height)}
       >
-        <MaterialFloatingToolbar>
+        <Toolbar>
           <View className="flex-row items-center gap-2">
             {showAgentControls ? (
-              <ControlPillMenu
-                title="AI helpers"
+              <Menu
+                title={gt("AI helpers")}
                 actions={agentActions.map((action) => agent.menuAction(action.task))}
                 onPressAction={({ nativeEvent }) => agent.select(nativeEvent.event)}
               >
                 <View pointerEvents="none">
-                  <MaterialIconButton
-                    icon="sparkles"
-                    accessibilityLabel="PR agent actions"
+                  <IconButton
+                    icon="ellipsis.bubble"
+                    accessibilityLabel={agentActionsLabel}
                     disabled={agent.disabled}
                   />
                 </View>
-              </ControlPillMenu>
+              </Menu>
             ) : null}
             {showPrimary ? (
               <View className="min-w-0 shrink">
                 {!pendingReview && chooseThread ? (
-                  <ControlPillMenu
-                    title="Open thread"
+                  <Menu
+                    title={gt("Open thread")}
                     actions={threadMenuItems}
                     onPressAction={({ nativeEvent }) => agent.select(nativeEvent.event)}
                   >
                     <View pointerEvents="none">{primary}</View>
-                  </ControlPillMenu>
+                  </Menu>
                 ) : (
                   primary
                 )}
               </View>
             ) : null}
-            <MaterialIconButton
+            <IconButton
               icon="file.diff"
-              accessibilityLabel="Changed files"
+              accessibilityLabel={gt("Changed files")}
               onPress={openFiles}
             />
           </View>
-        </MaterialFloatingToolbar>
+        </Toolbar>
       </View>
     );
   }
-  const nativeThreadItems = threadMenuItems.map((item) => (
-    <NativeHeaderToolbar.MenuAction
-      key={item.id}
-      icon={item.image}
-      subtitle={"subtitle" in item ? item.subtitle : undefined}
-      disabled={"attributes" in item && item.attributes.disabled}
-      onPress={() => agent.select(item.id)}
-    >
-      <NativeHeaderToolbar.Label>{item.title}</NativeHeaderToolbar.Label>
-    </NativeHeaderToolbar.MenuAction>
-  ));
   const primaryControl = showPrimary ? (
     !pendingReview && chooseThread ? (
-      <NativeHeaderToolbar.Menu
+      <Toolbar.Menu
         identifier="pull-request-primary-action"
         title={primaryLabel}
         accessibilityLabel={primaryLabel}
@@ -222,10 +245,10 @@ export function PullRequestActionToolbar(props: {
         disabled={primaryDisabled}
         separateBackground
       >
-        {nativeThreadItems}
-      </NativeHeaderToolbar.Menu>
+        {renderThreadMenuItems(threadMenuItems, agent.select)}
+      </Toolbar.Menu>
     ) : (
-      <NativeHeaderToolbar.Button
+      <Toolbar.Button
         identifier="pull-request-primary-action"
         label={primaryLabel}
         accessibilityLabel={primaryLabel}
@@ -245,67 +268,139 @@ export function PullRequestActionToolbar(props: {
     )
   ) : null;
   const agentControl = showAgentControls ? (
-    <NativeHeaderToolbar.Menu
+    <Toolbar.Menu
       identifier="pull-request-agent"
-      icon="sparkles"
-      title="AI helpers"
-      accessibilityLabel="PR agent actions"
+      icon="ellipsis.bubble"
+      title={gt("AI helpers")}
+      accessibilityLabel={agentActionsLabel}
       disabled={agent.disabled}
       separateBackground
     >
       {agentActions.map((action) =>
         chooseThread && !action.disabled ? (
-          <NativeHeaderToolbar.Menu key={action.task} title={action.title} icon={action.icon}>
-            {agent.threadActions(action.task).map((item) => (
-              <NativeHeaderToolbar.MenuAction
-                key={item.id}
-                icon={item.image}
-                subtitle={"subtitle" in item ? item.subtitle : undefined}
-                disabled={"attributes" in item && item.attributes.disabled}
-                onPress={() => agent.select(item.id)}
-              >
-                <NativeHeaderToolbar.Label>{item.title}</NativeHeaderToolbar.Label>
-              </NativeHeaderToolbar.MenuAction>
-            ))}
-          </NativeHeaderToolbar.Menu>
+          <Toolbar.Menu key={action.task} title={action.title} icon={action.icon}>
+            {renderThreadMenuItems(agent.threadActions(action.task), agent.select)}
+          </Toolbar.Menu>
         ) : (
-          <NativeHeaderToolbar.MenuAction
+          <Toolbar.MenuAction
             key={action.task}
             icon={action.icon}
             disabled={action.disabled}
             onPress={() => agent.start(action.task)}
           >
-            <NativeHeaderToolbar.Label>{action.title}</NativeHeaderToolbar.Label>
-          </NativeHeaderToolbar.MenuAction>
+            <Toolbar.Label>{action.title}</Toolbar.Label>
+          </Toolbar.MenuAction>
         ),
       )}
-    </NativeHeaderToolbar.Menu>
+    </Toolbar.Menu>
   ) : null;
-  // Tabler file-diff geometry, rasterized at 1x/2x/3x for UIKit template images.
   const filesControl = (
-    <NativeHeaderToolbar.Button
+    <Toolbar.Button
       identifier="workspace-trailing-action"
       icon={{ type: "image", source: require("../../../assets/icons/file-diff.png") }}
-      accessibilityLabel="Changed files"
+      accessibilityLabel={gt("Changed files")}
       onPress={openFiles}
       separateBackground
     />
   );
+  // The vertical bar never overflows into a menu, and with a Live Activity it fits about three
+  // buttons above the workspace tabs: back, the primary action and one menu.
   if (verticalControls)
     return (
-      <NativeHeaderToolbar placement="bottom">
-        {filesControl}
-        {agentControl}
+      <Toolbar placement="bottom">
         {primaryControl}
-      </NativeHeaderToolbar>
+        {createNativeHeaderMenu({
+          ...props.menu,
+          items: [
+            {
+              id: "changed-files",
+              title: gt("Changed files"),
+              icon: "doc.text.magnifyingglass",
+              onPress: openFiles,
+            },
+            ...(showAgentControls
+              ? [
+                  {
+                    id: "ai-helpers",
+                    title: gt("AI helpers"),
+                    icon: "ellipsis.bubble",
+                    items: agentActions.map((action): AppBarMenuItem =>
+                      chooseThread && !action.disabled
+                        ? {
+                            id: action.task,
+                            title: action.title,
+                            icon: action.icon,
+                            items: appBarThreadMenuItems(
+                              agent.threadActions(action.task),
+                              agent.select,
+                            ),
+                          }
+                        : {
+                            id: action.task,
+                            title: action.title,
+                            icon: action.icon,
+                            disabled: action.disabled || agent.disabled,
+                            onPress: () => agent.start(action.task),
+                          },
+                    ),
+                  },
+                ]
+              : []),
+            ...props.menu.items,
+          ],
+        })}
+      </Toolbar>
     );
   return (
-    <NativeHeaderToolbar placement="bottom">
+    <Toolbar placement="bottom">
       {agentControl}
-      <NativeHeaderToolbar.Spacer flexible />
+      <Toolbar.Spacer flexible />
       {primaryControl}
-      <NativeHeaderToolbar.Spacer flexible />
+      <Toolbar.Spacer flexible />
       {filesControl}
-    </NativeHeaderToolbar>
+    </Toolbar>
+  );
+}
+
+function appBarThreadMenuItems(
+  items: MenuAction[],
+  select: (id: string) => void,
+): ReadonlyArray<AppBarMenuItem> {
+  return items.map((item) =>
+    item.subactions
+      ? {
+          id: item.id ?? item.title,
+          title: item.title,
+          icon: item.image,
+          items: appBarThreadMenuItems(item.subactions, select),
+        }
+      : {
+          id: item.id ?? item.title,
+          title: item.title,
+          icon: item.image,
+          subtitle: item.subtitle,
+          disabled: item.attributes?.disabled,
+          onPress: () => item.id && select(item.id),
+        },
+  );
+}
+
+function renderThreadMenuItems(items: MenuAction[], select: (id: string) => void): ReactNode {
+  return items.map((item) =>
+    item.subactions ? (
+      <Toolbar.Menu key={item.id} title={item.title} icon={item.image}>
+        {renderThreadMenuItems(item.subactions, select)}
+      </Toolbar.Menu>
+    ) : (
+      <Toolbar.MenuAction
+        key={item.id}
+        icon={item.image}
+        subtitle={item.subtitle}
+        disabled={item.attributes?.disabled}
+        onPress={() => item.id && select(item.id)}
+      >
+        <Toolbar.Label>{item.title}</Toolbar.Label>
+      </Toolbar.MenuAction>
+    ),
   );
 }

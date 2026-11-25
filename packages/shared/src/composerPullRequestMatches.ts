@@ -1,18 +1,12 @@
-import type { ThreadPullRequestLink } from "@t3tools/contracts";
+import type { ThreadPullRequestKey, ThreadPullRequestLink } from "@t3tools/contracts";
 
 import { visibleThreadPullRequests } from "./threadPullRequests.ts";
 
-export interface ComposerPullRequestMatch {
-  readonly number: number;
+export interface ComposerPullRequestMatch extends ThreadPullRequestKey {
   readonly projectId: string;
-  readonly repository: string;
   readonly updatedAt: string;
 }
 
-/**
- * Suggestion rows for the pull requests a thread links, from any repository. Built from the
- * synced snapshot, so a link the server has not read yet is left out until it has one.
- */
 export function composerPullRequestsFromLinks(
   links: ReadonlyArray<ThreadPullRequestLink>,
   projectId: string,
@@ -23,6 +17,7 @@ export function composerPullRequestsFromLinks(
       : [
           {
             projectId,
+            host: link.host,
             repository: link.repository,
             number: link.number,
             url: link.url,
@@ -37,12 +32,6 @@ export function composerPullRequestsFromLinks(
   );
 }
 
-/**
- * Pull requests matching the numeric fragment typed after `#`, de-duplicated. `entries` are kept
- * to the project's repository; `linked` rows (the thread's own pull requests) may come from any
- * repository. An exact number match always outranks a substring match so the result limit can
- * never drop the pull request the user typed in full; then linked rows lead, newest first.
- */
 export function filterComposerPullRequestMatches<
   Entry extends ComposerPullRequestMatch,
   Linked extends ComposerPullRequestMatch = never,
@@ -53,10 +42,10 @@ export function filterComposerPullRequestMatches<
   readonly repository: string;
   readonly query: string;
   readonly limit: number;
+  readonly keyOf: (entry: Entry | Linked) => string;
 }): ReadonlyArray<Entry | Linked> {
   const repository = input.repository.trim().toLowerCase();
-  const keyOf = (entry: ComposerPullRequestMatch) =>
-    `${entry.repository.trim().toLowerCase()}#${entry.number}`;
+  const { keyOf } = input;
   const linked = (input.linked ?? []).filter((entry) => String(entry.number).includes(input.query));
   const linkedKeys = new Set(linked.map(keyOf));
   const matchingEntries = input.entries.filter(
@@ -65,7 +54,6 @@ export function filterComposerPullRequestMatches<
       entry.repository.trim().toLowerCase() === repository &&
       String(entry.number).includes(input.query),
   );
-  // Project rows go first so a linked pull request the listing also has keeps the fresher row.
   const uniqueEntries = new Map<string, Entry | Linked>();
   for (const entry of [...matchingEntries, ...linked]) {
     if (!uniqueEntries.has(keyOf(entry))) {
@@ -73,15 +61,46 @@ export function filterComposerPullRequestMatches<
     }
   }
   const isExactMatch = (entry: ComposerPullRequestMatch) => String(entry.number) === input.query;
-  const isLinked = (entry: ComposerPullRequestMatch) => linkedKeys.has(keyOf(entry));
-  // `.sort()` on a copy, not `.toSorted()`: this runs on Hermes, which has no ES2023 array
-  // methods, and reaching for one here crashed the composer as the suggestions loaded.
+  const isLinked = (entry: Entry | Linked) => linkedKeys.has(keyOf(entry));
+  const updatedAtMs = (entry: ComposerPullRequestMatch) => Date.parse(entry.updatedAt) || 0;
+  // Hermes has no ES2023 array methods, so sort a fresh array.
   return [...uniqueEntries.values()]
     .sort(
       (left, right) =>
         Number(isExactMatch(right)) - Number(isExactMatch(left)) ||
         Number(isLinked(right)) - Number(isLinked(left)) ||
-        right.updatedAt.localeCompare(left.updatedAt),
+        updatedAtMs(right) - updatedAtMs(left),
     )
     .slice(0, input.limit);
+}
+
+/** Puts the thread's linked pull requests that match a text query ahead of the searched ones. */
+export function withLinkedComposerPullRequestsFirst<
+  Entry extends ComposerPullRequestMatch,
+  Linked extends ComposerPullRequestMatch & {
+    readonly title: string;
+    readonly headBranch: string;
+  },
+>(input: {
+  readonly matches: ReadonlyArray<Entry>;
+  readonly linked: ReadonlyArray<Linked>;
+  readonly query: string;
+  readonly limit: number;
+  readonly keyOf: (entry: Entry | Linked) => string;
+}): ReadonlyArray<Entry | Linked> {
+  const { keyOf } = input;
+  const matchesByKey = new Map(input.matches.map((entry) => [keyOf(entry), entry]));
+  const words = input.query.toLowerCase().split(/\s+/u).filter(Boolean);
+  const linked = input.linked.flatMap((entry): Array<Entry | Linked> => {
+    const match = matchesByKey.get(keyOf(entry));
+    if (match !== undefined) return [match];
+    const text =
+      `#${entry.number} ${entry.title} ${entry.repository} ${entry.headBranch}`.toLowerCase();
+    return words.every((word) => text.includes(word)) ? [entry] : [];
+  });
+  const linkedKeys = new Set(linked.map(keyOf));
+  return [...linked, ...input.matches.filter((entry) => !linkedKeys.has(keyOf(entry)))].slice(
+    0,
+    input.limit,
+  );
 }

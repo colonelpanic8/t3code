@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useGT } from "gt-react-native";
+import { useEffectEvent, useState } from "react";
 import { View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
-import { SymbolView } from "../../../components/AppSymbol";
+import { SymbolView } from "../../../components/ui/AppSymbol";
 
-/** Pan recognition wins over the settings scroll view only inside the handle. */
 export function SettingsDragHandle(props: {
   readonly title: string;
   readonly canMoveUp: boolean;
@@ -14,27 +14,22 @@ export function SettingsDragHandle(props: {
   readonly onEnd: (translation: number, cancelled: boolean) => void;
   readonly onStep: (direction: "up" | "down") => void;
 }) {
-  const latest = useRef(props);
-  useEffect(() => {
-    latest.current = props;
-  });
-  const translation = useRef(0);
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .minDistance(0)
-        .shouldCancelWhenOutside(false)
-        .runOnJS(true)
-        .onStart(() => {
-          translation.current = 0;
-          latest.current.onStart();
-        })
-        .onUpdate((event) => {
-          translation.current = event.translationY;
-          latest.current.onMove(event.translationY);
-        })
-        .onFinalize((_, success) => latest.current.onEnd(translation.current, !success)),
-    [],
+  const gt = useGT();
+  const onStart = useEffectEvent(() => props.onStart());
+  const onMove = useEffectEvent((translation: number) => props.onMove(translation));
+  const onEnd = useEffectEvent((translation: number, cancelled: boolean) =>
+    props.onEnd(translation, cancelled),
+  );
+  // The worklets plugin copies the values these callbacks close over when the gesture is built,
+  // so the drop reads its translation from the final event rather than a tracked variable.
+  const [gesture] = useState(() =>
+    Gesture.Pan()
+      .minDistance(0)
+      .shouldCancelWhenOutside(false)
+      .runOnJS(true)
+      .onStart(() => onStart())
+      .onUpdate((event) => onMove(event.translationY))
+      .onFinalize((event, success) => onEnd(event.translationY, !success)),
   );
   return (
     <GestureDetector gesture={gesture}>
@@ -42,10 +37,10 @@ export function SettingsDragHandle(props: {
         collapsable={false}
         accessible
         accessibilityRole="adjustable"
-        accessibilityLabel={`Reorder ${props.title}`}
+        accessibilityLabel={gt("Reorder {item}", { item: props.title })}
         accessibilityActions={[
-          ...(props.canMoveUp ? [{ name: "decrement", label: "Move up" }] : []),
-          ...(props.canMoveDown ? [{ name: "increment", label: "Move down" }] : []),
+          ...(props.canMoveUp ? [{ name: "decrement", label: gt("Move up") }] : []),
+          ...(props.canMoveDown ? [{ name: "increment", label: gt("Move down") }] : []),
         ]}
         onAccessibilityAction={({ nativeEvent }) => {
           if (nativeEvent.actionName === "decrement" && props.canMoveUp) props.onStep("up");
