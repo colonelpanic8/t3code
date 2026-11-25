@@ -76,7 +76,7 @@ function Chat(props: {
         },
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
-    branchToolbarRef: { current: null },
+    branchToolbarRefs: [],
     closeThreadFind: () => {},
     commands: { "chat.find": () => void props.finds?.push("main") },
     fallback: (command) =>
@@ -164,7 +164,7 @@ function UnavailableTerminalCommand({
     getShortcutContext: () => ({ ...shortcutContext, terminalFocus: owner !== null }),
     threadFindActive: false,
     composerRef: { current: null },
-    branchToolbarRef: { current: null },
+    branchToolbarRefs: [],
     closeThreadFind: () => {},
     commands: { [command]: () => false },
     fallback: () => undefined,
@@ -238,7 +238,7 @@ function SideChat(props: {
         toggleModelPicker: () => props.toggles.push("model"),
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
-    branchToolbarRef: { current: null },
+    branchToolbarRefs: [],
     closeThreadFind: () => void props.findCloses?.push("side"),
     commands: {
       "thread.stop": () => void props.stops.push("stop"),
@@ -346,7 +346,7 @@ function ChatWithSideChatPane(props: { ran: string[] }) {
         },
       } as Partial<ChatComposerHandle> as ChatComposerHandle,
     },
-    branchToolbarRef: { current: null },
+    branchToolbarRefs: [],
     closeThreadFind: () => {},
     commands: {
       "rightPanel.toggle": () => void props.ran.push("toggle"),
