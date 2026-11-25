@@ -968,12 +968,14 @@ export const make = Effect.gen(function* () {
   const projectStore = yield* ProjectStore.ProjectStoreV2;
   const runtimes = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
   const configuredT3Dirs = {
-    // The data dir holds triage scratch directories that agents run in.
+    // The state dir holds triage scratch directories that agents run in.
     serverDirs: [
       serverConfig.baseDir,
       serverConfig.configDir,
       serverConfig.dataDir,
+      serverConfig.stateDir,
       serverConfig.cacheDir,
+      serverConfig.runtimeDir,
     ].map((directory) => path.resolve(directory)),
     worktreesDir: path.resolve(serverConfig.worktreesDir),
   };
