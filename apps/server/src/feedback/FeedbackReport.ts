@@ -135,6 +135,8 @@ export const T3_CLI_COMMANDS: ReadonlyArray<string> = [
   "t3 auth connect-device approve",
   "t3 auth connect-device list",
   "t3 auth connect-device revoke",
+  "t3 auth enrollment",
+  "t3 auth enrollment export",
   "t3 auth pairing",
   "t3 auth pairing create",
   "t3 auth pairing list",
