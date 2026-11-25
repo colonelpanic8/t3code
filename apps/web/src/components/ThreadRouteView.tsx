@@ -7,6 +7,8 @@ import * as Option from "effect/Option";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { T } from "gt-react";
 import { useEffect, useState } from "react";
+import { environmentCatalog } from "../connection/catalog";
+import { useAtomCommand } from "../state/use-atom-command";
 
 import ChatView from "./ChatView";
 import { BackgroundThreadContext, HiddenThreadContext } from "./chat/backgroundThread";
@@ -61,6 +63,49 @@ export function ThreadRouteView({
 }: {
   target: ThreadRouteTarget;
   background?: boolean;
+}) {
+  const groups = useAtomValue(environmentCatalog.groups.stateAtom);
+  const setVisible = useAtomCommand(environmentCatalog.groups.setVisible);
+  const draftEnvironmentId = useComposerDraftStore((store) =>
+    target.kind === "draft" ? store.getDraftSession(target.draftId)?.environmentId : undefined,
+  );
+  const environmentId =
+    target.kind === "server" ? target.threadRef.environmentId : draftEnvironmentId;
+  const hiddenGroup =
+    environmentId && groups.hiddenEnvironmentIds.has(environmentId)
+      ? Object.entries(groups.groups).find(([, group]) =>
+          group.environmentIds.includes(environmentId),
+        )
+      : undefined;
+  if (!groups.isReady) return null;
+  if (hiddenGroup) {
+    const [groupId, group] = hiddenGroup;
+    return (
+      <SidebarInset
+        className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh"
+        inert={background}
+      >
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>This environment is hidden</EmptyTitle>
+            <EmptyDescription>Show {group.label} to open this thread.</EmptyDescription>
+          </EmptyHeader>
+          <Button onClick={() => void setVisible({ groupId, visible: true })}>
+            Show {group.label} for this session
+          </Button>
+        </Empty>
+      </SidebarInset>
+    );
+  }
+  return <VisibleThreadRouteView target={target} background={background} />;
+}
+
+function VisibleThreadRouteView({
+  target,
+  background,
+}: {
+  target: ThreadRouteTarget;
+  background: boolean;
 }) {
   const navigate = useNavigate();
   const draftId = target.kind === "draft" ? target.draftId : null;
