@@ -1300,6 +1300,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "pull-request-hidden-repositories",
+    title: "Hidden repositories",
+    to: "/settings/source-control",
+    searchTerms: ["pull requests list hide exclude repositories repo noisy upstream"],
+    environmentOnly: true,
+    scope: "environment-defaults",
+  },
+  {
     id: "git-fetch-interval",
     title: msg("Git fetch interval"),
     to: "/settings/maintenance",
