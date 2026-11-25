@@ -1,4 +1,5 @@
 import { ClientCapabilities, PlatformConnectionSource } from "@t3tools/client-runtime/platform";
+import { layerEnvironmentGroups } from "./environmentGroups";
 import {
   ConnectionBlockedError,
   ConnectionTransientError,
@@ -265,6 +266,7 @@ const layerProvidedConnectionStorage = ConnectionStorage.layer.pipe(Layer.provid
 const layerProvidedCapabilities = layerCapabilities.pipe(Layer.provide(Runtime.layer));
 
 type ConnectionPlatformLayerSource =
+  | typeof layerEnvironmentGroups
   | typeof layerProvidedConnectionStorage
   | typeof Runtime.layer
   | typeof layerConnectivity
@@ -278,6 +280,7 @@ export const layer: Layer.Layer<
   Layer.Error<ConnectionPlatformLayerSource>,
   Layer.Services<ConnectionPlatformLayerSource>
 > = Layer.mergeAll(
+  layerEnvironmentGroups,
   layerProvidedConnectionStorage,
   Runtime.layer,
   layerConnectivity,
