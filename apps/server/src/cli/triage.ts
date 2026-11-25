@@ -9,7 +9,6 @@ import { isCommandAvailable, resolveCommandPath, resolveSpawnCommand } from "@t3
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/cli";
 
@@ -21,6 +20,7 @@ import {
   writeTriageSession,
 } from "../triage/triageSession.ts";
 import {
+  resolveInstallLocations,
   resolveServerConfigFilePath,
   resolveServerLocations,
   serverConfigFileFlags,
@@ -181,13 +181,14 @@ export const triageCommand = Command.make("triage", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
-      const path = yield* Path.Path;
-
       // Triage is a user-facing feature: always the userdata state, never dev.
       const { baseDir, derivedPaths: paths } = yield* resolveServerLocations(flags, {
         devUrl: undefined,
       });
-      const userdataLogsDir = path.join(baseDir, "userdata", "logs");
+
+      // The service and the desktop app write their logs where the storage
+      // layout puts them, whatever location overrides this shell sets.
+      const installLogsDir = (yield* resolveInstallLocations(flags)).logsDir;
       // A broken server config file is something to triage, not a reason to stop.
       const configFile = yield* resolveServerConfigFilePath(flags, paths.configDir);
       const serverConfig = yield* readServerConfigFile(configFile.path, {
@@ -229,8 +230,8 @@ export const triageCommand = Command.make("triage", {
         },
         server: yield* describeServerProcess(paths.serverRuntimeStatePath),
         serverConfigFile: serverConfig.description,
-        serviceLogsDir: userdataLogsDir,
-        desktopLogsDir: userdataLogsDir,
+        serviceLogsDir: installLogsDir,
+        desktopLogsDir: installLogsDir,
       });
 
       const installed: Array<TriageAgent> = [];
